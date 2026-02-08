@@ -7,6 +7,7 @@ import { loadProviders } from './registry.js';
 import { MessageQueue } from './db.js';
 import { createRouter } from './router.js';
 import { createIPCHandler, createIPCServer } from './ipc.js';
+import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import type { InboundMessage } from './providers/types.js';
 
 // ═══════════════════════════════════════════════════════
@@ -43,11 +44,14 @@ async function main(): Promise<void> {
   const providers = await loadProviders(config);
   console.log('[host] Providers loaded');
 
-  // Step 3: Initialize DB + Router + IPC
+  // Step 3: Initialize DB + Taint Budget + Router + IPC
   mkdirSync('data', { recursive: true });
   const db = new MessageQueue('data/messages.db');
-  const router = createRouter(providers, db);
-  const handleIPC = createIPCHandler(providers);
+  const taintBudget = new TaintBudget({
+    threshold: thresholdForProfile(config.profile),
+  });
+  const router = createRouter(providers, db, { taintBudget });
+  const handleIPC = createIPCHandler(providers, { taintBudget });
 
   // Step 4: IPC socket server
   const socketDir = mkdtempSync(join(tmpdir(), 'sureclaw-'));

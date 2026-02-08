@@ -7,16 +7,23 @@
  * real router, real IPC, real message queue.
  */
 
-import { describe, test, expect, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { rmSync } from 'node:fs';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 const TEST_CONFIG = resolve(import.meta.dirname, 'sureclaw-test.yaml');
+const DATA_DIR = resolve(PROJECT_ROOT, 'data');
+const IS_BUN = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
 
 function startHost(): ChildProcess {
-  return spawn('npx', ['tsx', resolve(PROJECT_ROOT, 'src/host.ts'), '--config', TEST_CONFIG], {
+  const hostScript = resolve(PROJECT_ROOT, 'src/host.ts');
+  const args = IS_BUN
+    ? ['run', hostScript, '--config', TEST_CONFIG]
+    : ['tsx', hostScript, '--config', TEST_CONFIG];
+  const cmd = IS_BUN ? 'bun' : 'npx';
+  return spawn(cmd, args, {
     cwd: PROJECT_ROOT,
     env: { ...process.env, NODE_NO_WARNINGS: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -30,7 +37,7 @@ function collectOutput(proc: ChildProcess): { stdout: string[]; stderr: string[]
   return out;
 }
 
-function waitForReady(proc: ChildProcess, output: { stdout: string[] }): Promise<void> {
+function waitForReady(proc: ChildProcess, output: { stdout: string[]; stderr: string[] }): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Host did not become ready in time')), 15_000);
 
@@ -46,7 +53,7 @@ function waitForReady(proc: ChildProcess, output: { stdout: string[] }): Promise
     proc.on('exit', (code) => {
       clearInterval(check);
       clearTimeout(timeout);
-      reject(new Error(`Host exited early with code ${code}\nstdout: ${output.stdout.join('')}\nstderr: ${(proc as any).__stderr?.join('') ?? ''}`));
+      reject(new Error(`Host exited early with code ${code}\nstdout: ${output.stdout.join('')}\nstderr: ${output.stderr.join('')}`));
     });
   });
 }
@@ -69,11 +76,18 @@ function waitForResponse(output: { stdout: string[] }, marker: string, timeoutMs
 describe('Smoke Test', () => {
   let proc: ChildProcess | null = null;
 
+  beforeEach(() => {
+    // Clean stale data directory to avoid SQLite WAL/SHM conflicts
+    // between different runtimes (bun:sqlite vs better-sqlite3)
+    try { rmSync(DATA_DIR, { recursive: true, force: true }); } catch {}
+  });
+
   afterEach(() => {
     if (proc && !proc.killed) {
       proc.kill('SIGTERM');
     }
     proc = null;
+    try { rmSync(DATA_DIR, { recursive: true, force: true }); } catch {}
   });
 
   test('host starts, accepts a message, and returns a response', async () => {
@@ -99,7 +113,12 @@ describe('Smoke Test', () => {
 
   test('host fails fast when LLM provider requires missing API key', async () => {
     // Start host with anthropic LLM (no API key set)
-    proc = spawn('npx', ['tsx', resolve(PROJECT_ROOT, 'src/host.ts')], {
+    const hostScript = resolve(PROJECT_ROOT, 'src/host.ts');
+    const cmd = IS_BUN ? 'bun' : 'npx';
+    const args = IS_BUN
+      ? ['run', hostScript]
+      : ['tsx', hostScript];
+    proc = spawn(cmd, args, {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,

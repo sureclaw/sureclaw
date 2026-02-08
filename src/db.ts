@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 
 // ═══════════════════════════════════════════════════════
-// Runtime-agnostic SQLite adapter (Bun or Node.js)
+// Runtime-agnostic SQLite adapter
+// Priority: bun:sqlite → node:sqlite → better-sqlite3
 // ═══════════════════════════════════════════════════════
 
 interface SQLiteStatement {
@@ -19,23 +20,37 @@ interface SQLiteDatabase {
 const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
 
 function openDatabase(path: string): SQLiteDatabase {
+  const req = createRequire(import.meta.url);
+
   if (isBun) {
-    // Bun runtime — use bun:sqlite (built-in)
-    const require = createRequire(import.meta.url);
-    const { Database } = require('bun:sqlite');
+    const { Database } = req('bun:sqlite');
     const db = new Database(path);
     db.exec('PRAGMA journal_mode = WAL');
     db.exec('PRAGMA foreign_keys = ON');
     return db;
   }
 
-  // Node.js runtime — use better-sqlite3
-  const require = createRequire(import.meta.url);
-  const BetterSqlite3 = require('better-sqlite3');
-  const db = new BetterSqlite3(path);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  return db;
+  // Node.js: prefer built-in node:sqlite (22.5+), fall back to better-sqlite3
+  try {
+    const { DatabaseSync } = req('node:sqlite');
+    const db = new DatabaseSync(path);
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec('PRAGMA foreign_keys = ON');
+    return db;
+  } catch {
+    try {
+      const BetterSqlite3 = req('better-sqlite3');
+      const db = new BetterSqlite3(path);
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      return db;
+    } catch (err) {
+      throw new Error(
+        `Failed to load SQLite. Use Node.js 22.5+ (has built-in sqlite) ` +
+        `or run 'npm rebuild better-sqlite3'.\nCause: ${err}`,
+      );
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════

@@ -24,8 +24,8 @@
 - [x] Task 0.17: End-to-End Integration Test
 
 ### Phase 1: Standard Profile
-- [ ] Task 1.1: Taint Budget Core (SC-SEC-003)
-- [ ] Task 1.2: Taint Budget IPC + Router Integration
+- [x] Task 1.1: Taint Budget Core (SC-SEC-003)
+- [x] Task 1.2: Taint Budget IPC + Router Integration
 - [ ] Task 1.3: SQLite Providers (Memory + Audit)
 - [ ] Task 1.4: Encrypted Credentials
 - [ ] Task 1.5: Expanded Scanner Patterns

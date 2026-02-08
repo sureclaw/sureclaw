@@ -6,6 +6,7 @@ import type {
   ScanResult,
 } from './providers/types.js';
 import type { MessageQueue } from './db.js';
+import type { TaintBudget } from './taint-budget.js';
 
 export interface RouterResult {
   queued: boolean;
@@ -30,10 +31,17 @@ export interface Router {
   ): Promise<OutboundResult>;
 }
 
+export interface RouterOptions {
+  taintBudget?: TaintBudget;
+}
+
 export function createRouter(
   providers: ProviderRegistry,
   db: MessageQueue,
+  opts?: RouterOptions,
 ): Router {
+
+  const taintBudget = opts?.taintBudget;
 
   function taintTag(source: string): TaintTag {
     return { source, trust: 'external', timestamp: new Date() };
@@ -49,8 +57,12 @@ export function createRouter(
       const canaryToken = providers.scanner.canaryToken();
 
       // Taint-tag external content
+      const isTainted = msg.channel !== 'system';
       const taint = taintTag(msg.channel);
       const taggedContent = wrapExternalContent(msg.content, msg.channel);
+
+      // Record content in taint budget (SC-SEC-003)
+      taintBudget?.recordContent(sessionId, msg.content, isTainted);
 
       // Scan input
       const scanResult = await providers.scanner.scanInput({

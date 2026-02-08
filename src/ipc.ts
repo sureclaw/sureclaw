@@ -1,13 +1,20 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from './ipc-schemas.js';
 import type { ProviderRegistry } from './providers/types.js';
+import type { TaintBudget } from './taint-budget.js';
 
 export interface IPCContext {
   sessionId: string;
   agentId: string;
 }
 
-export function createIPCHandler(providers: ProviderRegistry) {
+export interface IPCHandlerOptions {
+  taintBudget?: TaintBudget;
+}
+
+export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
+
+  const taintBudget = opts?.taintBudget;
 
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
 
@@ -154,6 +161,28 @@ export function createIPCHandler(providers: ProviderRegistry) {
         ok: false,
         error: `Validation failed for action "${actionName}"`,
       });
+    }
+
+    // Step 3.5: Taint budget check (SC-SEC-003)
+    if (taintBudget) {
+      const taintCheck = taintBudget.checkAction(ctx.sessionId, actionName);
+      if (!taintCheck.allowed) {
+        await providers.audit.log({
+          action: 'ipc_taint_blocked',
+          sessionId: ctx.sessionId,
+          args: {
+            ipcAction: actionName,
+            taintRatio: taintCheck.taintRatio,
+            threshold: taintCheck.threshold,
+          },
+          result: 'blocked',
+        });
+        return JSON.stringify({
+          ok: false,
+          taintBlocked: true,
+          error: taintCheck.reason,
+        });
+      }
     }
 
     // Step 4: Dispatch
