@@ -16,7 +16,7 @@
 - [x] Task 0.9: IPC Schema Validation (SC-SEC-001)
 - [x] Task 0.10: SQLite Message Queue
 - [x] Task 0.11: IPC Proxy + Unix Socket Server
-- [ ] Task 0.12: Message Router
+- [x] Task 0.12: Message Router
 - [x] Task 0.13: Sandbox Providers
 - [x] Task 0.14: Container-Side Components
 - [x] Task 0.15: Scheduler Provider (Cron)
