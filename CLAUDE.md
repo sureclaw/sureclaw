@@ -11,7 +11,8 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ```bash
 npm run build     # TypeScript compilation (tsc)
-npm test          # Run all tests (vitest)
+npm test          # Run all tests (vitest on Node.js)
+bun test          # Run all tests (Bun native runner)
 npm start         # Start Sureclaw (tsx src/host.ts)
 npm run test:fuzz # Run fuzz tests (vitest --run tests/ipc-fuzz.test.ts)
 ```

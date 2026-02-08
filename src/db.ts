@@ -1,5 +1,46 @@
-import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+
+// ═══════════════════════════════════════════════════════
+// Runtime-agnostic SQLite adapter (Bun or Node.js)
+// ═══════════════════════════════════════════════════════
+
+interface SQLiteStatement {
+  run(...params: unknown[]): void;
+  get(...params: unknown[]): unknown;
+}
+
+interface SQLiteDatabase {
+  exec(sql: string): void;
+  prepare(sql: string): SQLiteStatement;
+  close(): void;
+}
+
+const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+
+function openDatabase(path: string): SQLiteDatabase {
+  if (isBun) {
+    // Bun runtime — use bun:sqlite (built-in)
+    const require = createRequire(import.meta.url);
+    const { Database } = require('bun:sqlite');
+    const db = new Database(path);
+    db.exec('PRAGMA journal_mode = WAL');
+    db.exec('PRAGMA foreign_keys = ON');
+    return db;
+  }
+
+  // Node.js runtime — use better-sqlite3
+  const require = createRequire(import.meta.url);
+  const BetterSqlite3 = require('better-sqlite3');
+  const db = new BetterSqlite3(path);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  return db;
+}
+
+// ═══════════════════════════════════════════════════════
+// Message Queue
+// ═══════════════════════════════════════════════════════
 
 export interface QueuedMessage {
   id: string;
@@ -13,12 +54,10 @@ export interface QueuedMessage {
 }
 
 export class MessageQueue {
-  private db: Database.Database;
+  private db: SQLiteDatabase;
 
   constructor(dbPath: string = 'data/messages.db') {
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+    this.db = openDatabase(dbPath);
     this.migrate();
   }
 
