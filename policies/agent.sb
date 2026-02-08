@@ -1,22 +1,42 @@
 ;; policies/agent.sb
+;; Parameters: WORKSPACE, SKILLS, IPC_SOCKET, PROJECT_DIR
 (version 1)
 (deny default)
 
-;; Allow reading workspace and skills
-(allow file-read* (subpath "/workspace"))
-(allow file-read* (subpath "/skills"))
-(allow file-write* (subpath "/workspace"))
+;; Allow reading/writing workspace (dynamic temp path)
+(allow file-read* (subpath (param "WORKSPACE")))
+(allow file-write* (subpath (param "WORKSPACE")))
+
+;; Allow reading skills
+(allow file-read* (subpath (param "SKILLS")))
+
+;; Allow IPC socket (dynamic temp path)
+(allow file-read* file-write* (literal (param "IPC_SOCKET")))
+(allow network-outbound (to unix-socket (param "IPC_SOCKET")))
+
+;; Allow reading project directory (node_modules, src)
+(allow file-read* (subpath (param "PROJECT_DIR")))
+
+;; Allow temp directory for Node.js
 (allow file-read* (subpath "/tmp"))
 (allow file-write* (subpath "/tmp"))
-
-;; Allow IPC socket
-(allow file-read* file-write* (literal "/ipc/proxy.sock"))
-(allow network-outbound (to unix-socket "/ipc/proxy.sock"))
+(allow file-read* (subpath "/private/tmp"))
+(allow file-write* (subpath "/private/tmp"))
+(allow file-read* (subpath "/private/var/folders"))
+(allow file-write* (subpath "/private/var/folders"))
+(allow file-read* (subpath "/var/folders"))
+(allow file-write* (subpath "/var/folders"))
 
 ;; Allow Node.js runtime
 (allow file-read* (subpath "/usr/local"))
 (allow file-read* (subpath "/opt/homebrew"))
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (literal "/usr/bin/env"))
 (allow process-exec)
+(allow process-fork)
+
+;; Allow sysctl (Node.js uses this)
+(allow sysctl-read)
 
 ;; DENY all network
 (deny network*)

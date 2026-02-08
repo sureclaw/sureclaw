@@ -2,8 +2,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { LLMProvider, ChatRequest, ChatChunk, Config } from './types.js';
 
 export async function create(_config: Config): Promise<LLMProvider> {
-  // API key is injected via ANTHROPIC_API_KEY env var by the SDK automatically.
-  // In production, the credential provider supplies it before sandbox launch.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      'ANTHROPIC_API_KEY environment variable is required.\n' +
+      'Set it with: export ANTHROPIC_API_KEY=sk-ant-...',
+    );
+  }
+
   const client = new Anthropic();
 
   return {

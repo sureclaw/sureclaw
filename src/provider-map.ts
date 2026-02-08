@@ -14,6 +14,7 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
     anthropic: './providers/llm-anthropic.js',
     openai:    './providers/llm-openai.js',
     multi:     './providers/llm-multi.js',
+    mock:      './providers/llm-mock.js',
   },
   memory: {
     file:   './providers/memory-file.js',

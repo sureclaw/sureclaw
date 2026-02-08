@@ -4,13 +4,21 @@ import type { SandboxProvider, SandboxConfig, SandboxProcess, Config } from './t
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   const policyPath = resolve('policies/agent.sb');
+  const projectDir = resolve('.');
 
   return {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const [cmd, ...args] = config.command;
 
-      // sandbox-exec wraps the command with the seatbelt profile
-      const child = spawn('sandbox-exec', ['-f', policyPath, cmd, ...args], {
+      // sandbox-exec with -D parameter substitution for dynamic paths
+      const child = spawn('sandbox-exec', [
+        '-f', policyPath,
+        '-D', `WORKSPACE=${config.workspace}`,
+        '-D', `SKILLS=${config.skills}`,
+        '-D', `IPC_SOCKET=${config.ipcSocket}`,
+        '-D', `PROJECT_DIR=${projectDir}`,
+        cmd, ...args,
+      ], {
         cwd: config.workspace,
         env: {
           // Minimal env — no credentials leak into the sandbox

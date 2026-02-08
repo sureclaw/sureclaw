@@ -98,14 +98,14 @@ async function main(): Promise<void> {
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
       writeFileSync(join(workspace, 'message.txt'), queued.content);
 
-      // Spawn sandbox
+      // Spawn sandbox — use tsx to run TypeScript directly
       const proc = await providers.sandbox.spawn({
         workspace,
         skills: skillsDir,
         ipcSocket: socketPath,
         timeoutSec: config.sandbox.timeout_sec,
         memoryMB: config.sandbox.memory_mb,
-        command: ['node', resolve('dist/container/agent-runner.js'),
+        command: ['npx', 'tsx', resolve('src/container/agent-runner.ts'),
           '--ipc-socket', socketPath,
           '--workspace', workspace,
           '--skills', skillsDir,
@@ -169,18 +169,10 @@ async function main(): Promise<void> {
     }
   }
 
-  // Step 8: Connect channels
-  for (const channel of providers.channels) {
-    channel.onMessage(handleMessage);
-    await channel.connect();
-    console.log(`[host] Channel connected: ${channel.name}`);
-  }
-
-  // Step 9: Start scheduler
+  // Step 8: Start scheduler (before channels so it's ready)
   await providers.scheduler.start(handleMessage);
-  console.log('[host] Scheduler started');
 
-  // Step 10: Graceful shutdown
+  // Step 9: Graceful shutdown
   let shuttingDown = false;
 
   async function shutdown(signal: string): Promise<void> {
@@ -207,7 +199,13 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  console.log('[host] SureClaw is running. Type a message to begin.');
+  // Step 10: Print ready message, THEN connect channels (so prompt appears last)
+  console.log('[host] SureClaw is running.');
+
+  for (const channel of providers.channels) {
+    channel.onMessage(handleMessage);
+    await channel.connect();
+  }
 }
 
 main().catch((err) => {
