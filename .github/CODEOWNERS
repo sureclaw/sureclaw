@@ -1,0 +1,30 @@
+# Security-critical paths require explicit review
+
+# Provider allowlist — controls what code can be loaded
+src/provider-map.ts         @sureclaw/security
+
+# Path traversal protection
+src/utils/safe-path.ts      @sureclaw/security
+
+# IPC boundary — the critical trust boundary
+src/ipc.ts                  @sureclaw/security
+src/ipc-schemas.ts          @sureclaw/security
+
+# Taint budget enforcement
+src/taint-budget.ts         @sureclaw/security
+
+# Sandbox providers — kernel-level isolation
+src/providers/sandbox-*     @sureclaw/security
+
+# Credential providers — secret handling
+src/providers/creds-*       @sureclaw/security
+
+# Policies — sandbox profiles
+policies/                   @sureclaw/security
+
+# Security docs
+SECURITY.md                 @sureclaw/security
+docs/plans/sureclaw-security-hardening-spec.md @sureclaw/security
+
+# CI/CD — supply chain
+.github/                    @sureclaw/security

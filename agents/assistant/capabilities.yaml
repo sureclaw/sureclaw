@@ -1,0 +1,19 @@
+agent: assistant
+allowed_tools:
+  - llm_call
+  - memory_read
+  - memory_write
+  - memory_query
+  - memory_list
+  - memory_delete
+  - skill_read
+  - skill_list
+  - audit_query
+scopes:
+  memory: read-write
+  skills: read-only
+  web: none
+  browser: none
+limits:
+  max_tokens_per_turn: 4096
+  max_tool_calls_per_turn: 10

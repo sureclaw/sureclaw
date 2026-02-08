@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <defs>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" style="stop-color:#E85D4A"/>
+      <stop offset="100%" style="stop-color:#C43D2B"/>
+    </linearGradient>
+    <linearGradient id="bodyLight" x1="0.3" y1="0" x2="0.7" y2="1">
+      <stop offset="0%" style="stop-color:#F07B6A"/>
+      <stop offset="100%" style="stop-color:#E06050"/>
+    </linearGradient>
+    <linearGradient id="clawGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" style="stop-color:#EE6E5C"/>
+      <stop offset="100%" style="stop-color:#D04A38"/>
+    </linearGradient>
+    <linearGradient id="darkShell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" style="stop-color:#C43D2B"/>
+      <stop offset="100%" style="stop-color:#A03020"/>
+    </linearGradient>
+    <filter id="s">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#2a0a05" flood-opacity="0.2"/>
+    </filter>
+    <filter id="ss">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#2a0a05" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- ========== CRAB CHARACTER ========== -->
+  <g transform="translate(190, 200)" filter="url(#s)">
+
+    <!-- TAIL/BACK SEGMENTS -->
+    <g>
+      <ellipse cx="-12" cy="100" rx="20" ry="14" fill="#A03020" stroke="#8B2518" stroke-width="2"/>
+      <ellipse cx="-2" cy="82" rx="26" ry="16" fill="#B83828" stroke="#8B2518" stroke-width="2"/>
+      <ellipse cx="6" cy="60" rx="32" ry="19" fill="#C43D2B" stroke="#8B2518" stroke-width="2"/>
+      <path d="M-22 64 Q6 54 36 64" fill="none" stroke="#8B2518" stroke-width="1.5" opacity="0.35"/>
+      <path d="M-18 84 Q-2 76 24 84" fill="none" stroke="#8B2518" stroke-width="1.5" opacity="0.35"/>
+    </g>
+
+    <!-- MAIN BODY -->
+    <ellipse cx="10" cy="28" rx="52" ry="45" fill="url(#bodyGrad)" stroke="#8B2518" stroke-width="2.5"/>
+    <ellipse cx="0" cy="12" rx="28" ry="20" fill="url(#bodyLight)" opacity="0.3"/>
+
+    <!-- HEAD -->
+    <ellipse cx="10" cy="-30" rx="50" ry="46" fill="url(#bodyGrad)" stroke="#8B2518" stroke-width="2.5"/>
+    <!-- Head highlight -->
+    <ellipse cx="2" cy="-50" rx="25" ry="16" fill="#F07B6A" opacity="0.3"/>
+    <!-- Shine dots -->
+    <ellipse cx="-8" cy="-58" rx="7" ry="4.5" fill="#fff" opacity="0.2" transform="rotate(-15, -8, -58)"/>
+    <circle cx="8" cy="-64" r="3.5" fill="#fff" opacity="0.12"/>
+
+    <!-- ========== ANTENNAE (alert, stiff) ========== -->
+    <path d="M-15 -72 Q-30 -115 -24 -138" stroke="#A03020" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <circle cx="-24" cy="-141" r="5" fill="#C43D2B"/>
+    <path d="M20 -72 Q38 -118 33 -142" stroke="#A03020" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <circle cx="33" cy="-145" r="5" fill="#C43D2B"/>
+
+    <!-- ========== EYES - only ONE visible, peeking through claws ========== -->
+    <!-- Right eye (the one peeking through) - wide, nervous -->
+    <g>
+      <ellipse cx="26" cy="-34" rx="15" ry="16" fill="#FFFFFF" stroke="#8B2518" stroke-width="2"/>
+      <!-- Pupil - small, darting, scared -->
+      <ellipse cx="22" cy="-33" rx="7" ry="8" fill="#2B2020"/>
+      <!-- Pupil shine -->
+      <circle cx="19" cy="-37" r="3" fill="#fff" opacity="0.8"/>
+      <circle cx="24" cy="-31" r="1.8" fill="#fff" opacity="0.4"/>
+      <!-- Very worried raised eyebrow -->
+      <path d="M14 -56 Q28 -65 42 -54" stroke="#8B2518" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <!-- Worried eyebrow lines under eye (tired/stressed bags) -->
+      <path d="M16 -19 Q26 -14 36 -19" stroke="#8B2518" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.5"/>
+      <path d="M18 -15 Q27 -10 34 -15" stroke="#8B2518" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.35"/>
+    </g>
+
+    <!-- Left eye - HIDDEN behind left claw, just barely occluded -->
+    <!-- (we draw it but the claw will cover it) -->
+    <g opacity="0.4">
+      <ellipse cx="-14" cy="-34" rx="14" ry="15" fill="#FFFFFF" stroke="#8B2518" stroke-width="2"/>
+      <ellipse cx="-18" cy="-33" rx="6" ry="7" fill="#2B2020"/>
+      <!-- Tired lines under left eye -->
+      <path d="M-24 -20 Q-14 -15 -4 -20" stroke="#8B2518" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.5"/>
+      <path d="M-22 -16 Q-13 -11 -6 -16" stroke="#8B2518" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.35"/>
+    </g>
+
+    <!-- MOUTH - visible below the claws, nervous frown/grimace -->
+    <path d="M-8 -8 Q0 -14 5 -10 Q10 -6 16 -12" stroke="#6B1810" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+
+    <!-- ========== LEFT CLAW - covering left side of face ========== -->
+    <g filter="url(#ss)">
+      <!-- Left arm reaching up -->
+      <path d="M-40 12 Q-62 -8 -58 -28 Q-55 -42 -42 -38" stroke="#D04A38" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+      <!-- Left claw - big, flat, covering the left eye and cheek area -->
+      <!-- Main claw pad covering face -->
+      <ellipse cx="-28" cy="-38" rx="26" ry="20" fill="url(#clawGrad)" stroke="#8B2518" stroke-width="2" transform="rotate(10, -28, -38)"/>
+      <!-- Upper pincer finger -->
+      <ellipse cx="-18" cy="-55" rx="12" ry="9" fill="#EE6E5C" stroke="#8B2518" stroke-width="2" transform="rotate(15, -18, -55)"/>
+      <!-- Lower pincer finger (spread to cover more face) -->
+      <ellipse cx="-42" cy="-48" rx="11" ry="8" fill="#EE6E5C" stroke="#8B2518" stroke-width="2" transform="rotate(-20, -42, -48)"/>
+      <!-- Middle pincer bit -->
+      <ellipse cx="-28" cy="-52" rx="10" ry="7" fill="#EE6E5C" stroke="#8B2518" stroke-width="2" transform="rotate(0, -28, -52)"/>
+
+      <!-- Highlight on claw -->
+      <ellipse cx="-24" cy="-42" rx="10" ry="6" fill="#F5917F" opacity="0.3" transform="rotate(10, -24, -42)"/>
+    </g>
+
+    <!-- ========== RIGHT CLAW - partially covering right side, gap to peek through ========== -->
+    <g filter="url(#ss)">
+      <!-- Right arm reaching up -->
+      <path d="M55 8 Q75 -12 70 -30 Q67 -42 56 -38" stroke="#D04A38" stroke-width="13" fill="none" stroke-linecap="round"/>
+
+      <!-- Right claw - positioned to leave a gap for the right eye to peek through -->
+      <!-- Main claw pad -->
+      <ellipse cx="48" cy="-38" rx="22" ry="18" fill="url(#clawGrad)" stroke="#8B2518" stroke-width="2" transform="rotate(-8, 48, -38)"/>
+      <!-- Upper pincer finger - angled away to create peek gap -->
+      <ellipse cx="55" cy="-54" rx="11" ry="8" fill="#EE6E5C" stroke="#8B2518" stroke-width="2" transform="rotate(-15, 55, -54)"/>
+      <!-- Lower pincer finger -->
+      <ellipse cx="38" cy="-26" rx="10" ry="7" fill="#EE6E5C" stroke="#8B2518" stroke-width="2" transform="rotate(10, 38, -26)"/>
+
+      <!-- Highlight on claw -->
+      <ellipse cx="44" cy="-42" rx="9" ry="5" fill="#F5917F" opacity="0.3" transform="rotate(-8, 44, -42)"/>
+
+
+    </g>
+
+    <!-- ========== LEGS (tucked tight, defensive) ========== -->
+    <g stroke="#A03020" stroke-width="4" stroke-linecap="round" fill="none">
+      <path d="M-38 40 Q-52 50 -55 60"/>
+      <path d="M-32 52 Q-46 64 -48 74"/>
+      <path d="M48 40 Q62 50 65 60"/>
+      <path d="M42 52 Q56 64 58 74"/>
+    </g>
+
+
+
+  </g>
+
+
+
+</svg>

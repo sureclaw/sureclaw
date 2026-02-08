@@ -1,0 +1,22 @@
+;; policies/agent.sb
+(version 1)
+(deny default)
+
+;; Allow reading workspace and skills
+(allow file-read* (subpath "/workspace"))
+(allow file-read* (subpath "/skills"))
+(allow file-write* (subpath "/workspace"))
+(allow file-read* (subpath "/tmp"))
+(allow file-write* (subpath "/tmp"))
+
+;; Allow IPC socket
+(allow file-read* file-write* (literal "/ipc/proxy.sock"))
+(allow network-outbound (to unix-socket "/ipc/proxy.sock"))
+
+;; Allow Node.js runtime
+(allow file-read* (subpath "/usr/local"))
+(allow file-read* (subpath "/opt/homebrew"))
+(allow process-exec)
+
+;; DENY all network
+(deny network*)

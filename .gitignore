@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Runtime data (sessions, memory, audit logs)
+data/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Compiled sandbox profiles
+*.sb.compiled
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs / crashes
+*.log
+npm-debug.log*
