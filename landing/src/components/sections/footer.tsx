@@ -2,7 +2,7 @@ import { Logo } from "@/components/icons/logo";
 
 const footerLinks = [
   {
-    title: "Product",
+    title: "Project",
     links: [
       { label: "Features", href: "#features" },
       { label: "How It Works", href: "#how-it-works" },
@@ -20,7 +20,7 @@ const footerLinks = [
   {
     title: "Resources",
     links: [
-      { label: "Security Policy", href: "#" },
+      { label: "Getting Started", href: "#" },
       { label: "Contributing", href: "#" },
       { label: "License (MIT)", href: "#" },
     ],
@@ -39,9 +39,9 @@ export function Footer() {
               <span className="font-semibold tracking-tight">ax</span>
             </div>
             <p className="text-sm text-text-tertiary leading-relaxed">
-              AI agent security framework.
+              Open source AI agent framework.
               <br />
-              Open source. Paranoid by design.
+              Free forever. MIT licensed.
             </p>
           </div>
 
@@ -73,7 +73,7 @@ export function Footer() {
             &copy; {new Date().getFullYear()} ax. MIT License.
           </p>
           <p className="text-xs text-text-tertiary">
-            A nervous crab, peeking through its claws — but the door IS locked.
+            Made with mass amounts of mass-produced coffee.
           </p>
         </div>
       </div>

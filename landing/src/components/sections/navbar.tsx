@@ -38,7 +38,7 @@ export function Navbar() {
         <a href="/" className="flex items-center gap-2.5 group">
           <Logo className="w-7 h-7" />
           <span className="font-semibold text-lg tracking-tight text-text-primary">
-            ax
+            project ax
           </span>
         </a>
 

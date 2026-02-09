@@ -7,9 +7,9 @@ import { ShieldCheck, Eye, Network } from "lucide-react";
 const deepDives = [
   {
     icon: ShieldCheck,
-    title: "Defense in Depth",
+    title: "Multi-Step Reasoning",
     description:
-      "Security isn't one wall — it's layers. ax combines OS-level sandboxing, IPC-boundary enforcement, content scanning, and taint tracking. Even if one layer is bypassed, the others hold. We're the nervous crab that triple-checks every lock.",
+      "ax agents don't just answer questions — they break down complex tasks, use tools, check their work, and iterate. Give them a goal and they'll figure out the steps to get there.",
     visual: (
       <div className="relative w-full h-48 flex items-center justify-center">
         {/* Concentric circles representing layers */}
@@ -22,9 +22,9 @@ const deepDives = [
   },
   {
     icon: Eye,
-    title: "Full Audit Trail",
+    title: "See Everything",
     description:
-      "Every LLM call, every tool invocation, every taint decision — logged and queryable. When something goes wrong (and eventually it will), you'll know exactly what happened, when, and why. No more \"it worked on my machine\" debugging.",
+      "Every LLM call, every tool invocation, every decision your agent makes — logged and queryable. When you need to understand what happened (or debug why it didn't), the full trace is right there.",
     visual: (
       <div className="relative w-full h-48 flex flex-col items-start justify-center gap-2 px-4 font-mono text-xs">
         {[
@@ -34,7 +34,7 @@ const deepDives = [
           { time: "14:23:04", event: "scan_outbound", status: "taint:0.3", color: "text-amber-400" },
           { time: "14:23:05", event: "scan_inbound", status: "blocked", color: "text-red-400" },
         ].map((log, i) => (
-          <div key={i} className="flex gap-3 opacity-70">
+          <div key={i} className="flex gap-3">
             <span className="text-text-tertiary">{log.time}</span>
             <span className="text-text-secondary">{log.event}</span>
             <span className={log.color}>{log.status}</span>
@@ -45,9 +45,9 @@ const deepDives = [
   },
   {
     icon: Network,
-    title: "Provider Contracts",
+    title: "Build It Your Way",
     description:
-      "Every subsystem — LLM, memory, scanner, sandbox, credentials, audit — is a TypeScript interface. Swap Anthropic for OpenAI, SQLite for Postgres, Docker for nsjail. The contracts guarantee safety properties regardless of implementation.",
+      "Every piece of ax is a TypeScript interface. Swap Anthropic for OpenAI, SQLite for Postgres, add custom tools in a few lines. Use what works for you — we don't lock you into anything.",
     visual: (
       <div className="relative w-full h-48 flex items-center justify-center">
         <div className="grid grid-cols-3 gap-3">

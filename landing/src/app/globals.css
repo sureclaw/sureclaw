@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Safelist: dynamic color classes used in data arrays
+   text-indigo-400 text-violet-400 text-sky-400 text-emerald-400
+   text-amber-400 text-rose-400 text-red-400
+*/
+
 :root {
   --bg-primary: #09090b;
   --bg-secondary: #111113;

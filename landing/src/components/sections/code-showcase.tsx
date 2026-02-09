@@ -3,20 +3,23 @@
 import { Reveal } from "@/components/ui/reveal";
 import { GlassCard } from "@/components/ui/glass-card";
 
-const codeExample = `# ax.yaml — your security config
+const codeExample = `# ax.yaml — configure your agent
 providers:
-  llm: anthropic
-  scanner: patterns       # prompt injection detection
-  sandbox: seatbelt       # macOS sandbox (or nsjail/docker)
-  memory: sqlite          # FTS5 full-text search
-  credentials: encrypted  # AES-256-GCM at rest
-  audit: sqlite           # queryable audit log
+  llm: anthropic          # or openai, google, etc.
+  memory: sqlite          # persistent memory w/ full-text search
+  tools: local            # bash, read, write, edit
+  web: tavily             # web search via Tavily API
+  audit: sqlite           # queryable log of every action
 
-security:
-  taint_budget: 0.7       # block above this threshold
-  scan_inbound: true      # scan all inputs
-  scan_outbound: true     # scan all outputs
-  network_deny: true      # no network in sandbox`;
+agent:
+  model: claude-sonnet    # which model to use
+  max_turns: 50           # max reasoning steps per task
+  tools:                  # which tools the agent can use
+    - bash
+    - read_file
+    - write_file
+    - web_search
+    - memory_query`;
 
 const codeHighlighted = codeExample.split("\n").map((line, i) => {
   if (line.startsWith("#") || line.includes("#")) {
@@ -66,18 +69,18 @@ export function CodeShowcase() {
               <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
                 One config file.{" "}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-glow">
-                  Full protection.
+                  That&apos;s it.
                 </span>
               </h2>
               <p className="text-text-secondary text-lg leading-relaxed">
-                Drop a <code className="font-mono text-accent-glow text-sm bg-bg-elevated px-1.5 py-0.5 rounded">ax.yaml</code> into
-                your project. Pick your providers, set your thresholds, and
-                let us handle the paranoia.
+                Drop an <code className="font-mono text-accent-glow text-sm bg-bg-elevated px-1.5 py-0.5 rounded">ax.yaml</code> into
+                your project. Pick your LLM, choose your tools, and
+                you&apos;ve got a working agent.
               </p>
               <p className="text-text-secondary leading-relaxed">
-                Every provider is a TypeScript interface — swap implementations
-                without changing a line of application code. Start with our
-                defaults, graduate to your own when you&apos;re ready.
+                Every piece is a TypeScript interface you can swap out.
+                Start with the defaults, replace pieces when you need to.
+                No lock-in, no magic.
               </p>
             </div>
           </Reveal>

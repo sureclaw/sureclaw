@@ -75,9 +75,9 @@ export function Community() {
               Built in the open
             </h2>
             <p className="text-text-secondary text-lg max-w-2xl mx-auto">
-              ax is open source because security through obscurity is no
-              security at all. We&apos;d rather have a thousand eyes on our code
-              than trust that we got everything right.
+              ax is free and open source under the MIT license. No paid tiers,
+              no gated features. Just a framework you can use, fork,
+              and build on.
             </p>
           </div>
         </Reveal>

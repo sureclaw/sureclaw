@@ -18,8 +18,6 @@ export function Hero() {
       <div
         className="absolute inset-0 opacity-[0.03]"
         style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)",
           backgroundSize: "64px 64px",
         }}
       />
@@ -28,32 +26,32 @@ export function Hero() {
       <div className="relative z-10 mx-auto max-w-[1200px] px-6 text-center pt-24">
         <StaggerContainer className="flex flex-col items-center gap-6" staggerDelay={0.15}>
           {/* Logo */}
-          <StaggerItem>
-            <LogoLarge className="w-28 md:w-36 h-auto" />
+          <StaggerItem className="text-4xl sm:text-5xl md:text-4xl font-bold tracking-tight">
+            project ax
+            {/*<LogoLarge className="w-28 md:w-36 h-auto" />*/}
           </StaggerItem>
 
           {/* Eyebrow badge */}
           <StaggerItem>
-            <Badge>Open Source AI Agent Framework</Badge>
+            <Badge>Like OpenClaw with trust issues</Badge>
           </StaggerItem>
 
           {/* Main heading */}
           <StaggerItem>
             <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight leading-[1.1] max-w-4xl">
-              Like OpenClaw but with{" "}
+              Always-on AI agents that{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-glow">
-                trust issues
-              </span>{" "}
-              <span className="inline-block">&#x1FAE3;</span>
+                act autonomously
+              </span>
             </h1>
           </StaggerItem>
 
           {/* Subheading */}
           <StaggerItem>
             <p className="text-lg md:text-xl text-text-secondary max-w-2xl leading-relaxed">
-              Build, deploy, and manage AI agents that actually behave.
-              ax gives you the guardrails, tooling, and observability
-              to go from prototype to production — without the anxiety.
+              Define goals, plug in your tools, and let ax handle the rest.
+              Your agents run continuously, make decisions, and get things done
+              — with the safe guards that let you sleep at night 😴.
             </p>
           </StaggerItem>
 

@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ax — Like OpenClaw but with trust issues",
+  title: "ax — Open Source AI Agent Framework",
   description:
-    "An open-source security framework for AI agents. Sandboxed execution, taint tracking, prompt injection scanning — because your AI should be powerful, not dangerous.",
+    "A free, open source framework for building always-on AI agents. Pluggable tools, any LLM, persistent memory — from prototype to production.",
   openGraph: {
-    title: "ax — Like OpenClaw but with trust issues",
+    title: "ax — Open Source AI Agent Framework",
     description:
-      "An open-source security framework for AI agents. Sandboxed execution, taint tracking, prompt injection scanning.",
+      "A free, open source framework for building always-on AI agents. Pluggable tools, any LLM, persistent memory.",
     type: "website",
   },
 };
