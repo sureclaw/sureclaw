@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { envPath as getEnvPath, dataDir, dataFile } from './paths.js';
+import { envPath as getEnvPath, configPath as getConfigPath, sureclawHome, dataDir, dataFile } from './paths.js';
 import { loadConfig } from './config.js';
 
 // ═══════════════════════════════════════════════════════
@@ -41,17 +41,20 @@ import type { InboundMessage } from './providers/types.js';
 // CLI Args
 // ═══════════════════════════════════════════════════════
 
-function parseHostArgs(): { configPath?: string } {
+function parseHostArgs(): { configPath?: string; command?: string } {
   const args = process.argv.slice(2);
   let configPath: string | undefined;
+  let command: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--config' || args[i] === '-c') {
       configPath = args[++i];
+    } else if (!args[i].startsWith('-') && !command) {
+      command = args[i];
     }
   }
 
-  return { configPath };
+  return { configPath, command };
 }
 
 // ═══════════════════════════════════════════════════════
@@ -59,11 +62,27 @@ function parseHostArgs(): { configPath?: string } {
 // ═══════════════════════════════════════════════════════
 
 async function main(): Promise<void> {
-  const { configPath } = parseHostArgs();
+  const { configPath: configPathArg, command } = parseHostArgs();
+
+  // Handle `sureclaw configure` command
+  if (command === 'configure') {
+    const { runConfigure } = await import('./onboarding/configure.js');
+    await runConfigure(sureclawHome());
+    return;
+  }
+
+  // First-run detection: if no config file exists, run configure
+  const resolvedConfigPath = configPathArg ?? getConfigPath();
+  if (!existsSync(resolvedConfigPath)) {
+    console.log('[host] No sureclaw.yaml found — running first-time setup...\n');
+    const { runConfigure } = await import('./onboarding/configure.js');
+    await runConfigure(sureclawHome());
+    console.log('[host] Setup complete! Starting SureClaw...\n');
+  }
 
   // Step 1: Load config
   console.log('[host] Loading config...');
-  const config = loadConfig(configPath);
+  const config = loadConfig(configPathArg);
   console.log(`[host] Profile: ${config.profile}`);
 
   // Step 2: Load providers

@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fuzz": "vitest run tests/ipc-fuzz.test.ts",
-    "start": "NODE_NO_WARNINGS=1 tsx src/host.ts"
+    "start": "NODE_NO_WARNINGS=1 tsx src/host.ts",
+    "configure": "NODE_NO_WARNINGS=1 tsx src/host.ts configure"
   },
   "keywords": [
     "ai",
