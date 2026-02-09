@@ -60,21 +60,43 @@ export async function create(config: Config): Promise<SchedulerProvider> {
     onMessageHandler(msg);
   }
 
+  function matchesCron(schedule: string, date: Date): boolean {
+    const fields = schedule.trim().split(/\s+/);
+    if (fields.length !== 5) return false;
+    const ranges: [number, number][] = [[0,59],[0,23],[1,31],[1,12],[0,6]];
+    const vals = [date.getMinutes(), date.getHours(), date.getDate(), date.getMonth()+1, date.getDay()];
+    return fields.every((f, i) => {
+      const [min, max] = ranges[i];
+      const matches = new Set<number>();
+      for (const part of f.split(',')) {
+        const [range, stepStr] = part.split('/');
+        const step = stepStr ? parseInt(stepStr, 10) : 1;
+        let lo = min, hi = max;
+        if (range !== '*') {
+          if (range.includes('-')) { const [a, b] = range.split('-').map(Number); lo = a; hi = b; }
+          else { lo = hi = parseInt(range, 10); }
+        }
+        for (let v = lo; v <= hi; v += step) matches.add(v);
+      }
+      return matches.has(vals[i]);
+    });
+  }
+
   function checkCronJobs(): void {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
 
-    // Simple minute-based matching (cron expressions deferred to Phase 1)
+    const now = new Date();
     for (const job of jobs.values()) {
+      if (!matchesCron(job.schedule, now)) continue;
       const msg: InboundMessage = {
         id: randomUUID(),
         channel: 'scheduler',
         sender: `cron:${job.id}`,
         content: job.prompt,
-        timestamp: new Date(),
+        timestamp: now,
         isGroup: false,
       };
-
       onMessageHandler(msg);
     }
   }

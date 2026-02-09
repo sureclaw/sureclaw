@@ -289,6 +289,12 @@ export interface SchedulerProvider {
   addCron?(job: CronJobDef): void;
   removeCron?(jobId: string): void;
   listJobs?(): CronJobDef[];
+  /** Manually trigger cron check at optional Date (for testing). */
+  checkCronNow?(at?: Date): void;
+  /** Record tokens used so budget tracking can suppress hints. */
+  recordTokenUsage?(tokens: number): void;
+  /** List hints that were queued (budget exceeded). */
+  listPendingHints?(): ProactiveHint[];
 }
 
 // ═══════════════════════════════════════════════════════
@@ -322,6 +328,8 @@ export interface Config {
     };
     max_token_budget: number;
     heartbeat_interval_min: number;
+    proactive_hint_confidence_threshold?: number;
+    proactive_hint_cooldown_sec?: number;
   };
 }
 

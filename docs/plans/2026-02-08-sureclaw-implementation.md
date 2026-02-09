@@ -31,7 +31,7 @@
 - [x] Task 1.5: Expanded Scanner Patterns
 - [x] Task 1.6: Proxied Web Fetch with DNS Pinning
 - [x] Task 1.7: Pi Agent Core Integration (Agent Loop + IPC Tools)
-- [ ] Task 1.8: Cron Scheduler + ProactiveHint Bridge
+- [x] Task 1.8: Cron Scheduler + ProactiveHint Bridge
 - [ ] Task 1.9: Slack Channel
 - [ ] Task 1.10: Completions Gateway
 - [ ] Task 1.11: Git-Backed Skills
