@@ -8,13 +8,24 @@ export interface IPCContext {
   agentId: string;
 }
 
+export interface DelegationConfig {
+  maxConcurrent?: number;      // max secondary agents at once (default 3)
+  maxDepth?: number;           // max delegation chain depth (default 2)
+}
+
 export interface IPCHandlerOptions {
   taintBudget?: TaintBudget;
+  delegation?: DelegationConfig;
+  /** Called when an agent_delegate request is received. Returns agent response. */
+  onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
 
   const taintBudget = opts?.taintBudget;
+  const maxConcurrent = opts?.delegation?.maxConcurrent ?? 3;
+  const maxDepth = opts?.delegation?.maxDepth ?? 2;
+  let activeDelegations = 0;
 
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
 
@@ -113,6 +124,51 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
     audit_query: async (req) => {
       return { entries: await providers.audit.query(req.filter ?? {}) };
+    },
+
+    agent_delegate: async (req, ctx) => {
+      // Enforce concurrency limit
+      if (activeDelegations >= maxConcurrent) {
+        return {
+          ok: false,
+          error: `Max concurrent delegations reached (${maxConcurrent})`,
+        };
+      }
+
+      // Extract and check delegation depth from context
+      const currentDepth = parseInt(ctx.agentId.split(':depth=')[1] ?? '0', 10);
+      if (currentDepth >= maxDepth) {
+        return {
+          ok: false,
+          error: `Max delegation depth reached (${maxDepth})`,
+        };
+      }
+
+      if (!opts?.onDelegate) {
+        return {
+          ok: false,
+          error: 'Delegation not configured on this host',
+        };
+      }
+
+      // Increment BEFORE any await to prevent race with concurrent calls
+      activeDelegations++;
+      try {
+        await providers.audit.log({
+          action: 'agent_delegate',
+          sessionId: ctx.sessionId,
+          args: { task: req.task.slice(0, 500), depth: currentDepth + 1 },
+        });
+
+        const childCtx: IPCContext = {
+          sessionId: ctx.sessionId,
+          agentId: `delegate-${ctx.agentId}:depth=${currentDepth + 1}`,
+        };
+        const response = await opts.onDelegate(req.task, req.context, childCtx);
+        return { response };
+      } finally {
+        activeDelegations--;
+      }
     },
   };
 

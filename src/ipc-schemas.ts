@@ -175,6 +175,16 @@ export const AuditQuerySchema = z.strictObject({
   }).optional(),
 });
 
+// ── Agent Delegation ────────────────────────────────
+
+export const AgentDelegateSchema = z.strictObject({
+  action: z.literal('agent_delegate'),
+  task: safeString(50_000),
+  context: safeString(100_000).optional(),
+  maxTokens: z.number().int().min(1).max(200_000).optional(),
+  timeoutSec: z.number().int().min(5).max(600).optional(),
+});
+
 // ═══════════════════════════════════════════════════════
 // Schema registry
 // ═══════════════════════════════════════════════════════
@@ -199,6 +209,7 @@ export const IPC_SCHEMAS: Record<string, z.ZodType> = {
   skill_list:             SkillListSchema,
   skill_propose:          SkillProposeSchema,
   audit_query:            AuditQuerySchema,
+  agent_delegate:         AgentDelegateSchema,
 };
 
 export const VALID_ACTIONS = Object.keys(IPC_SCHEMAS);
