@@ -33,15 +33,14 @@
 - [x] Task 1.7: Pi Agent Core Integration (Agent Loop + IPC Tools)
 - [x] Task 1.8: Cron Scheduler + ProactiveHint Bridge
 - [x] Task 1.8.1: Conversation History (Multi-Turn Support)
-- [ ] Task 1.9: Slack Channel
-- [ ] Task 1.10: Completions Gateway
-- [ ] Task 1.11: Git-Backed Skills
-- [ ] Task 1.12: Linux Sandbox Providers
-- [ ] Task 1.13: Phase 1 Integration Tests + Profile Config
+- [x] Task 1.9: Completions Gateway
+- [x] Task 1.10: Git-Backed Skills
+- [x] Task 1.11: Linux Sandbox Providers
+- [x] Task 1.12: Phase 1 Integration Tests + Profile Config
 
 ### Phase 2: Power User
 - [ ] Task 2.1: Pi Coding Agent Upgrade (Sessions + Compaction + Extensions)
-- [ ] Task 2.2: Messaging Channels (WhatsApp + Telegram + Discord)
+- [ ] Task 2.2: Slack Channel
 - [ ] Task 2.3: Web Search API
 - [ ] Task 2.4: Sandboxed Playwright Browser
 - [ ] Task 2.5: memU Memory Integration
@@ -689,19 +688,7 @@ Wire `MemoryProvider.onProactiveHint()` to scheduler. Confidence thresholds, coo
 
 ---
 
-### Task 1.9: Slack Channel
-
-**Files:**
-- Create: `src/providers/channel-slack.ts` (~100 LOC)
-- Create: `tests/providers/channel-slack.test.ts`
-
-Slack Bolt SDK with Socket Mode (no inbound HTTP — aligns with "no listening ports"). Handle DMs and mentions. Threading support. Session mapping from Slack user/channel IDs.
-
-**Commit:** "feat: Slack channel provider"
-
----
-
-### Task 1.10: Completions Gateway
+### Task 1.9: Completions Gateway
 
 **Files:**
 - Create: `src/completions.ts` (~200 LOC)
@@ -713,7 +700,7 @@ OpenAI-compatible `/v1/chat/completions`. Default: Unix socket. Optional: localh
 
 ---
 
-### Task 1.11: Git-Backed Skills
+### Task 1.10: Git-Backed Skills
 
 **Files:**
 - Create: `src/providers/skills-git.ts` (~500 LOC)
@@ -727,7 +714,7 @@ Proposal-review-commit with isomorphic-git. `propose()` writes to staging, valid
 
 ---
 
-### Task 1.12: Linux Sandbox Providers
+### Task 1.11: Linux Sandbox Providers
 
 **Files:**
 - Create: `src/providers/sandbox-nsjail.ts` (~100 LOC)
@@ -745,7 +732,7 @@ Escalation logic in host.ts: start in nsjail, escalate to Docker for heavy workl
 
 ---
 
-### Task 1.13: Phase 1 Integration Tests + Profile Config
+### Task 1.12: Phase 1 Integration Tests + Profile Config
 
 **Files:**
 - Create: `tests/integration/phase1.test.ts`
@@ -753,7 +740,7 @@ Escalation logic in host.ts: start in nsjail, escalate to Docker for heavy workl
 - Modify: `CLAUDE.md` — update with Phase 1 commands
 - Modify: `provider-map.ts` — register all new providers
 
-Wire `standard` profile: web fetch (blocklist mode), cron scheduler, proposal-review-commit skills, encrypted creds, pi-agent-core runner with IPC streamFn. Integration tests: taint budget enforcement end-to-end, Agent tool loop with IPC transport, scheduler pipeline, Slack message flow.
+Wire `standard` profile: web fetch (blocklist mode), cron scheduler, proposal-review-commit skills, encrypted creds, pi-agent-core runner with IPC streamFn. Integration tests: taint budget enforcement end-to-end, Agent tool loop with IPC transport, scheduler pipeline.
 
 **Commit:** "feat: standard profile configuration + Phase 1 integration tests"
 
@@ -771,18 +758,17 @@ Wire `standard` profile: web fetch (blocklist mode), cron scheduler, proposal-re
 | 1.6 Web Fetch + DNS Pinning | 100 | C |
 | 1.7 Pi Agent Core + IPC Tools | 340 | C |
 | 1.8 Full Scheduler | 250 | D (needs 1.3) |
-| 1.9 Slack Channel | 100 | C |
-| 1.10 Completions Gateway | 200 | C |
-| 1.11 Git-Backed Skills | 500 | D (needs 1.5) |
-| 1.12 Linux Sandboxes | 280 | C |
-| 1.13 Integration + Profile | 300 | E (capstone) |
-| **Total** | **~2,890** | |
+| 1.9 Completions Gateway | 200 | C |
+| 1.10 Git-Backed Skills | 500 | D (needs 1.5) |
+| 1.11 Linux Sandboxes | 280 | C |
+| 1.12 Integration + Profile | 300 | E (capstone) |
+| **Total** | **~2,790** | |
 
 ---
 
 ## Phase 2: Power User
 
-**Goal:** Full provider set — multi-channel (WhatsApp, Telegram, Discord), browser automation, memU knowledge graph, ML-based scanning, OS keychain, multi-LLM routing, Docker + gVisor sandbox, multi-agent delegation.
+**Goal:** Full provider set — Slack messaging, browser automation, memU knowledge graph, ML-based scanning, OS keychain, multi-LLM routing, Docker + gVisor sandbox, multi-agent delegation.
 
 ### Task 2.1: Pi Coding Agent Upgrade (Sessions + Compaction + Extensions)
 
@@ -807,14 +793,13 @@ Swap `new Agent(...)` from pi-agent-core for `createAgentSession(...)` from pi-c
 
 ---
 
-### Task 2.2: Messaging Channels (WhatsApp + Telegram + Discord)
+### Task 2.2: Slack Channel
 
 **Files:**
-- Create: `src/providers/channel-whatsapp.ts` (~80 LOC) — Baileys, QR pairing
-- Create: `src/providers/channel-telegram.ts` (~80 LOC) — long-polling (no webhook)
-- Create: `src/providers/channel-discord.ts` (~80 LOC) — Gateway WebSocket
+- Create: `src/providers/channel/slack.ts` (~100 LOC)
+- Create: `tests/providers/channel-slack.test.ts`
 
-All three: no inbound HTTP ports. Session mapping. Group handling. Rate limiting.
+Slack Bolt SDK with Socket Mode (no inbound HTTP — aligns with "no listening ports"). Handle DMs and mentions. Threading support. Session mapping from Slack user/channel IDs.
 
 ---
 
@@ -914,7 +899,7 @@ Verify architectural invariants still hold: no network in containers, credential
 | Task | Est. LOC |
 |------|----------|
 | 2.1 Pi Coding Agent Upgrade | 80 |
-| 2.2 WhatsApp + Telegram + Discord | 240 |
+| 2.2 Slack Channel | 100 |
 | 2.3 Web Search | 50 |
 | 2.4 Sandboxed Playwright | 250 |
 | 2.5 memU Memory | 200 |
@@ -923,7 +908,7 @@ Verify architectural invariants still hold: no network in containers, credential
 | 2.8 Docker + gVisor | 150 |
 | 2.9 Multi-Agent Delegation | 200 |
 | 2.10 Integration + Profile | 350 |
-| **Total** | **~1,810** |
+| **Total** | **~1,670** |
 
 ---
 
@@ -932,9 +917,9 @@ Verify architectural invariants still hold: no network in containers, credential
 | Phase | Source LOC | Test LOC | Combined |
 |-------|-----------|----------|----------|
 | Phase 0 (Paranoid MVP) | ~2,470 | ~700 | ~3,170 |
-| Phase 1 (Standard) | ~2,890 | ~1,000 | ~3,890 |
-| Phase 2 (Power User) | ~1,810 | ~770 | ~2,580 |
-| **Total** | **~6,910** | **~2,470** | **~9,380** |
+| Phase 1 (Standard) | ~2,790 | ~1,000 | ~3,790 |
+| Phase 2 (Power User) | ~1,670 | ~720 | ~2,390 |
+| **Total** | **~6,670** | **~2,420** | **~9,090** |
 
 ---
 
