@@ -10,9 +10,9 @@ We take security seriously. That's literally the whole point of this project.
 
 ## Reporting a Vulnerability
 
-Found something? First of all: thank you. Seriously. We built Sureclaw because we believe security matters, and responsible disclosure is a big part of that.
+Found something? First of all: thank you. Seriously. We built AX because we believe security matters, and responsible disclosure is a big part of that.
 
-Please report vulnerabilities via [GitHub Private Vulnerability Reporting](https://github.com/sureclaw/sureclaw/security/advisories/new).
+Please report vulnerabilities via [GitHub Private Vulnerability Reporting](https://github.com/ax/ax/security/advisories/new).
 
 **Do not open a public issue for security vulnerabilities.** We know it's tempting. Please don't. We need time to fix things before they're broadcast to the world.
 
@@ -35,7 +35,7 @@ If the vulnerability is accepted, we'll coordinate disclosure with you and credi
 
 ## Security Architecture
 
-Sureclaw was designed with the assumption that the AI agent is compromised. That's not pessimism — it's threat modeling. Here's how we keep things locked down:
+AX was designed with the assumption that the AI agent is compromised. That's not pessimism — it's threat modeling. Here's how we keep things locked down:
 
 - Agent containers have **no network access**. Not "restricted" access. No access.
 - Credentials **never enter containers**. API keys are injected server-side via the IPC proxy. The agent can use them, but it can never see them.
@@ -45,4 +45,4 @@ Sureclaw was designed with the assumption that the AI agent is compromised. That
 - All file paths from untrusted input go through **safePath** (SC-SEC-004). Path traversal attacks are a classic, and we've seen too many of them to leave this to chance.
 - IPC messages are validated with **strict Zod schemas** (SC-SEC-001). Unknown fields get rejected. Prototype pollution payloads get rejected. We validate everything before it touches a handler.
 
-For the full deep-dive, see `docs/plans/sureclaw-security-hardening-spec.md`.
+For the full deep-dive, see `docs/plans/ax-security-hardening-spec.md`.

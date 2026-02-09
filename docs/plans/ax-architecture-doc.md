@@ -1,4 +1,4 @@
-# Sureclaw: Architecture Document
+# AX: Architecture Document
 
 > **Purpose:** This is the implementation-level architecture reference for Claude Code. It describes every component, interface, data flow, and file location. Read the PRP first for context.
 
@@ -250,7 +250,7 @@ async function loadProvider(kind: string, name: string, config: Config) {
 ## 4. Configuration
 
 ```yaml
-# sureclaw.yaml
+# ax.yaml
 
 providers:
   llm: anthropic              # providers/llm/anthropic.ts
@@ -298,7 +298,7 @@ web:
 ## 5. File Structure
 
 ```
-sureclaw/
+ax/
 ├── src/
 │   ├── host.ts                        # Main loop, startup, shutdown (~200)
 │   ├── router.ts                      # Message routing + taint tracking (~150)
@@ -394,7 +394,7 @@ sureclaw/
 │   ├── audit/                         # Audit logs
 │   └── sessions/                      # Per-session workspaces
 │
-├── sureclaw.yaml                     # Main config
+├── ax.yaml                     # Main config
 ├── package.json
 └── tsconfig.json
 ```
@@ -436,7 +436,7 @@ The registry resolves providers via `PROVIDER_MAP[kind][name]`. Config `llm: ant
 ### 6.1 host.ts (~200 LOC)
 
 Main entry point. Responsibilities:
-- Parse config (`sureclaw.yaml`)
+- Parse config (`ax.yaml`)
 - Load providers via registry
 - Start channels (call `connect()` on each)
 - Start scheduler
@@ -497,7 +497,7 @@ const history = store.getHistory(sessionId); // [{role, content}, ...]
 ### 6.5 completions.ts (~200 LOC) [Stage 2]
 
 OpenAI-compatible `/v1/chat/completions` endpoint.
-- **Default: Unix socket** (`/run/sureclaw/completions.sock`)
+- **Default: Unix socket** (`/run/ax/completions.sock`)
 - Optional: localhost TCP with mandatory bearer token (opt-in, explicit config)
 - Requests flow through the same router → sandbox pipeline
 - Supports streaming (SSE)
@@ -614,7 +614,7 @@ Tools that route through IPC to host-side providers, also defined as `AgentTool`
 ### 9.1 nsjail (Linux Default)
 
 ```protobuf
-name: "sureclaw-agent"
+name: "ax-agent"
 mode: ONCE
 hostname: "AGENT"
 cwd: "/workspace"

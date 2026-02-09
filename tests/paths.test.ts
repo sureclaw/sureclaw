@@ -3,39 +3,39 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 describe('paths', () => {
-  const originalEnv = process.env.SURECLAW_HOME;
+  const originalEnv = process.env.AX_HOME;
 
   afterEach(() => {
     if (originalEnv !== undefined) {
-      process.env.SURECLAW_HOME = originalEnv;
+      process.env.AX_HOME = originalEnv;
     } else {
-      delete process.env.SURECLAW_HOME;
+      delete process.env.AX_HOME;
     }
   });
 
-  test('defaults to ~/.sureclaw', async () => {
-    delete process.env.SURECLAW_HOME;
-    const { sureclawHome, configPath, envPath, dataDir } = await import('../src/paths.js');
-    expect(sureclawHome()).toBe(join(homedir(), '.sureclaw'));
-    expect(configPath()).toBe(join(homedir(), '.sureclaw', 'sureclaw.yaml'));
-    expect(envPath()).toBe(join(homedir(), '.sureclaw', '.env'));
-    expect(dataDir()).toBe(join(homedir(), '.sureclaw', 'data'));
+  test('defaults to ~/.ax', async () => {
+    delete process.env.AX_HOME;
+    const { axHome, configPath, envPath, dataDir } = await import('../src/paths.js');
+    expect(axHome()).toBe(join(homedir(), '.ax'));
+    expect(configPath()).toBe(join(homedir(), '.ax', 'ax.yaml'));
+    expect(envPath()).toBe(join(homedir(), '.ax', '.env'));
+    expect(dataDir()).toBe(join(homedir(), '.ax', 'data'));
   });
 
-  test('respects SURECLAW_HOME env override', async () => {
-    process.env.SURECLAW_HOME = '/tmp/sc-test';
-    const { sureclawHome, configPath, dataDir } = await import('../src/paths.js');
-    expect(sureclawHome()).toBe('/tmp/sc-test');
-    expect(configPath()).toBe('/tmp/sc-test/sureclaw.yaml');
+  test('respects AX_HOME env override', async () => {
+    process.env.AX_HOME = '/tmp/sc-test';
+    const { axHome, configPath, dataDir } = await import('../src/paths.js');
+    expect(axHome()).toBe('/tmp/sc-test');
+    expect(configPath()).toBe('/tmp/sc-test/ax.yaml');
     expect(dataDir()).toBe('/tmp/sc-test/data');
   });
 
   test('dataFile resolves under data dir', async () => {
-    delete process.env.SURECLAW_HOME;
+    delete process.env.AX_HOME;
     const { dataFile } = await import('../src/paths.js');
-    expect(dataFile('memory.db')).toBe(join(homedir(), '.sureclaw', 'data', 'memory.db'));
+    expect(dataFile('memory.db')).toBe(join(homedir(), '.ax', 'data', 'memory.db'));
     expect(dataFile('audit', 'audit.jsonl')).toBe(
-      join(homedir(), '.sureclaw', 'data', 'audit', 'audit.jsonl'),
+      join(homedir(), '.ax', 'data', 'audit', 'audit.jsonl'),
     );
   });
 });

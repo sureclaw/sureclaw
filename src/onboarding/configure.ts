@@ -1,8 +1,8 @@
 /**
  * Interactive configure UI using @inquirer/prompts.
  *
- * Launched by `sureclaw configure` or auto-triggered on first run.
- * When reconfiguring, pre-fills answers from existing sureclaw.yaml.
+ * Launched by `ax configure` or auto-triggered on first run.
+ * When reconfiguring, pre-fills answers from existing ax.yaml.
  */
 
 import { select, input, checkbox, password, confirm } from '@inquirer/prompts';
@@ -49,7 +49,7 @@ export function buildInquirerDefaults(existing: OnboardingAnswers | null): Inqui
 /**
  * Run the interactive configure flow.
  *
- * @param outputDir - Directory to write config files to (defaults to sureclawHome())
+ * @param outputDir - Directory to write config files to (defaults to axHome())
  */
 export async function runConfigure(outputDir: string): Promise<void> {
   const existing = loadExistingConfig(outputDir);
@@ -82,7 +82,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
   const apiKey = apiKeyInput.trim() || defaults.apiKey || '';
 
   if (!apiKey) {
-    console.log('\nWarning: No API key provided. You can set it later in ~/.sureclaw/.env\n');
+    console.log('\nWarning: No API key provided. You can set it later in ~/.ax/.env\n');
   }
 
   // 3. Channel selection
@@ -124,7 +124,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
     answers: { profile, apiKey, channels, skipSkills, installSkills },
   });
 
-  console.log(`\n  Config written to ${outputDir}/sureclaw.yaml`);
+  console.log(`\n  Config written to ${outputDir}/ax.yaml`);
   console.log(`  API key written to ${outputDir}/.env`);
 
   if (!skipSkills && installSkills.length > 0) {

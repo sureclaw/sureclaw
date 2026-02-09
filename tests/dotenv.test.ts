@@ -13,7 +13,7 @@ describe('loadDotEnv', () => {
   beforeEach(() => {
     tmpDir = join(tmpdir(), `dotenv-${randomUUID()}`);
     mkdirSync(tmpDir, { recursive: true });
-    process.env.SURECLAW_HOME = tmpDir;
+    process.env.AX_HOME = tmpDir;
     // Save and clear test keys
     for (const key of testKeys) {
       savedEnv[key] = process.env[key];
@@ -30,7 +30,7 @@ describe('loadDotEnv', () => {
         delete process.env[key];
       }
     }
-    delete process.env.SURECLAW_HOME;
+    delete process.env.AX_HOME;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

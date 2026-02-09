@@ -7,7 +7,7 @@ import type {
  * Sandboxed Playwright browser provider.
  *
  * Runs Chromium via Playwright with:
- * - Domain allowlist via SURECLAW_BROWSER_ALLOWED_DOMAINS (comma-separated)
+ * - Domain allowlist via AX_BROWSER_ALLOWED_DOMAINS (comma-separated)
  * - No raw JS execution exposed to agent — structured commands only
  * - Session management with cleanup
  * - All content is external and should be taint-tagged at the IPC boundary
@@ -24,7 +24,7 @@ const INTERACTIVE_SELECTOR =
   'a, button, input, select, textarea, [role="button"], [role="link"]';
 
 function parseAllowedDomains(): Set<string> | null {
-  const raw = process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS;
+  const raw = process.env.AX_BROWSER_ALLOWED_DOMAINS;
   if (!raw) return null;
   return new Set(
     raw.split(',').map(d => d.trim().toLowerCase()).filter(Boolean),

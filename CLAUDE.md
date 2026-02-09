@@ -4,8 +4,8 @@ This file provides guidance to Claude Code when working with code in this reposi
 
 ## Repository
 
-- **Name:** sureclaw
-- **Remote:** git@github.com:sureclaw/sureclaw.git
+- **Name:** ax
+- **Remote:** git@github.com:ax/ax.git
 
 ## Build / Test / Lint Commands
 
@@ -13,13 +13,13 @@ This file provides guidance to Claude Code when working with code in this reposi
 npm run build     # TypeScript compilation (tsc)
 npm test          # Run all tests (vitest on Node.js)
 bun test          # Run all tests (Bun native runner)
-npm start         # Start Sureclaw (tsx src/host.ts)
+npm start         # Start AX (tsx src/host.ts)
 npm run test:fuzz # Run fuzz tests (vitest --run tests/ipc-fuzz.test.ts)
 ```
 
 ## Architecture Overview
 
-Sureclaw uses a **provider contract pattern**. Every subsystem is a TypeScript interface (`src/providers/types.ts`) with pluggable implementations. The host process (trusted) communicates with agent containers (untrusted) via IPC over Unix sockets.
+AX uses a **provider contract pattern**. Every subsystem is a TypeScript interface (`src/providers/types.ts`) with pluggable implementations. The host process (trusted) communicates with agent containers (untrusted) via IPC over Unix sockets.
 
 ### Key Patterns
 
@@ -39,9 +39,9 @@ Sureclaw uses a **provider contract pattern**. Every subsystem is a TypeScript i
 
 ### Reference Documents
 
-- `docs/plans/sureclaw-prp.md` — Project requirements, design philosophy
-- `docs/plans/sureclaw-architecture-doc.md` — Provider contracts, file structure, data flow
-- `docs/plans/sureclaw-security-hardening-spec.md` — SC-SEC-001/002/003/004 specifications
+- `docs/plans/ax-prp.md` — Project requirements, design philosophy
+- `docs/plans/ax-architecture-doc.md` — Provider contracts, file structure, data flow
+- `docs/plans/ax-security-hardening-spec.md` — SC-SEC-001/002/003/004 specifications
 
 ## Voice & Tone for User-Facing Content
 

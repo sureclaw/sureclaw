@@ -15,8 +15,8 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
-const TEST_CONFIG = resolve(import.meta.dirname, 'sureclaw-test.yaml');
-const SEATBELT_CONFIG = resolve(import.meta.dirname, 'sureclaw-test-seatbelt.yaml');
+const TEST_CONFIG = resolve(import.meta.dirname, 'ax-test.yaml');
+const SEATBELT_CONFIG = resolve(import.meta.dirname, 'ax-test-seatbelt.yaml');
 const IS_BUN = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
 const IS_MACOS = process.platform === 'darwin';
 
@@ -30,7 +30,7 @@ function startHost(configPath: string = TEST_CONFIG): ChildProcess {
   const cmd = IS_BUN ? 'bun' : 'npx';
   return spawn(cmd, args, {
     cwd: PROJECT_ROOT,
-    env: { ...process.env, NODE_NO_WARNINGS: '1', SURECLAW_HOME: smokeTestHome },
+    env: { ...process.env, NODE_NO_WARNINGS: '1', AX_HOME: smokeTestHome },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
@@ -106,7 +106,7 @@ describe('Smoke Test', () => {
 
     // Verify startup messages appear before the prompt
     expect(startupText.indexOf('[host] Loading config...')).toBeLessThan(startupText.indexOf('you> '));
-    expect(startupText.indexOf('[host] SureClaw is running.')).toBeLessThan(startupText.indexOf('you> '));
+    expect(startupText.indexOf('[host] AX is running.')).toBeLessThan(startupText.indexOf('you> '));
 
     // Send a message
     proc.stdin!.write('hello\n');
@@ -122,7 +122,7 @@ describe('Smoke Test', () => {
   test('host fails fast when LLM provider requires missing API key', async () => {
     // Start host with anthropic LLM (no API key set) — use the root config which uses anthropic
     const hostScript = resolve(PROJECT_ROOT, 'src/host.ts');
-    const configFile = resolve(PROJECT_ROOT, 'sureclaw.yaml');
+    const configFile = resolve(PROJECT_ROOT, 'ax.yaml');
     const cmd = IS_BUN ? 'bun' : 'npx';
     const args = IS_BUN
       ? ['run', hostScript, '--config', configFile]
@@ -132,7 +132,7 @@ describe('Smoke Test', () => {
       env: {
         ...process.env,
         NODE_NO_WARNINGS: '1',
-        SURECLAW_HOME: smokeTestHome,
+        AX_HOME: smokeTestHome,
         ANTHROPIC_API_KEY: '', // explicitly unset
       },
       stdio: ['pipe', 'pipe', 'pipe'],

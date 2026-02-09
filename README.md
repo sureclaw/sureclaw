@@ -61,7 +61,7 @@ This is the dial. You pick where you want to be:
 
 The taint threshold controls when we pause to ask before doing something sensitive (like sending an email) based on how much external content is in the conversation. Higher threshold = more autonomy. All three profiles keep the architectural invariants intact — the agent never gets network access or raw credentials, no matter what.
 
-We default to Paranoid not because we think you need it, but because we think defaults should be safe. Upgrading to Standard or Power User is one line in `sureclaw.yaml`.
+We default to Paranoid not because we think you need it, but because we think defaults should be safe. Upgrading to Standard or Power User is one line in `ax.yaml`.
 
 ## Quick Start
 
@@ -72,7 +72,7 @@ npm install
 # Set your API key (don't worry, it never enters the sandbox)
 export ANTHROPIC_API_KEY=your-key-here
 
-# Run Sureclaw
+# Run AX
 npm start
 
 # Run tests
@@ -81,17 +81,17 @@ npm test
 
 ## Configuration
 
-Edit `sureclaw.yaml` to configure providers, security profile, and sandbox settings. The defaults are conservative — we'd rather you opt into power than accidentally leave the door open. But opting in is easy, and we won't judge.
+Edit `ax.yaml` to configure providers, security profile, and sandbox settings. The defaults are conservative — we'd rather you opt into power than accidentally leave the door open. But opting in is easy, and we won't judge.
 
-See the [architecture doc](docs/plans/sureclaw-architecture-doc.md) for the full details.
+See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details.
 
 ## Contributing
 
 We'd love your help. Before diving in, please read through these so we're all on the same page:
 
-1. Read the [PRP](docs/plans/sureclaw-prp.md) for our design philosophy (the "why")
-2. Read the [architecture doc](docs/plans/sureclaw-architecture-doc.md) for implementation details (the "how")
-3. Read the [security spec](docs/plans/sureclaw-security-hardening-spec.md) for security requirements (the "or else")
+1. Read the [PRP](docs/plans/ax-prp.md) for our design philosophy (the "why")
+2. Read the [architecture doc](docs/plans/ax-architecture-doc.md) for implementation details (the "how")
+3. Read the [security spec](docs/plans/ax-security-hardening-spec.md) for security requirements (the "or else")
 4. All provider paths use flat naming: `src/providers/llm-anthropic.ts` — no subdirectories
 5. All file path construction must use `safePath()` from `src/utils/safe-path.ts` — no raw `path.join()` with untrusted input
 6. All IPC actions must have Zod schemas with `.strict()` mode — no unknown fields sneaking through

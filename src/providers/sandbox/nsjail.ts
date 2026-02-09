@@ -57,9 +57,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // Minimal env
         '--env', `PATH=${process.env.PATH ?? '/usr/bin:/usr/local/bin'}`,
         '--env', `HOME=${config.workspace}`,
-        '--env', `SURECLAW_IPC_SOCKET=${config.ipcSocket}`,
-        '--env', `SURECLAW_WORKSPACE=${config.workspace}`,
-        '--env', `SURECLAW_SKILLS=${config.skills}`,
+        '--env', `AX_IPC_SOCKET=${config.ipcSocket}`,
+        '--env', `AX_WORKSPACE=${config.workspace}`,
+        '--env', `AX_SKILLS=${config.skills}`,
 
         // Command
         '--', cmd, ...args,

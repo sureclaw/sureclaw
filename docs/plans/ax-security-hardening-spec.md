@@ -1,13 +1,13 @@
-# Sureclaw Security Hardening — Implementation Spec
+# AX Security Hardening — Implementation Spec
 
 > **Purpose**: This document is an implementation specification for Claude Code. It covers
-> four security findings (1 CRITICAL, 3 HIGH) from the Sureclaw independent security review.
+> four security findings (1 CRITICAL, 3 HIGH) from the AX independent security review.
 > Follow the implementation order below. Each section is self-contained with exact file paths,
 > types, logic, tests, and acceptance criteria.
 >
-> **Context**: Sureclaw is a plugin/provider-based personal AI agent architecture. No code
+> **Context**: AX is a plugin/provider-based personal AI agent architecture. No code
 > exists yet — this spec should be implemented alongside the Stage 0 walking skeleton. The
-> architecture doc is in `sureclaw-modular-architecture.md`. The project uses TypeScript,
+> architecture doc is in `ax-modular-architecture.md`. The project uses TypeScript,
 > Node.js, and Zod for runtime validation.
 >
 > **Implementation Order** (dependencies flow downward):
@@ -39,7 +39,7 @@ Zod is chosen over Ajv/io-ts because:
 ## 1. SC-SEC-002: Provider Loading Allowlist
 
 **Finding**: `registry.ts` uses `import(\`./providers/${kind}-${name}\`)` with values from
-`sureclaw.yaml`. Path traversal or config manipulation → arbitrary code execution on host.
+`ax.yaml`. Path traversal or config manipulation → arbitrary code execution on host.
 
 **Fix**: Replace dynamic path construction with a hardcoded static map.
 
@@ -53,7 +53,7 @@ Zod is chosen over Ajv/io-ts because:
  * Adding a new provider requires adding a line here. No dynamic path
  * construction from config values is permitted anywhere in the codebase.
  *
- * The keys are the (kind, name) pairs from sureclaw.yaml.
+ * The keys are the (kind, name) pairs from ax.yaml.
  * The values are the import paths relative to this file's location.
  */
 
@@ -219,7 +219,7 @@ describe('Provider allowlist', () => {
 - [ ] `loadProvider` no longer constructs import paths from string interpolation
 - [ ] `resolveProviderPath` throws for any (kind, name) pair not in the static map
 - [ ] Path traversal payloads (`../`, `..\\`, etc.) in config values cause a clear error, not a load attempt
-- [ ] All existing provider references in `sureclaw.yaml` examples resolve correctly
+- [ ] All existing provider references in `ax.yaml` examples resolve correctly
 - [ ] Tests pass
 
 ---
@@ -1440,7 +1440,7 @@ taint block, contains affirmative language), the router calls `addUserOverride`.
 **Important**: The override is per-session and per-action. It does not carry across sessions
 or apply to other actions. The user must confirm each sensitive action type independently.
 
-### Config: `sureclaw.yaml` (ADD)
+### Config: `ax.yaml` (ADD)
 
 ```yaml
 # Security profile: paranoid | standard | power_user
@@ -1638,7 +1638,7 @@ describe('TaintBudget', () => {
 | `src/host.ts` | Wire TaintBudget into IPC handler and router |
 | `src/providers/memory-file.ts` | Replace path construction with `safePath()` |
 | `src/providers/skills-readonly.ts` | Replace path construction with `safePath()` |
-| `sureclaw.yaml` | Add `securityProfile` config option |
+| `ax.yaml` | Add `securityProfile` config option |
 
 ### CI Integration
 

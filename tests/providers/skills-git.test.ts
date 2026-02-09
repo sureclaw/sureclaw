@@ -29,7 +29,7 @@ function mockConfig(): Config {
 }
 
 beforeEach(async () => {
-  testDir = join(tmpdir(), `sureclaw-skills-git-test-${randomUUID()}`);
+  testDir = join(tmpdir(), `ax-skills-git-test-${randomUUID()}`);
   mkdirSync(testDir, { recursive: true });
   originalCwd = process.cwd();
   process.chdir(testDir);

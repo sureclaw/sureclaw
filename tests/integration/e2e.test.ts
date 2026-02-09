@@ -152,7 +152,7 @@ describe('E2E Integration', () => {
   let testProviders: ReturnType<typeof createTestProviders>;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'sureclaw-e2e-'));
+    tmpDir = mkdtempSync(join(tmpdir(), 'ax-e2e-'));
     db = new MessageQueue(':memory:');
     testProviders = createTestProviders(tmpDir);
     router = createRouter(testProviders.providers, db);

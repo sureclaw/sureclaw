@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add ClawHub skill compatibility, skill security screening, and a security officer agent to position Sureclaw as the secure alternative to OpenClaw.
+**Goal:** Add ClawHub skill compatibility, skill security screening, and a security officer agent to position AX as the secure alternative to OpenClaw.
 
 **Architecture:** Three new subsystems integrated via the existing provider pattern. SkillScreenerProvider gates skill persistence. ClawHub skills are parsed, screened, and installed locally via the git skill provider. Security officer runs host-side with access to audit logs.
 
@@ -760,7 +760,7 @@ print("world")
     expect(skill.body).toContain('# Body');
   });
 
-  test('maps OpenClaw permissions to sureclaw flags', () => {
+  test('maps OpenClaw permissions to ax flags', () => {
     expect(mapPermissions(['shell'])).toContain('shell-exec');
     expect(mapPermissions(['network'])).toContain('network-access');
     expect(mapPermissions(['memory-read'])).toContain('memory-read');
@@ -788,7 +788,7 @@ Expected: FAIL (module not found)
  *
  * Format: YAML frontmatter (---delimited) + markdown body.
  * Extracts metadata, code blocks, and maps OpenClaw permissions
- * to sureclaw capability flags.
+ * to ax capability flags.
  */
 
 import { parse as parseYaml } from 'yaml';
@@ -1385,11 +1385,11 @@ export async function create(config: Config, deps?: ClawHubDeps): Promise<SkillS
       }
     }
 
-    // Convert to sureclaw format and propose via git
-    const sureclawContent = formatAsSureclaw(parsed);
+    // Convert to ax format and propose via git
+    const axContent = formatAsAX(parsed);
     return gitProvider.propose({
       skill: parsed.name || name,
-      content: sureclawContent,
+      content: axContent,
       reason: `Imported from ClawHub (author: ${parsed.author}, version: ${parsed.version})`,
     });
   }
@@ -1418,7 +1418,7 @@ export async function create(config: Config, deps?: ClawHubDeps): Promise<SkillS
   };
 }
 
-function formatAsSureclaw(skill: ReturnType<typeof parseClawHubSkill>): string {
+function formatAsAX(skill: ReturnType<typeof parseClawHubSkill>): string {
   const lines = [
     `# ${skill.name || 'Untitled Skill'}`,
     '',
@@ -2181,9 +2181,9 @@ git commit -m "feat: integrate security officer with scheduler cron jobs"
 
 **Files:**
 - Create: `tests/integration/phase3.test.ts`
-- Create: `tests/integration/sureclaw-test-phase3.yaml`
+- Create: `tests/integration/ax-test-phase3.yaml`
 
-**Step 1: Create test config `tests/integration/sureclaw-test-phase3.yaml`**
+**Step 1: Create test config `tests/integration/ax-test-phase3.yaml`**
 
 ```yaml
 profile: standard
@@ -2271,12 +2271,12 @@ describe('Phase 3 Integration', () => {
   // ── Config schema accepts Phase 3 additions ──
 
   test('config accepts optional skillScreener', () => {
-    const config = loadConfig(resolve(import.meta.dirname, 'sureclaw-test-phase3.yaml'));
+    const config = loadConfig(resolve(import.meta.dirname, 'ax-test-phase3.yaml'));
     expect(config.providers.skillScreener).toBe('static');
   });
 
   test('config accepts optional security_officer', () => {
-    const config = loadConfig(resolve(import.meta.dirname, 'sureclaw-test-phase3.yaml'));
+    const config = loadConfig(resolve(import.meta.dirname, 'ax-test-phase3.yaml'));
     expect(config.security_officer?.sensitivity).toBe('medium');
   });
 
@@ -2386,7 +2386,7 @@ Expected: All pass
 **Step 4: Commit**
 
 ```bash
-git add tests/integration/phase3.test.ts tests/integration/sureclaw-test-phase3.yaml
+git add tests/integration/phase3.test.ts tests/integration/ax-test-phase3.yaml
 git commit -m "test: add Phase 3 integration tests"
 ```
 

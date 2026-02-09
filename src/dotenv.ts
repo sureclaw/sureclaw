@@ -1,7 +1,7 @@
 /**
- * Minimal .env loader for SureClaw.
+ * Minimal .env loader for AX.
  *
- * Reads key=value pairs from ~/.sureclaw/.env into process.env.
+ * Reads key=value pairs from ~/.ax/.env into process.env.
  * Safe to call multiple times — skips keys already set in the environment.
  */
 

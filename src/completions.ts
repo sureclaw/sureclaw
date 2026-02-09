@@ -177,7 +177,7 @@ export function createCompletionsGateway(
 
     let workspace = '';
     try {
-      workspace = mkdtempSync(join(tmpdir(), 'sureclaw-ws-'));
+      workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       const skillsDir = resolve('skills');
 
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
@@ -389,7 +389,7 @@ export function createCompletionsGateway(
           id: modelId,
           object: 'model',
           created: Math.floor(Date.now() / 1000),
-          owned_by: 'sureclaw',
+          owned_by: 'ax',
         }],
       });
       res.writeHead(200, {

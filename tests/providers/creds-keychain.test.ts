@@ -7,21 +7,21 @@ const config = {
 } as unknown as Config;
 
 describe('creds-keychain', () => {
-  const originalPassphrase = process.env.SURECLAW_CREDS_PASSPHRASE;
+  const originalPassphrase = process.env.AX_CREDS_PASSPHRASE;
 
   afterEach(() => {
     if (originalPassphrase !== undefined) {
-      process.env.SURECLAW_CREDS_PASSPHRASE = originalPassphrase;
+      process.env.AX_CREDS_PASSPHRASE = originalPassphrase;
     } else {
-      delete process.env.SURECLAW_CREDS_PASSPHRASE;
+      delete process.env.AX_CREDS_PASSPHRASE;
     }
   });
 
   test('falls back to encrypted provider when keytar unavailable', async () => {
     // keytar is not installed in test env — should fall back
-    // The fallback requires SURECLAW_CREDS_PASSPHRASE
-    process.env.SURECLAW_CREDS_PASSPHRASE = 'test-passphrase';
-    process.env.SURECLAW_CREDS_STORE_PATH = '/tmp/sureclaw-keychain-test.enc';
+    // The fallback requires AX_CREDS_PASSPHRASE
+    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
+    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-test.enc';
 
     const { create } = await import('../../src/providers/credentials/keychain.js');
     const provider = await create(config);
@@ -35,13 +35,13 @@ describe('creds-keychain', () => {
     // Clean up
     try {
       const { unlinkSync } = await import('node:fs');
-      unlinkSync('/tmp/sureclaw-keychain-test.enc');
+      unlinkSync('/tmp/ax-keychain-test.enc');
     } catch { /* file may not exist */ }
   });
 
   test('fallback provider can get/set/delete', async () => {
-    process.env.SURECLAW_CREDS_PASSPHRASE = 'test-passphrase';
-    process.env.SURECLAW_CREDS_STORE_PATH = '/tmp/sureclaw-keychain-crud.enc';
+    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
+    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-crud.enc';
 
     const { create } = await import('../../src/providers/credentials/keychain.js');
     const provider = await create(config);
@@ -63,7 +63,7 @@ describe('creds-keychain', () => {
     // Clean up
     try {
       const { unlinkSync } = await import('node:fs');
-      unlinkSync('/tmp/sureclaw-keychain-crud.enc');
+      unlinkSync('/tmp/ax-keychain-crud.enc');
     } catch { /* file may not exist */ }
   });
 

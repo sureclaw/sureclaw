@@ -13,35 +13,35 @@ describe('creds-encrypted', () => {
   let creds: CredentialProvider;
   let testDir: string;
   let storePath: string;
-  const originalEnv = process.env.SURECLAW_CREDS_PASSPHRASE;
-  const originalStorePath = process.env.SURECLAW_CREDS_STORE_PATH;
+  const originalEnv = process.env.AX_CREDS_PASSPHRASE;
+  const originalStorePath = process.env.AX_CREDS_STORE_PATH;
 
   beforeEach(async () => {
-    testDir = join(tmpdir(), `sureclaw-creds-test-${randomUUID()}`);
+    testDir = join(tmpdir(), `ax-creds-test-${randomUUID()}`);
     mkdirSync(testDir, { recursive: true });
     storePath = join(testDir, 'credentials.enc');
-    process.env.SURECLAW_CREDS_STORE_PATH = storePath;
-    process.env.SURECLAW_CREDS_PASSPHRASE = PASSPHRASE;
+    process.env.AX_CREDS_STORE_PATH = storePath;
+    process.env.AX_CREDS_PASSPHRASE = PASSPHRASE;
     creds = await create(config);
   });
 
   afterEach(() => {
     try { rmSync(testDir, { recursive: true }); } catch {}
     if (originalEnv !== undefined) {
-      process.env.SURECLAW_CREDS_PASSPHRASE = originalEnv;
+      process.env.AX_CREDS_PASSPHRASE = originalEnv;
     } else {
-      delete process.env.SURECLAW_CREDS_PASSPHRASE;
+      delete process.env.AX_CREDS_PASSPHRASE;
     }
     if (originalStorePath !== undefined) {
-      process.env.SURECLAW_CREDS_STORE_PATH = originalStorePath;
+      process.env.AX_CREDS_STORE_PATH = originalStorePath;
     } else {
-      delete process.env.SURECLAW_CREDS_STORE_PATH;
+      delete process.env.AX_CREDS_STORE_PATH;
     }
   });
 
   test('throws without passphrase env var', async () => {
-    delete process.env.SURECLAW_CREDS_PASSPHRASE;
-    await expect(create(config)).rejects.toThrow('SURECLAW_CREDS_PASSPHRASE');
+    delete process.env.AX_CREDS_PASSPHRASE;
+    await expect(create(config)).rejects.toThrow('AX_CREDS_PASSPHRASE');
   });
 
   test('set and get a credential', async () => {
@@ -83,7 +83,7 @@ describe('creds-encrypted', () => {
     await creds.set('SECRET', 'value');
 
     // Change passphrase
-    process.env.SURECLAW_CREDS_PASSPHRASE = 'wrong-passphrase';
+    process.env.AX_CREDS_PASSPHRASE = 'wrong-passphrase';
     const creds2 = await create(config);
 
     // Should fail to decrypt — returns empty store or throws

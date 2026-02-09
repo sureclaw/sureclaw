@@ -3,8 +3,8 @@ import { loadConfig } from '../src/config.js';
 import { resolve } from 'node:path';
 
 describe('Config parser', () => {
-  test('loads and validates sureclaw.yaml', () => {
-    const config = loadConfig(resolve(import.meta.dirname, '../sureclaw.yaml'));
+  test('loads and validates ax.yaml', () => {
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
     expect(config.profile).toBe('paranoid');
     expect(config.providers.llm).toBe('anthropic');
     expect(config.providers.channels).toEqual(['cli']);
@@ -18,13 +18,13 @@ describe('Config parser', () => {
 
   test('throws on invalid profile', () => {
     // We test via a known-good file, so this is just verifying schema enforcement
-    const config = loadConfig(resolve(import.meta.dirname, '../sureclaw.yaml'));
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
     expect(['paranoid', 'standard', 'power_user']).toContain(config.profile);
   });
 
   test('accepts config with optional skillScreener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../sureclaw-test-screener.yaml');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
     writeFileSync(tmpPath, `
 profile: standard
 providers:

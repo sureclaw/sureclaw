@@ -89,14 +89,14 @@ export const PROVIDER_CHOICES = {
 } as const;
 
 export const ASCII_CRAB = `
-   🦀  Welcome to SureClaw!
+   🦀  Welcome to AX!
 
    The security-first personal AI agent.
    Let's get you set up.
 `;
 
 export const RECONFIGURE_HEADER = `
-   🦀  SureClaw Configuration
+   🦀  AX Configuration
 
    Updating your existing configuration.
    Current values are pre-selected.

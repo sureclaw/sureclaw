@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { configPath as getConfigPath, sureclawHome, dataDir, dataFile } from './paths.js';
+import { configPath as getConfigPath, axHome, dataDir, dataFile } from './paths.js';
 import { loadConfig } from './config.js';
 import { loadDotEnv } from './dotenv.js';
 
@@ -42,22 +42,22 @@ function parseHostArgs(): { configPath?: string; command?: string } {
 async function main(): Promise<void> {
   const { configPath: configPathArg, command } = parseHostArgs();
 
-  // Handle `sureclaw configure` command
+  // Handle `ax configure` command
   if (command === 'configure') {
     const { runConfigure } = await import('./onboarding/configure.js');
-    await runConfigure(sureclawHome());
+    await runConfigure(axHome());
     return;
   }
 
   // First-run detection: if no config file exists, run configure
   const resolvedConfigPath = configPathArg ?? getConfigPath();
   if (!existsSync(resolvedConfigPath)) {
-    console.log('[host] No sureclaw.yaml found — running first-time setup...\n');
+    console.log('[host] No ax.yaml found — running first-time setup...\n');
     const { runConfigure } = await import('./onboarding/configure.js');
-    await runConfigure(sureclawHome());
+    await runConfigure(axHome());
     // Re-load .env since it was just created by the wizard
     loadDotEnv();
-    console.log('[host] Setup complete! Starting SureClaw...\n');
+    console.log('[host] Setup complete! Starting AX...\n');
   }
 
   // Step 1: Load config
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const handleIPC = createIPCHandler(providers, { taintBudget });
 
   // Step 4: IPC socket server
-  const socketDir = mkdtempSync(join(tmpdir(), 'sureclaw-'));
+  const socketDir = mkdtempSync(join(tmpdir(), 'ax-'));
   const socketPath = join(socketDir, 'proxy.sock');
   const defaultCtx = { sessionId: 'host', agentId: 'system' };
   const ipcServer = createIPCServer(socketPath, handleIPC, defaultCtx);
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
     let workspace = '';
     try {
       // Create temporary workspace
-      workspace = mkdtempSync(join(tmpdir(), 'sureclaw-ws-'));
+      workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       const skillsDir = resolve('skills');
 
       // Write the message content to workspace for the agent
@@ -259,7 +259,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
   // Step 10: Print ready message, THEN connect channels (so prompt appears last)
-  console.log('[host] SureClaw is running.');
+  console.log('[host] AX is running.');
 
   for (const channel of providers.channels) {
     channel.onMessage(handleMessage);

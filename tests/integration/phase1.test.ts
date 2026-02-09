@@ -27,7 +27,7 @@ import type {
 } from '../../src/providers/types.js';
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
-const STANDARD_CONFIG = resolve(import.meta.dirname, 'sureclaw-test-standard.yaml');
+const STANDARD_CONFIG = resolve(import.meta.dirname, 'ax-test-standard.yaml');
 
 // ═══════════════════════════════════════════════════════
 // Test helpers
@@ -146,7 +146,7 @@ function mockProviders(opts?: {
 }
 
 beforeEach(() => {
-  testDataDir = join(tmpdir(), `sureclaw-phase1-test-${randomUUID()}`);
+  testDataDir = join(tmpdir(), `ax-phase1-test-${randomUUID()}`);
   mkdirSync(testDataDir, { recursive: true });
 });
 
@@ -429,10 +429,10 @@ describe('Standard Profile Config', () => {
     const { loadProviders } = await import('../../src/registry.js');
     const config = loadConfig(STANDARD_CONFIG);
 
-    // Set SURECLAW_HOME to a temp dir so SQLite providers don't write to project root
+    // Set AX_HOME to a temp dir so SQLite providers don't write to project root
     const providerTestDir = join(tmpdir(), `sc-phase1-prov-${randomUUID()}`);
     mkdirSync(providerTestDir, { recursive: true });
-    process.env.SURECLAW_HOME = providerTestDir;
+    process.env.AX_HOME = providerTestDir;
 
     try {
       const providers = await loadProviders(config);
@@ -443,7 +443,7 @@ describe('Standard Profile Config', () => {
       expect(providers.memory).toBeDefined();
       expect(providers.audit).toBeDefined();
     } finally {
-      delete process.env.SURECLAW_HOME;
+      delete process.env.AX_HOME;
       try { rmSync(providerTestDir, { recursive: true, force: true }); } catch {}
     }
   });

@@ -1,4 +1,4 @@
-/* Kafel seccomp-bpf policy for sureclaw agent (nsjail).
+/* Kafel seccomp-bpf policy for ax agent (nsjail).
  *
  * Allows filesystem, process, memory, and IPC operations.
  * Blocks network syscalls (socket, connect, bind, etc.).

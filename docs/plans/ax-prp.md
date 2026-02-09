@@ -1,16 +1,16 @@
-# Sureclaw: Project Requirements Plan (PRP)
+# AX: Project Requirements Plan (PRP)
 
-> **Purpose:** This document is the single source of truth for what Sureclaw is, why it exists, and what it requires. It is intended to be read by Claude Code before any implementation work begins.
+> **Purpose:** This document is the single source of truth for what AX is, why it exists, and what it requires. It is intended to be read by Claude Code before any implementation work begins.
 
 ---
 
-## 1. What Is Sureclaw?
+## 1. What Is AX?
 
-Sureclaw is a **security-first personal AI agent** that lets you message an AI assistant (via WhatsApp, Telegram, CLI, etc.) and have it take actions on your behalf — read emails, fetch web pages, control a browser, manage your calendar, remember your preferences — while being **dramatically safer** than existing alternatives.
+AX is a **security-first personal AI agent** that lets you message an AI assistant (via WhatsApp, Telegram, CLI, etc.) and have it take actions on your behalf — read emails, fetch web pages, control a browser, manage your calendar, remember your preferences — while being **dramatically safer** than existing alternatives.
 
 It is a direct response to the security catastrophe of **OpenClaw** (~173,000 LOC, 52+ modules, 42,665 exposed instances on Shodan, CVE-2026-25253 RCE, 341 malicious marketplace skills) and the limitations of **NanoClaw** (~500 LOC, secure but locked to a single vendor and channel).
 
-Sureclaw threads the needle: **small enough to audit in a day, secure by default at the kernel level, model-agnostic, and extensible without the supply chain nightmare.**
+AX threads the needle: **small enough to audit in a day, secure by default at the kernel level, model-agnostic, and extensible without the supply chain nightmare.**
 
 ---
 
@@ -132,7 +132,7 @@ Key crossings: User→Agent (router+scanner), Agent→LLM (credential proxy), Ag
 
 ### 5.4 Known Residual Risks
 
-- **Prompt injection is fundamentally unsolved.** Taint tags + scanners reduce blast radius but can't prevent a sufficiently clever injection. Sureclaw's contribution is making the blast radius dramatically smaller.
+- **Prompt injection is fundamentally unsolved.** Taint tags + scanners reduce blast radius but can't prevent a sufficiently clever injection. AX's contribution is making the blast radius dramatically smaller.
 - **Taint tag compliance is voluntary.** LLMs follow instructions statistically, not structurally.
 - **Host process is single point of trust.** ~4,150 LOC is auditable but not formally verified.
 - **Container runtime is a trust assumption.** gVisor/nsjail escape CVEs are rare but documented.
@@ -210,7 +210,7 @@ Skills follow a **proposal-review-commit** pattern (like code changes in a produ
 | Sandbox (Linux) | nsjail (default), Docker+gVisor (escalation) | nsjail: ~5ms start, ~1MB. gVisor: full OCI support. |
 | Sandbox (macOS) | Seatbelt (`sandbox-exec`) | Zero-dep macOS sandbox. Weaker isolation than nsjail but sufficient for local dev. |
 | Database | SQLite (better-sqlite3) | Embedded, zero-config, used for message queue, memory, audit. |
-| Config | YAML (sureclaw.yaml) | Human-readable, well-supported. |
+| Config | YAML (ax.yaml) | Human-readable, well-supported. |
 | IPC | Unix domain socket | Host→container communication. No network needed. |
 | Skills version control | git (isomorphic-git) | Proposal-review-commit with full history. |
 

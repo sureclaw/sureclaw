@@ -1,4 +1,4 @@
-# Sureclaw agent container image
+# AX agent container image
 #
 # Runs the agent inside Docker with no network access.
 # Host spawns this with --network=none and volume mounts
@@ -13,7 +13,7 @@ RUN npm install -g tsx
 RUN groupadd -r agent && useradd -r -g agent -m agent
 
 # Copy project files (node_modules + compiled source)
-WORKDIR /opt/sureclaw
+WORKDIR /opt/ax
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 

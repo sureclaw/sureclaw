@@ -27,7 +27,7 @@ import type {
   ConversationTurn,
 } from '../../src/providers/types.js';
 
-const POWER_CONFIG = resolve(import.meta.dirname, 'sureclaw-test-power.yaml');
+const POWER_CONFIG = resolve(import.meta.dirname, 'ax-test-power.yaml');
 
 // ═══════════════════════════════════════════════════════
 // Test helpers
@@ -150,7 +150,7 @@ function mockProviders(opts?: {
 const defaultCtx: IPCContext = { sessionId: 'test-session', agentId: 'primary' };
 
 beforeEach(() => {
-  testDataDir = join(tmpdir(), `sureclaw-phase2-test-${randomUUID()}`);
+  testDataDir = join(tmpdir(), `ax-phase2-test-${randomUUID()}`);
   mkdirSync(testDataDir, { recursive: true });
 });
 

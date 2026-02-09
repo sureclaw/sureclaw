@@ -4,13 +4,13 @@ import type { Config } from '../../src/providers/types.js';
 const config = {} as Config;
 
 describe('browser-container', () => {
-  const originalDomains = process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS;
+  const originalDomains = process.env.AX_BROWSER_ALLOWED_DOMAINS;
 
   afterEach(() => {
     if (originalDomains !== undefined) {
-      process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS = originalDomains;
+      process.env.AX_BROWSER_ALLOWED_DOMAINS = originalDomains;
     } else {
-      delete process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS;
+      delete process.env.AX_BROWSER_ALLOWED_DOMAINS;
     }
   });
 
@@ -38,7 +38,7 @@ describe('browser-container', () => {
   test('domain allowlist parsing from env var', async () => {
     // Test the domain allowlist logic by importing the module internals
     // We test via the public interface — navigate should reject non-allowed domains
-    process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS = 'example.com,test.org';
+    process.env.AX_BROWSER_ALLOWED_DOMAINS = 'example.com,test.org';
 
     try {
       const { create } = await import('../../src/providers/browser/container.js');
@@ -63,7 +63,7 @@ describe('browser-container', () => {
   });
 
   test('rejects non-http protocols', async () => {
-    delete process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS;
+    delete process.env.AX_BROWSER_ALLOWED_DOMAINS;
 
     try {
       const { create } = await import('../../src/providers/browser/container.js');
@@ -129,7 +129,7 @@ describe('browser-container', () => {
   });
 
   test('allows all domains when no allowlist set', async () => {
-    delete process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS;
+    delete process.env.AX_BROWSER_ALLOWED_DOMAINS;
 
     try {
       const { create } = await import('../../src/providers/browser/container.js');
@@ -155,7 +155,7 @@ describe('browser-container', () => {
   });
 
   test('subdomain matching works with allowlist', async () => {
-    process.env.SURECLAW_BROWSER_ALLOWED_DOMAINS = 'example.com';
+    process.env.AX_BROWSER_ALLOWED_DOMAINS = 'example.com';
 
     try {
       const { create } = await import('../../src/providers/browser/container.js');

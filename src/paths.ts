@@ -1,12 +1,12 @@
 /**
- * Centralized path resolution for SureClaw.
+ * Centralized path resolution for AX.
  *
- * All config and data files live under ~/.sureclaw/ by default.
- * Override with SURECLAW_HOME env var (useful for tests).
+ * All config and data files live under ~/.ax/ by default.
+ * Override with AX_HOME env var (useful for tests).
  *
  * Layout:
- *   ~/.sureclaw/
- *     sureclaw.yaml     — main config
+ *   ~/.ax/
+ *     ax.yaml     — main config
  *     .env              — API keys
  *     data/
  *       messages.db     — message queue
@@ -21,24 +21,24 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-/** Root directory for all SureClaw files. */
-export function sureclawHome(): string {
-  return process.env.SURECLAW_HOME || join(homedir(), '.sureclaw');
+/** Root directory for all AX files. */
+export function axHome(): string {
+  return process.env.AX_HOME || join(homedir(), '.ax');
 }
 
-/** Path to sureclaw.yaml config file. */
+/** Path to ax.yaml config file. */
 export function configPath(): string {
-  return join(sureclawHome(), 'sureclaw.yaml');
+  return join(axHome(), 'ax.yaml');
 }
 
 /** Path to .env file. */
 export function envPath(): string {
-  return join(sureclawHome(), '.env');
+  return join(axHome(), '.env');
 }
 
 /** Path to the data subdirectory. */
 export function dataDir(): string {
-  return join(sureclawHome(), 'data');
+  return join(axHome(), 'data');
 }
 
 /** Resolve a file path under the data directory. */

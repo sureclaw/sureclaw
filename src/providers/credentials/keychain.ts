@@ -11,10 +11,10 @@ import type { CredentialProvider, Config } from '../types.js';
  * Backed by `keytar` npm package (optional dependency).
  * Falls back to encrypted file provider if keytar is unavailable.
  *
- * All credentials stored under "sureclaw" service name.
+ * All credentials stored under "ax" service name.
  */
 
-const SERVICE_NAME = 'sureclaw';
+const SERVICE_NAME = 'ax';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 interface KeytarModule {

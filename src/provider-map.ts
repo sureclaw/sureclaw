@@ -5,7 +5,7 @@
  * module paths. Adding a new provider requires adding a line here. No dynamic
  * path construction from config values is permitted anywhere in the codebase.
  *
- * The keys are the (kind, name) pairs from sureclaw.yaml.
+ * The keys are the (kind, name) pairs from ax.yaml.
  * The values are the import paths relative to this file's location.
  */
 

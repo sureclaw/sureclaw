@@ -61,7 +61,7 @@ const { session } = await createAgentSession({
   modelRegistry,
   model: resolvedModel,
   tools: [],
-  customTools: sureclawTools,
+  customTools: axTools,
   // streamFn still routes through IPC — same as Stage 0
 });
 ```

@@ -8,7 +8,7 @@
  * - --cap-drop=ALL: drop all Linux capabilities
  * - Volume mounts: workspace (rw), skills (ro), IPC socket
  * - Optional gVisor runtime (--runtime=runsc) for strong syscall filtering
- * - Named containers for debuggability (sureclaw-agent-<short-uuid>)
+ * - Named containers for debuggability (ax-agent-<short-uuid>)
  * - Works on Linux and macOS (Docker Desktop)
  */
 
@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { SandboxProvider, SandboxConfig, SandboxProcess, Config } from '../types.js';
 
-const DEFAULT_IMAGE = 'sureclaw/agent:latest';
+const DEFAULT_IMAGE = 'ax/agent:latest';
 const DEFAULT_PID_LIMIT = 256;
 
 function isGVisorAvailable(): boolean {
@@ -38,8 +38,8 @@ function isGVisorAvailable(): boolean {
 }
 
 export async function create(_config: Config): Promise<SandboxProvider> {
-  const image = process.env.SURECLAW_DOCKER_IMAGE ?? DEFAULT_IMAGE;
-  const runtimeEnv = process.env.SURECLAW_DOCKER_RUNTIME;
+  const image = process.env.AX_DOCKER_IMAGE ?? DEFAULT_IMAGE;
+  const runtimeEnv = process.env.AX_DOCKER_RUNTIME;
   const useGVisor = runtimeEnv === 'gvisor';
 
   // Warn at create time if gVisor requested but not available
@@ -54,7 +54,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const [cmd, ...args] = config.command;
       const socketDir = resolve(config.ipcSocket, '..');
-      const containerName = `sureclaw-agent-${randomUUID().slice(0, 8)}`;
+      const containerName = `ax-agent-${randomUUID().slice(0, 8)}`;
 
       const dockerArgs: string[] = [
         'run',
@@ -83,9 +83,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-w', config.workspace,
 
         // Environment
-        '-e', `SURECLAW_IPC_SOCKET=${config.ipcSocket}`,
-        '-e', `SURECLAW_WORKSPACE=${config.workspace}`,
-        '-e', `SURECLAW_SKILLS=${config.skills}`,
+        '-e', `AX_IPC_SOCKET=${config.ipcSocket}`,
+        '-e', `AX_WORKSPACE=${config.workspace}`,
+        '-e', `AX_SKILLS=${config.skills}`,
       ];
 
       // Optional gVisor runtime for stronger isolation

@@ -45,9 +45,9 @@ describe('sandbox-docker provider', () => {
     await expect(provider.kill(999999)).resolves.toBeUndefined();
   });
 
-  test('respects SURECLAW_DOCKER_IMAGE env var', async () => {
-    const originalImage = process.env.SURECLAW_DOCKER_IMAGE;
-    process.env.SURECLAW_DOCKER_IMAGE = 'custom/agent:v2';
+  test('respects AX_DOCKER_IMAGE env var', async () => {
+    const originalImage = process.env.AX_DOCKER_IMAGE;
+    process.env.AX_DOCKER_IMAGE = 'custom/agent:v2';
 
     try {
       const { create } = await import('../../src/providers/sandbox/docker.js');
@@ -56,9 +56,9 @@ describe('sandbox-docker provider', () => {
       expect(provider).toBeDefined();
     } finally {
       if (originalImage === undefined) {
-        delete process.env.SURECLAW_DOCKER_IMAGE;
+        delete process.env.AX_DOCKER_IMAGE;
       } else {
-        process.env.SURECLAW_DOCKER_IMAGE = originalImage;
+        process.env.AX_DOCKER_IMAGE = originalImage;
       }
     }
   });

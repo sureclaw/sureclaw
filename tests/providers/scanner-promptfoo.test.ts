@@ -9,13 +9,13 @@ function target(content: string): ScanTarget {
 }
 
 describe('scanner-promptfoo', () => {
-  const originalThreshold = process.env.SURECLAW_ML_THRESHOLD;
+  const originalThreshold = process.env.AX_ML_THRESHOLD;
 
   afterEach(() => {
     if (originalThreshold !== undefined) {
-      process.env.SURECLAW_ML_THRESHOLD = originalThreshold;
+      process.env.AX_ML_THRESHOLD = originalThreshold;
     } else {
-      delete process.env.SURECLAW_ML_THRESHOLD;
+      delete process.env.AX_ML_THRESHOLD;
     }
   });
 
@@ -97,7 +97,7 @@ describe('scanner-promptfoo', () => {
 
   test('configurable ML threshold via env var', async () => {
     // Very low threshold — even mild text should trigger
-    process.env.SURECLAW_ML_THRESHOLD = '0.01';
+    process.env.AX_ML_THRESHOLD = '0.01';
     const scanner = await create(config);
 
     const result = await scanner.scanInput(
@@ -108,7 +108,7 @@ describe('scanner-promptfoo', () => {
   });
 
   test('high threshold reduces false positives', async () => {
-    process.env.SURECLAW_ML_THRESHOLD = '0.99';
+    process.env.AX_ML_THRESHOLD = '0.99';
     const scanner = await create(config);
 
     const result = await scanner.scanInput(

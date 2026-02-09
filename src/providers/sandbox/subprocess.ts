@@ -16,9 +16,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         cwd: config.workspace,
         env: {
           ...process.env,
-          SURECLAW_IPC_SOCKET: config.ipcSocket,
-          SURECLAW_WORKSPACE: config.workspace,
-          SURECLAW_SKILLS: config.skills,
+          AX_IPC_SOCKET: config.ipcSocket,
+          AX_WORKSPACE: config.workspace,
+          AX_SKILLS: config.skills,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });

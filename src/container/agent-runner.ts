@@ -156,9 +156,9 @@ function parseArgs(): AgentConfig {
     }
   }
 
-  ipcSocket = ipcSocket || process.env.SURECLAW_IPC_SOCKET || '';
-  workspace = workspace || process.env.SURECLAW_WORKSPACE || '';
-  skills = skills || process.env.SURECLAW_SKILLS || '';
+  ipcSocket = ipcSocket || process.env.AX_IPC_SOCKET || '';
+  workspace = workspace || process.env.AX_WORKSPACE || '';
+  skills = skills || process.env.AX_SKILLS || '';
 
   if (!ipcSocket || !workspace) {
     console.error('Usage: agent-runner --ipc-socket <path> --workspace <path> [--skills <path>]');
@@ -188,7 +188,7 @@ function loadSkills(skillsDir: string): string[] {
 
 function buildSystemPrompt(context: string, skills: string[]): string {
   const parts: string[] = [];
-  parts.push('You are SureClaw, a security-first AI agent.');
+  parts.push('You are AX, a security-first AI agent.');
   parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
 
   if (context) {

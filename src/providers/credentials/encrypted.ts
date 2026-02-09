@@ -53,12 +53,12 @@ function decrypt(file: EncryptedFile, passphrase: string): string {
 }
 
 export async function create(_config: Config): Promise<CredentialProvider> {
-  const storePath = process.env.SURECLAW_CREDS_STORE_PATH || dataFile('credentials.enc');
-  const passphrase = process.env.SURECLAW_CREDS_PASSPHRASE;
+  const storePath = process.env.AX_CREDS_STORE_PATH || dataFile('credentials.enc');
+  const passphrase = process.env.AX_CREDS_PASSPHRASE;
   if (!passphrase) {
     throw new Error(
-      'SURECLAW_CREDS_PASSPHRASE environment variable is required for encrypted credentials.\n' +
-      'Set it with: export SURECLAW_CREDS_PASSPHRASE=your-secret-passphrase',
+      'AX_CREDS_PASSPHRASE environment variable is required for encrypted credentials.\n' +
+      'Set it with: export AX_CREDS_PASSPHRASE=your-secret-passphrase',
     );
   }
 

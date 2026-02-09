@@ -21,7 +21,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Profile → config generation ──
 
-  test('generates valid sureclaw.yaml for paranoid profile', async () => {
+  test('generates valid ax.yaml for paranoid profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -33,7 +33,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const configPath = join(dir, 'sureclaw.yaml');
+    const configPath = join(dir, 'ax.yaml');
     expect(existsSync(configPath)).toBe(true);
 
     const config = parseYaml(readFileSync(configPath, 'utf-8'));
@@ -45,7 +45,7 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.channels).toEqual(['cli']);
   });
 
-  test('generates valid sureclaw.yaml for standard profile', async () => {
+  test('generates valid ax.yaml for standard profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -57,14 +57,14 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('standard');
     expect(config.providers.web).toBe('fetch');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.memory).toBe('sqlite');
   });
 
-  test('generates valid sureclaw.yaml for power_user profile', async () => {
+  test('generates valid ax.yaml for power_user profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -76,7 +76,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('power_user');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.browser).toBe('container');
@@ -117,7 +117,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const raw = readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8');
+    const raw = readFileSync(join(dir, 'ax.yaml'), 'utf-8');
     const parsed = parseYaml(raw);
     expect(parsed.sandbox.timeout_sec).toBeGreaterThan(0);
     expect(parsed.sandbox.memory_mb).toBeGreaterThan(0);
@@ -141,7 +141,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.channels).toEqual(['cli', 'slack']);
   });
 
@@ -154,7 +154,7 @@ describe('Onboarding Wizard', () => {
       answers: { profile: 'paranoid', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.skillScreener).toBeUndefined();
   });
 
@@ -165,7 +165,7 @@ describe('Onboarding Wizard', () => {
       answers: { profile: 'standard', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.skillScreener).toBe('static');
   });
 
@@ -221,7 +221,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Reconfigure: loads existing config as defaults ──
 
-  test('loadExistingConfig reads sureclaw.yaml into OnboardingAnswers', async () => {
+  test('loadExistingConfig reads ax.yaml into OnboardingAnswers', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 

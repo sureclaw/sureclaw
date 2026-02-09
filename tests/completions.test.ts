@@ -142,7 +142,7 @@ let db: MessageQueue;
 let convStore: ConversationStore;
 
 beforeEach(() => {
-  testDataDir = join(tmpdir(), `sureclaw-completions-test-${randomUUID()}`);
+  testDataDir = join(tmpdir(), `ax-completions-test-${randomUUID()}`);
   mkdirSync(testDataDir, { recursive: true });
   db = new MessageQueue(join(testDataDir, 'messages.db'));
   convStore = new ConversationStore(join(testDataDir, 'conversations.db'));
@@ -350,7 +350,7 @@ describe('CompletionsGateway', () => {
       const providers = mockProviders();
       const router = createRouter(providers, db);
       gateway = createCompletionsGateway(providers, router, db, convStore, mockConfig(), '/tmp/test.sock', {
-        port, bearerToken: TOKEN, defaultModel: 'sureclaw-v1',
+        port, bearerToken: TOKEN, defaultModel: 'ax-v1',
       });
       await gateway.start();
 
@@ -494,7 +494,7 @@ describe('CompletionsGateway', () => {
       const providers = mockProviders();
       const router = createRouter(providers, db);
       gateway = createCompletionsGateway(providers, router, db, convStore, mockConfig(), '/tmp/test.sock', {
-        port, bearerToken: TOKEN, defaultModel: 'sureclaw-v1',
+        port, bearerToken: TOKEN, defaultModel: 'ax-v1',
       });
       await gateway.start();
     });
@@ -513,8 +513,8 @@ describe('CompletionsGateway', () => {
       const body = JSON.parse(res.body);
       expect(body.object).toBe('list');
       expect(body.data).toHaveLength(1);
-      expect(body.data[0].id).toBe('sureclaw-v1');
-      expect(body.data[0].owned_by).toBe('sureclaw');
+      expect(body.data[0].id).toBe('ax-v1');
+      expect(body.data[0].owned_by).toBe('ax');
     });
   });
 });

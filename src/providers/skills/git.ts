@@ -105,7 +105,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       await git.commit({
         fs, dir: gitDir,
         message: 'Initial skills commit',
-        author: { name: 'sureclaw', email: 'sureclaw@localhost' },
+        author: { name: 'ax', email: 'ax@localhost' },
       });
     }
   }
@@ -243,7 +243,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
         await git.commit({
           fs, dir: gitDir,
           message: `skill: auto-approve ${pending.skill}\n\n${reason ?? 'No reason provided'}`,
-          author: { name: 'sureclaw', email: 'sureclaw@localhost' },
+          author: { name: 'ax', email: 'ax@localhost' },
         });
 
         addLog(pending.skill, 'approve', 'Auto-approved: no dangerous capabilities detected');
@@ -283,7 +283,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       const commitOid = await git.commit({
         fs, dir: gitDir,
         message: `skill: approve ${pending.skill}\n\n${pending.reason ?? 'No reason provided'}\nCapabilities: ${pending.capabilities.join(', ')}`,
-        author: { name: 'sureclaw', email: 'sureclaw@localhost' },
+        author: { name: 'ax', email: 'ax@localhost' },
       });
 
       addLog(pending.skill, 'approve', `Manually approved (commit: ${commitOid.slice(0, 7)})`);
@@ -345,7 +345,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       await git.commit({
         fs, dir: gitDir,
         message: `skill: revert ${commitToRevert.oid.slice(0, 7)}\n\nReverting: ${commitToRevert.commit.message}`,
-        author: { name: 'sureclaw', email: 'sureclaw@localhost' },
+        author: { name: 'ax', email: 'ax@localhost' },
       });
 
       // Extract skill name from commit message

@@ -6,7 +6,7 @@ import type { ScannerProvider, ScanTarget, ScanResult, Config } from '../types.j
  * prompt injection detection.
  *
  * Falls back to regex-only if ML model is unavailable.
- * Configurable confidence threshold via SURECLAW_ML_THRESHOLD (default 0.7).
+ * Configurable confidence threshold via AX_ML_THRESHOLD (default 0.7).
  *
  * ML detection uses text feature analysis:
  * - Instruction override density (keywords per sentence)
@@ -178,7 +178,7 @@ function computeMLScore(features: MLFeatures): number {
 
 export async function create(_config: Config): Promise<ScannerProvider> {
   const threshold = parseFloat(
-    process.env.SURECLAW_ML_THRESHOLD ?? String(DEFAULT_THRESHOLD),
+    process.env.AX_ML_THRESHOLD ?? String(DEFAULT_THRESHOLD),
   );
 
   return {

@@ -1,5 +1,5 @@
 /**
- * Onboarding wizard — generates sureclaw.yaml from answers.
+ * Onboarding wizard — generates ax.yaml from answers.
  *
  * Two modes:
  * - Programmatic: call runOnboarding() with OnboardingOptions (for tests and automation)
@@ -76,12 +76,12 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     },
   };
 
-  // Write sureclaw.yaml
+  // Write ax.yaml
   const yamlContent = yamlStringify(config, { indent: 2, lineWidth: 120 });
-  writeFileSync(join(outputDir, 'sureclaw.yaml'), yamlContent, 'utf-8');
+  writeFileSync(join(outputDir, 'ax.yaml'), yamlContent, 'utf-8');
 
   // Write .env with API key
-  const envContent = `# SureClaw API Keys\nANTHROPIC_API_KEY=${answers.apiKey}\n`;
+  const envContent = `# AX API Keys\nANTHROPIC_API_KEY=${answers.apiKey}\n`;
   writeFileSync(join(outputDir, '.env'), envContent, 'utf-8');
 
   // Write ClawHub skill install queue if requested
@@ -97,7 +97,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
  * to pre-fill default selections.
  */
 export function loadExistingConfig(dir: string): OnboardingAnswers | null {
-  const cfgPath = join(dir, 'sureclaw.yaml');
+  const cfgPath = join(dir, 'ax.yaml');
   if (!existsSync(cfgPath)) return null;
 
   try {

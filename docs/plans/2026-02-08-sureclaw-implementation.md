@@ -1,4 +1,4 @@
-# Sureclaw Implementation Plan
+# AX Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -59,16 +59,16 @@
 
 ---
 
-**Goal:** Build Sureclaw, a security-first personal AI agent (~4,150 LOC) that runs in a kernel-level sandbox, supports multiple channels and LLM providers, and is small enough to audit in a day.
+**Goal:** Build AX, a security-first personal AI agent (~4,150 LOC) that runs in a kernel-level sandbox, supports multiple channels and LLM providers, and is small enough to audit in a day.
 
 **Architecture:** Provider contract pattern — every subsystem is a TypeScript interface with a stub and one or more real implementations. Host process (trusted) communicates with agent containers (untrusted) via IPC over Unix sockets. Credentials never enter containers. All external content is taint-tagged. Everything is audited.
 
 **Tech Stack:** TypeScript, Node.js, Zod (schema validation), better-sqlite3, yaml, @anthropic-ai/sdk, vitest, fast-check
 
 **Reference Documents:**
-- `docs/plans/sureclaw-prp.md` — Project requirements, design philosophy, architectural invariants
-- `docs/plans/sureclaw-architecture-doc.md` — Provider contracts, file structure, data flow, sandbox configs
-- `docs/plans/sureclaw-security-hardening-spec.md` — SC-SEC-001/002/003/004 specifications with full code
+- `docs/plans/ax-prp.md` — Project requirements, design philosophy, architectural invariants
+- `docs/plans/ax-architecture-doc.md` — Provider contracts, file structure, data flow, sandbox configs
+- `docs/plans/ax-security-hardening-spec.md` — SC-SEC-001/002/003/004 specifications with full code
 
 ---
 
@@ -105,13 +105,13 @@ Each phase implements the next profile level. Architectural invariants (no netwo
 ### Task 0.1: GitHub Repo Content + Directory Structure
 
 **Files:**
-- Copy: `sureclaw-logo.svg` → `docs/sureclaw-logo.svg`
-- Create: `README.md` — logo at top (`docs/sureclaw-logo.svg`), tagline: "Like OpenClaw but with trust issues 🦀🫣", project description, architecture overview (provider contract pattern, trust zones, sandbox tiers), security model summary (architectural invariants), quick start, contributing guidelines
+- Copy: `ax-logo.svg` → `docs/ax-logo.svg`
+- Create: `README.md` — logo at top (`docs/ax-logo.svg`), tagline: "Like OpenClaw but with trust issues 🦀🫣", project description, architecture overview (provider contract pattern, trust zones, sandbox tiers), security model summary (architectural invariants), quick start, contributing guidelines
 - Create: `CLAUDE.md` — build/test/lint commands (`npm run build`, `npm test`, `npm start`), architecture overview, key patterns (flat provider naming, safePath for all file ops, IPC schema validation), reference to spec docs in `docs/plans/`
 - Create: `LICENSE` (MIT)
 - Create: `.gitignore` — `node_modules/`, `dist/`, `data/` (runtime data), `.env`, `*.sb.compiled`
 - Create: `.editorconfig` — 2-space indent, UTF-8, LF line endings
-- Create: `sureclaw.yaml` (default Phase 0 config)
+- Create: `ax.yaml` (default Phase 0 config)
 - Create: `policies/agent.sb` (macOS seatbelt profile from architecture doc Section 9.2)
 - Create: `agents/assistant/AGENT.md` (agent personality)
 - Create: `agents/assistant/capabilities.yaml` (allowed tools/scopes)
@@ -134,7 +134,7 @@ skills/
 data/          (in .gitignore)
 ```
 
-**Config (`sureclaw.yaml`):**
+**Config (`ax.yaml`):**
 ```yaml
 profile: paranoid
 providers:
@@ -228,7 +228,7 @@ Run: `npx vitest run tests/provider-map.test.ts tests/utils/safe-path.test.ts`
 - Create: `src/config.ts` (~60 LOC)
 - Create: `tests/config.test.ts` (~40 LOC)
 
-Parse `sureclaw.yaml` with `yaml` package, validate with Zod schema. Schema enforces: provider names are strings, `channels` is non-empty string array, `profile` is `'paranoid' | 'standard' | 'power_user'`, numeric bounds on sandbox/scheduler settings.
+Parse `ax.yaml` with `yaml` package, validate with Zod schema. Schema enforces: provider names are strings, `channels` is non-empty string array, `profile` is `'paranoid' | 'standard' | 'power_user'`, numeric bounds on sandbox/scheduler settings.
 
 Export: `loadConfig(path?: string): Config`
 
@@ -509,7 +509,7 @@ Wires everything together:
 - Modify: `src/ipc.ts` — add taint check between validation and dispatch
 - Modify: `src/router.ts` — add `taintBudget.recordContent()` on inbound
 - Modify: `src/host.ts` — wire TaintBudget with profile threshold
-- Modify: `sureclaw.yaml` — add `securityProfile` option
+- Modify: `ax.yaml` — add `securityProfile` option
 
 User confirmation flow: agent receives `taintBlocked: true` -> asks user -> router calls `addUserOverride()` -> agent retries.
 

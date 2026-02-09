@@ -2,17 +2,17 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a `sureclaw configure` CLI command that launches an interactive terminal UI (via @inquirer/prompts) to generate `sureclaw.yaml`. On first run without a config, it auto-triggers. On subsequent runs, it pre-fills answers from the existing config. All config and data files live in `~/.sureclaw/`.
+**Goal:** Add a `ax configure` CLI command that launches an interactive terminal UI (via @inquirer/prompts) to generate `ax.yaml`. On first run without a config, it auto-triggers. On subsequent runs, it pre-fills answers from the existing config. All config and data files live in `~/.ax/`.
 
-**Architecture:** Standalone CLI module (`src/onboarding/`) with three layers: (1) profile defaults data (`prompts.ts`), (2) config generation logic (`wizard.ts` — pure function, testable without terminal), (3) interactive UI (`configure.ts` — inquirer prompts, loads existing config as defaults). A new `src/paths.ts` module centralizes all file paths under `~/.sureclaw/`. CLI arg parsing in `host.ts` gains a `configure` subcommand. First-run detection triggers the same flow.
+**Architecture:** Standalone CLI module (`src/onboarding/`) with three layers: (1) profile defaults data (`prompts.ts`), (2) config generation logic (`wizard.ts` — pure function, testable without terminal), (3) interactive UI (`configure.ts` — inquirer prompts, loads existing config as defaults). A new `src/paths.ts` module centralizes all file paths under `~/.ax/`. CLI arg parsing in `host.ts` gains a `configure` subcommand. First-run detection triggers the same flow.
 
 **Tech Stack:** TypeScript, `@inquirer/prompts` (new dependency), `yaml` (existing)
 
 ---
 
-### Task 1: Centralize Paths to ~/.sureclaw + Tests
+### Task 1: Centralize Paths to ~/.ax + Tests
 
-All config and data files currently use hardcoded relative paths (`data/memory.db`, `sureclaw.yaml`, `.env`). This task creates a single `src/paths.ts` module that resolves everything under `~/.sureclaw/`, then updates all consumers.
+All config and data files currently use hardcoded relative paths (`data/memory.db`, `ax.yaml`, `.env`). This task creates a single `src/paths.ts` module that resolves everything under `~/.ax/`, then updates all consumers.
 
 **Files:**
 - Create: `src/paths.ts`
@@ -34,40 +34,40 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 describe('paths', () => {
-  const originalEnv = process.env.SURECLAW_HOME;
+  const originalEnv = process.env.AX_HOME;
 
   afterEach(() => {
     if (originalEnv !== undefined) {
-      process.env.SURECLAW_HOME = originalEnv;
+      process.env.AX_HOME = originalEnv;
     } else {
-      delete process.env.SURECLAW_HOME;
+      delete process.env.AX_HOME;
     }
   });
 
-  test('defaults to ~/.sureclaw', async () => {
-    delete process.env.SURECLAW_HOME;
+  test('defaults to ~/.ax', async () => {
+    delete process.env.AX_HOME;
     // Re-import to pick up env change
-    const { sureclawHome, configPath, envPath, dataDir } = await import('../src/paths.js');
-    expect(sureclawHome()).toBe(join(homedir(), '.sureclaw'));
-    expect(configPath()).toBe(join(homedir(), '.sureclaw', 'sureclaw.yaml'));
-    expect(envPath()).toBe(join(homedir(), '.sureclaw', '.env'));
-    expect(dataDir()).toBe(join(homedir(), '.sureclaw', 'data'));
+    const { axHome, configPath, envPath, dataDir } = await import('../src/paths.js');
+    expect(axHome()).toBe(join(homedir(), '.ax'));
+    expect(configPath()).toBe(join(homedir(), '.ax', 'ax.yaml'));
+    expect(envPath()).toBe(join(homedir(), '.ax', '.env'));
+    expect(dataDir()).toBe(join(homedir(), '.ax', 'data'));
   });
 
-  test('respects SURECLAW_HOME env override', async () => {
-    process.env.SURECLAW_HOME = '/tmp/sc-test';
-    const { sureclawHome, configPath, dataDir } = await import('../src/paths.js');
-    expect(sureclawHome()).toBe('/tmp/sc-test');
-    expect(configPath()).toBe('/tmp/sc-test/sureclaw.yaml');
+  test('respects AX_HOME env override', async () => {
+    process.env.AX_HOME = '/tmp/sc-test';
+    const { axHome, configPath, dataDir } = await import('../src/paths.js');
+    expect(axHome()).toBe('/tmp/sc-test');
+    expect(configPath()).toBe('/tmp/sc-test/ax.yaml');
     expect(dataDir()).toBe('/tmp/sc-test/data');
   });
 
   test('dataFile resolves under data dir', async () => {
-    delete process.env.SURECLAW_HOME;
+    delete process.env.AX_HOME;
     const { dataFile } = await import('../src/paths.js');
-    expect(dataFile('memory.db')).toBe(join(homedir(), '.sureclaw', 'data', 'memory.db'));
+    expect(dataFile('memory.db')).toBe(join(homedir(), '.ax', 'data', 'memory.db'));
     expect(dataFile('audit', 'audit.jsonl')).toBe(
-      join(homedir(), '.sureclaw', 'data', 'audit', 'audit.jsonl'),
+      join(homedir(), '.ax', 'data', 'audit', 'audit.jsonl'),
     );
   });
 });
@@ -82,14 +82,14 @@ Expected: FAIL (module not found)
 
 ```typescript
 /**
- * Centralized path resolution for SureClaw.
+ * Centralized path resolution for AX.
  *
- * All config and data files live under ~/.sureclaw/ by default.
- * Override with SURECLAW_HOME env var (useful for tests).
+ * All config and data files live under ~/.ax/ by default.
+ * Override with AX_HOME env var (useful for tests).
  *
  * Layout:
- *   ~/.sureclaw/
- *     sureclaw.yaml     — main config
+ *   ~/.ax/
+ *     ax.yaml     — main config
  *     .env              — API keys
  *     data/
  *       messages.db     — message queue
@@ -104,24 +104,24 @@ Expected: FAIL (module not found)
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 
-/** Root directory for all SureClaw files. */
-export function sureclawHome(): string {
-  return process.env.SURECLAW_HOME || join(homedir(), '.sureclaw');
+/** Root directory for all AX files. */
+export function axHome(): string {
+  return process.env.AX_HOME || join(homedir(), '.ax');
 }
 
-/** Path to sureclaw.yaml config file. */
+/** Path to ax.yaml config file. */
 export function configPath(): string {
-  return join(sureclawHome(), 'sureclaw.yaml');
+  return join(axHome(), 'ax.yaml');
 }
 
 /** Path to .env file. */
 export function envPath(): string {
-  return join(sureclawHome(), '.env');
+  return join(axHome(), '.env');
 }
 
 /** Path to the data subdirectory. */
 export function dataDir(): string {
-  return join(sureclawHome(), 'data');
+  return join(axHome(), 'data');
 }
 
 /** Resolve a file path under the data directory. */
@@ -143,7 +143,7 @@ Update each file that hardcodes `data/` or config paths. The pattern is the same
 
 ```typescript
 // Before:
-const DEFAULT_CONFIG_PATH = 'sureclaw.yaml';
+const DEFAULT_CONFIG_PATH = 'ax.yaml';
 export function loadConfig(path?: string): Config {
   const configPath = resolve(path ?? DEFAULT_CONFIG_PATH);
 
@@ -166,7 +166,7 @@ const db = new MessageQueue('data/messages.db');
 const conversations = new ConversationStore('data/conversations.db');
 
 // After:
-import { envPath as getEnvPath, dataDir, dataFile, sureclawHome } from './paths.js';
+import { envPath as getEnvPath, dataDir, dataFile, axHome } from './paths.js';
 // ...
 const envPathResolved = getEnvPath();
 // ...
@@ -261,21 +261,21 @@ import { dataFile } from '../../paths.js';
 const DEFAULT_STORE_PATH = dataFile('credentials.enc');
 ```
 
-**Step 6: Update existing tests to use SURECLAW_HOME**
+**Step 6: Update existing tests to use AX_HOME**
 
-Tests that rely on `data/` being in the working directory need `process.env.SURECLAW_HOME` set to a temp dir. The main tests that need this are integration tests and provider tests that use the default paths. Most provider tests already pass explicit paths, but check and update any that rely on `data/` being the working dir.
+Tests that rely on `data/` being in the working directory need `process.env.AX_HOME` set to a temp dir. The main tests that need this are integration tests and provider tests that use the default paths. Most provider tests already pass explicit paths, but check and update any that rely on `data/` being the working dir.
 
-In test files that create/clean `data/` directories, set `SURECLAW_HOME` to a temp dir in `beforeEach`:
+In test files that create/clean `data/` directories, set `AX_HOME` to a temp dir in `beforeEach`:
 
 ```typescript
 beforeEach(() => {
-  process.env.SURECLAW_HOME = join(tmpdir(), `sc-test-${randomUUID()}`);
-  mkdirSync(process.env.SURECLAW_HOME, { recursive: true });
+  process.env.AX_HOME = join(tmpdir(), `sc-test-${randomUUID()}`);
+  mkdirSync(process.env.AX_HOME, { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(process.env.SURECLAW_HOME!, { recursive: true, force: true });
-  delete process.env.SURECLAW_HOME;
+  rmSync(process.env.AX_HOME!, { recursive: true, force: true });
+  delete process.env.AX_HOME;
 });
 ```
 
@@ -294,7 +294,7 @@ git add src/paths.ts tests/paths.test.ts src/config.ts src/host.ts src/db.ts \
   src/providers/memory/file.ts src/providers/memory/sqlite.ts \
   src/providers/audit/file.ts src/providers/audit/sqlite.ts \
   src/providers/credentials/encrypted.ts
-git commit -m "refactor: centralize all file paths under ~/.sureclaw via src/paths.ts"
+git commit -m "refactor: centralize all file paths under ~/.ax via src/paths.ts"
 ```
 
 ---
@@ -404,14 +404,14 @@ export const PROVIDER_CHOICES = {
 } as const;
 
 export const ASCII_CRAB = `
-   🦀  Welcome to SureClaw!
+   🦀  Welcome to AX!
 
    The security-first personal AI agent.
    Let's get you set up.
 `;
 
 export const RECONFIGURE_HEADER = `
-   🦀  SureClaw Configuration
+   🦀  AX Configuration
 
    Updating your existing configuration.
    Current values are pre-selected.
@@ -466,7 +466,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Profile → config generation ──
 
-  test('generates valid sureclaw.yaml for paranoid profile', async () => {
+  test('generates valid ax.yaml for paranoid profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -478,7 +478,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const configPath = join(dir, 'sureclaw.yaml');
+    const configPath = join(dir, 'ax.yaml');
     expect(existsSync(configPath)).toBe(true);
 
     const config = parseYaml(readFileSync(configPath, 'utf-8'));
@@ -490,7 +490,7 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.channels).toEqual(['cli']);
   });
 
-  test('generates valid sureclaw.yaml for standard profile', async () => {
+  test('generates valid ax.yaml for standard profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -502,14 +502,14 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('standard');
     expect(config.providers.web).toBe('fetch');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.memory).toBe('sqlite');
   });
 
-  test('generates valid sureclaw.yaml for power_user profile', async () => {
+  test('generates valid ax.yaml for power_user profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -521,7 +521,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('power_user');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.browser).toBe('container');
@@ -562,7 +562,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const raw = readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8');
+    const raw = readFileSync(join(dir, 'ax.yaml'), 'utf-8');
     const parsed = parseYaml(raw);
     expect(parsed.sandbox.timeout_sec).toBeGreaterThan(0);
     expect(parsed.sandbox.memory_mb).toBeGreaterThan(0);
@@ -586,7 +586,7 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.channels).toEqual(['cli', 'slack']);
   });
 
@@ -599,7 +599,7 @@ describe('Onboarding Wizard', () => {
       answers: { profile: 'paranoid', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.skillScreener).toBeUndefined();
   });
 
@@ -610,7 +610,7 @@ describe('Onboarding Wizard', () => {
       answers: { profile: 'standard', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
     });
 
-    const config = parseYaml(readFileSync(join(dir, 'sureclaw.yaml'), 'utf-8'));
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.providers.skillScreener).toBe('static');
   });
 
@@ -666,7 +666,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Reconfigure: loads existing config as defaults ──
 
-  test('loadExistingConfig reads sureclaw.yaml into OnboardingAnswers', async () => {
+  test('loadExistingConfig reads ax.yaml into OnboardingAnswers', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 
@@ -724,7 +724,7 @@ Expected: FAIL (module not found)
 
 ```typescript
 /**
- * Onboarding wizard — generates sureclaw.yaml from answers.
+ * Onboarding wizard — generates ax.yaml from answers.
  *
  * Two modes:
  * - Programmatic: call runOnboarding() with OnboardingOptions (for tests and automation)
@@ -801,12 +801,12 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     },
   };
 
-  // Write sureclaw.yaml
+  // Write ax.yaml
   const yamlContent = yamlStringify(config, { indent: 2, lineWidth: 120 });
-  writeFileSync(join(outputDir, 'sureclaw.yaml'), yamlContent, 'utf-8');
+  writeFileSync(join(outputDir, 'ax.yaml'), yamlContent, 'utf-8');
 
   // Write .env with API key
-  const envContent = `# SureClaw API Keys\nANTHROPIC_API_KEY=${answers.apiKey}\n`;
+  const envContent = `# AX API Keys\nANTHROPIC_API_KEY=${answers.apiKey}\n`;
   writeFileSync(join(outputDir, '.env'), envContent, 'utf-8');
 
   // Write ClawHub skill install queue if requested
@@ -822,7 +822,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
  * to pre-fill default selections.
  */
 export function loadExistingConfig(dir: string): OnboardingAnswers | null {
-  const cfgPath = join(dir, 'sureclaw.yaml');
+  const cfgPath = join(dir, 'ax.yaml');
   if (!existsSync(cfgPath)) return null;
 
   try {
@@ -965,8 +965,8 @@ Expected: FAIL (module not found)
 /**
  * Interactive configure UI using @inquirer/prompts.
  *
- * Launched by `sureclaw configure` or auto-triggered on first run.
- * When reconfiguring, pre-fills answers from existing sureclaw.yaml.
+ * Launched by `ax configure` or auto-triggered on first run.
+ * When reconfiguring, pre-fills answers from existing ax.yaml.
  */
 
 import { select, input, checkbox, password, confirm } from '@inquirer/prompts';
@@ -1013,7 +1013,7 @@ export function buildInquirerDefaults(existing: OnboardingAnswers | null): Inqui
 /**
  * Run the interactive configure flow.
  *
- * @param outputDir - Directory to write config files to (defaults to sureclawHome())
+ * @param outputDir - Directory to write config files to (defaults to axHome())
  */
 export async function runConfigure(outputDir: string): Promise<void> {
   const existing = loadExistingConfig(outputDir);
@@ -1046,7 +1046,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
   const apiKey = apiKeyInput.trim() || defaults.apiKey || '';
 
   if (!apiKey) {
-    console.log('\nWarning: No API key provided. You can set it later in ~/.sureclaw/.env\n');
+    console.log('\nWarning: No API key provided. You can set it later in ~/.ax/.env\n');
   }
 
   // 3. Channel selection
@@ -1088,7 +1088,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
     answers: { profile, apiKey, channels, skipSkills, installSkills },
   });
 
-  console.log(`\n  Config written to ${outputDir}/sureclaw.yaml`);
+  console.log(`\n  Config written to ${outputDir}/ax.yaml`);
   console.log(`  API key written to ${outputDir}/.env`);
 
   if (!skipSkills && installSkills.length > 0) {
@@ -1123,7 +1123,7 @@ git commit -m "feat: interactive configure UI with @inquirer/prompts and reconfi
 
 ### Task 5: Config Schema Updates for Onboarding
 
-The generated `sureclaw.yaml` may include optional fields (`skillScreener`) that the current `ConfigSchema` in `src/config.ts` doesn't accept. This task makes the config schema forward-compatible.
+The generated `ax.yaml` may include optional fields (`skillScreener`) that the current `ConfigSchema` in `src/config.ts` doesn't accept. This task makes the config schema forward-compatible.
 
 **Files:**
 - Modify: `src/config.ts:7-35`
@@ -1138,7 +1138,7 @@ Add to the existing describe block:
 ```typescript
   test('accepts config with optional skillScreener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../sureclaw-test-screener.yaml');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
     writeFileSync(tmpPath, `
 profile: standard
 providers:
@@ -1273,24 +1273,24 @@ At the top of `main()`, after parsing CLI args but before loading config, add:
 ```typescript
   const { configPath, command } = parseHostArgs();
 
-  // Handle `sureclaw configure` command
+  // Handle `ax configure` command
   if (command === 'configure') {
     const { runConfigure } = await import('./onboarding/configure.js');
-    await runConfigure(sureclawHome());
+    await runConfigure(axHome());
     return;
   }
 
   // First-run detection: if no config file exists, run configure
   const configFile = configPath ?? configPathDefault();
   if (!existsSync(configFile)) {
-    console.log('[host] No sureclaw.yaml found — running first-time setup...\n');
+    console.log('[host] No ax.yaml found — running first-time setup...\n');
     const { runConfigure } = await import('./onboarding/configure.js');
-    await runConfigure(sureclawHome());
-    console.log('[host] Setup complete! Starting SureClaw...\n');
+    await runConfigure(axHome());
+    console.log('[host] Setup complete! Starting AX...\n');
   }
 ```
 
-Where `configPathDefault` and `sureclawHome` are imported from `./paths.js` (already done in Task 1).
+Where `configPathDefault` and `axHome` are imported from `./paths.js` (already done in Task 1).
 
 Remove the old `const { configPath } = parseHostArgs();` line since we now destructure both values.
 
@@ -1324,10 +1324,10 @@ git commit -m "feat: add 'configure' CLI subcommand with first-run detection"
 - [ ] `npx tsc --noEmit` — zero errors
 - [ ] `npm test` — all tests pass (Node.js / vitest)
 - [ ] `bun test` — all tests pass (Bun)
-- [ ] All data files resolve under `~/.sureclaw/data/`
-- [ ] Config file resolves to `~/.sureclaw/sureclaw.yaml`
-- [ ] `.env` resolves to `~/.sureclaw/.env`
-- [ ] `SURECLAW_HOME` env var overrides the default path
+- [ ] All data files resolve under `~/.ax/data/`
+- [ ] Config file resolves to `~/.ax/ax.yaml`
+- [ ] `.env` resolves to `~/.ax/.env`
+- [ ] `AX_HOME` env var overrides the default path
 - [ ] `runOnboarding()` generates valid YAML for all 3 profiles
 - [ ] Generated YAML passes `loadConfig()` validation (after Task 5)
 - [ ] `.env` file contains API key
@@ -1338,5 +1338,5 @@ git commit -m "feat: add 'configure' CLI subcommand with first-run detection"
 - [ ] `buildInquirerDefaults()` returns undefined values when no existing config
 - [ ] `buildInquirerDefaults()` maps existing config to pre-fill values
 - [ ] `npm run configure` launches interactive wizard
-- [ ] `npm start` without `sureclaw.yaml` triggers configure flow
+- [ ] `npm start` without `ax.yaml` triggers configure flow
 - [ ] `npm run configure` with existing config shows current values as defaults

@@ -39,7 +39,7 @@ function makeErrorMessage(errorText: string): AssistantMessage {
 }
 
 /**
- * Create a StreamFn that routes LLM calls through Sureclaw's IPC protocol.
+ * Create a StreamFn that routes LLM calls through AX's IPC protocol.
  *
  * The container holds NO API keys. The host's `llm_call` IPC handler calls the
  * actual LLM provider. This function converts the batch IPC response into
@@ -49,7 +49,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
   return async (model: Model<any>, context: Context, options?: SimpleStreamOptions): Promise<AssistantMessageEventStream> => {
     const stream = createAssistantMessageEventStream();
 
-    // Convert pi-ai messages to Sureclaw's IPC format, preserving tool structure
+    // Convert pi-ai messages to AX's IPC format, preserving tool structure
     const messages = context.messages.map((m) => {
       if (m.role === 'user') {
         const content = typeof m.content === 'string'

@@ -15,13 +15,13 @@ describe('memory-sqlite', () => {
   beforeEach(async () => {
     testHome = join(tmpdir(), `sc-test-${randomUUID()}`);
     mkdirSync(testHome, { recursive: true });
-    process.env.SURECLAW_HOME = testHome;
+    process.env.AX_HOME = testHome;
     memory = await create(config);
   });
 
   afterEach(() => {
     try { rmSync(testHome, { recursive: true, force: true }); } catch {}
-    delete process.env.SURECLAW_HOME;
+    delete process.env.AX_HOME;
   });
 
   test('writes and reads an entry', async () => {

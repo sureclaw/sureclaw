@@ -29,9 +29,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           // Minimal env — no credentials leak into the sandbox
           PATH: process.env.PATH ?? '/usr/bin:/usr/local/bin',
           HOME: config.workspace,
-          SURECLAW_IPC_SOCKET: config.ipcSocket,
-          SURECLAW_WORKSPACE: config.workspace,
-          SURECLAW_SKILLS: config.skills,
+          AX_IPC_SOCKET: config.ipcSocket,
+          AX_WORKSPACE: config.workspace,
+          AX_SKILLS: config.skills,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
