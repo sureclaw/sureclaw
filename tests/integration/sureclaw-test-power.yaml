@@ -1,0 +1,23 @@
+# Power user profile test config
+# Uses Phase 2 providers: promptfoo scanner, search web, memu memory
+# LLM is still mock for testing (no API key needed)
+profile: power_user
+providers:
+  llm: mock
+  memory: file
+  scanner: patterns
+  channels: [cli]
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: sqlite
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 60
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
+  max_token_budget: 8192
+  heartbeat_interval_min: 15
