@@ -1,33 +1,41 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { create } from '../../src/providers/credentials/encrypted.js';
-import { rmSync, mkdirSync } from 'node:fs';
+import { rmSync, mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { CredentialProvider, Config } from '../../src/providers/types.js';
 
 const config = {} as Config;
-const STORE_PATH = 'data/credentials.enc';
 const PASSPHRASE = 'test-passphrase-for-unit-tests';
-
-function cleanStore() {
-  try { rmSync(STORE_PATH); } catch {}
-}
 
 describe('creds-encrypted', () => {
   let creds: CredentialProvider;
+  let testDir: string;
+  let storePath: string;
   const originalEnv = process.env.SURECLAW_CREDS_PASSPHRASE;
+  const originalStorePath = process.env.SURECLAW_CREDS_STORE_PATH;
 
   beforeEach(async () => {
-    cleanStore();
-    mkdirSync('data', { recursive: true });
+    testDir = join(tmpdir(), `sureclaw-creds-test-${randomUUID()}`);
+    mkdirSync(testDir, { recursive: true });
+    storePath = join(testDir, 'credentials.enc');
+    process.env.SURECLAW_CREDS_STORE_PATH = storePath;
     process.env.SURECLAW_CREDS_PASSPHRASE = PASSPHRASE;
     creds = await create(config);
   });
 
   afterEach(() => {
-    cleanStore();
+    try { rmSync(testDir, { recursive: true }); } catch {}
     if (originalEnv !== undefined) {
       process.env.SURECLAW_CREDS_PASSPHRASE = originalEnv;
     } else {
       delete process.env.SURECLAW_CREDS_PASSPHRASE;
+    }
+    if (originalStorePath !== undefined) {
+      process.env.SURECLAW_CREDS_STORE_PATH = originalStorePath;
+    } else {
+      delete process.env.SURECLAW_CREDS_STORE_PATH;
     }
   });
 
@@ -85,8 +93,7 @@ describe('creds-encrypted', () => {
 
   test('encrypted file is not plaintext', async () => {
     await creds.set('SECRET', 'super-secret-value');
-    const { readFileSync } = await import('node:fs');
-    const raw = readFileSync(STORE_PATH, 'utf-8');
+    const raw = readFileSync(storePath, 'utf-8');
     expect(raw).not.toContain('super-secret-value');
     expect(raw).not.toContain('SECRET');
     // Should be valid JSON with encryption fields

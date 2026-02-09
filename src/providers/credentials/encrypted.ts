@@ -54,7 +54,7 @@ function decrypt(file: EncryptedFile, passphrase: string): string {
 }
 
 export async function create(_config: Config): Promise<CredentialProvider> {
-  const storePath = DEFAULT_STORE_PATH;
+  const storePath = process.env.SURECLAW_CREDS_STORE_PATH || DEFAULT_STORE_PATH;
   const passphrase = process.env.SURECLAW_CREDS_PASSPHRASE;
   if (!passphrase) {
     throw new Error(

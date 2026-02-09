@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { Model, UserMessage, AssistantMessage } from '@mariozechner/pi-ai';
+import { estimateTokens } from '@mariozechner/pi-coding-agent';
 import { IPCClient } from './ipc-client.js';
 import { createIPCStreamFn } from './ipc-transport.js';
 import { createLocalTools } from './local-tools.js';
@@ -23,6 +24,10 @@ const DEFAULT_MODEL: Model<any> = {
   contextWindow: 200000,
   maxTokens: 8192,
 };
+
+// Compaction thresholds
+const COMPACTION_THRESHOLD = 0.75; // Trigger at 75% of context window
+const KEEP_RECENT_TURNS = 6;      // Keep last 6 turns (3 user + 3 assistant)
 
 export interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -61,6 +66,80 @@ function historyToPiMessages(history: ConversationTurn[]): AgentMessage[] {
       timestamp: Date.now(),
     } satisfies AssistantMessage;
   });
+}
+
+/**
+ * Estimate total tokens in a conversation history using pi-coding-agent's
+ * token estimator (chars/4 heuristic, conservative).
+ */
+function estimateHistoryTokens(messages: AgentMessage[]): number {
+  return messages.reduce((sum, msg) => sum + estimateTokens(msg), 0);
+}
+
+/**
+ * Compact conversation history if it exceeds the context window threshold.
+ * Uses IPC to make an LLM call for summarization — no API keys needed in container.
+ *
+ * Returns compacted history as ConversationTurn[]. If no compaction needed,
+ * returns the original history unchanged.
+ */
+export async function compactHistory(
+  history: ConversationTurn[],
+  client: IPCClient,
+  contextWindow: number = DEFAULT_MODEL.contextWindow,
+): Promise<ConversationTurn[]> {
+  if (history.length <= KEEP_RECENT_TURNS) return history;
+
+  const piMessages = historyToPiMessages(history);
+  const totalTokens = estimateHistoryTokens(piMessages);
+  const threshold = contextWindow * COMPACTION_THRESHOLD;
+
+  if (totalTokens <= threshold) return history;
+
+  // Split: old turns to summarize, recent turns to keep verbatim
+  const oldTurns = history.slice(0, -KEEP_RECENT_TURNS);
+  const recentTurns = history.slice(-KEEP_RECENT_TURNS);
+
+  // Build a conversation transcript for the summarizer
+  const transcript = oldTurns
+    .map(t => `${t.role === 'user' ? 'User' : 'Assistant'}: ${t.content}`)
+    .join('\n\n');
+
+  const summaryPrompt =
+    'Summarize the following conversation concisely, preserving key facts, ' +
+    'decisions, code references, and any action items. The summary will replace ' +
+    'the original messages to save context space.\n\n' +
+    '---\n' + transcript + '\n---\n\n' +
+    'Provide a clear, structured summary.';
+
+  // Use IPC to call the LLM for summarization
+  const response = await client.call({
+    action: 'llm_call',
+    model: DEFAULT_MODEL.id,
+    messages: [
+      { role: 'system', content: 'You are a conversation summarizer. Be concise and preserve important details.' },
+      { role: 'user', content: summaryPrompt },
+    ],
+  }) as { ok: boolean; chunks?: Array<{ type: string; content?: string }> };
+
+  if (!response.ok || !response.chunks) {
+    // If summarization fails, fall back to truncation
+    return recentTurns;
+  }
+
+  const summaryText = response.chunks
+    .filter(c => c.type === 'text' && c.content)
+    .map(c => c.content!)
+    .join('');
+
+  if (!summaryText.trim()) return recentTurns;
+
+  // Return summary as a system-like user message + recent turns
+  return [
+    { role: 'user', content: `[Conversation summary of ${oldTurns.length} earlier messages]\n\n${summaryText}` },
+    { role: 'assistant', content: 'I understand the conversation context from the summary. How can I help?' },
+    ...recentTurns,
+  ];
 }
 
 function parseArgs(): AgentConfig {
@@ -146,8 +225,13 @@ export async function run(config: AgentConfig): Promise<void> {
   const ipcTools = createIPCTools(client);
   const allTools = [...localTools, ...ipcTools];
 
-  // Convert conversation history to pi-ai messages
-  const historyMessages = config.history ? historyToPiMessages(config.history) : [];
+  // Compact history if it's too long for the context window
+  const history = config.history
+    ? await compactHistory(config.history, client)
+    : [];
+
+  // Convert (possibly compacted) history to pi-ai messages
+  const historyMessages = historyToPiMessages(history);
 
   // Create agent with IPC-proxied LLM calls, pre-populated with history
   const agent = new Agent({

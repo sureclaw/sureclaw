@@ -25,6 +25,7 @@
     "@anthropic-ai/sdk": "^0.74.0",
     "@mariozechner/pi-agent-core": "^0.52.9",
     "@mariozechner/pi-ai": "^0.52.9",
+    "@mariozechner/pi-coding-agent": "^0.52.9",
     "@sinclair/typebox": "^0.34.48",
     "better-sqlite3": "^12.6.2",
     "isomorphic-git": "^1.36.3",
