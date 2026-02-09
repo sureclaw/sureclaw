@@ -108,9 +108,12 @@ describe('Smoke Test', () => {
     // Send a message
     proc.stdin!.write('hello\n');
 
-    // Wait for agent response
+    // Wait for agent response — must contain actual content, not just the marker
     const fullOutput = await waitForResponse(output, 'agent> ');
     expect(fullOutput).toContain('agent> ');
+    // Extract the agent response text (everything after "agent> ")
+    const agentResponse = fullOutput.split('agent> ').pop() ?? '';
+    expect(agentResponse.trim().length).toBeGreaterThan(0);
   }, 60_000);
 
   test('host fails fast when LLM provider requires missing API key', async () => {

@@ -1,0 +1,182 @@
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createServer, type Server } from 'node:net';
+
+// We test the run() function with a mock IPC server
+import { run } from '../../src/container/agent-runner.js';
+
+function createMockIPCServer(
+  socketPath: string,
+  handler: (req: Record<string, unknown>) => Record<string, unknown>,
+): Server {
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+    socket.on('data', (data) => {
+      buffer = Buffer.concat([buffer, data]);
+      while (buffer.length >= 4) {
+        const msgLen = buffer.readUInt32BE(0);
+        if (buffer.length < 4 + msgLen) break;
+        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+        buffer = buffer.subarray(4 + msgLen);
+        const request = JSON.parse(raw);
+        const response = handler(request);
+        const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
+        const lenBuf = Buffer.alloc(4);
+        lenBuf.writeUInt32BE(responseBuf.length, 0);
+        socket.write(Buffer.concat([lenBuf, responseBuf]));
+      }
+    });
+  });
+  server.listen(socketPath);
+  return server;
+}
+
+describe('agent-runner', () => {
+  let tmpDir: string;
+  let workspace: string;
+  let skillsDir: string;
+  let socketPath: string;
+  let server: Server;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'agent-runner-test-'));
+    workspace = join(tmpDir, 'workspace');
+    skillsDir = join(tmpDir, 'skills');
+    socketPath = join(tmpDir, 'test.sock');
+    mkdirSync(workspace);
+    mkdirSync(skillsDir);
+  });
+
+  afterEach(() => {
+    server?.close();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('run() connects to IPC, sends llm_call, and returns response text', async () => {
+    server = createMockIPCServer(socketPath, (req) => {
+      if (req.action === 'llm_call') {
+        return {
+          ok: true,
+          chunks: [
+            { type: 'text', content: 'Hello from mock LLM' },
+            { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    await new Promise<void>((r) => server.on('listening', r));
+
+    // Capture stdout
+    const stdoutChunks: string[] = [];
+    const origWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutChunks.push(chunk.toString());
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      await run({
+        ipcSocket: socketPath,
+        workspace,
+        skills: skillsDir,
+        userMessage: 'Say hello',
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const output = stdoutChunks.join('');
+    expect(output).toContain('Hello from mock LLM');
+  });
+
+  test('run() loads CONTEXT.md into system prompt', async () => {
+    writeFileSync(join(workspace, 'CONTEXT.md'), 'Custom context instructions');
+
+    let receivedMessages: any[] = [];
+    server = createMockIPCServer(socketPath, (req) => {
+      if (req.action === 'llm_call') {
+        receivedMessages = (req.messages as any[]) ?? [];
+        return {
+          ok: true,
+          chunks: [
+            { type: 'text', content: 'OK' },
+            { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    await new Promise<void>((r) => server.on('listening', r));
+
+    const origWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+
+    try {
+      await run({
+        ipcSocket: socketPath,
+        workspace,
+        skills: skillsDir,
+        userMessage: 'Test',
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    // System prompt should be the first message with role 'system'
+    const systemMsg = receivedMessages.find((m: any) => m.role === 'system');
+    expect(systemMsg).toBeTruthy();
+    expect(systemMsg.content).toContain('Custom context instructions');
+  });
+
+  test('run() loads skills from skills directory', async () => {
+    writeFileSync(join(skillsDir, 'greeting.md'), '# Greeting Skill\nAlways greet politely.');
+
+    let receivedMessages: any[] = [];
+    server = createMockIPCServer(socketPath, (req) => {
+      if (req.action === 'llm_call') {
+        receivedMessages = (req.messages as any[]) ?? [];
+        return {
+          ok: true,
+          chunks: [
+            { type: 'text', content: 'OK' },
+            { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
+          ],
+        };
+      }
+      return { ok: true };
+    });
+    await new Promise<void>((r) => server.on('listening', r));
+
+    const origWrite = process.stdout.write;
+    process.stdout.write = (() => true) as typeof process.stdout.write;
+
+    try {
+      await run({
+        ipcSocket: socketPath,
+        workspace,
+        skills: skillsDir,
+        userMessage: 'Test',
+      });
+    } finally {
+      process.stdout.write = origWrite;
+    }
+
+    const systemMsg = receivedMessages.find((m: any) => m.role === 'system');
+    expect(systemMsg).toBeTruthy();
+    expect(systemMsg.content).toContain('Greeting Skill');
+  });
+
+  test('run() does nothing for empty message', async () => {
+    // Should exit cleanly without connecting to IPC
+    await run({
+      ipcSocket: socketPath,
+      workspace,
+      skills: skillsDir,
+      userMessage: '   ',
+    });
+    // If we get here without error, it worked
+  });
+});

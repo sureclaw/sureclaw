@@ -29,8 +29,8 @@
 - [x] Task 1.3: SQLite Providers (Memory + Audit)
 - [x] Task 1.4: Encrypted Credentials
 - [x] Task 1.5: Expanded Scanner Patterns
-- [ ] Task 1.6: Proxied Web Fetch with DNS Pinning
-- [ ] Task 1.7: Pi Agent Core Integration (Agent Loop + IPC Tools)
+- [x] Task 1.6: Proxied Web Fetch with DNS Pinning
+- [x] Task 1.7: Pi Agent Core Integration (Agent Loop + IPC Tools)
 - [ ] Task 1.8: Cron Scheduler + ProactiveHint Bridge
 - [ ] Task 1.9: Slack Channel
 - [ ] Task 1.10: Completions Gateway

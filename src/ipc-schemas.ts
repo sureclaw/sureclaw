@@ -38,6 +38,11 @@ export const LlmCallSchema = z.strictObject({
     role: z.enum(['user', 'assistant', 'system']),
     content: safeString(200_000),
   })).min(1).max(200),
+  tools: z.array(z.strictObject({
+    name: safeString(100),
+    description: safeString(2000),
+    parameters: z.any(),
+  })).max(50).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(1).max(200_000).optional(),
 });

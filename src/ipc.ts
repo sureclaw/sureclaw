@@ -23,6 +23,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       for await (const chunk of providers.llm.chat({
         model: req.model ?? 'claude-sonnet-4-20250514',
         messages: req.messages,
+        tools: req.tools,
         maxTokens: req.maxTokens,
       })) {
         chunks.push(chunk);

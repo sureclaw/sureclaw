@@ -14,10 +14,18 @@
     "test:fuzz": "vitest run tests/ipc-fuzz.test.ts",
     "start": "NODE_NO_WARNINGS=1 tsx src/host.ts"
   },
-  "keywords": ["ai", "agent", "security", "sandbox"],
+  "keywords": [
+    "ai",
+    "agent",
+    "security",
+    "sandbox"
+  ],
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
+    "@mariozechner/pi-agent-core": "^0.52.9",
+    "@mariozechner/pi-ai": "^0.52.9",
+    "@sinclair/typebox": "^0.34.48",
     "better-sqlite3": "^12.6.2",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
