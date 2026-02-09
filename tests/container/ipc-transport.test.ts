@@ -172,7 +172,7 @@ describe('ipc-transport', () => {
           role: 'assistant',
           content: [
             { type: 'text', text: 'I\'ll list the files.' },
-            { type: 'toolCall', id: 'call_1', name: 'bash', args: '{"command":"ls"}' },
+            { type: 'toolCall', id: 'call_1', name: 'bash', arguments: { command: 'ls' } },
           ],
           api: 'anthropic-messages',
           provider: 'anthropic',

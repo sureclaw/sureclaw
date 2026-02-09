@@ -68,7 +68,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
               type: 'tool_use',
               id: c.id,
               name: c.name,
-              input: JSON.parse(c.args),
+              input: c.arguments,
             });
           }
         }
@@ -134,7 +134,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
               type: 'toolCall',
               id: chunk.toolCall.id,
               name: chunk.toolCall.name,
-              args: JSON.stringify(chunk.toolCall.args),
+              arguments: chunk.toolCall.args,
             });
           } else if (chunk.type === 'done' && chunk.usage) {
             usage = { ...usage, inputTokens: chunk.usage.inputTokens, outputTokens: chunk.usage.outputTokens };
@@ -173,7 +173,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
         for (let i = 0; i < toolCalls.length; i++) {
           const idx = fullText ? i + 1 : i;
           stream.push({ type: 'toolcall_start', contentIndex: idx, partial: msg });
-          stream.push({ type: 'toolcall_delta', contentIndex: idx, delta: toolCalls[i].args, partial: msg });
+          stream.push({ type: 'toolcall_delta', contentIndex: idx, delta: JSON.stringify(toolCalls[i].arguments), partial: msg });
           stream.push({ type: 'toolcall_end', contentIndex: idx, toolCall: toolCalls[i], partial: msg });
         }
 
