@@ -245,9 +245,16 @@ export async function run(config: AgentConfig): Promise<void> {
   });
 
   // Subscribe to events — stream text to stdout
+  let hasOutput = false;
   agent.subscribe((event) => {
-    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-      process.stdout.write(event.assistantMessageEvent.delta);
+    if (event.type === 'message_update') {
+      if (event.assistantMessageEvent.type === 'text_start' && hasOutput) {
+        process.stdout.write('\n\n');
+      }
+      if (event.assistantMessageEvent.type === 'text_delta') {
+        process.stdout.write(event.assistantMessageEvent.delta);
+        hasOutput = true;
+      }
     }
   });
 
