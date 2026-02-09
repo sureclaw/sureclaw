@@ -3,7 +3,7 @@ import type { Config } from '../../src/providers/types.js';
 
 function mockConfig(): Config {
   return {
-    profile: 'standard',
+    profile: 'balanced',
     providers: {
       llm: 'mock', memory: 'file', scanner: 'basic',
       channels: ['cli'], web: 'none', browser: 'none',

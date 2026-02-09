@@ -45,12 +45,12 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.channels).toEqual(['cli']);
   });
 
-  test('generates valid ax.yaml for standard profile', async () => {
+  test('generates valid ax.yaml for balanced profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-test-key-12345',
         channels: ['cli'],
         skipSkills: true,
@@ -58,18 +58,18 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.profile).toBe('standard');
+    expect(config.profile).toBe('balanced');
     expect(config.providers.web).toBe('fetch');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.memory).toBe('sqlite');
   });
 
-  test('generates valid ax.yaml for power_user profile', async () => {
+  test('generates valid ax.yaml for yolo profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-test-key-12345',
         channels: ['cli'],
         skipSkills: true,
@@ -77,7 +77,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.profile).toBe('power_user');
+    expect(config.profile).toBe('yolo');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.browser).toBe('container');
     expect(config.providers.credentials).toBe('encrypted');
@@ -90,7 +90,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-ant-api-key-here',
         channels: ['cli'],
         skipSkills: true,
@@ -110,7 +110,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-test',
         channels: ['cli'],
         skipSkills: true,
@@ -134,7 +134,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-test',
         channels: ['cli', 'slack'],
         skipSkills: true,
@@ -158,11 +158,11 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.skillScreener).toBeUndefined();
   });
 
-  test('standard profile includes skillScreener', async () => {
+  test('balanced profile includes skillScreener', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
-      answers: { profile: 'standard', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
+      answers: { profile: 'balanced', apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
@@ -176,7 +176,7 @@ describe('Onboarding Wizard', () => {
     await expect(
       runOnboarding({
         outputDir: dir,
-        answers: { profile: 'yolo' as any, apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
+        answers: { profile: 'invalid' as any, apiKey: 'sk-test', channels: ['cli'], skipSkills: true },
       }),
     ).rejects.toThrow('Unknown profile');
   });
@@ -188,7 +188,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-test',
         channels: ['cli'],
         skipSkills: false,
@@ -208,7 +208,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-test',
         channels: ['cli'],
         skipSkills: true,
@@ -229,7 +229,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-existing-key',
         channels: ['cli', 'slack'],
         skipSkills: true,
@@ -238,7 +238,7 @@ describe('Onboarding Wizard', () => {
 
     const existing = loadExistingConfig(dir);
     expect(existing).not.toBeNull();
-    expect(existing!.profile).toBe('power_user');
+    expect(existing!.profile).toBe('yolo');
     expect(existing!.channels).toEqual(['cli', 'slack']);
   });
 
@@ -257,7 +257,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-my-saved-key',
         channels: ['cli'],
         skipSkills: true,

@@ -5,18 +5,18 @@ describe('TaintBudget', () => {
   let budget: TaintBudget;
 
   beforeEach(() => {
-    budget = new TaintBudget({ threshold: 0.30 }); // standard profile
+    budget = new TaintBudget({ threshold: 0.30 }); // balanced profile
   });
 
   describe('thresholdForProfile', () => {
     test('returns correct thresholds', () => {
       expect(thresholdForProfile('paranoid')).toBe(0.10);
-      expect(thresholdForProfile('standard')).toBe(0.30);
-      expect(thresholdForProfile('power_user')).toBe(0.60);
+      expect(thresholdForProfile('balanced')).toBe(0.30);
+      expect(thresholdForProfile('yolo')).toBe(0.60);
     });
 
     test('throws for unknown profile', () => {
-      expect(() => thresholdForProfile('yolo')).toThrow('Unknown profile');
+      expect(() => thresholdForProfile('invalid' as any)).toThrow('Unknown profile');
     });
   });
 
@@ -148,11 +148,11 @@ describe('TaintBudget', () => {
     });
   });
 
-  describe('power_user threshold (0.60)', () => {
+  describe('yolo threshold (0.60)', () => {
     test('allows moderate taint levels', () => {
       const power = new TaintBudget({ threshold: 0.60 });
 
-      // 50% tainted — allowed in power_user
+      // 50% tainted — allowed in yolo
       power.recordContent('s1', 'x'.repeat(500), false);
       power.recordContent('s1', 'x'.repeat(500), true);
 
@@ -162,7 +162,7 @@ describe('TaintBudget', () => {
     test('blocks when majority is tainted', () => {
       const power = new TaintBudget({ threshold: 0.60 });
 
-      // 80% tainted — blocked even in power_user
+      // 80% tainted — blocked even in yolo
       power.recordContent('s1', 'x'.repeat(200), false);
       power.recordContent('s1', 'x'.repeat(800), true);
 

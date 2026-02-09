@@ -4,9 +4,10 @@ import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import type { Config } from './providers/types.js';
 import { configPath as defaultConfigPath } from './paths.js';
+import { PROFILE_NAMES } from './onboarding/prompts.js';
 
 const ConfigSchema = z.strictObject({
-  profile: z.enum(['paranoid', 'standard', 'power_user']),
+  profile: z.enum(PROFILE_NAMES),
   providers: z.strictObject({
     llm: z.string(),
     memory: z.string(),

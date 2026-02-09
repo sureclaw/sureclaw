@@ -363,7 +363,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     timeoutSec: 120,
     memoryMb: 512,
   },
-  power_user: {
+  yolo: {
     llm: 'anthropic',
     memory: 'sqlite',
     scanner: 'patterns',
@@ -380,12 +380,12 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   },
 };
 
-export const PROFILE_NAMES = ['paranoid', 'standard', 'power_user'] as const;
+export const PROFILE_NAMES = ['paranoid', 'standard', 'yolo'] as const;
 
 export const PROFILE_DESCRIPTIONS: Record<string, string> = {
   paranoid: 'Maximum security, minimal features — no web, no browser, read-only skills',
   standard: 'Balanced security and features — web fetch, git skills, SQLite storage (recommended)',
-  power_user: 'Maximum features — browser automation, encrypted credentials, extended timeouts',
+  yolo: 'Maximum features — browser automation, encrypted credentials, extended timeouts',
 };
 
 /** Available provider choices per category, derived from the provider map. */
@@ -509,12 +509,12 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.memory).toBe('sqlite');
   });
 
-  test('generates valid ax.yaml for power_user profile', async () => {
+  test('generates valid ax.yaml for yolo profile', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-test-key-12345',
         channels: ['cli'],
         skipSkills: true,
@@ -522,7 +522,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.profile).toBe('power_user');
+    expect(config.profile).toBe('yolo');
     expect(config.providers.skills).toBe('git');
     expect(config.providers.browser).toBe('container');
     expect(config.providers.credentials).toBe('encrypted');
@@ -674,7 +674,7 @@ describe('Onboarding Wizard', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-existing-key',
         channels: ['cli', 'slack'],
         skipSkills: true,
@@ -683,7 +683,7 @@ describe('Onboarding Wizard', () => {
 
     const existing = loadExistingConfig(dir);
     expect(existing).not.toBeNull();
-    expect(existing!.profile).toBe('power_user');
+    expect(existing!.profile).toBe('yolo');
     expect(existing!.channels).toEqual(['cli', 'slack']);
   });
 
@@ -740,7 +740,7 @@ import { parse as parseYaml, stringify as yamlStringify } from 'yaml';
 import { PROFILE_DEFAULTS } from './prompts.js';
 
 export interface OnboardingAnswers {
-  profile: 'paranoid' | 'standard' | 'power_user';
+  profile: 'paranoid' | 'standard' | 'yolo';
   apiKey: string;
   channels: string[];
   skipSkills?: boolean;
@@ -916,7 +916,7 @@ describe('Configure UI Helpers', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-existing',
         channels: ['cli', 'slack'],
         skipSkills: true,
@@ -926,7 +926,7 @@ describe('Configure UI Helpers', () => {
     const existing = loadExistingConfig(dir);
     const defaults = buildInquirerDefaults(existing);
 
-    expect(defaults.profile).toBe('power_user');
+    expect(defaults.profile).toBe('yolo');
     expect(defaults.apiKey).toBe('sk-existing');
     expect(defaults.channels).toEqual(['cli', 'slack']);
   });
@@ -1332,7 +1332,7 @@ git commit -m "feat: add 'configure' CLI subcommand with first-run detection"
 - [ ] Generated YAML passes `loadConfig()` validation (after Task 5)
 - [ ] `.env` file contains API key
 - [ ] `paranoid` profile omits `skillScreener`
-- [ ] `standard` and `power_user` profiles include `skillScreener: static`
+- [ ] `standard` and `yolo` profiles include `skillScreener: static`
 - [ ] `.clawhub-install-queue` written when skills requested, skipped when `skipSkills: true`
 - [ ] `loadExistingConfig()` reads profile, channels, and API key from existing config
 - [ ] `buildInquirerDefaults()` returns undefined values when no existing config

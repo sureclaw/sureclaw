@@ -11,7 +11,7 @@ import type {
 // ─── Mock config ──────────────────────────────────────
 
 const mockConfig = {
-  profile: 'standard',
+  profile: 'balanced',
   providers: {
     llm: 'anthropic', memory: 'file', scanner: 'basic',
     channels: ['cli'], web: 'none', browser: 'none',

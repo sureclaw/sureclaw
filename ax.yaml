@@ -1,0 +1,20 @@
+profile: paranoid
+providers:
+  llm: anthropic
+  memory: file
+  scanner: basic
+  channels: [cli]
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 256
+scheduler:
+  active_hours: { start: "00:00", end: "23:59", timezone: "America/New_York" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30

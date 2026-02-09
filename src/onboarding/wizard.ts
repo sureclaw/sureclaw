@@ -13,9 +13,10 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as yamlStringify } from 'yaml';
 import { PROFILE_DEFAULTS } from './prompts.js';
+import type { ProfileName } from './prompts.js';
 
 export interface OnboardingAnswers {
-  profile: 'paranoid' | 'standard' | 'power_user';
+  profile: ProfileName;
   apiKey: string;
   channels: string[];
   skipSkills?: boolean;
@@ -114,7 +115,7 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     }
 
     return {
-      profile: parsed.profile ?? 'standard',
+      profile: parsed.profile ?? 'balanced',
       apiKey,
       channels: parsed.providers?.channels ?? ['cli'],
       skipSkills: true,

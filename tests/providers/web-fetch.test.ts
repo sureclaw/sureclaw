@@ -26,7 +26,7 @@ function stopServer(): Promise<void> {
   });
 }
 
-const config = { profile: 'standard' } as Config;
+const config = { profile: 'balanced' } as Config;
 
 // Provider with 127.0.0.1 allowed (for local test server)
 const testOpts = { allowedIPs: new Set(['127.0.0.1']) };

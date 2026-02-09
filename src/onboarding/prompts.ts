@@ -33,7 +33,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     timeoutSec: 60,
     memoryMb: 256,
   },
-  standard: {
+  balanced: {
     llm: 'anthropic',
     memory: 'sqlite',
     scanner: 'patterns',
@@ -48,7 +48,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     timeoutSec: 120,
     memoryMb: 512,
   },
-  power_user: {
+  yolo: {
     llm: 'anthropic',
     memory: 'sqlite',
     scanner: 'patterns',
@@ -65,12 +65,21 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   },
 };
 
-export const PROFILE_NAMES = ['paranoid', 'standard', 'power_user'] as const;
+export const PROFILE_NAMES = ['paranoid', 'balanced', 'yolo'] as const;
 
-export const PROFILE_DESCRIPTIONS: Record<string, string> = {
+export type ProfileName = (typeof PROFILE_NAMES)[number];
+
+/** User-facing display names for each profile. Change these to rename profiles in the UI. */
+export const PROFILE_DISPLAY_NAMES: Record<ProfileName, string> = {
+  paranoid: 'Paranoid',
+  balanced: 'Balanced',
+  yolo: 'YOLO',
+};
+
+export const PROFILE_DESCRIPTIONS: Record<ProfileName, string> = {
   paranoid: 'Maximum security, minimal features — no web, no browser, read-only skills',
-  standard: 'Balanced security and features — web fetch, git skills, SQLite storage (recommended)',
-  power_user: 'Maximum features — browser automation, encrypted credentials, extended timeouts',
+  balanced: 'Balanced security and features — web fetch, git skills, SQLite storage (recommended)',
+  yolo: 'Maximum features — browser automation, encrypted credentials, extended timeouts [EXTREMELY DANGEROUS!!!]',
 };
 
 /** Available provider choices per category, derived from the provider map. */

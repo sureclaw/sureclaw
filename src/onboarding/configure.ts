@@ -8,16 +8,18 @@
 import { select, input, checkbox, password, confirm } from '@inquirer/prompts';
 import {
   PROFILE_NAMES,
+  PROFILE_DISPLAY_NAMES,
   PROFILE_DESCRIPTIONS,
   PROVIDER_CHOICES,
   ASCII_CRAB,
   RECONFIGURE_HEADER,
 } from './prompts.js';
+import type { ProfileName } from './prompts.js';
 import { runOnboarding, loadExistingConfig } from './wizard.js';
 import type { OnboardingAnswers } from './wizard.js';
 
 export interface InquirerDefaults {
-  profile?: string;
+  profile?: ProfileName;
   apiKey?: string;
   apiKeyMasked?: string;
   channels?: string[];
@@ -62,7 +64,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
   const profile = await select({
     message: 'Security profile',
     choices: PROFILE_NAMES.map((name) => ({
-      name: `${name}  —  ${PROFILE_DESCRIPTIONS[name]}`,
+      name: `${PROFILE_DISPLAY_NAMES[name]}  —  ${PROFILE_DESCRIPTIONS[name]}`,
       value: name,
     })),
     default: defaults.profile,

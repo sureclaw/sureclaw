@@ -35,7 +35,7 @@ const STANDARD_CONFIG = resolve(import.meta.dirname, 'ax-test-standard.yaml');
 
 let testDataDir: string;
 
-function mockConfig(profile: 'paranoid' | 'standard' | 'power_user' = 'standard'): Config {
+function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Config {
   return {
     profile,
     providers: {
@@ -161,22 +161,22 @@ afterEach(() => {
 // ═══════════════════════════════════════════════════════
 
 describe('Taint Budget E2E', () => {
-  test('standard profile threshold is 0.30', () => {
-    expect(thresholdForProfile('standard')).toBe(0.30);
+  test('balanced profile threshold is 0.30', () => {
+    expect(thresholdForProfile('balanced')).toBe(0.30);
   });
 
   test('paranoid profile threshold is 0.10', () => {
     expect(thresholdForProfile('paranoid')).toBe(0.10);
   });
 
-  test('power_user profile threshold is 0.60', () => {
-    expect(thresholdForProfile('power_user')).toBe(0.60);
+  test('yolo profile threshold is 0.60', () => {
+    expect(thresholdForProfile('yolo')).toBe(0.60);
   });
 
   test('router records taint via taint budget', async () => {
     const providers = mockProviders();
     const db = new MessageQueue(join(testDataDir, 'messages.db'));
-    const taintBudget = new TaintBudget({ threshold: thresholdForProfile('standard') });
+    const taintBudget = new TaintBudget({ threshold: thresholdForProfile('balanced') });
     const router = createRouter(providers, db, { taintBudget });
 
     const msg: InboundMessage = {
@@ -413,12 +413,12 @@ describe('Completions Gateway Integration', () => {
 // Standard Profile Config Loading
 // ═══════════════════════════════════════════════════════
 
-describe('Standard Profile Config', () => {
-  test('standard profile config loads successfully', async () => {
+describe('Balanced Profile Config', () => {
+  test('balanced profile config loads successfully', async () => {
     const { loadConfig } = await import('../../src/config.js');
     const config = loadConfig(STANDARD_CONFIG);
 
-    expect(config.profile).toBe('standard');
+    expect(config.profile).toBe('balanced');
     expect(config.providers.scanner).toBe('patterns');
     expect(config.providers.memory).toBe('sqlite');
     expect(config.providers.audit).toBe('sqlite');

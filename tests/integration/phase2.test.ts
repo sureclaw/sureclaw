@@ -37,7 +37,7 @@ let testDataDir: string;
 
 function powerUserConfig(): Config {
   return {
-    profile: 'power_user',
+    profile: 'yolo',
     providers: {
       llm: 'mock', memory: 'file', scanner: 'promptfoo',
       channels: ['cli'], web: 'brave', browser: 'container',
@@ -414,25 +414,25 @@ describe('Phase 2 IPC Schemas', () => {
 // ═══════════════════════════════════════════════════════
 
 describe('Power User Profile', () => {
-  test('power_user profile has 0.60 taint threshold', () => {
-    expect(thresholdForProfile('power_user')).toBe(0.60);
+  test('yolo profile has 0.60 taint threshold', () => {
+    expect(thresholdForProfile('yolo')).toBe(0.60);
   });
 
-  test('power_user config loads successfully', async () => {
+  test('yolo config loads successfully', async () => {
     const { loadConfig } = await import('../../src/config.js');
     const config = loadConfig(POWER_CONFIG);
 
-    expect(config.profile).toBe('power_user');
+    expect(config.profile).toBe('yolo');
     expect(config.sandbox.timeout_sec).toBe(60);
     expect(config.sandbox.memory_mb).toBe(512);
     expect(config.scheduler.max_token_budget).toBe(8192);
   });
 
-  test('power_user profile allows more tainted content', () => {
-    const budget = new TaintBudget({ threshold: thresholdForProfile('power_user') });
+  test('yolo profile allows more tainted content', () => {
+    const budget = new TaintBudget({ threshold: thresholdForProfile('yolo') });
     const sessionId = 'test';
 
-    // 50% tainted — should be within power_user's 60% threshold
+    // 50% tainted — should be within yolo's 60% threshold
     budget.recordContent(sessionId, 'a'.repeat(500), true);
     budget.recordContent(sessionId, 'b'.repeat(500), false);
 
@@ -440,11 +440,11 @@ describe('Power User Profile', () => {
     expect(check.allowed).toBe(true);
   });
 
-  test('power_user taint budget still blocks at 60%+', () => {
-    const budget = new TaintBudget({ threshold: thresholdForProfile('power_user') });
+  test('yolo taint budget still blocks at 60%+', () => {
+    const budget = new TaintBudget({ threshold: thresholdForProfile('yolo') });
     const sessionId = 'test';
 
-    // 70% tainted — exceeds power_user's 60% threshold
+    // 70% tainted — exceeds yolo's 60% threshold
     budget.recordContent(sessionId, 'a'.repeat(700), true);
     budget.recordContent(sessionId, 'b'.repeat(300), false);
 

@@ -2,7 +2,7 @@ import { describe, test, expect, afterEach } from 'vitest';
 import type { Config } from '../../src/providers/types.js';
 
 const config = {
-  profile: 'standard',
+  profile: 'balanced',
   providers: { credentials: 'keychain' },
 } as unknown as Config;
 

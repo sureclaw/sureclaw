@@ -1,4 +1,5 @@
 // src/providers/types.ts — All provider interfaces and shared types
+import type { ProfileName } from '../onboarding/prompts.js';
 
 // ═══════════════════════════════════════════════════════
 // Shared Types
@@ -322,7 +323,7 @@ export interface SkillScreenerProvider {
 // ═══════════════════════════════════════════════════════
 
 export interface Config {
-  profile: 'paranoid' | 'standard' | 'power_user';
+  profile: ProfileName;
   providers: {
     llm: string;
     memory: string;

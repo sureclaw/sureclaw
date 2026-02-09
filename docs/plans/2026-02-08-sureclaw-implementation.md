@@ -228,7 +228,7 @@ Run: `npx vitest run tests/provider-map.test.ts tests/utils/safe-path.test.ts`
 - Create: `src/config.ts` (~60 LOC)
 - Create: `tests/config.test.ts` (~40 LOC)
 
-Parse `ax.yaml` with `yaml` package, validate with Zod schema. Schema enforces: provider names are strings, `channels` is non-empty string array, `profile` is `'paranoid' | 'standard' | 'power_user'`, numeric bounds on sandbox/scheduler settings.
+Parse `ax.yaml` with `yaml` package, validate with Zod schema. Schema enforces: provider names are strings, `channels` is non-empty string array, `profile` is `'paranoid' | 'standard' | 'yolo'`, numeric bounds on sandbox/scheduler settings.
 
 Export: `loadConfig(path?: string): Config`
 
@@ -497,7 +497,7 @@ Wires everything together:
 - Create: `src/taint-budget.ts` (~100 LOC) — from security spec Section 4
 - Create: `tests/taint-budget.test.ts` (~120 LOC)
 
-`TaintBudget` class tracks per-session taint ratio. `recordContent()`, `checkAction()`, `addUserOverride()`, `endSession()`. Profile thresholds: paranoid=0.10, standard=0.30, power_user=0.60. `DEFAULT_SENSITIVE_ACTIONS`: oauth_call, skill_propose, browser_navigate, scheduler_add_cron.
+`TaintBudget` class tracks per-session taint ratio. `recordContent()`, `checkAction()`, `addUserOverride()`, `endSession()`. Profile thresholds: paranoid=0.10, standard=0.30, yolo=0.60. `DEFAULT_SENSITIVE_ACTIONS`: oauth_call, skill_propose, browser_navigate, scheduler_add_cron.
 
 **Commit:** "feat: SC-SEC-003 taint budget tracking"
 

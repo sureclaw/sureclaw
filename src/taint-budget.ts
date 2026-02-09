@@ -25,8 +25,9 @@ export interface SessionTaintState {
 
 const PROFILE_THRESHOLDS: Record<string, number> = {
   paranoid: 0.10,
-  standard: 0.30,
-  power_user: 0.60,
+  balanced: 0.30,
+  yolo: 0.60,
+
 };
 
 const DEFAULT_SENSITIVE_ACTIONS = new Set([

@@ -1,7 +1,7 @@
 # Power user profile test config
 # Uses Phase 2 providers: promptfoo scanner, search web, memu memory
 # LLM is still mock for testing (no API key needed)
-profile: power_user
+profile: yolo
 providers:
   llm: mock
   memory: file

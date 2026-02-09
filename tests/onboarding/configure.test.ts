@@ -31,7 +31,7 @@ describe('Configure UI Helpers', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'power_user',
+        profile: 'yolo',
         apiKey: 'sk-existing',
         channels: ['cli', 'slack'],
         skipSkills: true,
@@ -41,7 +41,7 @@ describe('Configure UI Helpers', () => {
     const existing = loadExistingConfig(dir);
     const defaults = buildInquirerDefaults(existing);
 
-    expect(defaults.profile).toBe('power_user');
+    expect(defaults.profile).toBe('yolo');
     expect(defaults.apiKey).toBe('sk-existing');
     expect(defaults.channels).toEqual(['cli', 'slack']);
   });
@@ -51,7 +51,7 @@ describe('Configure UI Helpers', () => {
     await runOnboarding({
       outputDir: dir,
       answers: {
-        profile: 'standard',
+        profile: 'balanced',
         apiKey: 'sk-ant-api03-longkeyvalue12345',
         channels: ['cli'],
         skipSkills: true,

@@ -19,14 +19,14 @@ describe('Config parser', () => {
   test('throws on invalid profile', () => {
     // We test via a known-good file, so this is just verifying schema enforcement
     const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
-    expect(['paranoid', 'standard', 'power_user']).toContain(config.profile);
+    expect(['paranoid', 'balanced', 'yolo']).toContain(config.profile);
   });
 
   test('accepts config with optional skillScreener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
     writeFileSync(tmpPath, `
-profile: standard
+profile: balanced
 providers:
   llm: anthropic
   memory: file

@@ -1218,7 +1218,7 @@ export const DEFAULT_SENSITIVE_ACTIONS = new Set([
 export const PROFILE_THRESHOLDS = {
   paranoid: 0.10,
   standard: 0.30,
-  power_user: 0.60,
+  yolo: 0.60,
 } as const;
 
 export interface SessionTaintState {
@@ -1401,7 +1401,7 @@ export function createIPCHandler(providers: ProviderRegistry, taintBudget: Taint
 import { TaintBudget, DEFAULT_SENSITIVE_ACTIONS, PROFILE_THRESHOLDS } from './taint-budget';
 
 // During startup, after loading config:
-const securityProfile = config.securityProfile ?? 'standard';  // paranoid | standard | power_user
+const securityProfile = config.securityProfile ?? 'standard';  // paranoid | standard | yolo
 const taintBudget = new TaintBudget({
   sensitiveActions: DEFAULT_SENSITIVE_ACTIONS,
   threshold: PROFILE_THRESHOLDS[securityProfile],
@@ -1443,7 +1443,7 @@ or apply to other actions. The user must confirm each sensitive action type inde
 ### Config: `ax.yaml` (ADD)
 
 ```yaml
-# Security profile: paranoid | standard | power_user
+# Security profile: paranoid | standard | yolo
 # Controls taint budget thresholds and other security-vs-utility tradeoffs
 securityProfile: standard
 
@@ -1571,8 +1571,8 @@ describe('TaintBudget', () => {
     expect(tb.checkAction('s1', 'oauth_call').allowed).toBe(false);
   });
 
-  test('power_user profile allows at moderate taint', () => {
-    const tb = createBudget(PROFILE_THRESHOLDS.power_user); // 0.60
+  test('yolo profile allows at moderate taint', () => {
+    const tb = createBudget(PROFILE_THRESHOLDS.yolo); // 0.60
     tb.recordContent('s1', 500, false);
     tb.recordContent('s1', 400, true); // 44% tainted
     expect(tb.checkAction('s1', 'oauth_call').allowed).toBe(true);
@@ -1597,7 +1597,7 @@ describe('TaintBudget', () => {
 - [ ] The block is structural (in host code), not dependent on LLM behavior
 - [ ] User can override taint blocks with explicit confirmation (per-session, per-action)
 - [ ] Sessions are isolated — taint in one session does not affect another
-- [ ] Security profiles (paranoid/standard/power_user) map to different thresholds
+- [ ] Security profiles (paranoid/standard/yolo) map to different thresholds
 - [ ] All taint blocks are audit-logged with the ratio, threshold, and blocked action
 - [ ] `endSession` cleans up state to prevent memory leaks
 - [ ] The taint check integrates into the IPC dispatch flow between validation and handler execution

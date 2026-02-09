@@ -12,7 +12,7 @@ let provider: SkillStoreProvider;
 
 function mockConfig(): Config {
   return {
-    profile: 'standard',
+    profile: 'balanced',
     providers: {
       llm: 'mock', memory: 'file', scanner: 'basic',
       channels: ['cli'], web: 'none', browser: 'none',
