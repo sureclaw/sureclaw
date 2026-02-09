@@ -77,6 +77,8 @@ async function main(): Promise<void> {
     console.log('[host] No sureclaw.yaml found — running first-time setup...\n');
     const { runConfigure } = await import('./onboarding/configure.js');
     await runConfigure(sureclawHome());
+    // Re-load .env since it was just created by the wizard
+    loadDotEnv();
     console.log('[host] Setup complete! Starting SureClaw...\n');
   }
 
