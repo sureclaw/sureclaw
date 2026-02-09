@@ -14,7 +14,16 @@ export async function create(_config: Config): Promise<AuditProvider> {
         timestamp: new Date().toISOString(),
         ...entry,
       };
-      appendFileSync(auditPath, JSON.stringify(full) + '\n');
+      try {
+        appendFileSync(auditPath, JSON.stringify(full) + '\n');
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          mkdirSync(dirname(auditPath), { recursive: true });
+          appendFileSync(auditPath, JSON.stringify(full) + '\n');
+        } else {
+          throw err;
+        }
+      }
     },
 
     async query(filter: AuditFilter): Promise<AuditEntry[]> {

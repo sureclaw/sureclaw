@@ -147,6 +147,8 @@ START OF TASK:
 END OF TASK
 ```
 
+**IMPORTANT:** Steps 5 and 6 MUST happen BEFORE creating any git commit. Never commit without first updating the journal and lessons. The commit should reflect that journal/lessons are already up to date.
+
 ### Periodic Maintenance
 
 If `.claude/lessons.md` exceeds 100 entries, create a new section at the top called `## Key Principles` that distills the most important recurring lessons into a compact list. Keep the detailed entries below for reference.
