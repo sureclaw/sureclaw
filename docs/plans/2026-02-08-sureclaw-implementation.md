@@ -840,9 +840,23 @@ Playwright in Docker + gVisor. Filtered egress (domain allowlist). Structured co
 ### Task 2.5: memU Memory Integration
 
 **Files:**
-- Create: `src/providers/memory-memu.ts` (~200 LOC)
+- Create: `src/providers/memory/memu.ts` (~200 LOC)
+- Modify: `src/providers/types.ts` — add optional `memorize?()` to `MemoryProvider`
+- Modify: `src/host.ts` — call `memorize()` after each exchange if provider supports it
 
-Knowledge graph storage via memU. Semantic search (embedding-based). `onProactiveHint()` wires to scheduler for pending_task, temporal_pattern, follow_up, anomaly hints. Runs in semi-trusted container (localhost PostgreSQL, LLM via host proxy).
+**Design decisions:**
+
+1. **`memorize?(conversation: ConversationTurn[]): Promise<void>`** — added as optional method on `MemoryProvider`. Host calls it after each conversation exchange. Providers that don't support it (file, SQLite) skip it. memU uses it to extract knowledge into its graph.
+
+2. **`write()` and `delete()` are no-ops in memu provider.** Since `memorize()` processes the full conversation transcript — which includes the agent's `memory_write` tool calls — explicit writes are redundant. The agent's intent to remember something is captured as part of the conversation flow. This avoids double-storage.
+
+3. **`query()`, `read()`, `list()` read from memu's knowledge graph.** These fulfill the CRUD contract so the agent's memory tools work identically regardless of backend.
+
+4. **CRUD IPC actions stay unchanged.** All 5 memory IPC actions (`memory_write`, `memory_query`, `memory_read`, `memory_delete`, `memory_list`) remain in the agent's tool set for provider swappability. A non-memu provider (file, SQLite) uses `write()` as real storage.
+
+5. **`onProactiveHint()` wires to scheduler** for pending_task, temporal_pattern, follow_up, anomaly hints.
+
+Runs in semi-trusted container (localhost PostgreSQL, LLM via host proxy).
 
 ---
 

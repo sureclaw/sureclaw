@@ -94,6 +94,15 @@ export interface MemoryProvider {
   read(id: string): Promise<MemoryEntry | null>;
   delete(id: string): Promise<void>;
   list(scope: string, limit?: number): Promise<MemoryEntry[]>;
+
+  // Optional: conversation-level memorization (e.g. memU knowledge graph).
+  // Host calls this after each exchange. Providers that support it extract
+  // knowledge from the conversation automatically. For these providers,
+  // write() and delete() may be no-ops since memorize() is the single
+  // source of truth — the agent's tool calls (including memory_write)
+  // are visible in the conversation transcript that memorize() processes.
+  memorize?(conversation: ConversationTurn[]): Promise<void>;
+
   onProactiveHint?(handler: (hint: ProactiveHint) => void): void;
 }
 
@@ -310,7 +319,10 @@ sureclaw/
 │       ├── memory/                    # ── Memory Providers ───────────
 │       │   ├── file.ts               # Markdown files + grep (~100) [Stage 0]
 │       │   ├── sqlite.ts             # SQLite + FTS5 (~150) [Stage 1]
-│       │   └── memu.ts              # memU integration + proactive bridge (~200) [Stage 5]
+│       │   └── memu.ts              # memU knowledge graph (~200) [Stage 5]
+│       │                            #   memorize() extracts knowledge from conversations
+│       │                            #   write()/delete() are no-ops (memorize is source of truth)
+│       │                            #   query()/read()/list() read from knowledge graph
 │       │
 │       ├── scanner/                   # ── Scanner Providers ──────────
 │       │   ├── basic.ts              # Regex + canary tokens (~60) [Stage 0]
@@ -588,8 +600,10 @@ Tools that route through IPC to host-side providers, also defined as `AgentTool`
 7. Host receives response:
    a. Scanner checks output (canary leak, PII, unexpected tool calls)
    b. If clean: store user + assistant turns in ConversationStore
-   c. Deliver to WhatsApp
-   d. Log everything to audit provider
+   c. If memory provider supports memorize(): call memorize(conversation)
+      to extract long-term knowledge from the exchange (e.g. memU knowledge graph)
+   d. Deliver to WhatsApp
+   e. Log everything to audit provider
 8. Sandbox is destroyed
 ```
 
