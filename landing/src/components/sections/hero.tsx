@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Reveal, StaggerContainer, StaggerItem } from "@/components/ui/reveal";
+import { LogoLarge } from "@/components/icons/logo";
 import { Github, ArrowRight } from "lucide-react";
 
 export function Hero() {
@@ -26,9 +27,14 @@ export function Hero() {
       {/* Content */}
       <div className="relative z-10 mx-auto max-w-[1200px] px-6 text-center pt-24">
         <StaggerContainer className="flex flex-col items-center gap-6" staggerDelay={0.15}>
+          {/* Logo */}
+          <StaggerItem>
+            <LogoLarge className="w-28 md:w-36 h-auto" />
+          </StaggerItem>
+
           {/* Eyebrow badge */}
           <StaggerItem>
-            <Badge>Open Source Security Framework</Badge>
+            <Badge>Open Source AI Agent Framework</Badge>
           </StaggerItem>
 
           {/* Main heading */}
@@ -45,9 +51,9 @@ export function Hero() {
           {/* Subheading */}
           <StaggerItem>
             <p className="text-lg md:text-xl text-text-secondary max-w-2xl leading-relaxed">
-              Sandboxed execution. Taint tracking. Prompt injection scanning.
-              ax wraps your AI agents in production-grade security
-              — so you can ship fast without shipping vulnerabilities.
+              Build, deploy, and manage AI agents that actually behave.
+              ax gives you the guardrails, tooling, and observability
+              to go from prototype to production — without the anxiety.
             </p>
           </StaggerItem>
 
