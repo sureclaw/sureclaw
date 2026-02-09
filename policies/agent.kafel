@@ -1,0 +1,91 @@
+/* Kafel seccomp-bpf policy for sureclaw agent (nsjail).
+ *
+ * Allows filesystem, process, memory, and IPC operations.
+ * Blocks network syscalls (socket, connect, bind, etc.).
+ *
+ * Network isolation is also enforced at the namespace level
+ * (clone_newnet in nsjail config), so this is defense-in-depth.
+ */
+
+POLICY agent {
+  /* Filesystem (read, write, stat, open, close, etc.) */
+  ALLOW {
+    read, write, open, openat, close, stat, fstat, lstat, newfstatat,
+    lseek, access, faccessat, faccessat2,
+    readlink, readlinkat, readv, writev, pread64, pwrite64,
+    getdents, getdents64,
+    dup, dup2, dup3,
+    fcntl, flock, ftruncate,
+    mkdir, mkdirat, rmdir,
+    rename, renameat, renameat2,
+    unlink, unlinkat,
+    symlink, symlinkat,
+    link, linkat,
+    chmod, fchmod, fchmodat,
+    chown, fchown, lchown, fchownat,
+    umask, getcwd,
+    statx, statfs, fstatfs,
+    utimensat, futimesat
+  },
+
+  /* Memory management */
+  ALLOW {
+    mmap, munmap, mprotect, mremap, madvise, brk,
+    mincore, msync
+  },
+
+  /* Process management (no exec from network-fetched code) */
+  ALLOW {
+    clone, clone3, fork, vfork,
+    execve, execveat,
+    wait4, waitid,
+    exit, exit_group,
+    kill, tgkill, tkill,
+    getpid, getppid, gettid, getuid, getgid, geteuid, getegid,
+    setpgid, getpgid, getpgrp, setsid, getsid,
+    getgroups, setgroups,
+    prctl, arch_prctl, seccomp,
+    set_tid_address, set_robust_list, get_robust_list
+  },
+
+  /* Signals */
+  ALLOW {
+    rt_sigaction, rt_sigprocmask, rt_sigreturn, rt_sigpending,
+    rt_sigtimedwait, rt_sigsuspend, sigaltstack
+  },
+
+  /* Time */
+  ALLOW {
+    clock_gettime, clock_getres, clock_nanosleep,
+    gettimeofday, nanosleep, time, times
+  },
+
+  /* IPC (pipes, unix sockets) */
+  ALLOW {
+    pipe, pipe2,
+    eventfd, eventfd2,
+    epoll_create, epoll_create1, epoll_ctl, epoll_wait, epoll_pwait,
+    poll, ppoll, select, pselect6
+  },
+
+  /* I/O multiplexing */
+  ALLOW {
+    ioctl, io_uring_setup, io_uring_enter, io_uring_register
+  },
+
+  /* Futex / threading */
+  ALLOW {
+    futex, futex_waitv,
+    sched_getaffinity, sched_yield,
+    rseq
+  },
+
+  /* Misc safe operations */
+  ALLOW {
+    getrandom, uname, sysinfo,
+    prlimit64, getrlimit, setrlimit,
+    mlock, mlock2, munlock
+  }
+}
+
+USE agent DEFAULT KILL

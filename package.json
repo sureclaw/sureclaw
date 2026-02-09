@@ -27,6 +27,7 @@
     "@mariozechner/pi-ai": "^0.52.9",
     "@sinclair/typebox": "^0.34.48",
     "better-sqlite3": "^12.6.2",
+    "isomorphic-git": "^1.36.3",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
