@@ -23,7 +23,7 @@ Sureclaw uses a **provider contract pattern**. Every subsystem is a TypeScript i
 
 ### Key Patterns
 
-- **Flat provider naming:** `src/providers/llm-anthropic.ts` (not subdirectories). Mandated by SC-SEC-002 — the provider-map static allowlist uses these exact paths.
+- **Provider subdirectories:** `src/providers/llm/anthropic.ts` — each provider category is a subdirectory. Mapped via static allowlist in `src/provider-map.ts` (SC-SEC-002).
 - **safePath for all file ops:** Every file-based provider MUST use `safePath()` from `src/utils/safe-path.ts` when constructing paths from input.
 - **IPC schema validation:** Every IPC action has a Zod schema with `.strict()` mode in `src/ipc-schemas.ts`.
 - **Provider loading:** Static allowlist in `src/provider-map.ts` — no dynamic path construction.
@@ -73,3 +73,80 @@ When generating or editing any user-facing content (README, SECURITY.md, docs, e
 
 ### The Golden Rule
 We're a nervous crab peeking through its claws — but behind those claws, we know exactly what we're doing.
+
+## Journal & Lessons Protocol
+
+You MUST follow this protocol for every task you work on.
+
+### Setup
+
+If they don't already exist, create these files at the start of any session:
+
+- `.claude/journal.md`
+- `.claude/lessons.md`
+
+### Before Starting Any Task
+
+1. **Read `.claude/lessons.md` in full.** Internalize every entry. Do not repeat past mistakes.
+2. **Read the last 5 entries in `.claude/journal.md`** to understand recent context.
+
+### Journal (`.claude/journal.md`)
+
+Append an entry every time you complete a meaningful unit of work (a fix, a feature, a refactor, an investigation, etc). Use this exact format:
+
+```
+## [YYYY-MM-DD HH:MM] — <short title>
+
+**Task:** What was asked or what I set out to do
+**What I did:** Brief description of the actions taken
+**Files touched:** List of files created/modified/deleted
+**Outcome:** Success, partial, or failed — and why
+**Notes:** Anything worth remembering about this change
+```
+
+Rules:
+- Be concise. Each entry should be 5-10 lines max.
+- Log even failed attempts — they have value.
+- Never delete or edit past entries. The journal is append-only.
+
+### Lessons Learned (`.claude/lessons.md`)
+
+Append an entry whenever you:
+- Make a mistake and then fix it
+- Discover something non-obvious about the codebase
+- Find that an approach doesn't work in this project
+- Learn a user preference about how they want things done
+
+Use this exact format:
+
+```
+### <short descriptive title>
+**Date:** YYYY-MM-DD
+**Context:** What I was doing when I learned this
+**Lesson:** The specific thing to remember (be precise and actionable)
+**Tags:** comma, separated, relevant, keywords
+```
+
+Rules:
+- Before adding a lesson, scan the file to avoid duplicates.
+- Lessons should be **actionable** — written as instructions to your future self.
+  - Bad: "The tests were tricky"
+  - Good: "Always run `npm test -- --bail` before committing; the test suite fails silently on import errors"
+- Keep lessons atomic. One insight per entry.
+
+### Workflow Summary
+
+```
+START OF TASK:
+  1. Read .claude/lessons.md (full)
+  2. Read .claude/journal.md (last 5 entries)
+  3. Plan approach (considering lessons)
+  4. Do the work
+  5. Append to journal.md
+  6. If you learned something new → append to lessons.md
+END OF TASK
+```
+
+### Periodic Maintenance
+
+If `.claude/lessons.md` exceeds 100 entries, create a new section at the top called `## Key Principles` that distills the most important recurring lessons into a compact list. Keep the detailed entries below for reference.

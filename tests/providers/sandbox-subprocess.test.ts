@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { create } from '../../src/providers/sandbox-subprocess.js';
+import { create } from '../../src/providers/sandbox/subprocess.js';
 import type { Config } from '../../src/providers/types.js';
 
 const mockConfig = {

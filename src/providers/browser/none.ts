@@ -1,4 +1,4 @@
-import type { BrowserProvider, Config } from './types.js';
+import type { BrowserProvider, Config } from '../types.js';
 
 export async function create(_config: Config): Promise<BrowserProvider> {
   return {

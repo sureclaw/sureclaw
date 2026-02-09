@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach, vi } from 'vitest';
-import { create } from '../../src/providers/scheduler-cron.js';
+import { create } from '../../src/providers/scheduler/cron.js';
 import type { Config, InboundMessage } from '../../src/providers/types.js';
 
 const mockConfig = {

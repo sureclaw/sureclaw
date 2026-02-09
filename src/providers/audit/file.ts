@@ -1,6 +1,6 @@
 import { appendFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AuditProvider, AuditEntry, AuditFilter, Config } from './types.js';
+import type { AuditProvider, AuditEntry, AuditFilter, Config } from '../types.js';
 
 const DEFAULT_AUDIT_PATH = 'data/audit/audit.jsonl';
 

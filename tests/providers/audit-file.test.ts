@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { create } from '../../src/providers/audit-file.js';
+import { create } from '../../src/providers/audit/file.js';
 import { unlinkSync, existsSync } from 'node:fs';
 import type { Config } from '../../src/providers/types.js';
 

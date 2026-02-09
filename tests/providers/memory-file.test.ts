@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { create } from '../../src/providers/memory-file.js';
+import { create } from '../../src/providers/memory/file.js';
 import { rmSync } from 'node:fs';
 import type { MemoryProvider, Config } from '../../src/providers/types.js';
 

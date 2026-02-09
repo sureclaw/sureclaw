@@ -3,11 +3,11 @@ import { resolveProviderPath, PROVIDER_MAP } from '../src/provider-map.js';
 
 describe('Provider allowlist (SC-SEC-002)', () => {
   test('resolves valid provider paths', () => {
-    expect(resolveProviderPath('llm', 'anthropic')).toBe('./providers/llm-anthropic.js');
-    expect(resolveProviderPath('memory', 'file')).toBe('./providers/memory-file.js');
-    expect(resolveProviderPath('scheduler', 'none')).toBe('./providers/scheduler-none.js');
-    expect(resolveProviderPath('sandbox', 'seatbelt')).toBe('./providers/sandbox-seatbelt.js');
-    expect(resolveProviderPath('sandbox', 'subprocess')).toBe('./providers/sandbox-subprocess.js');
+    expect(resolveProviderPath('llm', 'anthropic')).toBe('./providers/llm/anthropic.js');
+    expect(resolveProviderPath('memory', 'file')).toBe('./providers/memory/file.js');
+    expect(resolveProviderPath('scheduler', 'none')).toBe('./providers/scheduler/none.js');
+    expect(resolveProviderPath('sandbox', 'seatbelt')).toBe('./providers/sandbox/seatbelt.js');
+    expect(resolveProviderPath('sandbox', 'subprocess')).toBe('./providers/sandbox/subprocess.js');
   });
 
   test('rejects unknown provider kind', () => {
@@ -33,7 +33,7 @@ describe('Provider allowlist (SC-SEC-002)', () => {
   test('every mapped path follows naming convention', () => {
     for (const [_kind, names] of Object.entries(PROVIDER_MAP)) {
       for (const [_name, path] of Object.entries(names)) {
-        expect(path).toMatch(/^\.\/providers\/[a-z\-]+\.js$/);
+        expect(path).toMatch(/^\.\/providers\/[a-z]+\/[a-z]+\.js$/);
       }
     }
   });

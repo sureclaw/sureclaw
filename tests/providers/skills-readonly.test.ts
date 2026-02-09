@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from 'vitest';
-import { create } from '../../src/providers/skills-readonly.js';
+import { create } from '../../src/providers/skills/readonly.js';
 import type { SkillStoreProvider, Config } from '../../src/providers/types.js';
 
 const config = {} as Config;

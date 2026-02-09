@@ -1,6 +1,6 @@
 import { createInterface, type Interface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
-import type { ChannelProvider, InboundMessage, OutboundMessage, Config } from './types.js';
+import type { ChannelProvider, InboundMessage, OutboundMessage, Config } from '../types.js';
 
 export async function create(_config: Config): Promise<ChannelProvider> {
   let rl: Interface | null = null;

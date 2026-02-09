@@ -1,29 +1,21 @@
-import { spawn, execFileSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import type { SandboxProvider, SandboxConfig, SandboxProcess, Config } from './types.js';
+import { spawn } from 'node:child_process';
+import type { SandboxProvider, SandboxConfig, SandboxProcess, Config } from '../types.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
-  const policyPath = resolve('policies/agent.sb');
-  const projectDir = resolve('.');
+  let warned = false;
 
   return {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
-      const [cmd, ...args] = config.command;
+      if (!warned) {
+        console.warn('[sandbox-subprocess] WARNING: No isolation — dev-only fallback');
+        warned = true;
+      }
 
-      // sandbox-exec with -D parameter substitution for dynamic paths
-      const child = spawn('sandbox-exec', [
-        '-f', policyPath,
-        '-D', `WORKSPACE=${config.workspace}`,
-        '-D', `SKILLS=${config.skills}`,
-        '-D', `IPC_SOCKET=${config.ipcSocket}`,
-        '-D', `PROJECT_DIR=${projectDir}`,
-        cmd, ...args,
-      ], {
+      const [cmd, ...args] = config.command;
+      const child = spawn(cmd, args, {
         cwd: config.workspace,
         env: {
-          // Minimal env — no credentials leak into the sandbox
-          PATH: process.env.PATH ?? '/usr/bin:/usr/local/bin',
-          HOME: config.workspace,
+          ...process.env,
           SURECLAW_IPC_SOCKET: config.ipcSocket,
           SURECLAW_WORKSPACE: config.workspace,
           SURECLAW_SKILLS: config.skills,
@@ -64,12 +56,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     },
 
     async isAvailable(): Promise<boolean> {
-      try {
-        execFileSync('which', ['sandbox-exec'], { stdio: 'ignore' });
-        return true;
-      } catch {
-        return false;
-      }
+      return true; // Always available — it's just a subprocess
     },
   };
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from 'vitest';
-import { create } from '../../src/providers/scanner-basic.js';
+import { create } from '../../src/providers/scanner/basic.js';
 import type { ScannerProvider, ScanTarget, Config } from '../../src/providers/types.js';
 
 const config = {} as Config;

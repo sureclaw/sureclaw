@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach } from 'vitest';
-import { create } from '../../src/providers/creds-env.js';
+import { create } from '../../src/providers/credentials/env.js';
 import type { Config } from '../../src/providers/types.js';
 
 const config = {} as Config;

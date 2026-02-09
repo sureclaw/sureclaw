@@ -4,7 +4,7 @@ import type {
   InboundMessage,
   CronJobDef,
   Config,
-} from './types.js';
+} from '../types.js';
 
 interface ActiveHours {
   start: number; // minutes from midnight
