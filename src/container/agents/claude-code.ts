@@ -227,8 +227,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   // Create Anthropic client pointing to the proxy socket
   const anthropic = new Anthropic({
     apiKey: 'ax-proxy', // Proxy doesn't validate keys
-    baseURL: `http://localhost/v1`,
-    fetch: createSocketFetch(config.proxySocket),
+    baseURL: `http://localhost`,
+    fetch: await createSocketFetch(config.proxySocket),
   });
 
   // Build message history
@@ -312,10 +312,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
 
 // ── Unix socket fetch ───────────────────────────────────────────────
 
-function createSocketFetch(socketPath: string): typeof globalThis.fetch {
-  // Dynamic import to avoid top-level dependency issues
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Agent } = require('undici');
+async function createSocketFetch(socketPath: string): Promise<typeof globalThis.fetch> {
+  const { Agent } = await import('undici');
   const dispatcher = new Agent({ connect: { socketPath } });
   return ((input: string | URL | Request, init?: RequestInit) =>
     fetch(input, { ...init, dispatcher } as RequestInit)) as typeof globalThis.fetch;
