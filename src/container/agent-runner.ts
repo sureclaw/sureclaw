@@ -296,7 +296,9 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
         debug(SRC, 'tool_call', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
       }
       if (ame.type === 'error') {
-        debug(SRC, 'agent_error_event', { error: String(ame.error) });
+        const errText = ame.error?.errorMessage ?? String(ame.error);
+        debug(SRC, 'agent_error_event', { error: errText });
+        process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
         debug(SRC, 'agent_done_event', { reason: ame.reason });

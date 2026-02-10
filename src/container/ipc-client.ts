@@ -38,7 +38,7 @@ export class IPCClient {
     });
   }
 
-  async call(request: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async call(request: Record<string, unknown>, callTimeoutMs?: number): Promise<Record<string, unknown>> {
     if (!this.socket || !this.connected) {
       await this.connect();
     }
@@ -50,13 +50,14 @@ export class IPCClient {
     const lenBuf = Buffer.alloc(4);
     lenBuf.writeUInt32BE(payload.length, 0);
 
-    debug(SRC, 'call_start', { action, payloadBytes: payload.length });
+    const effectiveTimeout = callTimeoutMs ?? this.timeoutMs;
+    debug(SRC, 'call_start', { action, payloadBytes: payload.length, timeoutMs: effectiveTimeout });
 
     return new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        debug(SRC, 'call_timeout', { action, timeoutMs: this.timeoutMs });
-        reject(new Error(`IPC call timed out after ${this.timeoutMs}ms`));
-      }, this.timeoutMs);
+        debug(SRC, 'call_timeout', { action, timeoutMs: effectiveTimeout });
+        reject(new Error(`IPC call timed out after ${effectiveTimeout}ms`));
+      }, effectiveTimeout);
 
       let buffer = Buffer.alloc(0);
 

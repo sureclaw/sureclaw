@@ -14,6 +14,10 @@ import { debug } from '../logger.js';
 
 const SRC = 'container:ipc-transport';
 
+// LLM calls can take minutes for complex prompts. The default IPC timeout
+// (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.
+const LLM_CALL_TIMEOUT_MS = parseInt(process.env.AX_LLM_TIMEOUT_MS ?? '', 10) || 10 * 60 * 1000;
+
 interface IPCChunk {
   type: 'text' | 'tool_use' | 'done';
   content?: string;
@@ -126,7 +130,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           messages: allMessages,
           tools,
           maxTokens: options?.maxTokens,
-        }) as IPCResponse;
+        }, LLM_CALL_TIMEOUT_MS) as IPCResponse;
 
         if (!response.ok) {
           debug(SRC, 'ipc_error', { error: response.error });

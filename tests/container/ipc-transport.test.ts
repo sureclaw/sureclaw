@@ -50,11 +50,12 @@ describe('ipc-transport', () => {
     expect(doneEvent).toBeTruthy();
     expect(doneEvent!.type).toBe('done');
 
-    // Verify IPC was called with the right data
+    // Verify IPC was called with the right data (+ LLM timeout)
     expect(client.call).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'llm_call',
       }),
+      expect.any(Number),
     );
   });
 

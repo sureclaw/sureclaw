@@ -33,6 +33,10 @@ import { debug, truncate } from '../../logger.js';
 
 const SRC = 'container:pi-session';
 
+// LLM calls can take minutes for complex prompts. The default IPC timeout
+// (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.
+const LLM_CALL_TIMEOUT_MS = parseInt(process.env.AX_LLM_TIMEOUT_MS ?? '', 10) || 10 * 60 * 1000;
+
 // ── IPC model definition ────────────────────────────────────────────
 
 const IPC_MODEL: Model<any> = {
@@ -129,7 +133,7 @@ function createIPCStreamFunction(client: IPCClient) {
           messages: allMessages,
           tools,
           maxTokens: options?.maxTokens,
-        }) as unknown as IPCResponse;
+        }, LLM_CALL_TIMEOUT_MS) as unknown as IPCResponse;
 
         if (!response.ok) {
           debug(SRC, 'ipc_error', { error: response.error });
@@ -460,7 +464,9 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
         debug(SRC, 'tool_call_event', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
       }
       if (ame.type === 'error') {
-        debug(SRC, 'agent_error_event', { error: String(ame.error) });
+        const errText = ame.error?.errorMessage ?? String(ame.error);
+        debug(SRC, 'agent_error_event', { error: errText });
+        process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
         debug(SRC, 'agent_done_event', { reason: ame.reason });
