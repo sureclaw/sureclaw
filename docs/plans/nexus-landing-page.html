@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus AI — Autonomous Workforce Platform</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --surface: #12151c;
+    --surface-2: #1a1e28;
+    --surface-3: #222835;
+    --border: #2a3040;
+    --border-accent: #3a4560;
+    --text: #e2e8f0;
+    --text-dim: #8892a8;
+    --text-muted: #5a6478;
+    --cyan: #06b6d4;
+    --cyan-dim: #164e63;
+    --cyan-glow: rgba(6, 182, 212, 0.15);
+    --blue: #3b82f6;
+    --blue-dim: #1e3a5f;
+    --green: #22c55e;
+    --green-dim: #14532d;
+    --green-glow: rgba(34, 197, 94, 0.1);
+    --purple: #a78bfa;
+    --orange: #f59e0b;
+    --red: #ef4444;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+    line-height: 1.6;
+  }
+
+  /* ─── Navigation ─── */
+  nav {
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .nav-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 16px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: -0.5px;
+  }
+  .nav-links {
+    display: flex;
+    gap: 28px;
+    list-style: none;
+  }
+  .nav-links a {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+    font-weight: 500;
+  }
+  .nav-links a:hover { color: var(--text); }
+  
+  .btn-nav {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--cyan-dim);
+    background: transparent;
+    color: var(--cyan);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .btn-nav:hover {
+    background: var(--cyan-glow);
+    border-color: var(--cyan);
+  }
+
+  /* ─── Container ─── */
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 40px 32px 80px;
+  }
+
+  /* ─── Hero ─── */
+  .hero {
+    padding: 80px 32px 60px;
+    text-align: center;
+  }
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--green);
+    background: var(--green-dim);
+    padding: 6px 12px;
+    border-radius: 6px;
+    margin-bottom: 28px;
+    border: 1px solid var(--green);
+  }
+  .pulse-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--green-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    line-height: 1.2;
+    margin-bottom: 20px;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  h1 .highlight { color: var(--cyan); }
+
+  .hero-description {
+    font-size: 15px;
+    color: var(--text-dim);
+    max-width: 680px;
+    margin: 0 auto 36px;
+    line-height: 1.7;
+  }
+
+  .cta-group {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn-primary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: 7px;
+    background: var(--cyan);
+    color: var(--bg);
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-primary:hover {
+    background: #22d3ee;
+    transform: translateY(-1px);
+  }
+  .btn-secondary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border-accent);
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .btn-secondary:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+    background: var(--surface-2);
+  }
+
+  /* ─── Stats ─── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin: 60px auto;
+    max-width: 1100px;
+  }
+  .stat-card {
+    background: var(--surface);
+    padding: 32px 24px;
+    text-align: center;
+  }
+  .stat-number {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin-bottom: 8px;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+
+  /* ─── Section Headers ─── */
+  .section-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .section-desc {
+    color: var(--text-dim);
+    font-size: 14px;
+    text-align: center;
+    max-width: 700px;
+    margin: 0 auto 48px;
+    line-height: 1.7;
+  }
+
+  /* ─── Features Grid ─── */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    background: var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    margin-bottom: 80px;
+  }
+  .feature-card {
+    background: var(--surface);
+    padding: 28px 24px;
+    transition: all 0.2s;
+  }
+  .feature-card:hover {
+    background: var(--surface-2);
+  }
+  .feature-icon {
+    font-size: 28px;
+    margin-bottom: 16px;
+    display: block;
+  }
+  .feature-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .feature-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* ─── Security Section ─── */
+  .security {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 48px 40px;
+    margin-bottom: 80px;
+  }
+  .security-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .security-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--green);
+    background: var(--green-dim);
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--green);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .security-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .security-item {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    transition: all 0.2s;
+  }
+  .security-item:hover {
+    border-color: var(--border-accent);
+    background: var(--surface-3);
+  }
+  .security-item-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .check-icon {
+    color: var(--green);
+    font-weight: 700;
+  }
+  .security-item-desc {
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* ─── AI Employees ─── */
+  .employees-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 80px;
+  }
+  .employee-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .employee-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--cyan);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .employee-card:hover {
+    border-color: var(--border-accent);
+    background: var(--surface-2);
+  }
+  .employee-card:hover::before {
+    opacity: 1;
+  }
+  .employee-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .employee-avatar {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--bg);
+  }
+  .employee-info {
+    flex: 1;
+  }
+  .employee-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .employee-role {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--green-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .employee-activity {
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--surface-2);
+    padding: 10px;
+    border-radius: 6px;
+    border-left: 2px solid var(--cyan-dim);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .employee-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .employee-stat {
+    text-align: center;
+  }
+  .employee-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--cyan);
+  }
+  .employee-stat-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+  }
+
+  /* ─── Code Block ─── */
+  .code-section {
+    margin-bottom: 80px;
+  }
+  .code-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .code-header {
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .code-filename {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .copy-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover {
+    border-color: var(--cyan-dim);
+    color: var(--cyan);
+    background: var(--surface-3);
+  }
+  .code-block {
+    padding: 24px;
+    overflow-x: auto;
+  }
+  pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.8;
+    margin: 0;
+    color: var(--text);
+  }
+  .keyword { color: var(--purple); }
+  .string { color: var(--cyan); }
+  .comment { color: var(--text-muted); }
+  .function { color: var(--green); }
+
+  /* ─── CTA Box ─── */
+  .cta-box {
+    background: var(--surface);
+    border: 1px solid var(--border-accent);
+    border-radius: 12px;
+    padding: 56px 48px;
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto 80px;
+  }
+  .cta-box h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .cta-box p {
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: 32px;
+    line-height: 1.7;
+  }
+
+  /* ─── Footer ─── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 48px 32px 32px;
+  }
+  .footer-content {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 48px;
+  }
+  .footer-brand {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin-bottom: 8px;
+  }
+  .footer-tagline {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .footer-section h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 16px;
+    color: var(--text-dim);
+  }
+  .footer-links {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .footer-links a {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+  .footer-links a:hover { color: var(--text); }
+  
+  .footer-bottom {
+    max-width: 1280px;
+    margin: 32px auto 0;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 1024px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .features-grid { grid-template-columns: repeat(2, 1fr); }
+    .employees-grid { grid-template-columns: repeat(2, 1fr); }
+    .footer-content { grid-template-columns: 1fr 1fr; }
+  }
+
+  @media (max-width: 768px) {
+    .nav-links { display: none; }
+    h1 { font-size: 32px; }
+    .stats { grid-template-columns: 1fr; }
+    .features-grid { grid-template-columns: 1fr; }
+    .security-grid { grid-template-columns: 1fr; }
+    .employees-grid { grid-template-columns: 1fr; }
+    .footer-content { grid-template-columns: 1fr; }
+    .footer-bottom { flex-direction: column; gap: 12px; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── Navigation ─── -->
+<nav>
+  <div class="nav-container">
+    <div class="logo">NEXUS</div>
+    <ul class="nav-links">
+      <li><a href="#features">features</a></li>
+      <li><a href="#security">security</a></li>
+      <li><a href="#employees">ai-employees</a></li>
+      <li><a href="#docs">docs</a></li>
+    </ul>
+    <a href="#start" class="btn-nav">get started →</a>
+  </div>
+</nav>
+
+<!-- ─── Hero ─── -->
+<section class="hero">
+  <div class="hero-badge">
+    <span class="pulse-dot"></span>
+    live workforce
+  </div>
+  <h1>
+    Deploy an autonomous <span class="highlight">AI employee fleet</span> that runs 24/7
+  </h1>
+  <p class="hero-description">
+    Enterprise-grade security meets breakthrough AI technology. Manage, scale, and monitor 
+    your intelligent workforce from a single control plane — all while maintaining zero-trust architecture.
+  </p>
+  <div class="cta-group">
+    <a href="#start" class="btn-primary">
+      start free trial
+      <span>→</span>
+    </a>
+    <a href="#demo" class="btn-secondary">view demo</a>
+  </div>
+</section>
+
+<!-- ─── Stats ─── -->
+<div class="container">
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-number">10M+</div>
+      <div class="stat-label">tasks automated</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">2.4K</div>
+      <div class="stat-label">organizations</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">99.9%</div>
+      <div class="stat-label">uptime</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number">24/7</div>
+      <div class="stat-label">operation</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Features ─── -->
+<section id="features" class="container">
+  <div class="section-header">Core capabilities</div>
+  <p class="section-desc">
+    Everything you need to deploy, manage, and scale an autonomous AI workforce with 
+    enterprise-grade security built into every layer.
+  </p>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <span class="feature-icon">⚡</span>
+      <div class="feature-title">Intelligent task distribution</div>
+      <p class="feature-desc">
+        AI employees automatically prioritize and execute tasks based on capabilities, 
+        availability, and workload optimization algorithms.
+      </p>
+    </div>
+
+    <div class="feature-card">
+      <span class="feature-icon">🔒</span>
+      <div class="feature-title">Zero-trust security</div>
+      <p class="feature-desc">
+        End-to-end encryption, role-based access control, and continuous monitoring 
+        protect your data at every layer.
+      </p>
+    </div>
+
+    <div class="feature-card">
+      <span class="feature-icon">📊</span>
+      <div class="feature-title">Real-time analytics</div>
+      <p class="feature-desc">
+        Monitor performance, track productivity, and gain insights with comprehensive 
+        dashboards and audit logging.
+      </p>
+    </div>
+
+    <div class="feature-card">
+      <span class="feature-icon">↗</span>
+      <div class="feature-title">Instant scalability</div>
+      <p class="feature-desc">
+        Scale from 10 to 10,000 AI employees in seconds. No infrastructure management, 
+        no downtime, no complexity.
+      </p>
+    </div>
+
+    <div class="feature-card">
+      <span class="feature-icon">🧠</span>
+      <div class="feature-title">Self-learning system</div>
+      <p class="feature-desc">
+        Your AI workforce continuously improves through machine learning, adapting to 
+        workflows and becoming more efficient over time.
+      </p>
+    </div>
+
+    <div class="feature-card">
+      <span class="feature-icon">🔗</span>
+      <div class="feature-title">Custom integrations</div>
+      <p class="feature-desc">
+        Connect to any tool, API, or platform with our flexible integration framework. 
+        Build custom workflows without limitations.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Security ─── -->
+<section id="security" class="container">
+  <div class="security">
+    <div class="security-header">
+      <div>
+        <div class="section-header" style="text-align: left; margin-bottom: 8px;">Security built into every layer</div>
+        <p style="color: var(--text-dim); font-size: 13px; line-height: 1.7; max-width: 700px;">
+          From encryption at rest to continuous threat monitoring, we've built security into 
+          the foundation. All profiles share the same architectural invariants.
+        </p>
+      </div>
+      <div class="security-badge">
+        <span>🛡</span>
+        soc 2 type ii
+      </div>
+    </div>
+
+    <div class="security-grid">
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          End-to-end encryption
+        </div>
+        <p class="security-item-desc">
+          Military-grade AES-256 encryption for all data in transit and at rest. 
+          Zero-knowledge architecture ensures we can't access your data.
+        </p>
+      </div>
+
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          Sandbox isolation
+        </div>
+        <p class="security-item-desc">
+          Every AI employee runs in an isolated container with no network access, 
+          preventing unauthorized data exfiltration.
+        </p>
+      </div>
+
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          Role-based access control
+        </div>
+        <p class="security-item-desc">
+          Granular permissions and capability manifests ensure employees only access 
+          the resources they need for their tasks.
+        </p>
+      </div>
+
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          24/7 threat monitoring
+        </div>
+        <p class="security-item-desc">
+          Real-time security alerts, automated threat response, and comprehensive 
+          audit logging track all system activity.
+        </p>
+      </div>
+
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          Taint tracking
+        </div>
+        <p class="security-item-desc">
+          Automatic detection and isolation of potentially compromised sessions 
+          prevent poisoned data from spreading.
+        </p>
+      </div>
+
+      <div class="security-item">
+        <div class="security-item-title">
+          <span class="check-icon">✓</span>
+          GDPR & CCPA compliant
+        </div>
+        <p class="security-item-desc">
+          Full compliance with global privacy regulations and data protection 
+          standards across all jurisdictions.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── AI Employees ─── -->
+<section id="employees" class="container">
+  <div class="section-header">Your AI workforce</div>
+  <p class="section-desc">
+    Deploy specialized AI employees trained for different roles. Each operates autonomously 
+    with real-time monitoring and full security controls.
+  </p>
+
+  <div class="employees-grid">
+    <div class="employee-card">
+      <div class="employee-header">
+        <div class="employee-avatar">AS</div>
+        <div class="employee-info">
+          <div class="employee-name">atlas-scout</div>
+          <div class="employee-role">research analyst</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <div class="employee-activity">
+        analyzing market trends for Q1 earnings report
+      </div>
+      <div class="employee-stats">
+        <div class="employee-stat">
+          <div class="employee-stat-value">847</div>
+          <div class="employee-stat-label">completed</div>
+        </div>
+        <div class="employee-stat">
+          <div class="employee-stat-value">99.2%</div>
+          <div class="employee-stat-label">accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="employee-card">
+      <div class="employee-header">
+        <div class="employee-avatar">NX</div>
+        <div class="employee-info">
+          <div class="employee-name">nova-nexus</div>
+          <div class="employee-role">content creator</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <div class="employee-activity">
+        generating social media content for product launch
+      </div>
+      <div class="employee-stats">
+        <div class="employee-stat">
+          <div class="employee-stat-value">1.2K</div>
+          <div class="employee-stat-label">completed</div>
+        </div>
+        <div class="employee-stat">
+          <div class="employee-stat-value">98.7%</div>
+          <div class="employee-stat-label">accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="employee-card">
+      <div class="employee-header">
+        <div class="employee-avatar">QC</div>
+        <div class="employee-info">
+          <div class="employee-name">quantum-clerk</div>
+          <div class="employee-role">data processor</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <div class="employee-activity">
+        processing invoice batch #4729 with validation
+      </div>
+      <div class="employee-stats">
+        <div class="employee-stat">
+          <div class="employee-stat-value">2.4K</div>
+          <div class="employee-stat-label">completed</div>
+        </div>
+        <div class="employee-stat">
+          <div class="employee-stat-value">99.9%</div>
+          <div class="employee-stat-label">accuracy</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="employee-card">
+      <div class="employee-header">
+        <div class="employee-avatar">VG</div>
+        <div class="employee-info">
+          <div class="employee-name">vega-guard</div>
+          <div class="employee-role">security monitor</div>
+        </div>
+        <div class="status-dot"></div>
+      </div>
+      <div class="employee-activity">
+        monitoring system logs for security anomalies
+      </div>
+      <div class="employee-stats">
+        <div class="employee-stat">
+          <div class="employee-stat-value">5.1K</div>
+          <div class="employee-stat-label">completed</div>
+        </div>
+        <div class="employee-stat">
+          <div class="employee-stat-value">99.8%</div>
+          <div class="employee-stat-label">accuracy</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Code Example ─── -->
+<section class="code-section container">
+  <div class="section-header">Deploy in minutes</div>
+  <p class="section-desc">
+    Get started with our intuitive API. Deploy your first AI employee with just a few lines of code.
+  </p>
+
+  <div class="code-container">
+    <div class="code-header">
+      <span class="code-filename">deploy.js</span>
+      <button class="copy-btn" onclick="copyCode()">copy</button>
+    </div>
+    <div class="code-block">
+<pre><span class="keyword">import</span> { Nexus } <span class="keyword">from</span> <span class="string">'@nexus/sdk'</span>;
+
+<span class="comment">// Initialize client with API key</span>
+<span class="keyword">const</span> nexus = <span class="keyword">new</span> <span class="function">Nexus</span>({
+  apiKey: process.env.NEXUS_API_KEY,
+  secure: <span class="keyword">true</span>
+});
+
+<span class="comment">// Deploy a new AI employee</span>
+<span class="keyword">const</span> employee = <span class="keyword">await</span> nexus.employees.<span class="function">create</span>({
+  name: <span class="string">'atlas-scout'</span>,
+  role: <span class="string">'research-analyst'</span>,
+  capabilities: [<span class="string">'data-analysis'</span>, <span class="string">'report-generation'</span>],
+  autoStart: <span class="keyword">true</span>
+});
+
+<span class="comment">// Assign a task</span>
+<span class="keyword">await</span> employee.<span class="function">assignTask</span>({
+  type: <span class="string">'analyze'</span>,
+  data: marketData,
+  priority: <span class="string">'high'</span>
+});
+
+console.<span class="function">log</span>(<span class="string">`employee ${employee.id} active`</span>);</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CTA ─── -->
+<section class="container">
+  <div class="cta-box">
+    <h2>Ready to deploy?</h2>
+    <p>
+      Join thousands of organizations using Nexus AI to automate, scale, and innovate. 
+      Start with our free tier and upgrade as you grow.
+    </p>
+    <div class="cta-group">
+      <a href="#start" class="btn-primary">
+        start free trial
+        <span>→</span>
+      </a>
+      <a href="#contact" class="btn-secondary">contact sales</a>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Footer ─── -->
+<footer>
+  <div class="footer-content">
+    <div>
+      <div class="footer-brand">NEXUS</div>
+      <p class="footer-tagline">
+        Autonomous workforce platform<br>
+        built for security and scale.
+      </p>
+    </div>
+
+    <div class="footer-section">
+      <h4>product</h4>
+      <ul class="footer-links">
+        <li><a href="#features">features</a></li>
+        <li><a href="#pricing">pricing</a></li>
+        <li><a href="#security">security</a></li>
+        <li><a href="#integrations">integrations</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-section">
+      <h4>resources</h4>
+      <ul class="footer-links">
+        <li><a href="#docs">documentation</a></li>
+        <li><a href="#api">api reference</a></li>
+        <li><a href="#guides">guides</a></li>
+        <li><a href="#blog">blog</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-section">
+      <h4>company</h4>
+      <ul class="footer-links">
+        <li><a href="#about">about</a></li>
+        <li><a href="#careers">careers</a></li>
+        <li><a href="#contact">contact</a></li>
+        <li><a href="#github">github</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="footer-bottom">
+    <div>© 2026 nexus ai · all rights reserved</div>
+    <div>
+      <a href="#privacy" style="color: var(--text-muted); text-decoration: none; margin-right: 16px;">privacy</a>
+      <a href="#terms" style="color: var(--text-muted); text-decoration: none;">terms</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  function copyCode() {
+    const code = document.querySelector('pre').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'copied!';
+      setTimeout(() => { btn.textContent = 'copy'; }, 2000);
+    });
+  }
+
+  // Smooth scroll
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+</script>
+
+</body>
+</html>
