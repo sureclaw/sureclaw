@@ -328,7 +328,7 @@ export async function createServer(
       let proxySocketPath: string | undefined;
       if (agentType === 'claude-code') {
         proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
-        const proxy = startAnthropicProxy(proxySocketPath, ipcSocketPath);
+        const proxy = startAnthropicProxy(proxySocketPath);
         proxyCleanup = proxy.stop;
       }
 

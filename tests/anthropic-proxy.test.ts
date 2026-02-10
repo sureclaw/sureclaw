@@ -1,117 +1,157 @@
-import { describe, test, expect, afterEach } from 'vitest';
+import { describe, test, expect, afterEach, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createServer, type Server } from 'node:net';
+import { createServer, type Server } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { startAnthropicProxy } from '../src/anthropic-proxy.js';
 
-/**
- * Create a minimal mock IPC server that responds to llm_call with a canned response.
- */
-function createMockIPCServer(
-  socketPath: string,
-  handler: (req: Record<string, unknown>) => Record<string, unknown>,
-): Server {
-  const server = createServer((socket) => {
-    let buffer = Buffer.alloc(0);
-    socket.on('data', (data) => {
-      buffer = Buffer.concat([buffer, data]);
-      while (buffer.length >= 4) {
-        const msgLen = buffer.readUInt32BE(0);
-        if (buffer.length < 4 + msgLen) break;
-        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
-        buffer = buffer.subarray(4 + msgLen);
-        const request = JSON.parse(raw);
-        const response = handler(request);
-        const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
-        const lenBuf = Buffer.alloc(4);
-        lenBuf.writeUInt32BE(responseBuf.length, 0);
-        socket.write(Buffer.concat([lenBuf, responseBuf]));
-      }
-    });
-  });
-  server.listen(socketPath);
-  return server;
-}
-
-describe('Anthropic API Proxy', () => {
+describe('Credential-Injecting Proxy', () => {
   let tmpDir: string;
-  let ipcServer: Server;
-  let proxyResult: { server: import('node:http').Server; stop: () => void };
+  let mockApi: Server;
+  let proxyResult: { server: Server; stop: () => void };
+
+  // Each test gets its own port to avoid EADDRINUSE
+  let nextPort = 19901;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
+  });
 
   afterEach(() => {
     proxyResult?.stop();
-    ipcServer?.close();
+    mockApi?.close();
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   });
 
-  test('translates POST /v1/messages to IPC llm_call and returns Anthropic JSON', async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
-    const ipcSocketPath = join(tmpDir, 'ipc.sock');
-    const proxySocketPath = join(tmpDir, 'proxy.sock');
-
-    // Set up mock IPC server
-    let receivedRequest: Record<string, unknown> | null = null;
-    ipcServer = createMockIPCServer(ipcSocketPath, (req) => {
-      receivedRequest = req;
-      return {
-        ok: true,
-        chunks: [
-          { type: 'text', content: 'Hello from proxy!' },
-          { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
-        ],
-      };
+  function startMockApi(
+    handler: (req: IncomingMessage, body: string, res: ServerResponse) => void,
+  ): Promise<number> {
+    const port = nextPort++;
+    return new Promise((resolve) => {
+      mockApi = createServer(async (req, res) => {
+        const chunks: Buffer[] = [];
+        for await (const c of req) chunks.push(c as Buffer);
+        handler(req, Buffer.concat(chunks).toString(), res);
+      });
+      mockApi.listen(port, () => resolve(port));
     });
-    await new Promise<void>((r) => ipcServer.on('listening', r));
+  }
 
-    // Start proxy
-    proxyResult = startAnthropicProxy(proxySocketPath, ipcSocketPath);
+  test('injects x-api-key when ANTHROPIC_API_KEY is set', async () => {
+    let receivedHeaders: Record<string, string | string[] | undefined> = {};
+    const port = await startMockApi((req, _body, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'msg_1', type: 'message', role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        model: 'claude-sonnet-4-5-20250929', stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+    });
+
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-real-key-123';
+    const proxySocketPath = join(tmpDir, 'proxy.sock');
+    proxyResult = startAnthropicProxy(proxySocketPath, `http://localhost:${port}`);
     await new Promise<void>((r) => proxyResult.server.on('listening', r));
 
-    // Make HTTP request to proxy
+    const { Agent } = await import('undici');
+    const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
+    const response = await fetch('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'dummy' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929', max_tokens: 100,
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+      dispatcher,
+    } as RequestInit);
+
+    expect(response.status).toBe(200);
+    // Proxy must replace dummy key with real key
+    expect(receivedHeaders['x-api-key']).toBe('sk-ant-real-key-123');
+    // Must NOT have Authorization header
+    expect(receivedHeaders['authorization']).toBeUndefined();
+  });
+
+  test('injects Bearer token when CLAUDE_CODE_OAUTH_TOKEN is set (no API key)', async () => {
+    let receivedHeaders: Record<string, string | string[] | undefined> = {};
+    const port = await startMockApi((req, _body, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'msg_1', type: 'message', role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        model: 'claude-sonnet-4-5-20250929', stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+    });
+
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat01-token-xyz';
+    const proxySocketPath = join(tmpDir, 'proxy.sock');
+    proxyResult = startAnthropicProxy(proxySocketPath, `http://localhost:${port}`);
+    await new Promise<void>((r) => proxyResult.server.on('listening', r));
+
+    const { Agent } = await import('undici');
+    const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
+    const response = await fetch('http://localhost/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'dummy' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929', max_tokens: 100,
+        messages: [{ role: 'user', content: 'Hi' }],
+      }),
+      dispatcher,
+    } as RequestInit);
+
+    expect(response.status).toBe(200);
+    // Proxy must inject Bearer token
+    expect(receivedHeaders['authorization']).toBe('Bearer sk-ant-oat01-token-xyz');
+    // Must NOT have x-api-key
+    expect(receivedHeaders['x-api-key']).toBeUndefined();
+  });
+
+  test('streams SSE responses through', async () => {
+    const port = await startMockApi((_req, _body, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('event: message_start\ndata: {"type":"message_start"}\n\n');
+      res.write('event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hello"}}\n\n');
+      res.write('event: message_stop\ndata: {"type":"message_stop"}\n\n');
+      res.end();
+    });
+
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
+    const proxySocketPath = join(tmpDir, 'proxy.sock');
+    proxyResult = startAnthropicProxy(proxySocketPath, `http://localhost:${port}`);
+    await new Promise<void>((r) => proxyResult.server.on('listening', r));
+
     const { Agent } = await import('undici');
     const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
     const response = await fetch('http://localhost/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: 'Hello' }],
-        system: 'You are helpful.',
+        model: 'claude-sonnet-4-5-20250929', max_tokens: 100, stream: true,
+        messages: [{ role: 'user', content: 'Hi' }],
       }),
       dispatcher,
     } as RequestInit);
 
     expect(response.status).toBe(200);
-    const body = await response.json() as Record<string, unknown>;
-
-    // Verify response is in Anthropic format
-    expect(body.type).toBe('message');
-    expect(body.role).toBe('assistant');
-    expect(body.model).toBe('claude-sonnet-4-5-20250929');
-    expect(body.stop_reason).toBe('end_turn');
-
-    const content = body.content as Array<{ type: string; text: string }>;
-    expect(content).toHaveLength(1);
-    expect(content[0].type).toBe('text');
-    expect(content[0].text).toBe('Hello from proxy!');
-
-    // Verify IPC call was made correctly
-    expect(receivedRequest).not.toBeNull();
-    expect(receivedRequest!.action).toBe('llm_call');
-    expect(receivedRequest!.model).toBe('claude-sonnet-4-5-20250929');
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const text = await response.text();
+    expect(text).toContain('message_start');
+    expect(text).toContain('hello');
+    expect(text).toContain('message_stop');
   });
 
   test('returns 404 for non-messages endpoints', async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
-    const ipcSocketPath = join(tmpDir, 'ipc.sock');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-test';
     const proxySocketPath = join(tmpDir, 'proxy.sock');
-
-    ipcServer = createMockIPCServer(ipcSocketPath, () => ({ ok: true }));
-    await new Promise<void>((r) => ipcServer.on('listening', r));
-
-    proxyResult = startAnthropicProxy(proxySocketPath, ipcSocketPath);
+    proxyResult = startAnthropicProxy(proxySocketPath, `http://localhost:${nextPort++}`);
     await new Promise<void>((r) => proxyResult.server.on('listening', r));
 
     const { Agent } = await import('undici');
@@ -123,131 +163,40 @@ describe('Anthropic API Proxy', () => {
     expect(response.status).toBe(404);
   });
 
-  test('handles streaming SSE responses', async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
-    const ipcSocketPath = join(tmpDir, 'ipc.sock');
-    const proxySocketPath = join(tmpDir, 'proxy.sock');
-
-    ipcServer = createMockIPCServer(ipcSocketPath, () => ({
-      ok: true,
-      chunks: [
-        { type: 'text', content: 'Streamed!' },
-        { type: 'done', usage: { inputTokens: 5, outputTokens: 3 } },
-      ],
-    }));
-    await new Promise<void>((r) => ipcServer.on('listening', r));
-
-    proxyResult = startAnthropicProxy(proxySocketPath, ipcSocketPath);
-    await new Promise<void>((r) => proxyResult.server.on('listening', r));
-
-    const { Agent } = await import('undici');
-    const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
-    const response = await fetch('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: 'Hello' }],
-        stream: true,
-      }),
-      dispatcher,
-    } as RequestInit);
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get('content-type')).toBe('text/event-stream');
-
-    const text = await response.text();
-    expect(text).toContain('event: message_start');
-    expect(text).toContain('event: content_block_start');
-    expect(text).toContain('event: content_block_delta');
-    expect(text).toContain('Streamed!');
-    expect(text).toContain('event: message_stop');
-  });
-
-  test('returns error when IPC call fails', async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
-    const ipcSocketPath = join(tmpDir, 'ipc.sock');
-    const proxySocketPath = join(tmpDir, 'proxy.sock');
-
-    ipcServer = createMockIPCServer(ipcSocketPath, () => ({
-      ok: false,
-      error: 'LLM provider error',
-    }));
-    await new Promise<void>((r) => ipcServer.on('listening', r));
-
-    proxyResult = startAnthropicProxy(proxySocketPath, ipcSocketPath);
-    await new Promise<void>((r) => proxyResult.server.on('listening', r));
-
-    const { Agent } = await import('undici');
-    const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
-    const response = await fetch('http://localhost/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: 'Hello' }],
-      }),
-      dispatcher,
-    } as RequestInit);
-
-    expect(response.status).toBe(500);
-    const body = await response.json() as Record<string, unknown>;
-    expect(body.type).toBe('error');
-  });
-
-  test('passes tool definitions through to IPC', async () => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'proxy-test-'));
-    const ipcSocketPath = join(tmpDir, 'ipc.sock');
-    const proxySocketPath = join(tmpDir, 'proxy.sock');
-
-    let receivedTools: unknown[] = [];
-    ipcServer = createMockIPCServer(ipcSocketPath, (req) => {
-      receivedTools = (req.tools as unknown[]) ?? [];
-      return {
-        ok: true,
-        chunks: [
-          { type: 'tool_use', toolCall: { id: 'tc1', name: 'read_file', args: { path: 'test.txt' } } },
-          { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
-        ],
-      };
+  test('API key takes precedence over OAuth token', async () => {
+    let receivedHeaders: Record<string, string | string[] | undefined> = {};
+    const port = await startMockApi((req, _body, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'msg_1', type: 'message', role: 'assistant',
+        content: [{ type: 'text', text: 'ok' }],
+        model: 'claude-sonnet-4-5-20250929', stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
     });
-    await new Promise<void>((r) => ipcServer.on('listening', r));
 
-    proxyResult = startAnthropicProxy(proxySocketPath, ipcSocketPath);
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-real';
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'sk-ant-oat01-token';
+    const proxySocketPath = join(tmpDir, 'proxy.sock');
+    proxyResult = startAnthropicProxy(proxySocketPath, `http://localhost:${port}`);
     await new Promise<void>((r) => proxyResult.server.on('listening', r));
 
     const { Agent } = await import('undici');
     const dispatcher = new Agent({ connect: { socketPath: proxySocketPath } });
-    const response = await fetch('http://localhost/v1/messages', {
+    await fetch('http://localhost/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'dummy' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        messages: [{ role: 'user', content: 'Read test.txt' }],
-        tools: [{
-          name: 'read_file',
-          description: 'Read a file',
-          input_schema: { type: 'object', properties: { path: { type: 'string' } } },
-        }],
+        model: 'claude-sonnet-4-5-20250929', max_tokens: 100,
+        messages: [{ role: 'user', content: 'Hi' }],
       }),
       dispatcher,
     } as RequestInit);
 
-    expect(response.status).toBe(200);
-    const body = await response.json() as Record<string, unknown>;
-
-    // Verify tool_use block in response
-    expect(body.stop_reason).toBe('tool_use');
-    const content = body.content as Array<Record<string, unknown>>;
-    const toolBlock = content.find(b => b.type === 'tool_use');
-    expect(toolBlock).toBeTruthy();
-    expect(toolBlock!.name).toBe('read_file');
-
-    // Verify tools were forwarded to IPC
-    expect(receivedTools).toHaveLength(1);
-    expect((receivedTools[0] as Record<string, unknown>).name).toBe('read_file');
+    // API key should win
+    expect(receivedHeaders['x-api-key']).toBe('sk-ant-real');
+    // Authorization header should be removed
+    expect(receivedHeaders['authorization']).toBeUndefined();
   });
 });
