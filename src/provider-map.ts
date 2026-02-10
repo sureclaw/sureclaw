@@ -27,7 +27,6 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
     promptfoo: './providers/scanner/promptfoo.js',
   },
   channel: {
-    cli:       './providers/channel/cli.js',
     slack:     './providers/channel/slack.js',
     whatsapp:  './providers/channel/whatsapp.js',
     telegram:  './providers/channel/telegram.js',

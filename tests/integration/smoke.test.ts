@@ -68,6 +68,48 @@ function waitForReady(proc: ChildProcess, output: { stdout: string[]; stderr: st
   });
 }
 
+/** Make an HTTP request over the Unix socket with full message history */
+function sendMessageWithHistory(
+  socket: string,
+  messages: { role: string; content: string }[],
+  opts?: { stream?: boolean },
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: 'default',
+      messages,
+      stream: opts?.stream ?? false,
+    });
+
+    const req = httpRequest(
+      {
+        socketPath: socket,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf-8'),
+          });
+        });
+        res.on('error', reject);
+      },
+    );
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 /** Make an HTTP request over the Unix socket */
 function sendMessage(
   socket: string,
@@ -197,7 +239,7 @@ describe('Smoke Test', () => {
     expect(content.toLowerCase()).toContain('blocked');
   }, 60_000);
 
-  test('multi-turn conversation preserves context', async () => {
+  test('multi-turn conversation with client-managed history', async () => {
     proc = startServer();
     const output = collectOutput(proc);
     await waitForReady(proc, output);
@@ -206,10 +248,15 @@ describe('Smoke Test', () => {
     const res1 = await sendMessage(socketPath, 'hello');
     expect(res1.status).toBe(200);
     const data1 = JSON.parse(res1.body);
-    expect(data1.choices[0].message.content.trim().length).toBeGreaterThan(0);
+    const firstResponse = data1.choices[0].message.content;
+    expect(firstResponse.trim().length).toBeGreaterThan(0);
 
-    // Send second message — server manages conversation via ConversationStore
-    const res2 = await sendMessage(socketPath, 'what did I just say?');
+    // Send second message with conversation history (server is stateless)
+    const res2 = await sendMessageWithHistory(socketPath, [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: firstResponse },
+      { role: 'user', content: 'what did I just say?' },
+    ]);
     expect(res2.status).toBe(200);
     const data2 = JSON.parse(res2.body);
     expect(data2.choices[0].message.content.trim().length).toBeGreaterThan(0);

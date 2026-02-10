@@ -16,7 +16,7 @@ import { axHome, dataDir, dataFile } from './paths.js';
 import type { Config } from './providers/types.js';
 import type { InboundMessage, ProviderRegistry } from './providers/types.js';
 import { loadProviders } from './registry.js';
-import { MessageQueue, ConversationStore } from './db.js';
+import { MessageQueue } from './db.js';
 import { createRouter, type Router } from './router.js';
 import { createIPCHandler, createIPCServer } from './ipc.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
@@ -91,7 +91,6 @@ export async function createServer(
   // Initialize DB + Taint Budget + Router + IPC
   mkdirSync(dataDir(), { recursive: true });
   const db = new MessageQueue(dataFile('messages.db'));
-  const conversations = new ConversationStore(dataFile('conversations.db'));
   const taintBudget = new TaintBudget({
     threshold: thresholdForProfile(config.profile),
   });
@@ -191,8 +190,8 @@ export async function createServer(
     const lastMsg = chatReq.messages[chatReq.messages.length - 1];
     const content = lastMsg?.content ?? '';
 
-    // Process completion
-    const { responseContent, finishReason } = await processCompletion(content, requestId);
+    // Process completion (server is stateless — clients manage history)
+    const { responseContent, finishReason } = await processCompletion(content, requestId, chatReq.messages);
 
     if (chatReq.stream) {
       // Streaming mode -- SSE
@@ -244,6 +243,7 @@ export async function createServer(
   async function processCompletion(
     content: string,
     requestId: string,
+    clientMessages: { role: string; content: string }[] = [],
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter' }> {
     const sessionId = randomUUID();
 
@@ -288,8 +288,11 @@ export async function createServer(
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
       writeFileSync(join(workspace, 'message.txt'), fileContent);
 
-      // Load conversation history
-      const history = conversations.getHistory(queued.session_id);
+      // Use client-provided conversation history (server is stateless)
+      const history = clientMessages.slice(0, -1).map(m => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
       // Spawn sandbox
       const tsxBin = resolve('node_modules/.bin/tsx');
@@ -345,14 +348,13 @@ export async function createServer(
         logger.warn('Canary leak detected -- response redacted', { session_id: queued.session_id });
       }
 
-      // Store conversation turns
-      conversations.addTurn(queued.session_id, 'user', queued.content);
-      conversations.addTurn(queued.session_id, 'assistant', outbound.content);
-
       // Memorize if provider supports it
       if (providers.memory.memorize) {
         try {
-          const fullHistory = conversations.getHistory(queued.session_id);
+          const fullHistory = [
+            ...clientMessages,
+            { role: 'assistant', content: outbound.content },
+          ];
           await providers.memory.memorize(fullHistory);
         } catch (err) {
           logger.warn('memorize() failed (non-fatal)', { error: (err as Error).message });
@@ -430,23 +432,21 @@ export async function createServer(
       }
     });
 
-    // Connect non-CLI channel providers
+    // Connect channel providers (Slack, Discord, etc.)
     for (const channel of providers.channels) {
-      if (channel.name !== 'cli') {
-        channel.onMessage(async (msg: InboundMessage) => {
-          const result = await router.processInbound(msg);
-          if (!result.queued) {
-            await channel.send(msg.sender, {
-              content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
-            });
-            return;
-          }
-          sessionCanaries.set(result.sessionId, result.canaryToken);
-          const { responseContent } = await processCompletion(msg.content, `ch-${randomUUID().slice(0, 8)}`);
-          await channel.send(msg.sender, { content: responseContent });
-        });
-        await channel.connect();
-      }
+      channel.onMessage(async (msg: InboundMessage) => {
+        const result = await router.processInbound(msg);
+        if (!result.queued) {
+          await channel.send(msg.sender, {
+            content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
+          });
+          return;
+        }
+        sessionCanaries.set(result.sessionId, result.canaryToken);
+        const { responseContent } = await processCompletion(msg.content, `ch-${randomUUID().slice(0, 8)}`);
+        await channel.send(msg.sender, { content: responseContent });
+      });
+      await channel.connect();
     }
   }
 
@@ -475,9 +475,8 @@ export async function createServer(
     // Stop IPC server
     try { ipcServer.close(); } catch { /* ignore */ }
 
-    // Close DBs
+    // Close DB
     try { db.close(); } catch { /* ignore */ }
-    try { conversations.close(); } catch { /* ignore */ }
 
     // Clean up sockets
     try { unlinkSync(socketPath); } catch { /* ignore */ }

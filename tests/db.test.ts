@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { MessageQueue, ConversationStore } from '../src/db.js';
+import { MessageQueue } from '../src/db.js';
 
 describe('MessageQueue', () => {
   let queue: MessageQueue;
@@ -70,51 +70,3 @@ describe('MessageQueue', () => {
   });
 });
 
-describe('ConversationStore', () => {
-  let store: ConversationStore;
-
-  beforeEach(() => {
-    store = new ConversationStore(':memory:');
-  });
-
-  afterEach(() => {
-    store.close();
-  });
-
-  test('getHistory returns empty array for unknown session', () => {
-    expect(store.getHistory('unknown')).toEqual([]);
-  });
-
-  test('addTurn and getHistory preserve order', () => {
-    store.addTurn('s1', 'user', 'hello');
-    store.addTurn('s1', 'assistant', 'Hi there!');
-    store.addTurn('s1', 'user', 'how are you?');
-    store.addTurn('s1', 'assistant', 'I am well.');
-
-    const history = store.getHistory('s1');
-    expect(history).toEqual([
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'Hi there!' },
-      { role: 'user', content: 'how are you?' },
-      { role: 'assistant', content: 'I am well.' },
-    ]);
-  });
-
-  test('sessions are isolated', () => {
-    store.addTurn('s1', 'user', 'session one');
-    store.addTurn('s2', 'user', 'session two');
-
-    expect(store.getHistory('s1')).toEqual([{ role: 'user', content: 'session one' }]);
-    expect(store.getHistory('s2')).toEqual([{ role: 'user', content: 'session two' }]);
-  });
-
-  test('clearSession removes only that session', () => {
-    store.addTurn('s1', 'user', 'hello');
-    store.addTurn('s2', 'user', 'world');
-
-    store.clearSession('s1');
-
-    expect(store.getHistory('s1')).toEqual([]);
-    expect(store.getHistory('s2')).toEqual([{ role: 'user', content: 'world' }]);
-  });
-});

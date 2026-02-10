@@ -12,7 +12,7 @@ const ConfigSchema = z.strictObject({
     llm: z.string(),
     memory: z.string(),
     scanner: z.string(),
-    channels: z.array(z.string()).min(1),
+    channels: z.array(z.string()),
     web: z.string(),
     browser: z.string(),
     credentials: z.string(),

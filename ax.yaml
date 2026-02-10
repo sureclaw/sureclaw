@@ -3,7 +3,7 @@ providers:
   llm: anthropic
   memory: file
   scanner: basic
-  channels: [cli]
+  channels: []
   web: none
   browser: none
   credentials: env

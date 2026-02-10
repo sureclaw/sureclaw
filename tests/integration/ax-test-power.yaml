@@ -6,7 +6,7 @@ providers:
   llm: mock
   memory: file
   scanner: patterns
-  channels: [cli]
+  channels: []
   web: none
   browser: none
   credentials: env

@@ -40,7 +40,7 @@ function powerUserConfig(): Config {
     profile: 'yolo',
     providers: {
       llm: 'mock', memory: 'file', scanner: 'promptfoo',
-      channels: ['cli'], web: 'tavily', browser: 'container',
+      channels: [], web: 'tavily', browser: 'container',
       credentials: 'keychain', skills: 'git', audit: 'sqlite',
       sandbox: 'docker', scheduler: 'full',
     },
