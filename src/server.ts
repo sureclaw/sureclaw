@@ -324,9 +324,11 @@ export async function createServer(
       const tsxBin = resolve('node_modules/.bin/tsx');
       const agentType = config.agent ?? 'pi-agent-core';
 
-      // Start Anthropic proxy for claude-code agent (translates Messages API → IPC)
+      // Start credential-injecting proxy for agents using a real LLM provider.
+      // The proxy forwards Anthropic API requests with injected credentials.
+      // Mock LLM uses IPC only — no proxy needed.
       let proxySocketPath: string | undefined;
-      if (agentType === 'claude-code') {
+      if (config.providers.llm !== 'mock') {
         proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
         const proxy = startAnthropicProxy(proxySocketPath);
         proxyCleanup = proxy.stop;
