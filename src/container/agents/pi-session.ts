@@ -584,13 +584,13 @@ function loadSkills(skillsDir: string): string[] {
   } catch { return []; }
 }
 
-function buildSystemPrompt(context: string, skills: string[], skillsDir: string): string {
+function buildSystemPrompt(context: string, skills: string[]): string {
   const parts: string[] = [];
   parts.push('You are AX, a security-first AI agent.');
   parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
   if (context) parts.push('\n## Context\n' + context);
   if (skills.length > 0) {
-    parts.push(`\n## Skills\nSkills directory: ${skillsDir}\n` + skills.join('\n---\n'));
+    parts.push('\n## Skills\nSkills directory: ./skills\n' + skills.join('\n---\n'));
   }
   return parts.join('\n');
 }
@@ -647,7 +647,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Build system prompt
   const context = loadContext(config.workspace);
   const skills = loadSkills(config.skills);
-  const systemPrompt = buildSystemPrompt(context, skills, config.skills);
+  const systemPrompt = buildSystemPrompt(context, skills);
 
   // Create coding tools bound to the workspace directory.
   // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()
