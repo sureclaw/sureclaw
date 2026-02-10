@@ -535,20 +535,6 @@ function createIPCToolDefinitions(client: IPCClient): ToolDefinition[] {
       async execute(_id, params) { return ipcCall('memory_list', p(params)); },
     },
     {
-      name: 'skill_read',
-      label: 'Read Skill',
-      description: 'Read the content of a named skill.',
-      parameters: Type.Object({ name: Type.String() }),
-      async execute(_id, params) { return ipcCall('skill_read', p(params)); },
-    },
-    {
-      name: 'skill_list',
-      label: 'List Skills',
-      description: 'List available skills.',
-      parameters: Type.Object({}),
-      async execute() { return ipcCall('skill_list'); },
-    },
-    {
       name: 'web_fetch',
       label: 'Fetch URL',
       description: 'Fetch content from a URL (proxied through host with SSRF protection).',
@@ -598,12 +584,14 @@ function loadSkills(skillsDir: string): string[] {
   } catch { return []; }
 }
 
-function buildSystemPrompt(context: string, skills: string[]): string {
+function buildSystemPrompt(context: string, skills: string[], skillsDir: string): string {
   const parts: string[] = [];
   parts.push('You are AX, a security-first AI agent.');
   parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
   if (context) parts.push('\n## Context\n' + context);
-  if (skills.length > 0) parts.push('\n## Skills\n' + skills.join('\n---\n'));
+  if (skills.length > 0) {
+    parts.push(`\n## Skills\nSkills directory: ${skillsDir}\n` + skills.join('\n---\n'));
+  }
   return parts.join('\n');
 }
 
@@ -659,7 +647,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Build system prompt
   const context = loadContext(config.workspace);
   const skills = loadSkills(config.skills);
-  const systemPrompt = buildSystemPrompt(context, skills);
+  const systemPrompt = buildSystemPrompt(context, skills, config.skills);
 
   // Create coding tools bound to the workspace directory.
   // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()

@@ -222,7 +222,7 @@ function loadSkills(skillsDir: string): string[] {
   }
 }
 
-function buildSystemPrompt(context: string, skills: string[]): string {
+function buildSystemPrompt(context: string, skills: string[], skillsDir: string): string {
   const parts: string[] = [];
   parts.push('You are AX, a security-first AI agent.');
   parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
@@ -231,7 +231,7 @@ function buildSystemPrompt(context: string, skills: string[]): string {
     parts.push('\n## Context\n' + context);
   }
   if (skills.length > 0) {
-    parts.push('\n## Skills\n' + skills.join('\n---\n'));
+    parts.push(`\n## Skills\nSkills directory: ${skillsDir}\n` + skills.join('\n---\n'));
   }
 
   return parts.join('\n');
@@ -483,7 +483,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
 
   const context = loadContext(config.workspace);
   const skills = loadSkills(config.skills);
-  const systemPrompt = buildSystemPrompt(context, skills);
+  const systemPrompt = buildSystemPrompt(context, skills, config.skills);
 
   // Build tools: local (execute in sandbox) + IPC (route to host)
   const localTools = createLocalTools(config.workspace);

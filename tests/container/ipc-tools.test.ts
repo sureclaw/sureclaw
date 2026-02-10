@@ -18,7 +18,7 @@ describe('ipc-tools', () => {
     return tool;
   }
 
-  test('exports memory, skill, web, and audit tools', () => {
+  test('exports memory, web, and audit tools', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
     const names = tools.map((t) => t.name);
@@ -27,8 +27,6 @@ describe('ipc-tools', () => {
     expect(names).toContain('memory_read');
     expect(names).toContain('memory_delete');
     expect(names).toContain('memory_list');
-    expect(names).toContain('skill_read');
-    expect(names).toContain('skill_list');
     expect(names).toContain('web_fetch');
     expect(names).toContain('web_search');
     expect(names).toContain('audit_query');
@@ -71,20 +69,12 @@ describe('ipc-tools', () => {
     });
   });
 
-  test('skill_list sends IPC call', async () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'skill_list');
-    await tool.execute('tc4', {});
-    expect(client.call).toHaveBeenCalledWith({ action: 'skill_list' });
-  });
-
   test('returns IPC response as text content', async () => {
     const client = createMockClient();
     client.call.mockResolvedValueOnce({ ok: true, data: 'response data' });
     const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'skill_list');
-    const result = await tool.execute('tc5', {});
+    const tool = findTool(tools, 'web_search');
+    const result = await tool.execute('tc5', { query: 'test' });
     expect(result.content[0]).toEqual({
       type: 'text',
       text: JSON.stringify({ ok: true, data: 'response data' }),

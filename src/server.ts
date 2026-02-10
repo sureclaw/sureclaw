@@ -8,7 +8,7 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server as NetServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -308,7 +308,15 @@ export async function createServer(
       } else {
         workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       }
-      const skillsDir = resolve('skills');
+      // Copy skills into workspace so agent only sees sandbox-local paths
+      const hostSkillsDir = resolve('skills');
+      const wsSkillsDir = join(workspace, 'skills');
+      mkdirSync(wsSkillsDir, { recursive: true });
+      try {
+        for (const f of readdirSync(hostSkillsDir)) {
+          if (f.endsWith('.md')) copyFileSync(join(hostSkillsDir, f), join(wsSkillsDir, f));
+        }
+      } catch { /* skills dir may not exist */ }
 
       // Write workspace files with raw user message (no taint tags or canary)
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
@@ -339,7 +347,7 @@ export async function createServer(
         '--agent', agentType,
         '--ipc-socket', ipcSocketPath,
         '--workspace', workspace,
-        '--skills', skillsDir,
+        '--skills', wsSkillsDir,
         '--max-tokens', String(maxTokens),
         ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
         ...(opts.verbose ? ['--verbose'] : []),
@@ -356,7 +364,7 @@ export async function createServer(
 
       const proc = await providers.sandbox.spawn({
         workspace,
-        skills: skillsDir,
+        skills: wsSkillsDir,
         ipcSocket: ipcSocketPath,
         timeoutSec: config.sandbox.timeout_sec,
         memoryMB: config.sandbox.memory_mb,

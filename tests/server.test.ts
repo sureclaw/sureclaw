@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -250,6 +250,41 @@ describe('Server', () => {
     // Workspace directory should persist after request
     const wsDir = workspaceDir(sessionId);
     expect(existsSync(wsDir)).toBe(true);
+  });
+
+  it('should copy skills into workspace, not expose host path', async () => {
+    // Create a skill file in the project skills directory
+    const skillsDir = join(process.cwd(), 'skills');
+    mkdirSync(skillsDir, { recursive: true });
+    const testSkillPath = join(skillsDir, '_test-skill.md');
+    writeFileSync(testSkillPath, '# Test Skill\nThis is a test skill.');
+
+    try {
+      const config = loadConfig('tests/integration/ax-test.yaml');
+      server = await createServer(config, { socketPath });
+      await server.start();
+
+      const sessionId = randomUUID();
+      const res = await sendRequest(socketPath, '/v1/chat/completions', {
+        body: {
+          messages: [{ role: 'user', content: 'hello' }],
+          session_id: sessionId,
+        },
+      });
+
+      expect(res.status).toBe(200);
+
+      // Skills should be copied into the workspace
+      const wsDir = workspaceDir(sessionId);
+      const wsSkillsDir = join(wsDir, 'skills');
+      expect(existsSync(wsSkillsDir)).toBe(true);
+
+      const wsSkills = readdirSync(wsSkillsDir);
+      expect(wsSkills).toContain('_test-skill.md');
+    } finally {
+      // Cleanup test skill
+      try { unlinkSync(testSkillPath); } catch { /* ignore */ }
+    }
   });
 
   it('should accept request without session_id (ephemeral workspace)', async () => {

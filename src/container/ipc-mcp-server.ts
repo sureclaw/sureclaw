@@ -11,8 +11,23 @@ import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { IPCClient } from './ipc-client.js';
 
+function stripTaint(data: unknown): unknown {
+  if (Array.isArray(data)) {
+    return data.map(stripTaint);
+  }
+  if (data && typeof data === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      if (k === 'taint') continue;
+      out[k] = stripTaint(v);
+    }
+    return out;
+  }
+  return data;
+}
+
 function textResult(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
+  return { content: [{ type: 'text' as const, text: JSON.stringify(stripTaint(data)) }] };
 }
 
 function errorResult(err: unknown) {
@@ -62,13 +77,6 @@ export function createIPCMcpServer(client: IPCClient): McpSdkServerConfigWithIns
         scope: z.string(),
         limit: z.number().optional(),
       }, (args) => ipcCall('memory_list', args)),
-
-      // ── Skill tools ──
-      tool('skill_read', 'Read the content of a named skill.', {
-        name: z.string(),
-      }, (args) => ipcCall('skill_read', args)),
-
-      tool('skill_list', 'List available skills.', {}, () => ipcCall('skill_list')),
 
       // ── Web tools ──
       tool('web_search', 'Search the web (proxied through host).', {

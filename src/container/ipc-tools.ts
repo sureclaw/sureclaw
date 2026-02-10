@@ -81,28 +81,6 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
       },
     },
 
-    // ── Skill tools ──
-    {
-      name: 'skill_read',
-      label: 'Read Skill',
-      description: 'Read the content of a named skill.',
-      parameters: Type.Object({
-        name: Type.String(),
-      }),
-      async execute(_id, params) {
-        return ipcCall('skill_read', params);
-      },
-    },
-    {
-      name: 'skill_list',
-      label: 'List Skills',
-      description: 'List available skills.',
-      parameters: Type.Object({}),
-      async execute() {
-        return ipcCall('skill_list');
-      },
-    },
-
     // ── Web tools ──
     {
       name: 'web_fetch',

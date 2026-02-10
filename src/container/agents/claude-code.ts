@@ -33,12 +33,14 @@ function loadSkills(skillsDir: string): string[] {
   } catch { return []; }
 }
 
-function buildSystemPrompt(context: string, skills: string[]): string {
+function buildSystemPrompt(context: string, skills: string[], skillsDir: string): string {
   const parts: string[] = [];
   parts.push('You are AX, a security-first AI agent.');
   parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
   if (context) parts.push('\n## Context\n' + context);
-  if (skills.length > 0) parts.push('\n## Skills\n' + skills.join('\n---\n'));
+  if (skills.length > 0) {
+    parts.push(`\n## Skills\nSkills directory: ${skillsDir}\n` + skills.join('\n---\n'));
+  }
   return parts.join('\n');
 }
 
@@ -66,7 +68,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   // 4. Build system prompt
   const context = loadContext(config.workspace);
   const skills = loadSkills(config.skills);
-  const systemPrompt = buildSystemPrompt(context, skills);
+  const systemPrompt = buildSystemPrompt(context, skills, config.skills);
 
   // Include conversation history in the prompt if available
   let fullPrompt = '';
@@ -89,10 +91,11 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         systemPrompt,
         maxTurns: 20,
         persistSession: false,
-        permissionMode: 'acceptEdits',
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
         settingSources: [],
         mcpServers: { 'ax-tools': ipcMcpServer },
-        disallowedTools: ['WebFetch', 'WebSearch'],
+        disallowedTools: ['WebFetch', 'WebSearch', 'Skill'],
         env: {
           ...process.env,
           ANTHROPIC_BASE_URL: `http://127.0.0.1:${bridge.port}`,
