@@ -239,7 +239,7 @@ describe('Onboarding Wizard', () => {
     const existing = loadExistingConfig(dir);
     expect(existing).not.toBeNull();
     expect(existing!.profile).toBe('yolo');
-    expect(existing!.channels).toEqual(['cli', 'slack']);
+    expect(existing!.channels).toEqual(['slack']);
   });
 
   test('loadExistingConfig returns null when no config exists', async () => {

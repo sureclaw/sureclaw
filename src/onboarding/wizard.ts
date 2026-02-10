@@ -126,7 +126,7 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     return {
       profile: parsed.profile ?? 'balanced',
       apiKey,
-      channels: parsed.providers?.channels ?? ['cli'],
+      channels: (parsed.providers?.channels ?? []).filter((c: string) => c !== 'cli'),
       skipSkills: true,
     };
   } catch {

@@ -145,14 +145,9 @@ export async function runConfigure(outputDir: string): Promise<void> {
     choices: PROVIDER_CHOICES.channels.map((ch) => ({
       name: ch,
       value: ch,
-      checked: defaults.channels ? defaults.channels.includes(ch) : ch === 'cli',
+      checked: defaults.channels ? defaults.channels.includes(ch) : false,
     })),
   });
-
-  // Ensure at least 'cli' is selected
-  if (channels.length === 0) {
-    channels.push('cli');
-  }
 
   // 4. Skill installation
   const skipSkills = !(await confirm({

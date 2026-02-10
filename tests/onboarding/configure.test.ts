@@ -43,7 +43,7 @@ describe('Configure UI Helpers', () => {
 
     expect(defaults.profile).toBe('yolo');
     expect(defaults.apiKey).toBe('sk-existing');
-    expect(defaults.channels).toEqual(['cli', 'slack']);
+    expect(defaults.channels).toEqual(['slack']);
   });
 
   test('buildInquirerDefaults masks API key for display', async () => {

@@ -94,7 +94,7 @@ export const PROVIDER_CHOICES = {
   audit: ['file', 'sqlite'],
   sandbox: ['subprocess', 'seatbelt', 'nsjail', 'docker'],
   scheduler: ['none', 'cron', 'full'],
-  channels: ['cli', 'slack', 'whatsapp', 'telegram', 'discord'],
+  channels: ['slack', 'whatsapp', 'telegram', 'discord'],
 } as const;
 
 export const ASCII_WELCOME = `
