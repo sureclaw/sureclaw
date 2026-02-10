@@ -65,6 +65,16 @@ export class MessageQueue {
     return row ?? null;
   }
 
+  dequeueById(id: string): QueuedMessage | null {
+    const row = this.db.prepare(`
+      UPDATE messages
+      SET status = 'processing', processed_at = datetime('now')
+      WHERE id = ? AND status = 'pending'
+      RETURNING *
+    `).get(id) as QueuedMessage | undefined;
+    return row ?? null;
+  }
+
   complete(id: string): void {
     this.db.prepare(`UPDATE messages SET status = 'done' WHERE id = ?`).run(id);
   }

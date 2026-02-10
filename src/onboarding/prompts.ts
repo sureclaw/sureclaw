@@ -2,7 +2,24 @@
  * Profile-based provider defaults for onboarding.
  */
 
+export type AgentType = (typeof AGENT_TYPES)[number];
+
+export const AGENT_TYPES = ['pi-agent-core', 'pi-coding-agent', 'claude-code'] as const;
+
+export const AGENT_DISPLAY_NAMES: Record<AgentType, string> = {
+  'pi-agent-core': 'Pi Agent Core',
+  'pi-coding-agent': 'Pi Coding Agent',
+  'claude-code': 'Claude Code',
+};
+
+export const AGENT_DESCRIPTIONS: Record<AgentType, string> = {
+  'pi-agent-core': 'Lightweight agent with basic tool use',
+  'pi-coding-agent': 'Full coding agent with session management and compaction',
+  'claude-code': 'Anthropic Claude Code agentic loop via SDK',
+};
+
 export interface ProfileDefaults {
+  agent: AgentType;
   llm: string;
   memory: string;
   scanner: string;
@@ -20,6 +37,7 @@ export interface ProfileDefaults {
 
 export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   paranoid: {
+    agent: 'pi-agent-core',
     llm: 'anthropic',
     memory: 'file',
     scanner: 'patterns',
@@ -34,6 +52,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     memoryMb: 256,
   },
   balanced: {
+    agent: 'pi-agent-core',
     llm: 'anthropic',
     memory: 'sqlite',
     scanner: 'patterns',
@@ -49,6 +68,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     memoryMb: 512,
   },
   yolo: {
+    agent: 'pi-agent-core',
     llm: 'anthropic',
     memory: 'sqlite',
     scanner: 'patterns',

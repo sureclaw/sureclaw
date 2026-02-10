@@ -68,5 +68,32 @@ describe('MessageQueue', () => {
     queue.dequeue();
     expect(queue.pending()).toBe(1);
   });
+
+  test('dequeueById returns the specific message', () => {
+    queue.enqueue({ sessionId: 's1', channel: 'cli', sender: 'user', content: 'first' });
+    const id2 = queue.enqueue({ sessionId: 's2', channel: 'cli', sender: 'user', content: 'second' });
+    queue.enqueue({ sessionId: 's3', channel: 'cli', sender: 'user', content: 'third' });
+
+    // Should get the second message, skipping the first
+    const msg = queue.dequeueById(id2);
+    expect(msg).not.toBeNull();
+    expect(msg!.content).toBe('second');
+    expect(msg!.session_id).toBe('s2');
+    expect(msg!.status).toBe('processing');
+
+    // First and third are still pending
+    expect(queue.pending()).toBe(2);
+  });
+
+  test('dequeueById returns null for non-existent ID', () => {
+    queue.enqueue({ sessionId: 's1', channel: 'cli', sender: 'user', content: 'hello' });
+    expect(queue.dequeueById('non-existent-id')).toBeNull();
+  });
+
+  test('dequeueById returns null for already-processed message', () => {
+    const id = queue.enqueue({ sessionId: 's1', channel: 'cli', sender: 'user', content: 'hello' });
+    queue.dequeueById(id); // now 'processing'
+    expect(queue.dequeueById(id)).toBeNull(); // can't dequeue again
+  });
 });
 

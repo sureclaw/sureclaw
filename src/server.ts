@@ -270,8 +270,8 @@ export async function createServer(
     logger.scan_inbound('clean');
     sessionCanaries.set(result.sessionId, result.canaryToken);
 
-    // Dequeue and process
-    const queued = db.dequeue();
+    // Dequeue the specific message we just enqueued (by ID, not FIFO)
+    const queued = result.messageId ? db.dequeueById(result.messageId) : db.dequeue();
     if (!queued) {
       return { responseContent: 'Internal error: message not queued', finishReason: 'stop' };
     }
@@ -282,13 +282,9 @@ export async function createServer(
       workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       const skillsDir = resolve('skills');
 
-      // Write workspace files (strip canary from file content)
-      const canary = sessionCanaries.get(queued.session_id) ?? '';
-      const fileContent = canary
-        ? queued.content.replace(`\n<!-- canary:${canary} -->`, '')
-        : queued.content;
+      // Write workspace files with raw user message (no taint tags or canary)
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
-      writeFileSync(join(workspace, 'message.txt'), fileContent);
+      writeFileSync(join(workspace, 'message.txt'), content);
 
       // Use client-provided conversation history (server is stateless)
       const history = clientMessages.slice(0, -1).map(m => ({
@@ -327,8 +323,8 @@ export async function createServer(
 
       logger.agent_spawn(requestId, 'subprocess');
 
-      // Send history + message to agent stdin
-      const stdinPayload = JSON.stringify({ history, message: queued.content });
+      // Send raw user message to agent (not the taint-tagged queued.content)
+      const stdinPayload = JSON.stringify({ history, message: content });
       proc.stdin.write(stdinPayload);
       proc.stdin.end();
 

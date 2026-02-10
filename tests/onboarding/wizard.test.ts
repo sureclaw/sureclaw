@@ -267,4 +267,99 @@ describe('Onboarding Wizard', () => {
     const existing = loadExistingConfig(dir);
     expect(existing!.apiKey).toBe('sk-my-saved-key');
   });
+
+  // ── Preserve passphrase and Tavily key on reconfigure ──
+
+  test('loadExistingConfig reads passphrase and Tavily key from .env', async () => {
+    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'yolo',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+        credsPassphrase: 'my-secret-pass',
+        webSearchApiKey: 'tvly-test-key-123',
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    expect(existing!.credsPassphrase).toBe('my-secret-pass');
+    expect(existing!.webSearchApiKey).toBe('tvly-test-key-123');
+  });
+
+  // ── Agent type ──
+
+  test('runOnboarding writes agent field to ax.yaml', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'claude-code',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.agent).toBe('claude-code');
+  });
+
+  test('runOnboarding defaults agent to profile default when not specified', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.agent).toBe('pi-agent-core');
+  });
+
+  test('loadExistingConfig reads agent from ax.yaml', async () => {
+    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-coding-agent',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    expect(existing!.agent).toBe('pi-coding-agent');
+  });
+
+  // ── Empty channels (CLI-only) ──
+
+  test('supports empty channels array for CLI-only usage', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.providers.channels).toEqual([]);
+  });
 });

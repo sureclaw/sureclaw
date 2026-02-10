@@ -205,5 +205,16 @@ describe('Message Router', () => {
       // Full redaction when canary is leaked
       expect(result.content).toBe('[Response redacted: canary token leaked]');
     });
+
+    test('empty canary token does not trigger false leak detection', async () => {
+      const result = await router.processOutbound(
+        'Hello! How can I help you today?',
+        'session-1',
+        '', // empty token — e.g. from session ID mismatch
+      );
+
+      expect(result.canaryLeaked).toBe(false);
+      expect(result.content).toBe('Hello! How can I help you today?');
+    });
   });
 });

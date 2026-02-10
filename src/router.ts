@@ -117,8 +117,8 @@ export function createRouter(
       sessionId: string,
       canaryToken: string,
     ): Promise<OutboundResult> {
-      // Check for canary leakage
-      const canaryLeaked = providers.scanner.checkCanary(response, canaryToken);
+      // Check for canary leakage (empty token = no canary to check)
+      const canaryLeaked = canaryToken.length > 0 && providers.scanner.checkCanary(response, canaryToken);
 
       if (canaryLeaked) {
         await providers.audit.log({
@@ -144,7 +144,9 @@ export function createRouter(
       });
 
       // Strip canary from response if present
-      const cleanContent = response.replaceAll(canaryToken, '[REDACTED]');
+      const cleanContent = canaryToken.length > 0
+        ? response.replaceAll(canaryToken, '[REDACTED]')
+        : response;
 
       return {
         content: canaryLeaked ? '[Response redacted: canary token leaked]' : cleanContent,

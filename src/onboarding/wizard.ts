@@ -13,10 +13,11 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as yamlStringify } from 'yaml';
 import { PROFILE_DEFAULTS } from './prompts.js';
-import type { ProfileName } from './prompts.js';
+import type { ProfileName, AgentType } from './prompts.js';
 
 export interface OnboardingAnswers {
   profile: ProfileName;
+  agent?: AgentType;
   apiKey: string;
   channels: string[];
   skipSkills?: boolean;
@@ -63,6 +64,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
 
   // Build full config
   const config: Record<string, unknown> = {
+    agent: answers.agent ?? defaults.agent,
     profile: answers.profile,
     providers,
     sandbox: {
@@ -114,20 +116,29 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const raw = readFileSync(cfgPath, 'utf-8');
     const parsed = parseYaml(raw);
 
-    // Read API key from .env if it exists
+    // Read secrets from .env if it exists
     let apiKey = '';
+    let credsPassphrase: string | undefined;
+    let webSearchApiKey: string | undefined;
     const envFilePath = join(dir, '.env');
     if (existsSync(envFilePath)) {
       const envContent = readFileSync(envFilePath, 'utf-8');
-      const match = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-      if (match) apiKey = match[1].trim();
+      const apiKeyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
+      if (apiKeyMatch) apiKey = apiKeyMatch[1].trim();
+      const passphraseMatch = envContent.match(/^AX_CREDS_PASSPHRASE=(.+)$/m);
+      if (passphraseMatch) credsPassphrase = passphraseMatch[1].trim();
+      const tavilyMatch = envContent.match(/^TAVILY_API_KEY=(.+)$/m);
+      if (tavilyMatch) webSearchApiKey = tavilyMatch[1].trim();
     }
 
     return {
       profile: parsed.profile ?? 'balanced',
+      agent: parsed.agent,
       apiKey,
       channels: (parsed.providers?.channels ?? []).filter((c: string) => c !== 'cli'),
       skipSkills: true,
+      credsPassphrase,
+      webSearchApiKey,
     };
   } catch {
     return null;

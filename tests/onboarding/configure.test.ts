@@ -22,6 +22,7 @@ describe('Configure UI Helpers', () => {
   test('buildInquirerDefaults returns undefined values when no existing config', () => {
     const defaults = buildInquirerDefaults(null);
     expect(defaults.profile).toBeUndefined();
+    expect(defaults.agent).toBeUndefined();
     expect(defaults.apiKey).toBeUndefined();
     expect(defaults.channels).toBeUndefined();
   });
@@ -65,5 +66,46 @@ describe('Configure UI Helpers', () => {
     // but apiKeyMasked is a display hint
     expect(defaults.apiKey).toBe('sk-ant-api03-longkeyvalue12345');
     expect(defaults.apiKeyMasked).toMatch(/^sk-\.\.\..+$/);
+  });
+
+  test('buildInquirerDefaults includes passphrase and tavily key from existing config', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'yolo',
+        apiKey: 'sk-test-key',
+        channels: ['cli'],
+        skipSkills: true,
+        credsPassphrase: 'my-passphrase',
+        webSearchApiKey: 'tvly-long-api-key-value',
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    const defaults = buildInquirerDefaults(existing);
+
+    expect(defaults.credsPassphrase).toBe('my-passphrase');
+    expect(defaults.webSearchApiKey).toBe('tvly-long-api-key-value');
+    expect(defaults.webSearchApiKeyMasked).toMatch(/^tvl\.\.\..+$/);
+  });
+
+  test('buildInquirerDefaults includes agent type from existing config', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'claude-code',
+        apiKey: 'sk-test-key',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    const defaults = buildInquirerDefaults(existing);
+
+    expect(defaults.agent).toBe('claude-code');
   });
 });

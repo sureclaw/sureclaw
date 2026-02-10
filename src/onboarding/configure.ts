@@ -11,41 +11,51 @@ import {
   PROFILE_DISPLAY_NAMES,
   PROFILE_DESCRIPTIONS,
   PROFILE_DEFAULTS,
+  AGENT_TYPES,
+  AGENT_DISPLAY_NAMES,
+  AGENT_DESCRIPTIONS,
   PROVIDER_CHOICES,
   ASCII_WELCOME,
   RECONFIGURE_HEADER,
 } from './prompts.js';
-import type { ProfileName } from './prompts.js';
+import type { ProfileName, AgentType } from './prompts.js';
 import { runOnboarding, loadExistingConfig } from './wizard.js';
 import type { OnboardingAnswers } from './wizard.js';
 
 export interface InquirerDefaults {
   profile?: ProfileName;
+  agent?: AgentType;
   apiKey?: string;
   apiKeyMasked?: string;
   channels?: string[];
+  credsPassphrase?: string;
+  webSearchApiKey?: string;
+  webSearchApiKeyMasked?: string;
 }
 
 /**
  * Build default values for inquirer prompts from existing config.
  * Returns an object with undefined values if no existing config.
  */
+function maskKey(key: string | undefined): string | undefined {
+  if (!key || key.length <= 8) return undefined;
+  return `${key.slice(0, 3)}...${key.slice(-4)}`;
+}
+
 export function buildInquirerDefaults(existing: OnboardingAnswers | null): InquirerDefaults {
   if (!existing) {
-    return { profile: undefined, apiKey: undefined, apiKeyMasked: undefined, channels: undefined };
-  }
-
-  // Mask API key for display: show first 3 chars + last 4 chars
-  let apiKeyMasked: string | undefined;
-  if (existing.apiKey && existing.apiKey.length > 8) {
-    apiKeyMasked = `${existing.apiKey.slice(0, 3)}...${existing.apiKey.slice(-4)}`;
+    return { profile: undefined, agent: undefined, apiKey: undefined, apiKeyMasked: undefined, channels: undefined };
   }
 
   return {
     profile: existing.profile,
+    agent: existing.agent,
     apiKey: existing.apiKey,
-    apiKeyMasked,
+    apiKeyMasked: maskKey(existing.apiKey),
     channels: existing.channels,
+    credsPassphrase: existing.credsPassphrase,
+    webSearchApiKey: existing.webSearchApiKey,
+    webSearchApiKeyMasked: maskKey(existing.webSearchApiKey),
   };
 }
 
@@ -71,6 +81,16 @@ export async function runConfigure(outputDir: string): Promise<void> {
     default: defaults.profile,
   }) as OnboardingAnswers['profile'];
 
+  // 1b. Agent type selection
+  const agent = await select({
+    message: 'Agent type',
+    choices: AGENT_TYPES.map((name) => ({
+      name: `${AGENT_DISPLAY_NAMES[name]}  —  ${AGENT_DESCRIPTIONS[name]}`,
+      value: name,
+    })),
+    default: defaults.agent ?? PROFILE_DEFAULTS[profile].agent,
+  }) as AgentType;
+
   // 2. API key
   const apiKeyMessage = defaults.apiKeyMasked
     ? `Anthropic API key (current: ${defaults.apiKeyMasked})`
@@ -89,8 +109,8 @@ export async function runConfigure(outputDir: string): Promise<void> {
   }
 
   // 2b. Credentials passphrase (only for profiles that use encrypted credentials)
-  let credsPassphrase: string | undefined;
-  if (PROFILE_DEFAULTS[profile].credentials === 'encrypted' && !process.env.AX_CREDS_PASSPHRASE) {
+  let credsPassphrase: string | undefined = defaults.credsPassphrase;
+  if (PROFILE_DEFAULTS[profile].credentials === 'encrypted' && !credsPassphrase && !process.env.AX_CREDS_PASSPHRASE) {
     let matched = false;
     while (!matched) {
       const pass1 = await password({
@@ -116,7 +136,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
 
   // 2c. Web search provider (non-paranoid profiles)
   let webProvider: string | undefined;
-  let webSearchApiKey: string | undefined;
+  let webSearchApiKey: string | undefined = defaults.webSearchApiKey;
   if (profile !== 'paranoid') {
     webProvider = await select({
       message: 'Web search provider',
@@ -128,26 +148,44 @@ export async function runConfigure(outputDir: string): Promise<void> {
     });
 
     if (webProvider === 'tavily') {
-      webSearchApiKey = await password({
-        message: 'Tavily API key',
+      const tavilyMessage = defaults.webSearchApiKeyMasked
+        ? `Tavily API key (current: ${defaults.webSearchApiKeyMasked})`
+        : 'Tavily API key';
+
+      const tavilyInput = await password({
+        message: tavilyMessage,
         mask: '*',
       });
-      if (!webSearchApiKey?.trim()) {
-        webSearchApiKey = undefined;
+
+      // If user typed something, use it; otherwise keep existing
+      if (tavilyInput.trim()) {
+        webSearchApiKey = tavilyInput.trim();
+      }
+
+      if (!webSearchApiKey) {
         console.log('\n  Warning: No Tavily API key provided. Set TAVILY_API_KEY in ~/.ax/.env later.\n');
       }
     }
   }
 
-  // 3. Channel selection
-  const channels = await checkbox({
-    message: 'Communication channels',
-    choices: PROVIDER_CHOICES.channels.map((ch) => ({
-      name: ch,
-      value: ch,
-      checked: defaults.channels ? defaults.channels.includes(ch) : false,
-    })),
+  // 3. Channel selection (optional — default CLI-only)
+  let channels: string[] = [];
+  const hasExistingChannels = defaults.channels && defaults.channels.length > 0;
+  const wantChannels = await confirm({
+    message: 'Configure communication channels (Slack, Discord, etc.)?',
+    default: hasExistingChannels ?? false,
   });
+
+  if (wantChannels) {
+    channels = await checkbox({
+      message: 'Communication channels',
+      choices: PROVIDER_CHOICES.channels.map((ch) => ({
+        name: ch,
+        value: ch,
+        checked: defaults.channels ? defaults.channels.includes(ch) : false,
+      })),
+    });
+  }
 
   // 4. Skill installation
   const skipSkills = !(await confirm({
@@ -170,7 +208,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
   // 5. Generate config
   await runOnboarding({
     outputDir,
-    answers: { profile, apiKey, channels, skipSkills, installSkills, credsPassphrase, webProvider, webSearchApiKey },
+    answers: { profile, agent, apiKey, channels, skipSkills, installSkills, credsPassphrase, webProvider, webSearchApiKey },
   });
 
   console.log(`\n  Config written to ${outputDir}/ax.yaml`);

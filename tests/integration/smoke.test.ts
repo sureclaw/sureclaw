@@ -262,6 +262,64 @@ describe('Smoke Test', () => {
     expect(data2.choices[0].message.content.trim().length).toBeGreaterThan(0);
   }, 60_000);
 
+  test('response does not contain taint tags or canary tokens', async () => {
+    proc = startServer();
+    const output = collectOutput(proc);
+    await waitForReady(proc, output);
+
+    const res = await sendMessage(socketPath, 'hi');
+    expect(res.status).toBe(200);
+
+    const data = JSON.parse(res.body);
+    const content = data.choices[0].message.content;
+
+    // Agent response must not leak internal taint tags
+    expect(content).not.toContain('<external_content');
+    expect(content).not.toContain('trust="external"');
+    expect(content).not.toContain('</external_content>');
+
+    // Agent response must not leak canary tokens
+    expect(content).not.toContain('CANARY-');
+    expect(content).not.toContain('<!-- canary:');
+
+    // Agent response must not be redacted (false positive canary detection)
+    expect(content).not.toContain('[Response redacted');
+    expect(content).not.toContain('[REDACTED]');
+
+    // Verify no canary warnings in server logs
+    const stderr = output.stderr.join('');
+    expect(stderr).not.toContain('Canary leak detected');
+  }, 60_000);
+
+  test('response is not redacted when stale messages exist in DB', async () => {
+    // Pre-populate messages.db with a stale pending message to simulate
+    // leftover state from a previous session/crash
+    const dbDir = join(smokeTestHome, 'data');
+    mkdirSync(dbDir, { recursive: true });
+    const { MessageQueue } = await import('../../src/db.js');
+    const db = new MessageQueue(join(dbDir, 'messages.db'));
+    db.enqueue({ sessionId: 'stale-session-1', channel: 'cli', sender: 'ghost', content: 'stale msg 1' });
+    db.enqueue({ sessionId: 'stale-session-2', channel: 'cli', sender: 'ghost', content: 'stale msg 2' });
+    db.close();
+
+    proc = startServer();
+    const output = collectOutput(proc);
+    await waitForReady(proc, output);
+
+    const res = await sendMessage(socketPath, 'hello');
+    expect(res.status).toBe(200);
+
+    const data = JSON.parse(res.body);
+    const content = data.choices[0].message.content;
+
+    // Must NOT be redacted — the stale messages should not cause a false canary leak
+    expect(content).not.toContain('[Response redacted');
+    expect(content.trim().length).toBeGreaterThan(0);
+
+    const stderr = output.stderr.join('');
+    expect(stderr).not.toContain('Canary leak detected');
+  }, 60_000);
+
   test.skipIf(!IS_MACOS)('seatbelt sandbox: agent runs inside sandbox-exec', async () => {
     proc = startServer(SEATBELT_CONFIG);
     const output = collectOutput(proc);
