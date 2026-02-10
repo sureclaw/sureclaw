@@ -42,6 +42,7 @@
 (allow file-read* (subpath "/usr"))
 (allow file-read* (subpath "/opt"))
 (allow file-read* (subpath "/dev"))
+(allow file-write* (literal "/dev/null"))
 (allow file-read* (subpath "/System/Library/OpenSSL"))
 (allow file-read* (subpath "/private/etc"))
 (allow file-read* (subpath "/etc"))
