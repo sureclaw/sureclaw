@@ -84,6 +84,20 @@ export async function main(): Promise<void> {
 
   // Extract command: first arg that matches a known command.
   // Flags like --config before the command should not be treated as commands.
+  // Handle global flags before command routing
+  if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    showHelp();
+    return;
+  }
+
+  if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(import.meta.url);
+    const pkg = require('../../package.json');
+    console.log(`ax ${pkg.version}`);
+    return;
+  }
+
   const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'help']);
   let command: string;
   let restArgs: string[];

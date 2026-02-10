@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Security-first personal AI agent",
   "type": "module",
-  "main": "dist/host.js",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "ax": "bin/ax.js"
+  },
   "engines": {
     "node": ">=24.0.0"
   },
