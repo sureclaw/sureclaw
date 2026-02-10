@@ -34,10 +34,14 @@ export interface ConversationTurn {
   content: string;
 }
 
+export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
+
 export interface AgentConfig {
+  agent?: AgentType;
   ipcSocket: string;
   workspace: string;
   skills: string;
+  proxySocket?: string;
   userMessage?: string;
   history?: ConversationTurn[];
 }
@@ -144,15 +148,19 @@ export async function compactHistory(
 
 function parseArgs(): AgentConfig {
   const args = process.argv.slice(2);
+  let agent: AgentType = 'pi-agent-core';
   let ipcSocket = '';
   let workspace = '';
   let skills = '';
+  let proxySocket = '';
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
+      case '--agent': agent = args[++i] as AgentType; break;
       case '--ipc-socket': ipcSocket = args[++i]; break;
       case '--workspace': workspace = args[++i]; break;
       case '--skills': skills = args[++i]; break;
+      case '--proxy-socket': proxySocket = args[++i]; break;
     }
   }
 
@@ -161,11 +169,11 @@ function parseArgs(): AgentConfig {
   skills = skills || process.env.AX_SKILLS || '';
 
   if (!ipcSocket || !workspace) {
-    console.error('Usage: agent-runner --ipc-socket <path> --workspace <path> [--skills <path>]');
+    console.error('Usage: agent-runner --agent <type> --ipc-socket <path> --workspace <path> [--skills <path>]');
     process.exit(1);
   }
 
-  return { ipcSocket, workspace, skills };
+  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined };
 }
 
 function loadContext(workspace: string): string {
@@ -209,7 +217,7 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf-8');
 }
 
-export async function run(config: AgentConfig): Promise<void> {
+export async function runPiCore(config: AgentConfig): Promise<void> {
   const userMessage = config.userMessage ?? '';
   if (!userMessage.trim()) return;
 
@@ -283,6 +291,28 @@ function parseStdinPayload(data: string): { message: string; history: Conversati
     // Not JSON — fall through to plain text
   }
   return { message: data, history: [] };
+}
+
+/**
+ * Dispatch to the appropriate agent implementation based on config.agent.
+ */
+export async function run(config: AgentConfig): Promise<void> {
+  const agent = config.agent ?? 'pi-agent-core';
+  switch (agent) {
+    case 'pi-agent-core':
+      return runPiCore(config);
+    case 'pi-coding-agent': {
+      const { runPiSession } = await import('./agents/pi-session.js');
+      return runPiSession(config);
+    }
+    case 'claude-code': {
+      const { runClaudeCode } = await import('./agents/claude-code.js');
+      return runClaudeCode(config);
+    }
+    default:
+      console.error(`Unknown agent type: ${agent}`);
+      process.exit(1);
+  }
 }
 
 // Run if this is the main module

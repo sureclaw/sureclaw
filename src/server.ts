@@ -21,6 +21,7 @@ import { createRouter, type Router } from './router.js';
 import { createIPCHandler, createIPCServer } from './ipc.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { createLogger, type Logger } from './logger.js';
+import { startAnthropicProxy } from './anthropic-proxy.js';
 
 // =====================================================
 // Types
@@ -276,6 +277,7 @@ export async function createServer(
     }
 
     let workspace = '';
+    let proxyCleanup: (() => void) | undefined;
     try {
       workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       const skillsDir = resolve('skills');
@@ -296,17 +298,31 @@ export async function createServer(
 
       // Spawn sandbox
       const tsxBin = resolve('node_modules/.bin/tsx');
+      const agentType = config.agent ?? 'pi-agent-core';
+
+      // Start Anthropic proxy for claude-code agent (translates Messages API → IPC)
+      let proxySocketPath: string | undefined;
+      if (agentType === 'claude-code') {
+        proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
+        const proxy = startAnthropicProxy(proxySocketPath, ipcSocketPath);
+        proxyCleanup = proxy.stop;
+      }
+
+      const spawnCommand = [tsxBin, resolve('src/container/agent-runner.ts'),
+        '--agent', agentType,
+        '--ipc-socket', ipcSocketPath,
+        '--workspace', workspace,
+        '--skills', skillsDir,
+        ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
+      ];
+
       const proc = await providers.sandbox.spawn({
         workspace,
         skills: skillsDir,
         ipcSocket: ipcSocketPath,
         timeoutSec: config.sandbox.timeout_sec,
         memoryMB: config.sandbox.memory_mb,
-        command: [tsxBin, resolve('src/container/agent-runner.ts'),
-          '--ipc-socket', ipcSocketPath,
-          '--workspace', workspace,
-          '--skills', skillsDir,
-        ],
+        command: spawnCommand,
       });
 
       logger.agent_spawn(requestId, 'subprocess');
@@ -372,6 +388,9 @@ export async function createServer(
       db.fail(queued.id);
       return { responseContent: 'Internal processing error', finishReason: 'stop' };
     } finally {
+      if (proxyCleanup) {
+        try { proxyCleanup(); } catch { /* cleanup best-effort */ }
+      }
       if (workspace) {
         try { rmSync(workspace, { recursive: true, force: true }); } catch { /* cleanup best-effort */ }
       }

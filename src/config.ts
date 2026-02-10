@@ -6,7 +6,10 @@ import type { Config } from './providers/types.js';
 import { configPath as defaultConfigPath } from './paths.js';
 import { PROFILE_NAMES } from './onboarding/prompts.js';
 
+const AGENT_TYPES = ['pi-agent-core', 'pi-coding-agent', 'claude-code'] as const;
+
 const ConfigSchema = z.strictObject({
+  agent: z.enum(AGENT_TYPES).optional().default('pi-agent-core'),
   profile: z.enum(PROFILE_NAMES),
   providers: z.strictObject({
     llm: z.string(),

@@ -322,7 +322,10 @@ export interface SkillScreenerProvider {
 // Config + Registry
 // ═══════════════════════════════════════════════════════
 
+export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
+
 export interface Config {
+  agent?: AgentType;
   profile: ProfileName;
   providers: {
     llm: string;

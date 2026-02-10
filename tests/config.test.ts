@@ -22,6 +22,81 @@ describe('Config parser', () => {
     expect(['paranoid', 'balanced', 'yolo']).toContain(config.profile);
   });
 
+  test('agent field defaults to pi-agent-core when omitted', () => {
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
+    expect(config.agent).toBe('pi-agent-core');
+  });
+
+  test('accepts valid agent types', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const agents = ['pi-agent-core', 'pi-coding-agent', 'claude-code'] as const;
+    for (const agent of agents) {
+      const tmpPath = resolve(import.meta.dirname, `../ax-test-agent-${agent}.yaml`);
+      writeFileSync(tmpPath, `
+agent: ${agent}
+profile: balanced
+providers:
+  llm: anthropic
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+`);
+      try {
+        const config = loadConfig(tmpPath);
+        expect(config.agent).toBe(agent);
+      } finally {
+        rmSync(tmpPath);
+      }
+    }
+  });
+
+  test('rejects unknown agent type', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-agent-bad.yaml');
+    writeFileSync(tmpPath, `
+agent: unknown-agent
+profile: balanced
+providers:
+  llm: anthropic
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+`);
+    try {
+      expect(() => loadConfig(tmpPath)).toThrow();
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
   test('accepts config with optional skillScreener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
