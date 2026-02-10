@@ -1,7 +1,6 @@
 "use client";
 
 import { Reveal } from "@/components/ui/reveal";
-import { GlassCard } from "@/components/ui/glass-card";
 
 const codeExample = `# ax.yaml — configure your agent
 providers:
@@ -42,7 +41,7 @@ const codeHighlighted = codeExample.split("\n").map((line, i) => {
     const [key, ...rest] = line.split(":");
     return (
       <span key={i}>
-        <span className="text-accent-glow">{key}</span>
+        <span className="text-accent">{key}</span>
         <span className="text-text-tertiary">:</span>
         <span className="text-text-primary">{rest.join(":")}</span>
       </span>
@@ -57,59 +56,51 @@ const codeHighlighted = codeExample.split("\n").map((line, i) => {
 
 export function CodeShowcase() {
   return (
-    <section id="how-it-works" className="relative py-24 md:py-32">
-      {/* Subtle glow */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-accent/5 blur-[100px]" />
+    <section id="how-it-works" className="py-16 md:py-20">
+      <div className="mx-auto max-w-[1280px] px-8">
+        <Reveal>
+          <div className="text-center mb-12">
+            <h2 className="font-mono text-2xl font-bold tracking-tight mb-3">
+              Deploy in minutes
+            </h2>
+            <p className="text-text-secondary text-sm max-w-[700px] mx-auto leading-relaxed">
+              Drop an{" "}
+              <code className="font-mono text-accent text-xs bg-bg-elevated px-1.5 py-0.5 rounded">
+                ax.yaml
+              </code>{" "}
+              into your project. Pick your LLM, choose your tools, and you&apos;ve got a working agent.
+            </p>
+          </div>
+        </Reveal>
 
-      <div className="relative mx-auto max-w-[1200px] px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-          {/* Text */}
-          <Reveal direction="left">
-            <div className="flex flex-col gap-4">
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-                One config file.{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-glow">
-                  That&apos;s it.
-                </span>
-              </h2>
-              <p className="text-text-secondary text-lg leading-relaxed">
-                Drop an <code className="font-mono text-accent-glow text-sm bg-bg-elevated px-1.5 py-0.5 rounded">ax.yaml</code> into
-                your project. Pick your LLM, choose your tools, and
-                you&apos;ve got a working agent.
-              </p>
-              <p className="text-text-secondary leading-relaxed">
-                Every piece is a TypeScript interface you can swap out.
-                Start with the defaults, replace pieces when you need to.
-                No lock-in, no magic.
-              </p>
+        <Reveal>
+          <div className="bg-bg-secondary border border-border rounded-xl overflow-hidden max-w-[900px] mx-auto">
+            {/* Code header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-bg-elevated">
+              <span className="text-[11px] text-text-secondary font-mono">
+                ax.yaml
+              </span>
+              <button
+                className="font-mono text-[10px] px-2.5 py-1 rounded border border-border text-text-secondary hover:text-accent hover:border-accent-dim transition-colors bg-transparent cursor-pointer"
+                onClick={() => {
+                  navigator.clipboard.writeText(codeExample);
+                }}
+              >
+                copy
+              </button>
             </div>
-          </Reveal>
-
-          {/* Code block */}
-          <Reveal direction="right">
-            <GlassCard className="p-0 overflow-hidden" hover={false}>
-              {/* Window chrome */}
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-                <div className="w-3 h-3 rounded-full bg-red-500/60" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/60" />
-                <div className="w-3 h-3 rounded-full bg-green-500/60" />
-                <span className="ml-2 text-xs text-text-tertiary font-mono">
-                  ax.yaml
-                </span>
-              </div>
-              {/* Code */}
-              <pre className="p-5 text-sm font-mono leading-relaxed overflow-x-auto">
-                <code className="flex flex-col gap-0.5">
-                  {codeHighlighted.map((line, i) => (
-                    <span key={i} className="block">
-                      {line}
-                    </span>
-                  ))}
-                </code>
-              </pre>
-            </GlassCard>
-          </Reveal>
-        </div>
+            {/* Code */}
+            <pre className="p-6 text-xs font-mono leading-[1.8] overflow-x-auto">
+              <code className="flex flex-col gap-0.5">
+                {codeHighlighted.map((line, i) => (
+                  <span key={i} className="block">
+                    {line}
+                  </span>
+                ))}
+              </code>
+            </pre>
+          </div>
+        </Reveal>
       </div>
     </section>
   );

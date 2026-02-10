@@ -1,7 +1,6 @@
 "use client";
 
-import { GlassCard } from "@/components/ui/glass-card";
-import { Reveal, StaggerContainer, StaggerItem } from "@/components/ui/reveal";
+import { Reveal } from "@/components/ui/reveal";
 import {
   Shield,
   Fingerprint,
@@ -18,71 +17,68 @@ const features = [
     title: "Sandboxed Execution",
     description:
       "Every AI agent runs in an isolated sandbox — no network access, no credential leaks, no escape hatches. We support seatbelt, nsjail, and Docker.",
-    iconColor: "text-indigo-400",
+    iconColor: "text-ds-blue",
   },
   {
     icon: Fingerprint,
     title: "Taint Tracking",
     description:
       "Every piece of external content is tagged at the source. We trace it through the entire pipeline so you always know what's user-generated and what isn't.",
-    iconColor: "text-violet-400",
+    iconColor: "text-ds-purple",
   },
   {
     icon: ScanSearch,
     title: "Prompt Injection Scanning",
     description:
       "Multi-layer scanning catches injection attempts before they reach your LLM. Regex patterns, ML classifiers, and canary tokens — belt, suspenders, and a backup belt.",
-    iconColor: "text-sky-400",
+    iconColor: "text-ds-cyan",
   },
   {
     icon: Lock,
     title: "Encrypted Credentials",
     description:
       "API keys never enter the sandbox. AES-256-GCM encryption at rest, OS keychain integration, and a paranoid credential store.",
-    iconColor: "text-emerald-400",
+    iconColor: "text-ds-green",
   },
   {
     icon: Layers,
     title: "Provider Architecture",
     description:
       "Every subsystem is a swappable provider. Bring your own LLM, memory store, scanner, or sandbox — the contracts are TypeScript interfaces.",
-    iconColor: "text-amber-400",
+    iconColor: "text-ds-orange",
   },
   {
     icon: Zap,
     title: "OpenAI-Compatible API",
     description:
       "Drop-in /v1/chat/completions endpoint. Point your existing tools at ax and get security for free.",
-    iconColor: "text-rose-400",
+    iconColor: "text-ds-red",
   },
 ];
 
 export function Features() {
   return (
-    <section id="features" className="relative py-24 md:py-32">
-      <div className="mx-auto max-w-[1200px] px-6">
+    <section id="features" className="py-16 md:py-20">
+      <div className="mx-auto max-w-[1280px] px-8">
         <Reveal>
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4">
-              Security that{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent to-accent-glow">
-                doesn&apos;t get in the way
-              </span>
+          <div className="text-center mb-12">
+            <h2 className="font-mono text-2xl font-bold tracking-tight mb-3">
+              Security you won't notice until it matters
             </h2>
-            <p className="text-text-secondary text-lg max-w-2xl mx-auto">
-              We obsess over security so you can obsess over your product.
-              Every layer is designed to be invisible until something goes wrong.
+            <p className="text-text-secondary text-sm max-w-[700px] mx-auto leading-relaxed">
+              Everything you need to deploy, manage, and scale autonomous AI agents
+              with security built into every layer.
             </p>
           </div>
         </Reveal>
 
-        <StaggerContainer
-          className="grid grid-cols-1 md:grid-cols-3 gap-4"
-          staggerDelay={0.1}
-        >
-          {features.map((feature) => (
-            <StaggerItem key={feature.title}>
-              <GlassCard className="h-full group">
+        <Reveal>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-[2px] bg-border rounded-xl overflow-hidden border border-border">
+            {features.map((feature) => (
+              <div
+                key={feature.title}
+                className="bg-bg-secondary p-7 hover:bg-bg-elevated transition-colors group"
+              >
                 <div className="flex flex-col gap-3">
                   <div
                     className={cn(
@@ -93,17 +89,17 @@ export function Features() {
                   >
                     <feature.icon className="w-5 h-5" />
                   </div>
-                  <h3 className="text-lg font-semibold text-text-primary">
+                  <h3 className="font-mono text-sm font-semibold text-text-primary">
                     {feature.title}
                   </h3>
-                  <p className="text-sm text-text-secondary leading-relaxed">
+                  <p className="text-[13px] text-text-secondary leading-relaxed">
                     {feature.description}
                   </p>
                 </div>
-              </GlassCard>
-            </StaggerItem>
-          ))}
-        </StaggerContainer>
+              </div>
+            ))}
+          </div>
+        </Reveal>
       </div>
     </section>
   );

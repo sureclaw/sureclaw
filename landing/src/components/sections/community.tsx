@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Reveal, StaggerContainer, StaggerItem } from "@/components/ui/reveal";
+import { Reveal } from "@/components/ui/reveal";
 import { Button } from "@/components/ui/button";
 import { Github, MessageCircle } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
@@ -40,7 +40,6 @@ function AnimatedCounter({
     const step = () => {
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      // Ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
       setCount(Math.floor(eased * target));
       if (progress < 1) requestAnimationFrame(step);
@@ -65,58 +64,48 @@ const stats = [
 
 export function Community() {
   return (
-    <section className="relative py-24 md:py-32">
-      {/* Background glow */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-accent/8 blur-[100px]" />
-
-      <div className="relative mx-auto max-w-[1200px] px-6">
+    <section className="py-16 md:py-20">
+      <div className="mx-auto max-w-[1280px] px-8">
+        {/* Stats grid */}
         <Reveal>
-          <div className="text-center mb-12">
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-4">
-              Built in the open
-            </h2>
-            <p className="text-text-secondary text-lg max-w-2xl mx-auto">
-              ax is free and open source under the MIT license. No paid tiers,
-              no gated features. Just a framework you can use, fork,
-              and build on.
-            </p>
-          </div>
-        </Reveal>
-
-        {/* Stats */}
-        <StaggerContainer
-          className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12"
-          staggerDelay={0.1}
-        >
-          {stats.map((stat) => (
-            <StaggerItem key={stat.label}>
-              <div className="text-center">
-                <div className="text-3xl md:text-4xl font-bold text-text-primary mb-1">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-[2px] bg-border rounded-xl overflow-hidden border border-border mb-20 max-w-[1100px] mx-auto">
+            {stats.map((stat) => (
+              <div key={stat.label} className="bg-bg-secondary py-8 px-6 text-center">
+                <div className="font-mono text-4xl font-bold text-accent mb-2">
                   <AnimatedCounter
                     target={stat.value}
                     suffix={stat.suffix}
                   />
                 </div>
-                <div className="text-sm text-text-tertiary">{stat.label}</div>
+                <div className="text-xs text-text-secondary uppercase tracking-wider font-medium">
+                  {stat.label}
+                </div>
               </div>
-            </StaggerItem>
-          ))}
-        </StaggerContainer>
+            ))}
+          </div>
+        </Reveal>
 
-        {/* CTA buttons */}
+        {/* CTA box */}
         <Reveal>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Button
-              href={GITHUB_URL}
-              size="lg"
-            >
-              <Github className="w-4 h-4" />
-              Star on GitHub
-            </Button>
-            <Button href="#" variant="outline" size="lg">
-              <MessageCircle className="w-4 h-4" />
-              Join Discord
-            </Button>
+          <div className="bg-bg-secondary border border-border-hover rounded-xl py-14 px-12 text-center max-w-[800px] mx-auto">
+            <h2 className="font-mono text-[28px] font-bold tracking-tight mb-3">
+              Built in the open
+            </h2>
+            <p className="text-sm text-text-secondary mb-8 leading-relaxed max-w-lg mx-auto">
+              ax is free and open source under the MIT license. No paid tiers,
+              no gated features. Just a framework you can use, fork,
+              and build on.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Button href={GITHUB_URL} size="lg">
+                <Github className="w-4 h-4" />
+                star on GitHub
+              </Button>
+              <Button href="#" variant="outline" size="lg">
+                <MessageCircle className="w-4 h-4" />
+                join Discord
+              </Button>
+            </div>
           </div>
         </Reveal>
       </div>

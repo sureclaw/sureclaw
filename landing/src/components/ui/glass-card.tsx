@@ -8,12 +8,11 @@ type GlassCardProps = {
   hover?: boolean;
 };
 
-export function GlassCard({ children, className, hover = true }: GlassCardProps) {
+export function GlassCard({ children, className }: GlassCardProps) {
   return (
     <div
       className={cn(
-        "glass-card p-6 transition-all duration-300",
-        hover && "hover:-translate-y-0.5",
+        "glass-card p-6 transition-all duration-200",
         className
       )}
     >

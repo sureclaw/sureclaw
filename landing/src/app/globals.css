@@ -1,34 +1,53 @@
 @import "tailwindcss";
 
 /* Safelist: dynamic color classes used in data arrays
-   text-indigo-400 text-violet-400 text-sky-400 text-emerald-400
-   text-amber-400 text-rose-400 text-red-400
+   text-ds-blue text-ds-purple text-ds-cyan text-ds-green
+   text-ds-orange text-ds-red
 */
 
 :root {
-  --bg-primary: #09090b;
-  --bg-secondary: #111113;
-  --bg-elevated: #1a1a1e;
+  /* Backgrounds (design system: bg, surface, surface2, surface3) */
+  --bg-primary: #0a0c10;
+  --bg-secondary: #12151c;
+  --bg-elevated: #1a1e28;
+  --bg-surface3: #222835;
 
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #52525b;
+  /* Text (design system: text, textDim, textMuted) */
+  --text-primary: #e2e8f0;
+  --text-secondary: #8892a8;
+  --text-tertiary: #5a6478;
 
-  --accent: #eab308;
-  --accent-glow: #facc15;
-  --accent-subtle: rgba(234, 179, 8, 0.1);
+  /* Accent (cyan) */
+  --accent: #06b6d4;
+  --accent-glow: #22d3ee;
+  --accent-subtle: rgba(6, 182, 212, 0.15);
+  --accent-dim: #164e63;
 
-  --border: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.12);
+  /* Borders (design system: border, borderAccent) */
+  --border: #2a3040;
+  --border-hover: #3a4560;
 
-  --glass-bg: rgba(17, 17, 19, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.08);
+  /* Design system named colors */
+  --ds-red: #ef4444;
+  --ds-red-dim: #7f1d1d;
+  --ds-orange: #f59e0b;
+  --ds-orange-dim: #78350f;
+  --ds-green: #22c55e;
+  --ds-green-dim: #14532d;
+  --ds-green-glow: rgba(34, 197, 94, 0.1);
+  --ds-blue: #3b82f6;
+  --ds-blue-dim: #1e3a5f;
+  --ds-cyan: #06b6d4;
+  --ds-cyan-dim: #164e63;
+  --ds-purple: #a78bfa;
+  --ds-yellow: #eab308;
 }
 
 @theme inline {
   --color-bg-primary: var(--bg-primary);
   --color-bg-secondary: var(--bg-secondary);
   --color-bg-elevated: var(--bg-elevated);
+  --color-bg-surface3: var(--bg-surface3);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
@@ -37,56 +56,60 @@
   --color-accent: var(--accent);
   --color-accent-glow: var(--accent-glow);
   --color-accent-subtle: var(--accent-subtle);
+  --color-accent-dim: var(--accent-dim);
 
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
 
-  --color-glass-bg: var(--glass-bg);
-  --color-glass-border: var(--glass-border);
+  /* Design system named colors */
+  --color-ds-red: var(--ds-red);
+  --color-ds-red-dim: var(--ds-red-dim);
+  --color-ds-orange: var(--ds-orange);
+  --color-ds-orange-dim: var(--ds-orange-dim);
+  --color-ds-green: var(--ds-green);
+  --color-ds-green-dim: var(--ds-green-dim);
+  --color-ds-blue: var(--ds-blue);
+  --color-ds-blue-dim: var(--ds-blue-dim);
+  --color-ds-cyan: var(--ds-cyan);
+  --color-ds-cyan-dim: var(--ds-cyan-dim);
+  --color-ds-purple: var(--ds-purple);
+  --color-ds-yellow: var(--ds-yellow);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Typography */
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
 }
 
-/* Glassmorphism recipe */
+/* Surface card (solid, no glassmorphism) */
 .glass-card {
-  background: rgba(17, 17, 19, 0.6);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-    0 4px 24px rgba(0, 0, 0, 0.4);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: all 0.2s;
 }
 
 .glass-card:hover {
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-    0 8px 32px rgba(0, 0, 0, 0.5);
+  border-color: var(--border-hover);
+  background: var(--bg-elevated);
 }
 
-/* Glow pulse animation */
-@keyframes glow-pulse {
-  0%, 100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.7;
-  }
+/* Pulse animation for status dots */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
-.glow-pulse {
-  animation: glow-pulse 4s ease-in-out infinite;
+.pulse-dot {
+  animation: pulse 2s ease-in-out infinite;
 }
 
 /* Scrollbar styling */
