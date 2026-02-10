@@ -51,6 +51,7 @@ export interface AgentConfig {
   skills: string;
   proxySocket?: string;
   maxTokens?: number;
+  verbose?: boolean;
   userMessage?: string;
   history?: ConversationTurn[];
 }
@@ -59,7 +60,7 @@ export interface AgentConfig {
  * Convert stored conversation history to pi-ai message format
  * for pre-populating the Agent's state.
  */
-function historyToPiMessages(history: ConversationTurn[]): AgentMessage[] {
+export function historyToPiMessages(history: ConversationTurn[]): AgentMessage[] {
   return history.map((turn): AgentMessage => {
     if (turn.role === 'user') {
       return {
@@ -163,6 +164,7 @@ function parseArgs(): AgentConfig {
   let skills = '';
   let proxySocket = '';
   let maxTokens = 0;
+  let verbose = false;
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -172,6 +174,7 @@ function parseArgs(): AgentConfig {
       case '--skills': skills = args[++i]; break;
       case '--proxy-socket': proxySocket = args[++i]; break;
       case '--max-tokens': maxTokens = parseInt(args[++i], 10) || 0; break;
+      case '--verbose': verbose = true; break;
     }
   }
 
@@ -184,7 +187,7 @@ function parseArgs(): AgentConfig {
     process.exit(1);
   }
 
-  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined, maxTokens: maxTokens || undefined };
+  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined, maxTokens: maxTokens || undefined, verbose };
 }
 
 function loadContext(workspace: string): string {
@@ -290,6 +293,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   // Subscribe to events — stream text to stdout, log all events for debugging
   let hasOutput = false;
   let eventCount = 0;
+  let turnCount = 0;
   agent.subscribe((event) => {
     eventCount++;
     if (event.type === 'message_update') {
@@ -305,6 +309,9 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
       }
       if (ame.type === 'toolcall_end') {
         debug(SRC, 'tool_call', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
+        if (config.verbose) {
+          process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
+        }
       }
       if (ame.type === 'error') {
         const errText = ame.error?.errorMessage ?? String(ame.error);
@@ -312,7 +319,11 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
         process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
+        turnCount++;
         debug(SRC, 'agent_done_event', { reason: ame.reason });
+        if (config.verbose) {
+          process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
+        }
       }
     }
   });

@@ -21,13 +21,14 @@ import type {
 } from '@mariozechner/pi-ai';
 import {
   createAgentSession,
-  codingTools,
+  createCodingTools,
   SessionManager,
   AuthStorage,
 } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 import { IPCClient } from '../ipc-client.js';
+import { compactHistory, historyToPiMessages } from '../agent-runner.js';
 import type { AgentConfig } from '../agent-runner.js';
 import { debug, truncate } from '../../logger.js';
 
@@ -84,13 +85,15 @@ function createIPCStreamFunction(client: IPCClient) {
       hasSystemPrompt: !!context.systemPrompt,
     });
 
-    // Convert pi-ai messages to IPC format
+    // Convert pi-ai messages to IPC format.
+    // Anthropic API rejects messages with empty content, so every message
+    // must produce a non-empty string or a non-empty structured blocks array.
     const messages = context.messages.map((m) => {
       if (m.role === 'user') {
         const content = typeof m.content === 'string'
           ? m.content
           : m.content.filter((c): c is TextContent => c.type === 'text').map(c => c.text).join('');
-        return { role: 'user', content };
+        return { role: 'user', content: content || '.' };
       }
       if (m.role === 'assistant') {
         const blocks: Array<{ type: string; [k: string]: unknown }> = [];
@@ -101,8 +104,12 @@ function createIPCStreamFunction(client: IPCClient) {
             blocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.arguments });
           }
         }
+        if (blocks.length === 0) {
+          return { role: 'assistant', content: '.' };
+        }
         if (blocks.every(b => b.type === 'text')) {
-          return { role: 'assistant', content: blocks.map(b => b.text).join('') };
+          const text = blocks.map(b => b.text).join('');
+          return { role: 'assistant', content: text || '.' };
         }
         return { role: 'assistant', content: blocks };
       }
@@ -111,9 +118,9 @@ function createIPCStreamFunction(client: IPCClient) {
           .filter((c): c is TextContent => c.type === 'text')
           .map(c => c.text)
           .join('');
-        return { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text }] };
+        return { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text || '[no output]' }] };
       }
-      return { role: 'user', content: '' };
+      return { role: 'user', content: '.' };
     });
 
     const tools = context.tools?.map(t => ({
@@ -417,14 +424,20 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   const skills = loadSkills(config.skills);
   const systemPrompt = buildSystemPrompt(context, skills);
 
+  // Create coding tools bound to the workspace directory.
+  // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()
+  // at import time via closures — those tools would write to the wrong directory.
+  // createCodingTools(cwd) creates fresh tools bound to the workspace.
+  const tools = createCodingTools(config.workspace);
+
   // Create IPC tool definitions for pi-coding-agent
   const ipcToolDefs = createIPCToolDefinitions(client);
 
   debug(SRC, 'session_config', {
     systemPromptLength: systemPrompt.length,
-    codingToolCount: codingTools.length,
+    codingToolCount: tools.length,
     ipcToolCount: ipcToolDefs.length,
-    codingToolNames: codingTools.map(t => t.name),
+    codingToolNames: tools.map(t => t.name),
     ipcToolNames: ipcToolDefs.map(t => t.name),
   });
 
@@ -439,7 +452,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   debug(SRC, 'creating_agent_session');
   const { session } = await createAgentSession({
     model: ipcModel,
-    tools: codingTools,
+    tools,
     customTools: ipcToolDefs,
     cwd: config.workspace,
     authStorage,
@@ -450,9 +463,25 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Override system prompt
   session.agent.state.systemPrompt = systemPrompt;
 
+  // Prepopulate conversation history from prior turns (server sends this via stdin).
+  // Without this, each request starts a fresh conversation and the agent can't
+  // remember anything from earlier exchanges.
+  if (config.history && config.history.length > 0) {
+    debug(SRC, 'history_load', { turns: config.history.length });
+    const compacted = await compactHistory(config.history, client);
+    const historyMessages = historyToPiMessages(compacted);
+    session.agent.state.messages = historyMessages;
+    debug(SRC, 'history_loaded', {
+      originalTurns: config.history.length,
+      compactedTurns: compacted.length,
+      piMessages: historyMessages.length,
+    });
+  }
+
   // Subscribe to events — stream text to stdout, log ALL events for debugging
   let hasOutput = false;
   let eventCount = 0;
+  let turnCount = 0;
   session.subscribe((event) => {
     eventCount++;
     if (event.type === 'message_update') {
@@ -468,6 +497,9 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
       }
       if (ame.type === 'toolcall_end') {
         debug(SRC, 'tool_call_event', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
+        if (config.verbose) {
+          process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
+        }
       }
       if (ame.type === 'error') {
         const errText = ame.error?.errorMessage ?? String(ame.error);
@@ -475,7 +507,11 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
         process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
+        turnCount++;
         debug(SRC, 'agent_done_event', { reason: ame.reason });
+        if (config.verbose) {
+          process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
+        }
       }
     }
   });

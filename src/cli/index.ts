@@ -54,6 +54,7 @@ Server Options:
   --daemon               Run server in background
   --socket <path>        Unix socket path (default: ~/.ax/ax.sock)
   --config <path>        Config file path (default: ~/.ax/ax.yaml)
+  --verbose              Show tool calls and LLM turns in real-time
 
 Chat Options:
   --socket <path>        Unix socket path (default: ~/.ax/ax.sock)
@@ -137,6 +138,7 @@ async function runServe(args: string[]): Promise<void> {
   let configPath: string | undefined;
   let daemon = false;
   let socketPath: string | undefined;
+  let verbose = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--config' || args[i] === '-c') {
@@ -145,6 +147,8 @@ async function runServe(args: string[]): Promise<void> {
       daemon = true;
     } else if (args[i] === '--socket') {
       socketPath = args[++i];
+    } else if (args[i] === '--verbose') {
+      verbose = true;
     }
   }
 
@@ -166,7 +170,7 @@ async function runServe(args: string[]): Promise<void> {
   const config = loadConfig(configPath);
   console.log(`[server] Profile: ${config.profile}`);
 
-  const server = await createServer(config, { socketPath, daemon });
+  const server = await createServer(config, { socketPath, daemon, verbose });
   await server.start();
 
   if (daemon) {

@@ -1,6 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { isValidSessionId, workspaceDir } from '../src/paths.js';
 
 describe('paths', () => {
   const originalEnv = process.env.AX_HOME;
@@ -37,5 +38,28 @@ describe('paths', () => {
     expect(dataFile('audit', 'audit.jsonl')).toBe(
       join(homedir(), '.ax', 'data', 'audit', 'audit.jsonl'),
     );
+  });
+
+  test('workspaceDir returns correct path', () => {
+    process.env.AX_HOME = '/tmp/sc-test';
+    expect(workspaceDir('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')).toBe(
+      '/tmp/sc-test/data/workspaces/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    );
+  });
+
+  test('isValidSessionId accepts valid UUIDs', () => {
+    expect(isValidSessionId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    expect(isValidSessionId('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')).toBe(true);
+    expect(isValidSessionId('12345678-1234-1234-1234-123456789abc')).toBe(true);
+  });
+
+  test('isValidSessionId rejects path traversal and invalid strings', () => {
+    expect(isValidSessionId('../../../etc/passwd')).toBe(false);
+    expect(isValidSessionId('hello')).toBe(false);
+    expect(isValidSessionId('')).toBe(false);
+    expect(isValidSessionId('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE')).toBe(false); // uppercase
+    expect(isValidSessionId('550e8400-e29b-41d4-a716-44665544000')).toBe(false); // too short
+    expect(isValidSessionId('550e8400-e29b-41d4-a716-4466554400000')).toBe(false); // too long
+    expect(isValidSessionId('not-a-uuid-at-all')).toBe(false);
   });
 });

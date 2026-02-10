@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { createServer, type AxServer } from '../src/server.js';
 import { loadConfig } from '../src/config.js';
+import { workspaceDir } from '../src/paths.js';
 
 /** Send an HTTP request over a Unix socket */
 function sendRequest(
@@ -209,5 +210,61 @@ describe('Server', () => {
     expect(data.object).toBe('list');
     expect(data.data).toHaveLength(1);
     expect(data.data[0].owned_by).toBe('ax');
+  });
+
+  // --- Persistent Workspaces ---
+
+  it('should return 400 for invalid session_id', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const res = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        session_id: '../../../etc/passwd',
+      },
+    });
+
+    expect(res.status).toBe(400);
+    const data = JSON.parse(res.body);
+    expect(data.error.message).toContain('session_id');
+  });
+
+  it('should create persistent workspace when session_id is provided', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const sessionId = randomUUID();
+
+    const res = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        session_id: sessionId,
+      },
+    });
+
+    expect(res.status).toBe(200);
+
+    // Workspace directory should persist after request
+    const wsDir = workspaceDir(sessionId);
+    expect(existsSync(wsDir)).toBe(true);
+  });
+
+  it('should accept request without session_id (ephemeral workspace)', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const res = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const data = JSON.parse(res.body);
+    expect(data.choices[0].message.content.length).toBeGreaterThan(0);
   });
 });

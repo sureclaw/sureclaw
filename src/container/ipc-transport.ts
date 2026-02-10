@@ -66,13 +66,15 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
       maxTokens: options?.maxTokens,
     });
 
-    // Convert pi-ai messages to AX's IPC format, preserving tool structure
+    // Convert pi-ai messages to AX's IPC format, preserving tool structure.
+    // Anthropic API rejects messages with empty content, so every message
+    // must produce a non-empty string or a non-empty structured blocks array.
     const messages = context.messages.map((m) => {
       if (m.role === 'user') {
         const content = typeof m.content === 'string'
           ? m.content
           : m.content.filter((c): c is TextContent => c.type === 'text').map((c) => c.text).join('');
-        return { role: 'user', content };
+        return { role: 'user', content: content || '.' };
       }
       if (m.role === 'assistant') {
         // Preserve tool_use blocks alongside text for Anthropic API compatibility
@@ -89,9 +91,13 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
             });
           }
         }
+        if (blocks.length === 0) {
+          return { role: 'assistant', content: '.' };
+        }
         // If no tool calls, send as plain string for backward compat
         if (blocks.every(b => b.type === 'text')) {
-          return { role: 'assistant', content: blocks.map(b => b.text).join('') };
+          const text = blocks.map(b => b.text).join('');
+          return { role: 'assistant', content: text || '.' };
         }
         return { role: 'assistant', content: blocks };
       }
@@ -102,10 +108,10 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           .join('');
         return {
           role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text }],
+          content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text || '[no output]' }],
         };
       }
-      return { role: 'user', content: '' };
+      return { role: 'user', content: '.' };
     });
 
     // Convert tools

@@ -15,6 +15,7 @@ export interface SendClientOptions {
   stdin?: string;
   noStream?: boolean;
   json?: boolean;
+  sessionId?: string;
   stdout?: Writable;
   fetch?: typeof fetch;
 }
@@ -40,6 +41,7 @@ export function createSendClient(opts: SendClientOptions) {
           model: 'default',
           messages: [{ role: 'user', content: message }],
           stream,
+          ...(opts.sessionId ? { session_id: opts.sessionId } : {}),
         }),
       },
     );
@@ -124,6 +126,7 @@ export async function runSend(args: string[]): Promise<void> {
   let noStream = false;
   let json = false;
   let fromStdin = false;
+  let sessionId: string | undefined;
   let message = '';
 
   for (let i = 0; i < args.length; i++) {
@@ -133,6 +136,8 @@ export async function runSend(args: string[]): Promise<void> {
       noStream = true;
     } else if (args[i] === '--json') {
       json = true;
+    } else if (args[i] === '--session') {
+      sessionId = args[++i];
     } else if (args[i] === '--stdin' || args[i] === '-') {
       fromStdin = true;
     } else if (!message) {
@@ -160,6 +165,7 @@ export async function runSend(args: string[]): Promise<void> {
     noStream,
     json,
     fromStdin,
+    sessionId,
   });
 
   try {

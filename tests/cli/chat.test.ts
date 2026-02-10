@@ -83,6 +83,51 @@ describe('Chat Client', () => {
     expect(body.messages.length).toBe(3);
   });
 
+  it('should include consistent session_id in every request', async () => {
+    let callCount = 0;
+    const mockFetch = vi.fn().mockImplementation(() => {
+      callCount++;
+      return Promise.resolve({
+        ok: true,
+        body: createMockSSEStream(`Response ${callCount}`),
+      });
+    });
+
+    const client = createChatClient({
+      socketPath: '/tmp/test.sock',
+      stdin: mockStdin,
+      stdout: mockStdout,
+      fetch: mockFetch as any,
+    });
+
+    const clientPromise = client.start();
+
+    mockStdin.push('First\n');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    mockStdin.push('Second\n');
+    await new Promise(resolve => setTimeout(resolve, 50));
+    mockStdin.push(null);
+
+    await clientPromise;
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const body1 = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body);
+
+    // Both requests should have session_id
+    expect(body1.session_id).toBeDefined();
+    expect(body2.session_id).toBeDefined();
+
+    // session_id should be the same UUID across both requests
+    expect(body1.session_id).toBe(body2.session_id);
+
+    // Should be a valid UUID format
+    expect(body1.session_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
   it('should handle connection errors gracefully', async () => {
     const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
 

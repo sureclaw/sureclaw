@@ -254,6 +254,64 @@ describe('ipc-transport', () => {
     expect(assistantMsg.content).toBe('Hello there!');
   });
 
+  test('never produces messages with empty content', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [{ type: 'done', usage: { inputTokens: 0, outputTokens: 0 } }],
+      }),
+    } as unknown as IPCClient;
+
+    const streamFn = createIPCStreamFn(client);
+    // Include all edge cases that could produce empty content:
+    // - assistant with empty content array
+    // - tool result with no text blocks
+    // - user message with structured content but no text
+    const context: Context = {
+      messages: [
+        { role: 'user', content: 'do something', timestamp: Date.now() },
+        {
+          role: 'assistant',
+          content: [],  // empty content array — vacuous .every() bug
+          api: 'anthropic-messages',
+          provider: 'anthropic',
+          model: 'test',
+          usage: { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 },
+          stopReason: 'stop',
+          timestamp: Date.now(),
+        },
+        { role: 'user', content: '', timestamp: Date.now() },  // empty user message
+        {
+          role: 'toolResult',
+          toolCallId: 'call_empty',
+          toolName: 'bash',
+          content: [],  // tool result with no content blocks
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    // Skip the system message (index 0 if present)
+    for (const msg of callArg.messages) {
+      if (msg.role === 'system') continue;
+      if (typeof msg.content === 'string') {
+        expect(msg.content.length, `${msg.role} message has empty string content`).toBeGreaterThan(0);
+      } else if (Array.isArray(msg.content)) {
+        expect(msg.content.length, `${msg.role} message has empty content array`).toBeGreaterThan(0);
+        // Check that tool_result blocks also have non-empty content
+        for (const block of msg.content) {
+          if (block.type === 'tool_result') {
+            expect(block.content.length, 'tool_result block has empty content').toBeGreaterThan(0);
+          }
+        }
+      }
+    }
+  });
+
   test('emits tool_use events from IPC response with tool calls', async () => {
     const client = {
       call: vi.fn().mockResolvedValue({

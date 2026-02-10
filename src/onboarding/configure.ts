@@ -98,15 +98,18 @@ export async function runConfigure(outputDir: string): Promise<void> {
     default: defaults.agent ?? PROFILE_DEFAULTS[profile].agent,
   }) as AgentType;
 
-  // 2. Auth method selection
-  const authMethod = await select({
-    message: 'Authentication method',
-    choices: AUTH_METHODS.map((method) => ({
-      name: `${AUTH_METHOD_DISPLAY_NAMES[method]}  —  ${AUTH_METHOD_DESCRIPTIONS[method]}`,
-      value: method,
-    })),
-    default: defaults.authMethod ?? 'api-key',
-  }) as AuthMethod;
+  // 2. Auth method selection (OAuth only available for claude-code)
+  let authMethod: AuthMethod = 'api-key';
+  if (agent === 'claude-code') {
+    authMethod = await select({
+      message: 'Authentication method',
+      choices: AUTH_METHODS.map((method) => ({
+        name: `${AUTH_METHOD_DISPLAY_NAMES[method]}  —  ${AUTH_METHOD_DESCRIPTIONS[method]}`,
+        value: method,
+      })),
+      default: defaults.authMethod ?? 'api-key',
+    }) as AuthMethod;
+  }
 
   let apiKey = '';
   let oauthToken: string | undefined;

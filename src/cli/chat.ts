@@ -2,6 +2,7 @@
 import { createInterface, type Interface } from 'node:readline';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { randomUUID } from 'node:crypto';
 import { Agent } from 'undici';
 import { axHome } from '../paths.js';
 
@@ -34,6 +35,9 @@ export function createChatClient(opts: ChatClientOptions = {}) {
 
   // Use injected fetch (tests) or create a Unix-socket-aware fetch
   const fetchFn = opts.fetch ?? createSocketFetch(socketPath);
+
+  // Stable session ID for the lifetime of this chat client
+  const sessionId = randomUUID();
 
   const messages: Message[] = [];
 
@@ -72,6 +76,7 @@ export function createChatClient(opts: ChatClientOptions = {}) {
               model: 'default',
               messages,
               stream,
+              session_id: sessionId,
             }),
           },
         );

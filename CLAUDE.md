@@ -29,6 +29,10 @@ AX uses a **provider contract pattern**. Every subsystem is a TypeScript interfa
 - **Provider loading:** Static allowlist in `src/provider-map.ts` — no dynamic path construction.
 - **Each provider exports** `create(config: Config)` function.
 
+### Bug Fix Policy
+
+Whenever you fix a bug that wasn't caught by an existing test, you MUST add a test that would have caught it the first time. No exception. The test goes in before the fix is considered done.
+
 ### Security Invariants
 
 - No network in agent containers

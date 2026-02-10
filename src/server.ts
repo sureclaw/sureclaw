@@ -8,11 +8,11 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server as NetServer } from 'node:net';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { axHome, dataDir, dataFile } from './paths.js';
+import { axHome, dataDir, dataFile, isValidSessionId, workspaceDir } from './paths.js';
 import type { Config } from './providers/types.js';
 import type { InboundMessage, ProviderRegistry } from './providers/types.js';
 import { loadProviders } from './registry.js';
@@ -33,6 +33,7 @@ const SRC = 'host:server';
 export interface ServerOptions {
   socketPath?: string;
   daemon?: boolean;
+  verbose?: boolean;
 }
 
 export interface AxServer {
@@ -46,6 +47,7 @@ interface OpenAIChatRequest {
   messages: { role: string; content: string }[];
   stream?: boolean;
   max_tokens?: number;
+  session_id?: string;
 }
 
 interface OpenAIChatResponse {
@@ -188,6 +190,12 @@ export async function createServer(
       return;
     }
 
+    // Validate session_id if provided
+    if (chatReq.session_id !== undefined && !isValidSessionId(chatReq.session_id)) {
+      sendError(res, 400, 'Invalid session_id: must be a valid UUID');
+      return;
+    }
+
     const requestModel = chatReq.model ?? modelId;
 
     // Extract last user message content
@@ -195,7 +203,7 @@ export async function createServer(
     const content = lastMsg?.content ?? '';
 
     // Process completion (server is stateless — clients manage history)
-    const { responseContent, finishReason } = await processCompletion(content, requestId, chatReq.messages);
+    const { responseContent, finishReason } = await processCompletion(content, requestId, chatReq.messages, chatReq.session_id);
 
     if (chatReq.stream) {
       // Streaming mode -- SSE
@@ -248,6 +256,7 @@ export async function createServer(
     content: string,
     requestId: string,
     clientMessages: { role: string; content: string }[] = [],
+    persistentSessionId?: string,
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter' }> {
     const sessionId = randomUUID();
     debug(SRC, 'completion_start', {
@@ -290,9 +299,15 @@ export async function createServer(
     }
 
     let workspace = '';
+    const isPersistent = !!persistentSessionId;
     let proxyCleanup: (() => void) | undefined;
     try {
-      workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
+      if (persistentSessionId) {
+        workspace = workspaceDir(persistentSessionId);
+        mkdirSync(workspace, { recursive: true });
+      } else {
+        workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
+      }
       const skillsDir = resolve('skills');
 
       // Write workspace files with raw user message (no taint tags or canary)
@@ -325,6 +340,7 @@ export async function createServer(
         '--skills', skillsDir,
         '--max-tokens', String(maxTokens),
         ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
+        ...(opts.verbose ? ['--verbose'] : []),
       ];
 
       debug(SRC, 'agent_spawn', {
@@ -359,10 +375,17 @@ export async function createServer(
         response += chunk.toString();
       }
 
-      // Collect stderr
+      // Collect stderr — in verbose mode, also stream to logger in real-time
       let stderr = '';
       for await (const chunk of proc.stderr) {
-        stderr += chunk.toString();
+        const text = chunk.toString();
+        stderr += text;
+        if (opts.verbose) {
+          // Stream verbose lines to logger as they arrive
+          for (const line of text.split('\n').filter((l: string) => l.trim())) {
+            logger.info(line);
+          }
+        }
       }
 
       const exitCode = await proc.exitCode;
@@ -436,7 +459,7 @@ export async function createServer(
       if (proxyCleanup) {
         try { proxyCleanup(); } catch { /* cleanup best-effort */ }
       }
-      if (workspace) {
+      if (workspace && !isPersistent) {
         try { rmSync(workspace, { recursive: true, force: true }); } catch { /* cleanup best-effort */ }
       }
     }
@@ -470,6 +493,25 @@ export async function createServer(
   // --- Lifecycle ---
 
   async function startServer(): Promise<void> {
+    // Clean up stale persistent workspaces (older than 7 days)
+    const workspacesRoot = join(dataDir(), 'workspaces');
+    if (existsSync(workspacesRoot)) {
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+      const cutoff = Date.now() - SEVEN_DAYS_MS;
+      try {
+        for (const entry of readdirSync(workspacesRoot)) {
+          const entryPath = join(workspacesRoot, entry);
+          try {
+            const stat = statSync(entryPath);
+            if (stat.isDirectory() && stat.mtimeMs < cutoff) {
+              rmSync(entryPath, { recursive: true, force: true });
+              logger.info('Cleaned stale workspace', { sessionId: entry });
+            }
+          } catch { /* skip entries we can't stat */ }
+        }
+      } catch { /* skip if workspaces dir can't be read */ }
+    }
+
     // Remove stale socket
     if (existsSync(socketPath)) {
       unlinkSync(socketPath);
@@ -507,7 +549,7 @@ export async function createServer(
           return;
         }
         sessionCanaries.set(result.sessionId, result.canaryToken);
-        const { responseContent } = await processCompletion(msg.content, `ch-${randomUUID().slice(0, 8)}`);
+        const { responseContent } = await processCompletion(msg.content, `ch-${randomUUID().slice(0, 8)}`, [], msg.id);
         await channel.send(msg.sender, { content: responseContent });
       });
       await channel.connect();

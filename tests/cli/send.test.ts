@@ -96,6 +96,62 @@ describe('Send Client', () => {
     expect(output.choices[0].message.content).toBe('Paris');
   });
 
+  it('should include session_id when provided', async () => {
+    let stdoutData = '';
+    const mockStdout = new Writable({
+      write(chunk, _encoding, callback) {
+        stdoutData += chunk.toString();
+        callback();
+      },
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createMockSSEStream('response'),
+    });
+
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const client = createSendClient({
+      message: 'hello',
+      socketPath: '/tmp/test.sock',
+      stdout: mockStdout,
+      fetch: mockFetch as any,
+      sessionId,
+    });
+
+    await client.send();
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.session_id).toBe(sessionId);
+  });
+
+  it('should not include session_id when not provided', async () => {
+    let stdoutData = '';
+    const mockStdout = new Writable({
+      write(chunk, _encoding, callback) {
+        stdoutData += chunk.toString();
+        callback();
+      },
+    });
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      body: createMockSSEStream('response'),
+    });
+
+    const client = createSendClient({
+      message: 'hello',
+      socketPath: '/tmp/test.sock',
+      stdout: mockStdout,
+      fetch: mockFetch as any,
+    });
+
+    await client.send();
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.session_id).toBeUndefined();
+  });
+
   it('should handle connection errors', async () => {
     const mockStdout = new Writable({ write(_c, _e, cb) { cb(); } });
     const mockFetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));

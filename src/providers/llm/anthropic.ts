@@ -19,8 +19,24 @@ function toAnthropicContent(
   });
 }
 
-export async function create(_config: Config): Promise<LLMProvider> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+export async function create(config: Config): Promise<LLMProvider> {
+  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  // claude-code agent with OAuth bypasses this provider entirely —
+  // the anthropic-proxy forwards requests directly to Anthropic.
+  // Return a stub so the server can start without an API key.
+  if (!apiKey && oauthToken && config.agent === 'claude-code') {
+    return {
+      name: 'anthropic',
+      async *chat(): AsyncIterable<ChatChunk> {
+        throw new Error('LLM provider not available — claude-code uses OAuth proxy');
+      },
+      async models() { return []; },
+    };
+  }
+
+  if (!apiKey) {
     throw new Error(
       'ANTHROPIC_API_KEY environment variable is required.\n' +
       'Set it with: export ANTHROPIC_API_KEY=sk-ant-...',

@@ -16,6 +16,7 @@
  *       audit.db        — SQLite audit provider
  *       audit/          — file audit provider
  *       credentials.enc — encrypted credentials
+ *       workspaces/     — persistent agent workspaces (keyed by session UUID)
  */
 
 import { join } from 'node:path';
@@ -44,4 +45,17 @@ export function dataDir(): string {
 /** Resolve a file path under the data directory. */
 export function dataFile(...segments: string[]): string {
   return join(dataDir(), ...segments);
+}
+
+/** UUID format regex (same as ipc-schemas.ts line 24). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Validate that a string is a valid lowercase UUID (prevents path traversal). */
+export function isValidSessionId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
+/** Path to a persistent agent workspace directory for a given session. */
+export function workspaceDir(sessionId: string): string {
+  return join(dataDir(), 'workspaces', sessionId);
 }
