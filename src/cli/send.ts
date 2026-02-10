@@ -1,6 +1,7 @@
 // src/cli/send.ts
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
+import { Agent } from 'undici';
 import { axHome } from '../paths.js';
 
 // ═══════════════════════════════════════════════════════
@@ -26,12 +27,12 @@ export function createSendClient(opts: SendClientOptions) {
   const socketPath = opts.socketPath ?? join(axHome(), 'ax.sock');
   const stream = opts.noStream !== true && !opts.json;
   const stdout = opts.stdout ?? process.stdout;
-  const fetchFn = opts.fetch ?? fetch;
+  const fetchFn = opts.fetch ?? createSocketFetch(socketPath);
   const message = opts.message;
 
   async function send(): Promise<void> {
     const response = await fetchFn(
-      `http://unix:${socketPath}:/v1/chat/completions`,
+      'http://localhost/v1/chat/completions',
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,6 +103,16 @@ async function handleStreamResponse(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ═══════════════════════════════════════════════════════
+// Unix Socket Fetch
+// ═══════════════════════════════════════════════════════
+
+function createSocketFetch(socketPath: string): typeof fetch {
+  const dispatcher = new Agent({ connect: { socketPath } });
+  return (input: string | URL | Request, init?: RequestInit) =>
+    fetch(input, { ...init, dispatcher } as RequestInit);
 }
 
 // ═══════════════════════════════════════════════════════

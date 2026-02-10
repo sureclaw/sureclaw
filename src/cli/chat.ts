@@ -2,6 +2,7 @@
 import { createInterface, type Interface } from 'node:readline';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
+import { Agent } from 'undici';
 import { axHome } from '../paths.js';
 
 // ═══════════════════════════════════════════════════════
@@ -30,7 +31,9 @@ export function createChatClient(opts: ChatClientOptions = {}) {
   const stream = opts.noStream !== true;
   const stdin = opts.stdin ?? process.stdin;
   const stdout = opts.stdout ?? process.stdout;
-  const fetchFn = opts.fetch ?? fetch;
+
+  // Use injected fetch (tests) or create a Unix-socket-aware fetch
+  const fetchFn = opts.fetch ?? createSocketFetch(socketPath);
 
   const messages: Message[] = [];
 
@@ -61,7 +64,7 @@ export function createChatClient(opts: ChatClientOptions = {}) {
       try {
         // Send request
         const response = await fetchFn(
-          `http://unix:${socketPath}:/v1/chat/completions`,
+          'http://localhost/v1/chat/completions',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -155,6 +158,16 @@ async function handleStreamResponse(
 
   stdout.write('\n');
   return fullContent;
+}
+
+// ═══════════════════════════════════════════════════════
+// Unix Socket Fetch
+// ═══════════════════════════════════════════════════════
+
+function createSocketFetch(socketPath: string): typeof fetch {
+  const dispatcher = new Agent({ connect: { socketPath } });
+  return (input: string | URL | Request, init?: RequestInit) =>
+    fetch(input, { ...init, dispatcher } as RequestInit);
 }
 
 // ═══════════════════════════════════════════════════════
