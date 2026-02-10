@@ -117,12 +117,19 @@ export async function runConfigure(outputDir: string): Promise<void> {
   let oauthExpiresAt: number | undefined;
 
   if (authMethod === 'oauth') {
-    // OAuth flow — open browser for Claude Max authorization
-    const { runOAuthFlow } = await import('../oauth.js');
-    const tokens = await runOAuthFlow();
-    oauthToken = tokens.access_token;
-    oauthRefreshToken = tokens.refresh_token;
-    oauthExpiresAt = tokens.expires_at;
+    if (defaults.oauthToken) {
+      // Reuse existing OAuth tokens
+      oauthToken = defaults.oauthToken;
+      oauthRefreshToken = existing?.oauthRefreshToken;
+      oauthExpiresAt = existing?.oauthExpiresAt;
+    } else {
+      // No existing token — launch browser OAuth flow
+      const { runOAuthFlow } = await import('../oauth.js');
+      const tokens = await runOAuthFlow();
+      oauthToken = tokens.access_token;
+      oauthRefreshToken = tokens.refresh_token;
+      oauthExpiresAt = tokens.expires_at;
+    }
   } else {
     // API key prompt (unchanged)
     const apiKeyMessage = defaults.apiKeyMasked
