@@ -42,6 +42,19 @@ export function createChatClient(opts: ChatClientOptions = {}) {
   const messages: Message[] = [];
 
   async function start(): Promise<void> {
+    // Health check — show connection status at launch
+    try {
+      const res = await fetchFn('http://localhost/health');
+      if (res.ok) {
+        stdout.write('● Connected\n');
+      } else {
+        stdout.write('○ Server returned an error. Is AX running?\n');
+      }
+    } catch {
+      stdout.write('○ Server not running. Start it with: ax serve\n');
+      return;
+    }
+
     const rl: Interface = createInterface({
       input: stdin,
       output: stdout,

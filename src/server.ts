@@ -135,6 +135,12 @@ export async function createServer(
 
     const url = req.url ?? '/';
 
+    if (url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
+    }
+
     if (url === '/v1/models' && req.method === 'GET') {
       handleModels(res);
       return;

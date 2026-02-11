@@ -22,9 +22,14 @@ describe('Chat Client', () => {
   });
 
   it('should send message and receive response', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      ok: true,
-      body: createMockSSEStream('Hello, user!'),
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/health')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok' }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        body: createMockSSEStream('Hello, user!'),
+      });
     });
 
     const client = createChatClient({
@@ -42,17 +47,23 @@ describe('Chat Client', () => {
 
     await clientPromise;
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    expect(stdoutData.join('')).toContain('Hello, user!');
+    // Health check + 1 chat request
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const output = stdoutData.join('');
+    expect(output).toContain('Connected');
+    expect(output).toContain('Hello, user!');
   });
 
   it('should accumulate conversation history', async () => {
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation(() => {
-      callCount++;
+    let chatCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/health')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok' }) });
+      }
+      chatCallCount++;
       return Promise.resolve({
         ok: true,
-        body: createMockSSEStream(`Response ${callCount}`),
+        body: createMockSSEStream(`Response ${chatCallCount}`),
       });
     });
 
@@ -74,22 +85,26 @@ describe('Chat Client', () => {
 
     await clientPromise;
 
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Health check + 2 chat requests
+    expect(mockFetch).toHaveBeenCalledTimes(3);
 
-    // Second call should include history in messages
-    const secondCall = mockFetch.mock.calls[1][1];
+    // Second chat call (index 2, after health check at 0) should include history
+    const secondCall = mockFetch.mock.calls[2][1];
     const body = JSON.parse(secondCall.body);
     // Should have: user1, assistant1, user2
     expect(body.messages.length).toBe(3);
   });
 
   it('should include consistent session_id in every request', async () => {
-    let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation(() => {
-      callCount++;
+    let chatCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/health')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: 'ok' }) });
+      }
+      chatCallCount++;
       return Promise.resolve({
         ok: true,
-        body: createMockSSEStream(`Response ${callCount}`),
+        body: createMockSSEStream(`Response ${chatCallCount}`),
       });
     });
 
@@ -110,10 +125,12 @@ describe('Chat Client', () => {
 
     await clientPromise;
 
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Health check + 2 chat requests
+    expect(mockFetch).toHaveBeenCalledTimes(3);
 
-    const body1 = JSON.parse(mockFetch.mock.calls[0][1].body);
-    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body);
+    // Skip health check at index 0
+    const body1 = JSON.parse(mockFetch.mock.calls[1][1].body);
+    const body2 = JSON.parse(mockFetch.mock.calls[2][1].body);
 
     // Both requests should have session_id
     expect(body1.session_id).toBeDefined();
