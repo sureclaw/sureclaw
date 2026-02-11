@@ -1,9 +1,10 @@
 // src/cli/components/App.tsx
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Box, useApp, useInput, useStdout } from 'ink';
+import { Box, Static, Text, useApp, useInput } from 'ink';
+import Spinner from 'ink-spinner';
 import { StatusBar, type ConnectionStatus } from './StatusBar.js';
-import { MessageList, type ChatMessage } from './MessageList.js';
-import { ThinkingIndicator } from './ThinkingIndicator.js';
+import { Message } from './Message.js';
+import { type ChatMessage } from './MessageList.js';
 import { InputBox } from './InputBox.js';
 import { parseInput, isKnownCommand, formatHelp } from '../utils/commands.js';
 
@@ -27,13 +28,31 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
   const [history, setHistory] = useState<HistoryMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [lastResponseMs, setLastResponseMs] = useState<number | undefined>(undefined);
+  const [streamingContent, setStreamingContent] = useState<string | null>(null);
+  const requestStartRef = useRef<number>(0);
   const historyRef = useRef<HistoryMessage[]>([]);
 
   // Keep ref in sync for use in async callbacks
   historyRef.current = history;
 
-  const { stdout } = useStdout();
-  const terminalHeight = stdout?.rows ?? 24;
+  // Check server health on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetchFn('http://localhost/health', { method: 'GET' });
+        if (!cancelled) {
+          setConnectionStatus(res.ok ? 'connected' : 'disconnected');
+        }
+      } catch {
+        if (!cancelled) {
+          setConnectionStatus('disconnected');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [fetchFn]);
 
   // Handle Ctrl+C
   useInput((_input, key) => {
@@ -85,6 +104,7 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
     historyRef.current = updatedHistory;
 
     setIsLoading(true);
+    requestStartRef.current = Date.now();
 
     try {
       const response = await fetchFn('http://localhost/v1/chat/completions', {
@@ -110,6 +130,8 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
 
       if (stream && response.body) {
         const assistantContent = await handleStreamResponse(response.body);
+        setStreamingContent(null);
+        addMessage({ role: 'assistant', content: assistantContent, type: 'normal' });
         const finalHistory = [...updatedHistory, { role: 'assistant' as const, content: assistantContent }];
         setHistory(finalHistory);
         historyRef.current = finalHistory;
@@ -129,6 +151,7 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
       });
       setConnectionStatus('disconnected');
     } finally {
+      setLastResponseMs(Date.now() - requestStartRef.current);
       setIsLoading(false);
     }
   }, [fetchFn, sessionId, stream, model, exit, addMessage]);
@@ -149,8 +172,7 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
     const decoder = new TextDecoder();
     let fullContent = '';
 
-    // Add placeholder message
-    setMessages(prev => [...prev, { role: 'assistant', content: '', type: 'normal' }]);
+    setStreamingContent('');
 
     try {
       while (true) {
@@ -173,14 +195,7 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
               if (content) {
                 fullContent += content;
                 const currentContent = fullContent;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const last = updated[updated.length - 1];
-                  if (last && last.role === 'assistant') {
-                    updated[updated.length - 1] = { ...last, content: currentContent };
-                  }
-                  return updated;
-                });
+                setStreamingContent(currentContent);
               }
             } catch {
               // Ignore parse errors for incomplete JSON
@@ -196,11 +211,33 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
   }
 
   return (
-    <Box flexDirection="column" height={terminalHeight}>
-      <StatusBar status={connectionStatus} model={model} />
-      <MessageList messages={messages} />
-      <ThinkingIndicator visible={isLoading} />
+    <Box flexDirection="column">
+      <Static items={messages}>
+        {(msg, i) => (
+          <Message key={i} role={msg.role} content={msg.content} type={msg.type} />
+        )}
+      </Static>
+      {streamingContent !== null && (
+        <Message role="assistant" content={streamingContent} type="normal" />
+      )}
       <InputBox onSubmit={handleSubmit} isDisabled={isLoading} />
+      <Box justifyContent="space-between">
+        <Box>
+          {isLoading ? (
+            <>
+              <Text color="green"><Spinner type="dots" /></Text>
+              <Text color="gray"> thinking...</Text>
+            </>
+          ) : null}
+        </Box>
+        <StatusBar
+          status={connectionStatus}
+          model={model}
+          streaming={stream}
+          lastResponseMs={lastResponseMs}
+          messageCount={messages.length}
+        />
+      </Box>
     </Box>
   );
 }

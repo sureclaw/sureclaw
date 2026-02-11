@@ -7,24 +7,38 @@ export type ConnectionStatus = 'connected' | 'disconnected' | 'connecting';
 export interface StatusBarProps {
   status: ConnectionStatus;
   model?: string;
+  streaming?: boolean;
+  /** Milliseconds the last response took (undefined = no response yet) */
+  lastResponseMs?: number;
+  /** Number of messages in the conversation */
+  messageCount: number;
 }
 
-const STATUS_DISPLAY: Record<ConnectionStatus, { symbol: string; color: string; label: string }> = {
-  connected:    { symbol: '\u25CF', color: 'green', label: 'Connected' },
-  disconnected: { symbol: '\u25CB', color: 'red',   label: 'Disconnected' },
-  connecting:   { symbol: '\u25CB', color: 'gray',  label: 'Connecting...' },
+const STATUS_DOT: Record<ConnectionStatus, { symbol: string; color: string }> = {
+  connected:    { symbol: '\u25CF', color: 'green' },
+  disconnected: { symbol: '\u25CF', color: 'red' },
+  connecting:   { symbol: '\u25CB', color: 'yellow' },
 };
 
-export function StatusBar({ status, model }: StatusBarProps) {
-  const s = STATUS_DISPLAY[status];
+function formatResponseTime(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+export function StatusBar({ status, model, streaming = true, lastResponseMs, messageCount }: StatusBarProps) {
+  const dot = STATUS_DOT[status];
+  const sep = <Text color="gray"> | </Text>;
+
   return (
-    <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
-      <Text>
-        <Text color={s.color}>{s.symbol}</Text>
-        {' '}
-        <Text color={s.color}>{s.label}</Text>
-      </Text>
-      {model && <Text color="gray">{model}</Text>}
+    <Box>
+      <Text color={dot.color}>{dot.symbol}</Text>
+      <Text> </Text>
+      {model && <><Text color="cyan">{model}</Text>{sep}</>}
+      <Text color={streaming ? 'green' : 'gray'}>{streaming ? 'stream' : 'no-stream'}</Text>
+      {sep}
+      <Text color="gray">{messageCount} msgs</Text>
+      {sep}
+      <Text color="gray">{lastResponseMs !== undefined ? formatResponseTime(lastResponseMs) : '-'}</Text>
     </Box>
   );
 }
