@@ -84,7 +84,7 @@ describe('TaintBudget', () => {
     test('blocks all default sensitive actions', () => {
       budget.recordContent('s1', 'x'.repeat(100), true); // 100% tainted
 
-      for (const action of ['oauth_call', 'skill_propose', 'browser_navigate', 'scheduler_add_cron']) {
+      for (const action of ['oauth_call', 'skill_propose', 'browser_navigate', 'scheduler_add_cron', 'identity_propose']) {
         expect(budget.checkAction('s1', action).allowed).toBe(false);
       }
     });

@@ -1,4 +1,8 @@
 import { describe, test, expect, beforeEach } from 'vitest';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { createIPCHandler, type IPCContext } from '../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../src/types.js';
 
@@ -260,5 +264,176 @@ describe('IPC Handler', () => {
     expect(Array.isArray(assistantMsg.content)).toBe(true);
     const toolResultMsg = receivedReq[0].messages[2];
     expect(Array.isArray(toolResultMsg.content)).toBe(true);
+  });
+});
+
+describe('identity actions', () => {
+  test('identity_write persists file for yolo profile', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      profile: 'yolo',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'SOUL.md',
+      content: '# Soul\nI am helpful.',
+      reason: 'User asked me to be helpful',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    const written = readFileSync(join(agentDir, 'SOUL.md'), 'utf-8');
+    expect(written).toBe('# Soul\nI am helpful.');
+
+    rmSync(agentDir, { recursive: true });
+  });
+
+  test('identity_write rejects invalid file name', async () => {
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir: tmpdir(),
+      profile: 'yolo',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_write',
+      file: '../etc/passwd',
+      content: 'evil',
+      reason: 'attack',
+    }), ctx));
+
+    expect(result.ok).toBe(false);
+  });
+
+  test('identity_propose is blocked on paranoid profile', async () => {
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir: tmpdir(),
+      profile: 'paranoid',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_propose',
+      file: 'SOUL.md',
+      content: '# Updated soul',
+      reason: 'Pattern observed',
+    }), ctx));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('explicit user request');
+  });
+
+  test('identity_propose auto-applies on yolo profile', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      profile: 'yolo',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_propose',
+      file: 'IDENTITY.md',
+      content: '# Identity\nName: Crabby',
+      reason: 'User seems to like crabs',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    const written = readFileSync(join(agentDir, 'IDENTITY.md'), 'utf-8');
+    expect(written).toBe('# Identity\nName: Crabby');
+
+    rmSync(agentDir, { recursive: true });
+  });
+
+  test('identity_propose queues on balanced profile', async () => {
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir: tmpdir(),
+      profile: 'balanced',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_propose',
+      file: 'SOUL.md',
+      content: '# Updated soul',
+      reason: 'Pattern observed',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.queued).toBe(true);
+  });
+
+  test('identity_write audits the mutation', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+
+    let auditedAction = '';
+    const registry = mockRegistry();
+    registry.audit = {
+      async log(entry: any) { auditedAction = entry.action; },
+      async query() { return []; },
+    } as any;
+
+    const handle = createIPCHandler(registry, {
+      agentDir,
+      profile: 'yolo',
+    });
+
+    await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'USER.md',
+      content: '# User\nLikes TypeScript',
+      reason: 'Learned from conversation',
+    }), ctx);
+
+    expect(auditedAction).toBe('identity_write');
+
+    rmSync(agentDir, { recursive: true });
+  });
+
+  test('identity_write deletes BOOTSTRAP.md after SOUL.md is written', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      profile: 'yolo',
+    });
+
+    await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'SOUL.md',
+      content: '# Soul\nI am helpful.',
+      reason: 'Bootstrap complete',
+    }), ctx);
+
+    expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(false);
+    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(true);
+
+    rmSync(agentDir, { recursive: true });
+  });
+
+  test('identity_write does not delete BOOTSTRAP.md for non-SOUL files', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      profile: 'yolo',
+    });
+
+    await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'IDENTITY.md',
+      content: '# Identity\nName: Crabby',
+      reason: 'Bootstrap in progress',
+    }), ctx);
+
+    expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(true);
+
+    rmSync(agentDir, { recursive: true });
   });
 });

@@ -90,4 +90,46 @@ describe('ipc-tools', () => {
     const text = (result.content[0] as { type: 'text'; text: string }).text;
     expect(text).toMatch(/error|failed/i);
   });
+
+  test('exports identity tools', () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain('identity_write');
+    expect(names).toContain('identity_propose');
+  });
+
+  test('identity_write sends IPC call with correct action', async () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    const tool = findTool(tools, 'identity_write');
+    await tool.execute('tc7', {
+      file: 'SOUL.md',
+      content: '# Soul\nI am helpful.',
+      reason: 'User asked',
+    });
+    expect(client.call).toHaveBeenCalledWith({
+      action: 'identity_write',
+      file: 'SOUL.md',
+      content: '# Soul\nI am helpful.',
+      reason: 'User asked',
+    });
+  });
+
+  test('identity_propose sends IPC call with correct action', async () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    const tool = findTool(tools, 'identity_propose');
+    await tool.execute('tc8', {
+      file: 'SOUL.md',
+      content: '# Updated soul',
+      reason: 'Noticed pattern',
+    });
+    expect(client.call).toHaveBeenCalledWith({
+      action: 'identity_propose',
+      file: 'SOUL.md',
+      content: '# Updated soul',
+      reason: 'Noticed pattern',
+    });
+  });
 });

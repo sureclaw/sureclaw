@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
@@ -68,6 +68,7 @@ export interface AgentConfig {
   verbose?: boolean;
   userMessage?: string;
   history?: ConversationTurn[];
+  agentDir?: string;
 }
 
 /**
@@ -179,6 +180,7 @@ function parseArgs(): AgentConfig {
   let proxySocket = '';
   let maxTokens = 0;
   let verbose = false;
+  let agentDir = '';
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -189,6 +191,7 @@ function parseArgs(): AgentConfig {
       case '--proxy-socket': proxySocket = args[++i]; break;
       case '--max-tokens': maxTokens = parseInt(args[++i], 10) || 0; break;
       case '--verbose': verbose = true; break;
+      case '--agent-dir': agentDir = args[++i]; break;
     }
   }
 
@@ -201,7 +204,7 @@ function parseArgs(): AgentConfig {
     process.exit(1);
   }
 
-  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined, maxTokens: maxTokens || undefined, verbose };
+  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined, maxTokens: maxTokens || undefined, verbose, agentDir: agentDir || undefined };
 }
 
 function loadContext(workspace: string): string {
@@ -222,10 +225,47 @@ function loadSkills(skillsDir: string): string[] {
   }
 }
 
-function buildSystemPrompt(context: string, skills: string[]): string {
+function loadIdentityFile(agentDir: string, filename: string): string {
+  try {
+    return readFileSync(join(agentDir, filename), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+export function buildSystemPrompt(context: string, skills: string[], agentDir?: string): string {
+  // Check for bootstrap mode: no SOUL.md but BOOTSTRAP.md exists
+  if (agentDir) {
+    const hasSoul = existsSync(join(agentDir, 'SOUL.md'));
+    const hasBootstrap = existsSync(join(agentDir, 'BOOTSTRAP.md'));
+
+    if (!hasSoul && hasBootstrap) {
+      return loadIdentityFile(agentDir, 'BOOTSTRAP.md');
+    }
+  }
+
   const parts: string[] = [];
-  parts.push('You are AX, a security-first AI agent.');
-  parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
+
+  // Load AGENT.md if available, otherwise use default instruction
+  const agentMd = agentDir ? loadIdentityFile(agentDir, 'AGENT.md') : '';
+  if (agentMd) {
+    parts.push(agentMd);
+  } else {
+    parts.push('You are AX, a security-first AI agent.');
+    parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
+  }
+
+  // Load identity files
+  if (agentDir) {
+    const soul = loadIdentityFile(agentDir, 'SOUL.md');
+    if (soul) parts.push('\n## Soul\n' + soul);
+
+    const identity = loadIdentityFile(agentDir, 'IDENTITY.md');
+    if (identity) parts.push('\n## Identity\n' + identity);
+
+    const user = loadIdentityFile(agentDir, 'USER.md');
+    if (user) parts.push('\n## User\n' + user);
+  }
 
   if (context) {
     parts.push('\n## Context\n' + context);
@@ -483,7 +523,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
 
   const context = loadContext(config.workspace);
   const skills = loadSkills(config.skills);
-  const systemPrompt = buildSystemPrompt(context, skills);
+  const systemPrompt = buildSystemPrompt(context, skills, config.agentDir);
 
   // Build tools: local (execute in sandbox) + IPC (route to host)
   const localTools = createLocalTools(config.workspace);

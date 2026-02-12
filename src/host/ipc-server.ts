@@ -1,4 +1,6 @@
 import { createServer, type Server, type Socket } from 'node:net';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import type { ProviderRegistry } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
@@ -21,6 +23,10 @@ export interface IPCHandlerOptions {
   delegation?: DelegationConfig;
   /** Called when an agent_delegate request is received. Returns agent response. */
   onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
+  /** Path to agents/{name}/ directory for identity file persistence. */
+  agentDir?: string;
+  /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
+  profile?: string;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -29,6 +35,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
   const maxConcurrent = opts?.delegation?.maxConcurrent ?? 3;
   const maxDepth = opts?.delegation?.maxDepth ?? 2;
   let activeDelegations = 0;
+  const agentDir = opts?.agentDir ?? resolve('agents/assistant');
+  const profile = opts?.profile ?? 'paranoid';
 
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
 
@@ -187,6 +195,47 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       } finally {
         activeDelegations--;
       }
+    },
+
+    identity_write: async (req, ctx) => {
+      const filePath = join(agentDir, req.file);
+      writeFileSync(filePath, req.content, 'utf-8');
+
+      // Bootstrap completion: delete BOOTSTRAP.md when SOUL.md is written
+      if (req.file === 'SOUL.md') {
+        const bootstrapPath = join(agentDir, 'BOOTSTRAP.md');
+        try { unlinkSync(bootstrapPath); } catch { /* may not exist */ }
+      }
+
+      await providers.audit.log({
+        action: 'identity_write',
+        sessionId: ctx.sessionId,
+        args: { file: req.file, reason: req.reason },
+      });
+      return { written: req.file };
+    },
+
+    identity_propose: async (req, ctx) => {
+      // Paranoid: block agent-initiated changes
+      if (profile === 'paranoid') {
+        return { ok: false, error: 'Soul modifications require explicit user request in paranoid profile' };
+      }
+
+      await providers.audit.log({
+        action: 'identity_propose',
+        sessionId: ctx.sessionId,
+        args: { file: req.file, reason: req.reason, profile },
+      });
+
+      // Yolo: auto-apply
+      if (profile === 'yolo') {
+        const filePath = join(agentDir, req.file);
+        writeFileSync(filePath, req.content, 'utf-8');
+        return { applied: true, file: req.file };
+      }
+
+      // Balanced: queue for user approval
+      return { queued: true, file: req.file, reason: req.reason };
     },
   };
 

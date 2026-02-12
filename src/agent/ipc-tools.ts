@@ -123,5 +123,33 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
         return ipcCall('audit_query', params);
       },
     },
+
+    // ── Identity tools ──
+    {
+      name: 'identity_write',
+      label: 'Write Identity',
+      description: 'Write or update an identity file (SOUL.md, IDENTITY.md, or USER.md). Use when the user explicitly asks you to remember a preference or change your personality.',
+      parameters: Type.Object({
+        file: Type.Union([Type.Literal('SOUL.md'), Type.Literal('IDENTITY.md'), Type.Literal('USER.md')]),
+        content: Type.String(),
+        reason: Type.String(),
+      }),
+      async execute(_id, params) {
+        return ipcCall('identity_write', params);
+      },
+    },
+    {
+      name: 'identity_propose',
+      label: 'Propose Identity Change',
+      description: 'Propose a change to an identity file based on observed patterns. May require user approval depending on security profile.',
+      parameters: Type.Object({
+        file: Type.Union([Type.Literal('SOUL.md'), Type.Literal('IDENTITY.md'), Type.Literal('USER.md')]),
+        content: Type.String(),
+        reason: Type.String(),
+      }),
+      async execute(_id, params) {
+        return ipcCall('identity_propose', params);
+      },
+    },
   ];
 }

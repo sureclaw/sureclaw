@@ -12,6 +12,7 @@ export interface CommandHandlers {
   chat?: () => Promise<void>;
   send?: (args: string[]) => Promise<void>;
   configure?: () => Promise<void>;
+  bootstrap?: (args: string[]) => Promise<void>;
   help?: () => Promise<void>;
 }
 
@@ -34,6 +35,9 @@ export async function routeCommand(
     case 'configure':
       if (handlers.configure) await handlers.configure();
       break;
+    case 'bootstrap':
+      if (handlers.bootstrap) await handlers.bootstrap(args.slice(1));
+      break;
     default:
       if (handlers.help) await handlers.help();
       break;
@@ -49,6 +53,7 @@ Usage:
   ax chat [options]      Start interactive chat client
   ax send <message>      Send a single message
   ax configure           Run configuration wizard
+  ax bootstrap [agent]   Reset agent identity and re-run bootstrap
 
 Server Options:
   --daemon               Run server in background
@@ -99,7 +104,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'help']);
+  const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'bootstrap', 'help']);
   let command: string;
   let restArgs: string[];
 
@@ -127,6 +132,10 @@ export async function main(): Promise<void> {
     configure: async () => {
       const { runConfigure } = await import('../onboarding/configure.js');
       await runConfigure(axHome());
+    },
+    bootstrap: async (bootstrapArgs) => {
+      const { runBootstrap } = await import('./bootstrap.js');
+      await runBootstrap(bootstrapArgs);
     },
     help: async () => {
       showHelp();

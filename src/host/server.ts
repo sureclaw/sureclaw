@@ -101,7 +101,9 @@ export async function createServer(
     threshold: thresholdForProfile(config.profile),
   });
   const router = createRouter(providers, db, { taintBudget });
-  const handleIPC = createIPCHandler(providers, { taintBudget });
+  const agentName = 'assistant';
+  const agentDir = resolve('agents', agentName);
+  const handleIPC = createIPCHandler(providers, { taintBudget, agentDir, profile: config.profile });
 
   // IPC socket server (internal agent-to-host socket)
   const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
@@ -355,6 +357,7 @@ export async function createServer(
         '--workspace', workspace,
         '--skills', wsSkillsDir,
         '--max-tokens', String(maxTokens),
+        '--agent-dir', agentDir,
         ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
         ...(opts.verbose ? ['--verbose'] : []),
       ];

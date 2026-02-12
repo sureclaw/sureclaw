@@ -223,3 +223,82 @@ describe('agent-runner', () => {
     // If we get here without error, it worked
   });
 });
+
+describe('buildSystemPrompt', async () => {
+  const { buildSystemPrompt } = await import('../../src/agent/runner.js');
+  let agentDir: string;
+
+  beforeEach(() => {
+    agentDir = mkdtempSync(join(tmpdir(), 'agent-prompt-test-'));
+  });
+
+  afterEach(() => {
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+
+  test('returns bootstrap content when SOUL.md missing but BOOTSTRAP.md exists', () => {
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
+    const prompt = buildSystemPrompt('', [], agentDir);
+    expect(prompt).toBe('# Bootstrap\nDiscover yourself.');
+  });
+
+  test('uses default instruction when no AGENT.md and no bootstrap', () => {
+    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul content');
+    const prompt = buildSystemPrompt('', [], agentDir);
+    expect(prompt).toContain('You are AX');
+    expect(prompt).toContain('## Soul');
+    expect(prompt).toContain('# Soul content');
+  });
+
+  test('loads AGENT.md as base prompt', () => {
+    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
+    writeFileSync(join(agentDir, 'AGENT.md'), '# Custom Agent Rules');
+    const prompt = buildSystemPrompt('', [], agentDir);
+    expect(prompt).toContain('# Custom Agent Rules');
+    expect(prompt).not.toContain('You are AX');
+  });
+
+  test('loads all identity files (SOUL, IDENTITY, USER)', () => {
+    writeFileSync(join(agentDir, 'SOUL.md'), 'My values');
+    writeFileSync(join(agentDir, 'IDENTITY.md'), 'My name is Echo');
+    writeFileSync(join(agentDir, 'USER.md'), 'User prefers brevity');
+    const prompt = buildSystemPrompt('', [], agentDir);
+    expect(prompt).toContain('## Soul');
+    expect(prompt).toContain('My values');
+    expect(prompt).toContain('## Identity');
+    expect(prompt).toContain('My name is Echo');
+    expect(prompt).toContain('## User');
+    expect(prompt).toContain('User prefers brevity');
+  });
+
+  test('includes context and skills alongside identity', () => {
+    writeFileSync(join(agentDir, 'SOUL.md'), 'Values');
+    const prompt = buildSystemPrompt('Project context here', ['# Skill 1'], agentDir);
+    expect(prompt).toContain('## Context');
+    expect(prompt).toContain('Project context here');
+    expect(prompt).toContain('## Skills');
+    expect(prompt).toContain('# Skill 1');
+  });
+
+  test('bootstrap mode ignores context and skills', () => {
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap only');
+    const prompt = buildSystemPrompt('context', ['skill'], agentDir);
+    expect(prompt).toBe('# Bootstrap only');
+    expect(prompt).not.toContain('context');
+    expect(prompt).not.toContain('skill');
+  });
+
+  test('normal mode when SOUL.md exists even if BOOTSTRAP.md present', () => {
+    writeFileSync(join(agentDir, 'SOUL.md'), 'Evolved soul');
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Should be ignored');
+    const prompt = buildSystemPrompt('', [], agentDir);
+    expect(prompt).toContain('Evolved soul');
+    expect(prompt).not.toContain('Should be ignored');
+  });
+
+  test('works without agentDir (backwards compat)', () => {
+    const prompt = buildSystemPrompt('ctx', []);
+    expect(prompt).toContain('You are AX');
+    expect(prompt).toContain('ctx');
+  });
+});

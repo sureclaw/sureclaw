@@ -156,10 +156,11 @@ describe('buildSystemPrompt uses relative paths', () => {
     expect(source).not.toMatch(/Skills directory:.*skillsDir/);
   });
 
-  test('pi-session system prompt uses ./skills, not absolute path', async () => {
+  test('pi-session delegates system prompt to runner.ts (which uses ./skills)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runners/pi-session.ts'), 'utf-8');
-    expect(source).toContain("Skills directory: ./skills");
+    // pi-session imports buildSystemPrompt from runner.ts instead of defining its own
+    expect(source).toContain("from '../runner.js'");
   });
 
   test('agent-runner system prompt uses ./skills, not absolute path', async () => {

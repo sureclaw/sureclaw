@@ -191,6 +191,24 @@ export const AgentDelegateSchema = z.strictObject({
   timeoutSec: z.number().int().min(5).max(600).optional(),
 });
 
+// ── Identity ────────────────────────────────────────
+
+export const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
+
+export const IdentityWriteSchema = z.strictObject({
+  action: z.literal('identity_write'),
+  file: z.enum(IDENTITY_FILES),
+  content: safeString(32_768),
+  reason: safeString(512),
+});
+
+export const IdentityProposeSchema = z.strictObject({
+  action: z.literal('identity_propose'),
+  file: z.enum(IDENTITY_FILES),
+  content: safeString(32_768),
+  reason: safeString(512),
+});
+
 // ═══════════════════════════════════════════════════════
 // Schema registry
 // ═══════════════════════════════════════════════════════
@@ -216,6 +234,8 @@ export const IPC_SCHEMAS: Record<string, z.ZodType> = {
   skill_propose:          SkillProposeSchema,
   audit_query:            AuditQuerySchema,
   agent_delegate:         AgentDelegateSchema,
+  identity_write:         IdentityWriteSchema,
+  identity_propose:       IdentityProposeSchema,
 };
 
 export const VALID_ACTIONS = Object.keys(IPC_SCHEMAS);
