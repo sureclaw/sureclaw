@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { envPath } from './paths.js';
 
-export function loadDotEnv(): void {
+export async function loadDotEnv(): Promise<void> {
   const envPathResolved = envPath();
   if (!existsSync(envPathResolved)) return;
   const lines = readFileSync(envPathResolved, 'utf-8').split('\n');
@@ -32,16 +32,16 @@ export function loadDotEnv(): void {
     }
   }
 
-  // Auto-refresh OAuth token if expired or within 5 minutes of expiry
-  maybeRefreshOAuthToken(envPathResolved);
+  // Auto-refresh OAuth token if expired or within 5 minutes of expiry.
+  // Await the refresh so credentials are ready before the server starts.
+  await maybeRefreshOAuthToken(envPathResolved);
 }
 
 /**
- * Check if the OAuth token needs refreshing and update .env if so.
- * Runs synchronously at startup — fires off the async refresh but
- * doesn't block (sets up a top-level promise).
+ * Check if the OAuth token needs refreshing and refresh it before returning.
+ * Must complete before the server starts so the proxy has valid credentials.
  */
-function maybeRefreshOAuthToken(envFilePath: string): void {
+async function maybeRefreshOAuthToken(envFilePath: string): Promise<void> {
   const refreshToken = process.env.AX_OAUTH_REFRESH_TOKEN;
   const expiresAtStr = process.env.AX_OAUTH_EXPIRES_AT;
 
@@ -55,10 +55,16 @@ function maybeRefreshOAuthToken(envFilePath: string): void {
 
   if (nowSec < expiresAt - FIVE_MINUTES) return; // Token still valid
 
-  // Token expired or about to expire — refresh it
-  refreshOAuthTokenAsync(refreshToken, envFilePath).catch(() => {
-    // Silently ignore refresh failures at startup — the user can re-auth
-  });
+  // Token expired or about to expire — refresh before server starts
+  try {
+    await refreshOAuthTokenAsync(refreshToken, envFilePath);
+  } catch (err) {
+    // Refresh failed — warn clearly so the user knows why requests will fail
+    console.error(
+      `[auth] OAuth token refresh failed: ${(err as Error).message}\n` +
+      `[auth] Run \`ax configure\` to re-authenticate.`,
+    );
+  }
 }
 
 async function refreshOAuthTokenAsync(refreshToken: string, envFilePath: string): Promise<void> {

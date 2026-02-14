@@ -84,7 +84,7 @@ Examples:
 // ═══════════════════════════════════════════════════════
 
 export async function main(): Promise<void> {
-  loadDotEnv();
+  await loadDotEnv();
 
   const rawArgs = process.argv.slice(2);
 
@@ -167,7 +167,7 @@ async function runServe(args: string[]): Promise<void> {
     console.log('[server] No ax.yaml found — running first-time setup...\n');
     const { runConfigure } = await import('../onboarding/configure.js');
     await runConfigure(axHome());
-    loadDotEnv();
+    await loadDotEnv();
     console.log('[server] Setup complete! Starting AX...\n');
   }
 
