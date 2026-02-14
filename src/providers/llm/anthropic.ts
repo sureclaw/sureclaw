@@ -36,11 +36,21 @@ export async function create(config: Config): Promise<LLMProvider> {
     };
   }
 
+  // No credentials at all — return a stub. When using the claude-code agent
+  // runner, all LLM calls go through the credential-injecting proxy and this
+  // provider is never invoked. Defer the error to .chat() so the server can
+  // still start.
   if (!apiKey) {
-    throw new Error(
-      'ANTHROPIC_API_KEY environment variable is required.\n' +
-      'Set it with: export ANTHROPIC_API_KEY=sk-ant-...',
-    );
+    return {
+      name: 'anthropic',
+      async *chat(): AsyncIterable<ChatChunk> {
+        throw new Error(
+          'ANTHROPIC_API_KEY environment variable is required.\n' +
+          'Set it with: export ANTHROPIC_API_KEY=sk-ant-...',
+        );
+      },
+      async models() { return []; },
+    };
   }
 
   const client = new Anthropic();
