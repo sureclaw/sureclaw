@@ -58,6 +58,7 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
     subprocess: '../providers/sandbox/subprocess.js',
     seatbelt:   '../providers/sandbox/seatbelt.js',
     nsjail:     '../providers/sandbox/nsjail.js',
+    bwrap:      '../providers/sandbox/bwrap.js',
     docker:     '../providers/sandbox/docker.js',
   },
   scheduler: {

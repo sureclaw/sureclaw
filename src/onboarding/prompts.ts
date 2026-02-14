@@ -35,6 +35,8 @@ export interface ProfileDefaults {
   memoryMb: number;
 }
 
+const defaultSandbox = process.platform === 'darwin' ? 'seatbelt' : 'bwrap';
+
 export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   paranoid: {
     agent: 'pi-agent-core',
@@ -46,7 +48,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     credentials: 'env',
     skills: 'readonly',
     audit: 'file',
-    sandbox: 'seatbelt',
+    sandbox: defaultSandbox,
     scheduler: 'cron',
     timeoutSec: 60,
     memoryMb: 256,
@@ -61,7 +63,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     credentials: 'env',
     skills: 'git',
     audit: 'sqlite',
-    sandbox: 'seatbelt',
+    sandbox: defaultSandbox,
     scheduler: 'full',
     skillScreener: 'static',
     timeoutSec: 120,
@@ -77,7 +79,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     credentials: 'encrypted',
     skills: 'git',
     audit: 'sqlite',
-    sandbox: 'seatbelt',
+    sandbox: defaultSandbox,
     scheduler: 'full',
     skillScreener: 'static',
     timeoutSec: 300,
@@ -127,7 +129,7 @@ export const PROVIDER_CHOICES = {
   credentials: ['env', 'encrypted'],
   skills: ['readonly', 'git'],
   audit: ['file', 'sqlite'],
-  sandbox: ['subprocess', 'seatbelt', 'nsjail', 'docker'],
+  sandbox: ['subprocess', 'seatbelt', 'bwrap', 'nsjail', 'docker'],
   scheduler: ['none', 'cron', 'full'],
   channels: ['slack', 'whatsapp', 'telegram', 'discord'],
 } as const;
