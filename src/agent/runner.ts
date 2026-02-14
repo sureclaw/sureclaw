@@ -679,7 +679,10 @@ if (isMain) {
     return run(config);
   }).catch((err) => {
     debug(SRC, 'main_error', { error: (err as Error).message, stack: (err as Error).stack });
-    console.error('Agent runner error:', err);
-    process.exit(1);
+    // Use process.exitCode instead of process.exit() so Node.js drains
+    // the event loop and flushes stderr before terminating. process.exit()
+    // kills immediately and can lose piped stderr output.
+    process.exitCode = 1;
+    process.stderr.write(`Agent runner error: ${(err as Error).message ?? err}\n`);
   });
 }

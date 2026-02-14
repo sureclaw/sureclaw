@@ -76,6 +76,29 @@ interface OpenAIStreamChunk {
 }
 
 // =====================================================
+// Helpers
+// =====================================================
+
+/** Extract a human-readable failure reason from agent stderr. */
+export function extractFailureReason(stderr: string): string {
+  if (!stderr.trim()) return 'agent exited with no output';
+
+  // Look for common error patterns — last meaningful line is usually the cause
+  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Check for HTTP status errors (e.g. 401 from expired OAuth)
+  const httpError = lines.find(l => /\b(401|403|429|500|502|503)\b/.test(l));
+  if (httpError) return httpError.slice(0, 200);
+
+  // Check for lines containing "error" (case-insensitive)
+  const errorLine = lines.findLast(l => /error/i.test(l));
+  if (errorLine) return errorLine.slice(0, 200);
+
+  // Fall back to last non-empty line
+  return lines[lines.length - 1].slice(0, 200);
+}
+
+// =====================================================
 // Server Factory
 // =====================================================
 
@@ -345,6 +368,18 @@ export async function createServer(
       // Mock LLM uses IPC only — no proxy needed.
       let proxySocketPath: string | undefined;
       if (config.providers.llm !== 'mock') {
+        // Fail fast if no credentials are available — don't spawn an agent
+        // that will just retry 401s with exponential backoff for minutes.
+        const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
+        const hasOAuthToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        if (!hasApiKey && !hasOAuthToken) {
+          db.fail(queued.id);
+          return {
+            responseContent: 'No API credentials configured. Run `ax configure` to set up authentication.',
+            finishReason: 'stop',
+          };
+        }
+
         proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
         const proxy = startAnthropicProxy(proxySocketPath);
         proxyCleanup = proxy.stop;
@@ -388,25 +423,31 @@ export async function createServer(
       proc.stdin.write(stdinPayload);
       proc.stdin.end();
 
-      // Collect stdout
+      // Collect stdout and stderr in parallel to avoid pipe buffer deadlocks.
+      // Sequential collection can lose data when a stream fills its buffer
+      // while the other stream is being drained.
       let response = '';
-      for await (const chunk of proc.stdout) {
-        response += chunk.toString();
-      }
-
-      // Collect stderr — in verbose mode, also stream to logger in real-time
       let stderr = '';
-      for await (const chunk of proc.stderr) {
-        const text = chunk.toString();
-        stderr += text;
-        if (opts.verbose) {
-          // Stream verbose lines to logger as they arrive
-          for (const line of text.split('\n').filter((l: string) => l.trim())) {
-            logger.info(line);
+
+      const stdoutDone = (async () => {
+        for await (const chunk of proc.stdout) {
+          response += chunk.toString();
+        }
+      })();
+
+      const stderrDone = (async () => {
+        for await (const chunk of proc.stderr) {
+          const text = chunk.toString();
+          stderr += text;
+          if (opts.verbose) {
+            for (const line of text.split('\n').filter((l: string) => l.trim())) {
+              logger.info(line);
+            }
           }
         }
-      }
+      })();
 
+      await Promise.all([stdoutDone, stderrDone]);
       const exitCode = await proc.exitCode;
 
       debug(SRC, 'agent_exit', {
@@ -418,16 +459,18 @@ export async function createServer(
         stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
       });
 
-      if (stderr) {
-        logger.warn('Agent stderr', { stderr: stderr.slice(0, 500) });
-      }
-
       logger.agent_complete(requestId, 0, exitCode);
 
       if (exitCode !== 0) {
         debug(SRC, 'agent_failed', { requestId, exitCode, stderr: truncate(stderr, 1000) });
+        logger.error('Agent failed', { exit_code: exitCode, stderr: stderr.slice(0, 2000) });
         db.fail(queued.id);
-        return { responseContent: 'Agent processing failed', finishReason: 'stop' };
+        const reason = extractFailureReason(stderr);
+        return { responseContent: `Agent processing failed: ${reason}`, finishReason: 'stop' };
+      }
+
+      if (stderr) {
+        logger.warn('Agent stderr', { stderr: stderr.slice(0, 500) });
       }
 
       // Process outbound

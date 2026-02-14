@@ -13,6 +13,9 @@
 import { createServer, type Server } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync, unlinkSync } from 'node:fs';
+import { debug } from '../logger.js';
+
+const SRC = 'host:proxy';
 
 const DEFAULT_TARGET = 'https://api.anthropic.com';
 
@@ -84,6 +87,21 @@ async function forwardWithCredentials(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
 
+  // Fail fast when no credentials are available — don't send unauthenticated
+  // requests to the Anthropic API and wait for a cryptic 401.
+  if (!apiKey && !oauthToken) {
+    debug(SRC, 'no_credentials', { url: req.url });
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'authentication_error',
+        message: 'No API credentials configured. Run `ax configure` to set up authentication.',
+      },
+    }));
+    return;
+  }
+
   // Build outbound headers — copy from agent, then replace auth
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
@@ -141,6 +159,15 @@ async function forwardWithCredentials(
     headers,
     body: finalBody,
   });
+
+  // Log non-2xx responses — helps diagnose auth failures (401), rate limits (429), etc.
+  if (response.status >= 400) {
+    debug(SRC, 'upstream_error', {
+      status: response.status,
+      url: req.url,
+      authMethod: apiKey ? 'api-key' : oauthToken ? 'oauth' : 'none',
+    });
+  }
 
   // Forward status + headers back to agent
   const outHeaders: Record<string, string> = {};

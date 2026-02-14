@@ -116,9 +116,17 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
             hasOutput = true;
           }
         }
+      } else if (msg.type === 'error') {
+        const errText = 'error' in msg ? String((msg as Record<string, unknown>).error) : 'unknown error';
+        process.stderr.write(`Claude Code error: ${errText}\n`);
       }
     }
     if (hasOutput) process.stdout.write('\n');
+  } catch (err) {
+    // Surface the error clearly — expired OAuth, network failures, etc.
+    const message = (err as Error).message ?? String(err);
+    process.stderr.write(`Claude Code agent failed: ${message}\n`);
+    process.exitCode = 1;
   } finally {
     // 7. Cleanup
     bridge.stop();

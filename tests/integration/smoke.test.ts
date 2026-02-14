@@ -189,13 +189,15 @@ describe('Smoke Test', () => {
     expect(data.choices[0].message.content.trim().length).toBeGreaterThan(0);
   }, 60_000);
 
-  test('host fails fast when LLM provider requires missing API key', async () => {
+  test('host returns credential error when no API key is configured', async () => {
+    // The server starts with a stub LLM provider (no crash) but returns a
+    // clear credential error when a request arrives and no credentials exist.
     const hostScript = resolve(PROJECT_ROOT, 'src/main.ts');
     const configFile = resolve(PROJECT_ROOT, 'ax.yaml');
     const cmd = IS_BUN ? 'bun' : 'npx';
     const args = IS_BUN
-      ? ['run', hostScript, '--config', configFile]
-      : ['tsx', hostScript, '--config', configFile];
+      ? ['run', hostScript, '--config', configFile, '--socket', socketPath]
+      : ['tsx', hostScript, '--config', configFile, '--socket', socketPath];
     proc = spawn(cmd, args, {
       cwd: PROJECT_ROOT,
       env: {
@@ -203,26 +205,20 @@ describe('Smoke Test', () => {
         NODE_NO_WARNINGS: '1',
         AX_HOME: smokeTestHome,
         ANTHROPIC_API_KEY: '', // explicitly unset
+        CLAUDE_CODE_OAUTH_TOKEN: '', // explicitly unset
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     const output = collectOutput(proc);
+    await waitForReady(proc, output);
 
-    const exitCode = await new Promise<number>((resolve) => {
-      const timeout = setTimeout(() => {
-        proc!.kill();
-        resolve(-1);
-      }, 15_000);
-      proc!.on('exit', (code) => {
-        clearTimeout(timeout);
-        resolve(code ?? 1);
-      });
-    });
-
-    expect(exitCode).not.toBe(0);
-    const stderr = output.stderr.join('');
-    expect(stderr).toContain('ANTHROPIC_API_KEY');
+    const res = await sendMessage(socketPath, 'hi');
+    expect(res.status).toBe(200);
+    const data = JSON.parse(res.body);
+    const content = data.choices[0].message.content;
+    expect(content).toContain('credentials');
+    expect(content).toContain('ax configure');
   }, 20_000);
 
   test('scanner blocks injection attempt through full pipeline', async () => {
