@@ -83,7 +83,9 @@ npm test
 
 Edit `ax.yaml` to configure providers, security profile, and sandbox settings. The defaults are conservative — we'd rather you opt into power than accidentally leave the door open. But opting in is easy, and we won't judge.
 
-See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details.
+See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details, or jump straight to a channel guide:
+
+- [Slack](docs/slack-channel.md) — Socket Mode, DM policies, attachment filtering, thread-aware sessions
 
 ## Contributing
 
