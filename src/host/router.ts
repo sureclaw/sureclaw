@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry, TaintTag } from '../types.js';
-import type { InboundMessage } from '../providers/channel/types.js';
+import { canonicalize, type InboundMessage } from '../providers/channel/types.js';
 import type { ScanResult } from '../providers/scanner/types.js';
 import type { MessageQueue } from '../db.js';
 import type { TaintBudget } from './taint-budget.js';
@@ -50,13 +50,13 @@ export function createRouter(
 
   return {
     async processInbound(msg: InboundMessage): Promise<RouterResult> {
-      const sessionId = msg.id ?? randomUUID();
+      const sessionId = canonicalize(msg.session);
       const canaryToken = providers.scanner.canaryToken();
 
       // Taint-tag external content
-      const isTainted = msg.channel !== 'system';
-      const taint = taintTag(msg.channel);
-      const taggedContent = wrapExternalContent(msg.content, msg.channel);
+      const isTainted = msg.session.provider !== 'system';
+      const taint = taintTag(msg.session.provider);
+      const taggedContent = wrapExternalContent(msg.content, msg.session.provider);
 
       // Record content in taint budget (SC-SEC-003)
       taintBudget?.recordContent(sessionId, msg.content, isTainted);
@@ -73,7 +73,7 @@ export function createRouter(
         action: 'router_inbound',
         sessionId,
         args: {
-          channel: msg.channel,
+          channel: msg.session.provider,
           sender: msg.sender,
           verdict: scanResult.verdict,
         },
@@ -95,7 +95,7 @@ export function createRouter(
       // Enqueue for processing
       const messageId = db.enqueue({
         sessionId,
-        channel: msg.channel,
+        channel: msg.session.provider,
         sender: msg.sender,
         content: contentWithCanary,
       });

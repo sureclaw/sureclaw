@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { createRouter, type Router } from '../../src/host/router.js';
 import { MessageQueue } from '../../src/db.js';
 import type { ProviderRegistry } from '../../src/types.js';
-import type { InboundMessage } from '../../src/providers/channel/types.js';
+import type { InboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
 
 const CANARY = 'CANARY-test-token-abc123';
 
@@ -81,14 +81,23 @@ function mockRegistry(): ProviderRegistry {
   } as ProviderRegistry;
 }
 
+function makeSession(overrides?: Partial<SessionAddress>): SessionAddress {
+  return {
+    provider: 'cli',
+    scope: 'dm',
+    identifiers: { peer: 'user' },
+    ...overrides,
+  };
+}
+
 function makeMsg(content: string, overrides?: Partial<InboundMessage>): InboundMessage {
   return {
     id: 'msg-001',
-    channel: 'cli',
+    session: makeSession(),
     sender: 'user',
     content,
+    attachments: [],
     timestamp: new Date(),
-    isGroup: false,
     ...overrides,
   };
 }
@@ -112,7 +121,7 @@ describe('Message Router', () => {
 
       expect(result.queued).toBe(true);
       expect(result.messageId).toBeDefined();
-      expect(result.sessionId).toBe('msg-001');
+      expect(result.sessionId).toBe('cli:dm:user');
       expect(result.canaryToken).toBe(CANARY);
       expect(result.scanResult.verdict).toBe('PASS');
       expect(db.pending()).toBe(1);
@@ -147,12 +156,12 @@ describe('Message Router', () => {
       expect(db.pending()).toBe(0);
     });
 
-    test('uses message id as session id', async () => {
+    test('derives session id from session address', async () => {
       const result = await router.processInbound(
-        makeMsg('hello', { id: 'custom-session-42' })
+        makeMsg('hello', { session: makeSession({ provider: 'slack', identifiers: { workspace: 'T01', peer: 'U42' } }) })
       );
 
-      expect(result.sessionId).toBe('custom-session-42');
+      expect(result.sessionId).toBe('slack:dm:T01:U42');
     });
   });
 
