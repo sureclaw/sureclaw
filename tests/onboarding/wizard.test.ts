@@ -448,4 +448,125 @@ describe('Onboarding Wizard', () => {
     expect(existing!.authMethod).toBe('api-key');
     expect(existing!.oauthToken).toBeUndefined();
   });
+
+  // ── Slack token handling ──
+
+  test('writes Slack tokens to .env when slack channel selected', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['slack'],
+        skipSkills: true,
+        slackBotToken: 'xoxb-test-bot-token',
+        slackAppToken: 'xapp-test-app-token',
+      },
+    });
+
+    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
+    expect(envContent).toContain('SLACK_BOT_TOKEN=xoxb-test-bot-token');
+    expect(envContent).toContain('SLACK_APP_TOKEN=xapp-test-app-token');
+  });
+
+  test('does not write Slack tokens when no slack channel', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
+    expect(envContent).not.toContain('SLACK_BOT_TOKEN');
+    expect(envContent).not.toContain('SLACK_APP_TOKEN');
+  });
+
+  test('loadExistingConfig reads Slack tokens from .env', async () => {
+    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['slack'],
+        skipSkills: true,
+        slackBotToken: 'xoxb-saved-bot',
+        slackAppToken: 'xapp-saved-app',
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    expect(existing!.slackBotToken).toBe('xoxb-saved-bot');
+    expect(existing!.slackAppToken).toBe('xapp-saved-app');
+  });
+
+  // ── channel_config generation ──
+
+  test('generates channel_config for slack channel', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['slack'],
+        skipSkills: true,
+        slackBotToken: 'xoxb-test',
+        slackAppToken: 'xapp-test',
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.channel_config).toBeDefined();
+    expect(config.channel_config.slack).toBeDefined();
+    expect(config.channel_config.slack.dm_policy).toBe('open');
+    expect(config.channel_config.slack.require_mention).toBe(true);
+  });
+
+  test('omits channel_config when no channels need it', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.channel_config).toBeUndefined();
+  });
+
+  // ── Generated config passes Zod validation ──
+
+  test('generated config with channel_config passes loadConfig validation', async () => {
+    const { loadConfig } = await import('../../src/config.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        apiKey: 'sk-test',
+        channels: ['slack'],
+        skipSkills: true,
+        slackBotToken: 'xoxb-test',
+        slackAppToken: 'xapp-test',
+      },
+    });
+
+    const config = loadConfig(join(dir, 'ax.yaml'));
+    expect(config.channel_config).toBeDefined();
+    expect(config.channel_config!.slack).toBeDefined();
+  });
 });

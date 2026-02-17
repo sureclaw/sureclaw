@@ -29,6 +29,8 @@ export interface OnboardingAnswers {
   credsPassphrase?: string;
   webProvider?: string;
   webSearchApiKey?: string;
+  slackBotToken?: string;
+  slackAppToken?: string;
 }
 
 export interface OnboardingOptions {
@@ -66,11 +68,21 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     providers.skillScreener = defaults.skillScreener;
   }
 
+  // Build channel_config for selected channels
+  const channelConfig: Record<string, Record<string, unknown>> = {};
+  if (answers.channels.includes('slack')) {
+    channelConfig.slack = {
+      dm_policy: 'open',
+      require_mention: true,
+    };
+  }
+
   // Build full config
   const config: Record<string, unknown> = {
     agent: answers.agent ?? defaults.agent,
     profile: answers.profile,
     providers,
+    ...(Object.keys(channelConfig).length > 0 ? { channel_config: channelConfig } : {}),
     sandbox: {
       timeout_sec: defaults.timeoutSec,
       memory_mb: defaults.memoryMb,
@@ -103,6 +115,12 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   if (answers.webSearchApiKey) {
     envContent += `\n# Web search API key\nTAVILY_API_KEY=${answers.webSearchApiKey.trim()}\n`;
   }
+  if (answers.slackBotToken) {
+    envContent += `\n# Slack tokens\nSLACK_BOT_TOKEN=${answers.slackBotToken.trim()}\n`;
+    if (answers.slackAppToken) {
+      envContent += `SLACK_APP_TOKEN=${answers.slackAppToken.trim()}\n`;
+    }
+  }
   writeFileSync(join(outputDir, '.env'), envContent, 'utf-8');
 
   // Write ClawHub skill install queue if requested
@@ -133,6 +151,8 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     let oauthRefreshToken: string | undefined;
     let oauthExpiresAt: number | undefined;
     let authMethod: 'api-key' | 'oauth' | undefined;
+    let slackBotToken: string | undefined;
+    let slackAppToken: string | undefined;
     const envFilePath = join(dir, '.env');
     if (existsSync(envFilePath)) {
       const envContent = readFileSync(envFilePath, 'utf-8');
@@ -149,6 +169,10 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
       const oauthExpiresMatch = envContent.match(/^AX_OAUTH_EXPIRES_AT=(.+)$/m);
       if (oauthExpiresMatch) oauthExpiresAt = parseInt(oauthExpiresMatch[1].trim(), 10);
       authMethod = oauthToken ? 'oauth' : 'api-key';
+      const slackBotMatch = envContent.match(/^SLACK_BOT_TOKEN=(.+)$/m);
+      if (slackBotMatch) slackBotToken = slackBotMatch[1].trim();
+      const slackAppMatch = envContent.match(/^SLACK_APP_TOKEN=(.+)$/m);
+      if (slackAppMatch) slackAppToken = slackAppMatch[1].trim();
     }
 
     return {
@@ -163,6 +187,8 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
       skipSkills: true,
       credsPassphrase,
       webSearchApiKey,
+      slackBotToken,
+      slackAppToken,
     };
   } catch {
     return null;

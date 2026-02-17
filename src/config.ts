@@ -8,6 +8,21 @@ import { PROFILE_NAMES } from './onboarding/prompts.js';
 
 const AGENT_TYPES = ['pi-agent-core', 'pi-coding-agent', 'claude-code'] as const;
 
+const ChannelAccessConfigSchema = z.object({
+  dm_policy: z.enum(['open', 'allowlist', 'disabled']).optional(),
+  dmPolicy: z.enum(['open', 'allowlist', 'disabled']).optional(),
+  allowed_users: z.array(z.string()).optional(),
+  allowedUsers: z.array(z.string()).optional(),
+  require_mention: z.boolean().optional(),
+  requireMention: z.boolean().optional(),
+  mention_patterns: z.array(z.string()).optional(),
+  mentionPatterns: z.array(z.string()).optional(),
+  max_attachment_bytes: z.number().int().positive().optional(),
+  maxAttachmentBytes: z.number().int().positive().optional(),
+  allowed_mime_types: z.array(z.string()).optional(),
+  allowedMimeTypes: z.array(z.string()).optional(),
+});
+
 const ConfigSchema = z.strictObject({
   agent: z.enum(AGENT_TYPES).optional().default('pi-agent-core'),
   profile: z.enum(PROFILE_NAMES),
@@ -25,6 +40,7 @@ const ConfigSchema = z.strictObject({
     scheduler: z.string(),
     skillScreener: z.string().optional(),
   }),
+  channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
   max_tokens: z.number().int().min(256).max(200_000).optional().default(8192),
   sandbox: z.strictObject({
     timeout_sec: z.number().int().min(1).max(3600),

@@ -32,10 +32,15 @@ export interface InquirerDefaults {
   apiKey?: string;
   apiKeyMasked?: string;
   oauthToken?: string;
+  oauthTokenMasked?: string;
   channels?: string[];
   credsPassphrase?: string;
   webSearchApiKey?: string;
   webSearchApiKeyMasked?: string;
+  slackBotToken?: string;
+  slackBotTokenMasked?: string;
+  slackAppToken?: string;
+  slackAppTokenMasked?: string;
 }
 
 /**
@@ -59,10 +64,15 @@ export function buildInquirerDefaults(existing: OnboardingAnswers | null): Inqui
     apiKey: existing.apiKey,
     apiKeyMasked: maskKey(existing.apiKey),
     oauthToken: existing.oauthToken,
+    oauthTokenMasked: maskKey(existing.oauthToken),
     channels: existing.channels,
     credsPassphrase: existing.credsPassphrase,
     webSearchApiKey: existing.webSearchApiKey,
     webSearchApiKeyMasked: maskKey(existing.webSearchApiKey),
+    slackBotToken: existing.slackBotToken,
+    slackBotTokenMasked: maskKey(existing.slackBotToken),
+    slackAppToken: existing.slackAppToken,
+    slackAppTokenMasked: maskKey(existing.slackAppToken),
   };
 }
 
@@ -117,18 +127,24 @@ export async function runConfigure(outputDir: string): Promise<void> {
   let oauthExpiresAt: number | undefined;
 
   if (authMethod === 'oauth') {
+    let reauth = true;
     if (defaults.oauthToken) {
-      // Reuse existing OAuth tokens
-      oauthToken = defaults.oauthToken;
-      oauthRefreshToken = existing?.oauthRefreshToken;
-      oauthExpiresAt = existing?.oauthExpiresAt;
-    } else {
-      // No existing token — launch browser OAuth flow
+      reauth = await confirm({
+        message: `Re-authenticate with Claude? (current token: ${defaults.oauthTokenMasked})`,
+        default: true,
+      });
+    }
+
+    if (reauth) {
       const { runOAuthFlow } = await import('../host/oauth.js');
       const tokens = await runOAuthFlow();
       oauthToken = tokens.access_token;
       oauthRefreshToken = tokens.refresh_token;
       oauthExpiresAt = tokens.expires_at;
+    } else {
+      oauthToken = defaults.oauthToken;
+      oauthRefreshToken = existing?.oauthRefreshToken;
+      oauthExpiresAt = existing?.oauthExpiresAt;
     }
   } else {
     // API key prompt (unchanged)
@@ -228,6 +244,46 @@ export async function runConfigure(outputDir: string): Promise<void> {
     });
   }
 
+  // 3b. Per-channel token prompts
+  let slackBotToken: string | undefined = defaults.slackBotToken;
+  let slackAppToken: string | undefined = defaults.slackAppToken;
+
+  if (channels.includes('slack')) {
+    const botMessage = defaults.slackBotTokenMasked
+      ? `Slack Bot Token (current: ${defaults.slackBotTokenMasked})`
+      : 'Slack Bot Token (xoxb-...)';
+
+    const botInput = await password({
+      message: botMessage,
+      mask: '*',
+    });
+
+    if (botInput.trim()) {
+      slackBotToken = botInput.trim();
+    }
+
+    if (!slackBotToken) {
+      console.log('\n  Warning: No Slack Bot Token provided. Set SLACK_BOT_TOKEN in ~/.ax/.env later.\n');
+    }
+
+    const appMessage = defaults.slackAppTokenMasked
+      ? `Slack App Token (current: ${defaults.slackAppTokenMasked})`
+      : 'Slack App Token (xapp-...)';
+
+    const appInput = await password({
+      message: appMessage,
+      mask: '*',
+    });
+
+    if (appInput.trim()) {
+      slackAppToken = appInput.trim();
+    }
+
+    if (!slackAppToken) {
+      console.log('\n  Warning: No Slack App Token provided. Set SLACK_APP_TOKEN in ~/.ax/.env later.\n');
+    }
+  }
+
   // 4. Skill installation
   const skipSkills = !(await confirm({
     message: 'Install ClawHub skills?',
@@ -254,6 +310,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
       oauthToken, oauthRefreshToken, oauthExpiresAt,
       channels, skipSkills, installSkills,
       credsPassphrase, webProvider, webSearchApiKey,
+      slackBotToken, slackAppToken,
     },
   });
 

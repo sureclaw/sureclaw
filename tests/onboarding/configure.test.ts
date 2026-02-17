@@ -90,6 +90,30 @@ describe('Configure UI Helpers', () => {
     expect(defaults.webSearchApiKeyMasked).toMatch(/^tvl\.\.\..+$/);
   });
 
+  test('buildInquirerDefaults includes OAuth token and masked display from existing config', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'claude-code',
+        apiKey: '',
+        oauthToken: 'sk-ant-oat01-long-token-value',
+        oauthRefreshToken: 'sk-ant-ort01-refresh-value',
+        oauthExpiresAt: 1739200000,
+        channels: ['cli'],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    const defaults = buildInquirerDefaults(existing);
+
+    expect(defaults.oauthToken).toBe('sk-ant-oat01-long-token-value');
+    expect(defaults.oauthTokenMasked).toMatch(/^sk-\.\.\..+$/);
+    expect(defaults.authMethod).toBe('oauth');
+  });
+
   test('buildInquirerDefaults includes agent type from existing config', async () => {
     const dir = setup();
     await runOnboarding({
