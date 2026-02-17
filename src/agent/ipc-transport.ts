@@ -10,6 +10,7 @@ import type {
 } from '@mariozechner/pi-ai';
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 import type { IPCClient } from './ipc-client.js';
+import { convertPiMessages, emitStreamEvents } from './stream-utils.js';
 import { debug } from '../logger.js';
 
 const SRC = 'container:ipc-transport';
@@ -66,53 +67,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
       maxTokens: options?.maxTokens,
     });
 
-    // Convert pi-ai messages to AX's IPC format, preserving tool structure.
-    // Anthropic API rejects messages with empty content, so every message
-    // must produce a non-empty string or a non-empty structured blocks array.
-    const messages = context.messages.map((m) => {
-      if (m.role === 'user') {
-        const content = typeof m.content === 'string'
-          ? m.content
-          : m.content.filter((c): c is TextContent => c.type === 'text').map((c) => c.text).join('');
-        return { role: 'user', content: content || '.' };
-      }
-      if (m.role === 'assistant') {
-        // Preserve tool_use blocks alongside text for Anthropic API compatibility
-        const blocks: Array<{ type: string; [k: string]: unknown }> = [];
-        for (const c of m.content) {
-          if (c.type === 'text') {
-            blocks.push({ type: 'text', text: c.text });
-          } else if (c.type === 'toolCall') {
-            blocks.push({
-              type: 'tool_use',
-              id: c.id,
-              name: c.name,
-              input: c.arguments,
-            });
-          }
-        }
-        if (blocks.length === 0) {
-          return { role: 'assistant', content: '.' };
-        }
-        // If no tool calls, send as plain string for backward compat
-        if (blocks.every(b => b.type === 'text')) {
-          const text = blocks.map(b => b.text).join('');
-          return { role: 'assistant', content: text || '.' };
-        }
-        return { role: 'assistant', content: blocks };
-      }
-      if (m.role === 'toolResult') {
-        const text = m.content
-          .filter((c): c is TextContent => c.type === 'text')
-          .map((c) => c.text)
-          .join('');
-        return {
-          role: 'user',
-          content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text || '[no output]' }],
-        };
-      }
-      return { role: 'user', content: '.' };
-    });
+    const messages = convertPiMessages(context.messages);
 
     // Convert tools
     const tools = context.tools?.map((t) => ({
@@ -186,25 +141,6 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           timestamp: Date.now(),
         };
 
-        // Emit start
-        stream.push({ type: 'start', partial: msg });
-
-        // Emit text deltas
-        if (fullText) {
-          stream.push({ type: 'text_start', contentIndex: 0, partial: msg });
-          stream.push({ type: 'text_delta', contentIndex: 0, delta: fullText, partial: msg });
-          stream.push({ type: 'text_end', contentIndex: 0, content: fullText, partial: msg });
-        }
-
-        // Emit tool call events
-        for (let i = 0; i < toolCalls.length; i++) {
-          const idx = fullText ? i + 1 : i;
-          stream.push({ type: 'toolcall_start', contentIndex: idx, partial: msg });
-          stream.push({ type: 'toolcall_delta', contentIndex: idx, delta: JSON.stringify(toolCalls[i].arguments), partial: msg });
-          stream.push({ type: 'toolcall_end', contentIndex: idx, toolCall: toolCalls[i], partial: msg });
-        }
-
-        // Done
         debug(SRC, 'stream_done', {
           stopReason,
           textLength: fullText.length,
@@ -212,7 +148,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           toolNames: toolCalls.map(t => t.name),
           usage,
         });
-        stream.push({ type: 'done', reason: stopReason as 'stop' | 'toolUse', message: msg });
+        emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
         debug(SRC, 'stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message);

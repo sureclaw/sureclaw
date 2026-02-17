@@ -6,7 +6,6 @@
  * Non-LLM tools (memory, web, audit) always use IPC.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   registerApiProvider,
@@ -30,13 +29,11 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
-// Anthropic SDK is imported dynamically in createProxyStreamFunction() to avoid
-// loading it when the proxy is not used (IPC fallback mode).
-import type Anthropic from '@anthropic-ai/sdk';
 import type { MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages';
 import { IPCClient } from '../ipc-client.js';
 import { compactHistory, historyToPiMessages } from '../runner.js';
 import type { AgentConfig } from '../runner.js';
+import { convertPiMessages, emitStreamEvents, createLazyAnthropicClient, loadContext, loadSkills } from '../stream-utils.js';
 import { debug, truncate } from '../../logger.js';
 
 const SRC = 'container:pi-session';
@@ -107,43 +104,7 @@ function createIPCStreamFunction(client: IPCClient) {
       hasSystemPrompt: !!context.systemPrompt,
     });
 
-    // Convert pi-ai messages to IPC format.
-    // Anthropic API rejects messages with empty content, so every message
-    // must produce a non-empty string or a non-empty structured blocks array.
-    const messages = context.messages.map((m) => {
-      if (m.role === 'user') {
-        const content = typeof m.content === 'string'
-          ? m.content
-          : m.content.filter((c): c is TextContent => c.type === 'text').map(c => c.text).join('');
-        return { role: 'user', content: content || '.' };
-      }
-      if (m.role === 'assistant') {
-        const blocks: Array<{ type: string; [k: string]: unknown }> = [];
-        for (const c of m.content) {
-          if (c.type === 'text') {
-            blocks.push({ type: 'text', text: c.text });
-          } else if (c.type === 'toolCall') {
-            blocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.arguments });
-          }
-        }
-        if (blocks.length === 0) {
-          return { role: 'assistant', content: '.' };
-        }
-        if (blocks.every(b => b.type === 'text')) {
-          const text = blocks.map(b => b.text).join('');
-          return { role: 'assistant', content: text || '.' };
-        }
-        return { role: 'assistant', content: blocks };
-      }
-      if (m.role === 'toolResult') {
-        const text = m.content
-          .filter((c): c is TextContent => c.type === 'text')
-          .map(c => c.text)
-          .join('');
-        return { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text || '[no output]' }] };
-      }
-      return { role: 'user', content: '.' };
-    });
+    const messages = convertPiMessages(context.messages);
 
     const tools = context.tools?.map(t => ({
       name: t.name,
@@ -218,21 +179,6 @@ function createIPCStreamFunction(client: IPCClient) {
           timestamp: Date.now(),
         };
 
-        stream.push({ type: 'start', partial: msg });
-
-        if (fullText) {
-          stream.push({ type: 'text_start', contentIndex: 0, partial: msg });
-          stream.push({ type: 'text_delta', contentIndex: 0, delta: fullText, partial: msg });
-          stream.push({ type: 'text_end', contentIndex: 0, content: fullText, partial: msg });
-        }
-
-        for (let i = 0; i < toolCalls.length; i++) {
-          const idx = fullText ? i + 1 : i;
-          stream.push({ type: 'toolcall_start', contentIndex: idx, partial: msg });
-          stream.push({ type: 'toolcall_delta', contentIndex: idx, delta: JSON.stringify(toolCalls[i].arguments), partial: msg });
-          stream.push({ type: 'toolcall_end', contentIndex: idx, toolCall: toolCalls[i], partial: msg });
-        }
-
         debug(SRC, 'stream_done', {
           stopReason,
           textLength: fullText.length,
@@ -240,7 +186,7 @@ function createIPCStreamFunction(client: IPCClient) {
           toolNames: toolCalls.map(t => t.name),
           usage,
         });
-        stream.push({ type: 'done', reason: stopReason as 'stop' | 'toolUse', message: msg });
+        emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
         debug(SRC, 'stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message);
@@ -267,36 +213,8 @@ function makeErrorMessage(errorText: string, api = 'ax-ipc'): AssistantMessage {
   };
 }
 
-// ── Proxy-based pi-ai StreamFunction (Anthropic SDK via Unix socket) ─
-
-async function createSocketFetch(socketPath: string): Promise<typeof globalThis.fetch> {
-  const { Agent } = await import('undici');
-  const dispatcher = new Agent({ connect: { socketPath } });
-  return ((input: string | URL | Request, init?: RequestInit) =>
-    fetch(input, { ...init, dispatcher } as RequestInit)) as typeof globalThis.fetch;
-}
-
 function createProxyStreamFunction(proxySocket: string) {
-  // Eagerly create the Anthropic client so all calls reuse it.
-  // The socketFetch promise is cached and resolved on first use.
-  let anthropicPromise: Promise<Anthropic> | null = null;
-
-  function getClient(): Promise<Anthropic> {
-    if (!anthropicPromise) {
-      anthropicPromise = (async () => {
-        const [socketFetch, { default: AnthropicSDK }] = await Promise.all([
-          createSocketFetch(proxySocket),
-          import('@anthropic-ai/sdk'),
-        ]);
-        return new AnthropicSDK({
-          apiKey: 'ax-proxy',  // Proxy doesn't validate keys — it injects real credentials
-          baseURL: 'http://localhost',  // SDK adds /v1/messages — don't include /v1
-          fetch: socketFetch,
-        });
-      })();
-    }
-    return anthropicPromise;
-  }
+  const getClient = createLazyAnthropicClient(proxySocket);
 
   return (model: Model<any>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream => {
     const stream = createAssistantMessageEventStream();
@@ -310,49 +228,7 @@ function createProxyStreamFunction(proxySocket: string) {
       hasSystemPrompt: !!context.systemPrompt,
     });
 
-    // Convert pi-ai messages to Anthropic SDK MessageParam[] format.
-    // The Anthropic API rejects messages with empty content.
-    const messages: MessageParam[] = context.messages.map((m) => {
-      if (m.role === 'user') {
-        const content = typeof m.content === 'string'
-          ? m.content
-          : m.content.filter((c): c is TextContent => c.type === 'text').map(c => c.text).join('');
-        return { role: 'user' as const, content: content || '.' };
-      }
-      if (m.role === 'assistant') {
-        const blocks: Anthropic.Messages.ContentBlockParam[] = [];
-        for (const c of m.content) {
-          if (c.type === 'text') {
-            blocks.push({ type: 'text', text: c.text });
-          } else if (c.type === 'toolCall') {
-            blocks.push({ type: 'tool_use', id: c.id, name: c.name, input: c.arguments });
-          }
-        }
-        if (blocks.length === 0) {
-          return { role: 'assistant' as const, content: '.' };
-        }
-        if (blocks.length > 0 && blocks.every(b => b.type === 'text')) {
-          const text = blocks.map(b => (b as Anthropic.Messages.TextBlockParam).text).join('');
-          return { role: 'assistant' as const, content: text || '.' };
-        }
-        return { role: 'assistant' as const, content: blocks };
-      }
-      if (m.role === 'toolResult') {
-        const text = m.content
-          .filter((c): c is TextContent => c.type === 'text')
-          .map(c => c.text)
-          .join('');
-        return {
-          role: 'user' as const,
-          content: [{
-            type: 'tool_result' as const,
-            tool_use_id: m.toolCallId,
-            content: text || '[no output]',
-          }],
-        };
-      }
-      return { role: 'user' as const, content: '.' };
-    });
+    const messages = convertPiMessages(context.messages) as MessageParam[];
 
     // Convert pi-ai tools to Anthropic SDK Tool[] format.
     const tools: AnthropicTool[] | undefined = context.tools?.map(t => ({
@@ -428,22 +304,6 @@ function createProxyStreamFunction(proxySocket: string) {
           timestamp: Date.now(),
         };
 
-        // Emit pi-ai events
-        stream.push({ type: 'start', partial: msg });
-
-        if (fullText) {
-          stream.push({ type: 'text_start', contentIndex: 0, partial: msg });
-          stream.push({ type: 'text_delta', contentIndex: 0, delta: fullText, partial: msg });
-          stream.push({ type: 'text_end', contentIndex: 0, content: fullText, partial: msg });
-        }
-
-        for (let i = 0; i < toolCalls.length; i++) {
-          const idx = fullText ? i + 1 : i;
-          stream.push({ type: 'toolcall_start', contentIndex: idx, partial: msg });
-          stream.push({ type: 'toolcall_delta', contentIndex: idx, delta: JSON.stringify(toolCalls[i].arguments), partial: msg });
-          stream.push({ type: 'toolcall_end', contentIndex: idx, toolCall: toolCalls[i], partial: msg });
-        }
-
         debug(SRC, 'proxy_stream_done', {
           stopReason,
           textLength: fullText.length,
@@ -451,7 +311,7 @@ function createProxyStreamFunction(proxySocket: string) {
           toolNames: toolCalls.map(t => t.name),
           usage,
         });
-        stream.push({ type: 'done', reason: stopReason as 'stop' | 'toolUse', message: msg });
+        emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
         debug(SRC, 'proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message, 'ax-proxy');
@@ -568,20 +428,6 @@ function createIPCToolDefinitions(client: IPCClient): ToolDefinition[] {
       async execute(_id, params) { return ipcCall('audit_query', p(params)); },
     },
   ] as ToolDefinition[];
-}
-
-// ── System prompt builder ───────────────────────────────────────────
-
-function loadContext(workspace: string): string {
-  try { return readFileSync(join(workspace, 'CONTEXT.md'), 'utf-8'); } catch { return ''; }
-}
-
-function loadSkills(skillsDir: string): string[] {
-  try {
-    return readdirSync(skillsDir)
-      .filter(f => f.endsWith('.md'))
-      .map(f => readFileSync(join(skillsDir, f), 'utf-8'));
-  } catch { return []; }
 }
 
 // Import shared buildSystemPrompt from runner (supports identity files + bootstrap mode)
