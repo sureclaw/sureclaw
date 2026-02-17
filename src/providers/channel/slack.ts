@@ -152,18 +152,19 @@ export async function create(config: Config): Promise<ChannelProvider> {
       }));
   }
 
-  // Handle direct messages
+  // Handle direct messages only — channel messages are handled by app_mention
   app.message(async ({ message }) => {
     const msg = message as SlackMessage;
     if (!msg.text || !msg.user) return;
     if (msg.user === botUserId) return;
     if (!messageHandler) return;
 
-    const isDM = msg.channel_type === 'im';
+    // Only process DMs here; channel messages are handled by app_mention
+    if (msg.channel_type !== 'im') return;
 
     await messageHandler({
       id: msg.ts,
-      session: buildSession(msg.user, msg.channel, msg.thread_ts, isDM),
+      session: buildSession(msg.user, msg.channel, msg.thread_ts, true),
       sender: msg.user,
       content: msg.text,
       attachments: buildAttachments(msg.files),

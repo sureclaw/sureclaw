@@ -164,6 +164,99 @@ describe('Slack channel provider', () => {
     });
   });
 
+  describe('message routing', () => {
+    test('app.message ignores channel messages (only app_mention handles those)', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      // Simulate a channel message (not a DM) arriving via app.message
+      const messageHandler = eventHandlers.get('message')!;
+      await messageHandler({
+        message: {
+          text: 'hello <@UBOT>',
+          user: 'U123',
+          channel: 'C01',
+          ts: '1111.2222',
+          channel_type: 'channel',
+        },
+      });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    test('app.message processes DMs', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const messageHandler = eventHandlers.get('message')!;
+      await messageHandler({
+        message: {
+          text: 'hello',
+          user: 'U123',
+          channel: 'D01',
+          ts: '1111.2222',
+          channel_type: 'im',
+        },
+      });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({ scope: 'dm' }),
+          content: 'hello',
+        }),
+      );
+    });
+
+    test('app_mention creates threaded session for top-level channel messages', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const mentionHandler = eventHandlers.get('app_mention')!;
+      await mentionHandler({
+        event: {
+          text: '<@UBOT> hello',
+          user: 'U123',
+          channel: 'C01',
+          ts: '1111.2222',
+          // No thread_ts — top-level mention
+        },
+      });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({
+            scope: 'thread',
+            identifiers: expect.objectContaining({
+              channel: 'C01',
+              thread: '1111.2222', // Uses message ts as thread anchor
+            }),
+          }),
+          content: 'hello',
+        }),
+      );
+    });
+  });
+
   describe('send', () => {
     test('posts message to channel', async () => {
       process.env.SLACK_BOT_TOKEN = 'xoxb-test';
