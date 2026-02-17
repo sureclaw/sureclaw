@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { InboundMessage, SessionAddress } from '../../../src/providers/channel/types.js';
 import type { Config } from '../../../src/types.js';
 
@@ -26,6 +26,8 @@ const mockFilesUploadV2 = vi.fn().mockResolvedValue({ ok: true });
 const mockAuthTest = vi.fn().mockResolvedValue({ user_id: 'UBOT', team_id: 'T01' });
 const mockStart = vi.fn().mockResolvedValue(undefined);
 const mockStop = vi.fn().mockResolvedValue(undefined);
+const mockIsActive = vi.fn().mockReturnValue(true);
+const mockSocketClient = { websocket: { isActive: mockIsActive } };
 const eventHandlers = new Map<string, Function>();
 
 vi.mock('@slack/bolt', () => ({
@@ -40,6 +42,10 @@ vi.mock('@slack/bolt', () => ({
       chat: { postMessage: mockPostMessage },
       files: { uploadV2: mockFilesUploadV2 },
     };
+  },
+  SocketModeReceiver: class MockSocketModeReceiver {
+    client = mockSocketClient;
+    constructor() {}
   },
 }));
 
@@ -348,6 +354,109 @@ describe('Slack channel provider', () => {
       };
       await expect(provider.send(session, { content: 'test' }))
         .rejects.toThrow('no channel or peer');
+    });
+  });
+
+  describe('reconnection', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      mockIsActive.mockReturnValue(true);
+      // Reset to default implementations to prevent leakage between tests
+      mockAuthTest.mockReset().mockResolvedValue({ user_id: 'UBOT', team_id: 'T01' });
+      mockStart.mockReset().mockResolvedValue(undefined);
+      mockStop.mockReset().mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    test('health check triggers reconnect when socket becomes inactive', async () => {
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      mockStart.mockClear();
+      mockAuthTest.mockClear();
+      mockStop.mockClear();
+
+      // Socket goes dead
+      mockIsActive.mockReturnValue(false);
+
+      // Advance past health check interval (30s)
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      // Should have probed network (auth.test), then reconnected (stop + start + auth.test)
+      expect(mockStop).toHaveBeenCalled();
+      expect(mockStart).toHaveBeenCalledTimes(1);
+      // probe + post-reconnect auth
+      expect(mockAuthTest).toHaveBeenCalledTimes(2);
+
+      await provider.disconnect();
+    });
+
+    test('health check does nothing when socket is active', async () => {
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      mockStart.mockClear();
+      mockIsActive.mockReturnValue(true);
+
+      // Advance past several health check cycles
+      await vi.advanceTimersByTimeAsync(90_000);
+
+      expect(mockStart).not.toHaveBeenCalled();
+
+      await provider.disconnect();
+    });
+
+    test('reconnect retries with backoff when network probe fails', async () => {
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      mockStart.mockClear();
+      mockAuthTest.mockClear();
+      mockStop.mockClear();
+
+      // Socket dead, network down for probes
+      mockIsActive.mockReturnValue(false);
+      mockAuthTest
+        .mockRejectedValueOnce(new Error('no network'))
+        .mockRejectedValueOnce(new Error('no network'))
+        .mockResolvedValue({ user_id: 'UBOT', team_id: 'T01' });
+
+      // Health check at 30s, first probe fails, backoff 5s, second fails, backoff 10s, third succeeds
+      await vi.advanceTimersByTimeAsync(30_000 + 5_000 + 10_000);
+
+      // 3 probes (2 failed + 1 success) + 1 post-reconnect auth
+      expect(mockAuthTest).toHaveBeenCalledTimes(4);
+      expect(mockStop).toHaveBeenCalled();
+      expect(mockStart).toHaveBeenCalledTimes(1);
+
+      await provider.disconnect();
+    });
+
+    test('disconnect stops health check and prevents reconnection', async () => {
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      mockStart.mockClear();
+
+      await provider.disconnect();
+
+      // Socket goes dead after intentional disconnect
+      mockIsActive.mockReturnValue(false);
+
+      // Advance past many health check cycles
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      // No reconnection attempts
+      expect(mockStart).not.toHaveBeenCalled();
     });
   });
 });

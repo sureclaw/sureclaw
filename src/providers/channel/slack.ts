@@ -9,6 +9,9 @@ import type {
 import type { Config } from '../../types.js';
 
 const SLACK_MAX_TEXT = 4000;
+const HEALTH_CHECK_MS = 30_000;
+const INITIAL_BACKOFF_MS = 5_000;
+const MAX_BACKOFF_MS = 5 * 60 * 1000;
 
 const DEFAULT_ACCESS: ChannelAccessConfig = {
   dmPolicy: 'open',
@@ -84,17 +87,59 @@ export async function create(config: Config): Promise<ChannelProvider> {
   };
 
   // Dynamic import — @slack/bolt is an optional dependency
-  const { App } = await import('@slack/bolt');
+  const { App, SocketModeReceiver } = await import('@slack/bolt');
 
   let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
   let botUserId: string | undefined;
   let teamId: string | undefined;
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  let reconnecting = false;
+  let intentionalDisconnect = false;
 
+  // Create receiver explicitly so we can monitor socket health
+  const receiver = new SocketModeReceiver({ appToken });
   const app = new App({
     token: botToken,
-    appToken,
-    socketMode: true,
+    receiver,
   });
+
+  async function ensureConnected(): Promise<void> {
+    if (intentionalDisconnect || reconnecting) return;
+
+    const ws = (receiver.client as any).websocket;
+    if (ws?.isActive?.()) return;
+
+    reconnecting = true;
+    let delay = INITIAL_BACKOFF_MS;
+
+    while (!intentionalDisconnect) {
+      try {
+        // Quick probe: can we reach Slack at all?
+        await app.client.auth.test({ token: botToken });
+      } catch {
+        // Network still down — wait and try again
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, MAX_BACKOFF_MS);
+        continue;
+      }
+
+      try {
+        // Network is reachable — attempt full socket reconnect
+        await app.stop().catch(() => {});
+        await app.start();
+        const authResult = await app.client.auth.test({ token: botToken });
+        botUserId = authResult.user_id as string;
+        teamId = authResult.team_id as string;
+        reconnecting = false;
+        return;
+      } catch {
+        // Socket reconnect failed — retry with backoff
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, MAX_BACKOFF_MS);
+      }
+    }
+    reconnecting = false;
+  }
 
   function buildSession(
     user: string,
@@ -203,10 +248,12 @@ export async function create(config: Config): Promise<ChannelProvider> {
     name: 'slack',
 
     async connect(): Promise<void> {
+      intentionalDisconnect = false;
       await app.start();
       const authResult = await app.client.auth.test({ token: botToken });
       botUserId = authResult.user_id as string;
       teamId = authResult.team_id as string;
+      healthCheckInterval = setInterval(() => { ensureConnected(); }, HEALTH_CHECK_MS);
     },
 
     onMessage(handler: (msg: InboundMessage) => Promise<void>): void {
@@ -263,6 +310,11 @@ export async function create(config: Config): Promise<ChannelProvider> {
     },
 
     async disconnect(): Promise<void> {
+      intentionalDisconnect = true;
+      if (healthCheckInterval) {
+        clearInterval(healthCheckInterval);
+        healthCheckInterval = null;
+      }
       await app.stop();
     },
   };
