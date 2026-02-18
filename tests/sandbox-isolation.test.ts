@@ -114,10 +114,14 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
 
   test('subprocess sandbox adds AX_ env vars', async () => {
     // Verify subprocess actually spawns with the right env by running a real process
+    const { mkdirSync, rmSync } = await import('node:fs');
+    const ws = '/tmp/test-ws-' + process.pid;
+    mkdirSync(ws, { recursive: true });
+    try {
     const provider = await createSubprocess(mockConfig);
     const proc = await provider.spawn({
-      workspace: '/tmp/test-ws',
-      skills: '/tmp/test-ws/skills',
+      workspace: ws,
+      skills: ws + '/skills',
       ipcSocket: '/tmp/test-ipc.sock',
       command: ['node', '-e', 'console.log(JSON.stringify({ipc:process.env.AX_IPC_SOCKET,ws:process.env.AX_WORKSPACE,sk:process.env.AX_SKILLS}))'],
       timeoutSec: 5,
@@ -131,8 +135,11 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
 
     const env = JSON.parse(output.trim());
     expect(env.ipc).toBe('/tmp/test-ipc.sock');
-    expect(env.ws).toBe('/tmp/test-ws');
-    expect(env.sk).toBe('/tmp/test-ws/skills');
+    expect(env.ws).toBe(ws);
+    expect(env.sk).toBe(ws + '/skills');
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
   });
 });
 
