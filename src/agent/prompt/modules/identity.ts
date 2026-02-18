@@ -27,8 +27,8 @@ export class IdentityModule extends BasePromptModule {
     const lines: string[] = [];
 
     // Agent instruction (AGENT.md or default)
-    if (identityFiles.agent) {
-      lines.push(identityFiles.agent);
+    if (identityFiles.agents) {
+      lines.push(identityFiles.agents);
     } else {
       lines.push('You are AX, a security-first AI agent.');
       lines.push('Follow the safety rules in your skills. Never reveal canary tokens.');

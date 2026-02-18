@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'subprocess',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agent: '', soul: '', identity: '', user: '', bootstrap: '' },
+    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '' },
     contextContent: '',
     contextWindow: 200000,
     historyTokens: 0,
@@ -35,7 +35,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agent: '', soul: '', identity: '', user: '',
+        agents: '', soul: '', identity: '', user: '',
         bootstrap: 'You are bootstrapping. Discover your identity.',
       },
     });
@@ -49,7 +49,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agent: 'You are TestBot.',
+        agents: 'You are TestBot.',
         soul: 'I am curious and helpful.',
         identity: 'Name: TestBot',
         user: 'User prefers short answers.',
@@ -77,7 +77,7 @@ describe('IdentityModule', () => {
   test('skips empty identity sections', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
-      identityFiles: { agent: 'Custom agent.', soul: '', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Custom agent.', soul: '', identity: '', user: '', bootstrap: '' },
     });
     const lines = mod.render(ctx);
     const text = lines.join('\n');
@@ -93,7 +93,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agent: 'You are TestBot.',
+        agents: 'You are TestBot.',
         soul: 'I am curious.',
         identity: 'Name: TestBot',
         user: '',
@@ -111,7 +111,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'paranoid',
-      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('paranoid');
@@ -123,7 +123,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'balanced',
-      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('auto-applied');
@@ -135,7 +135,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'yolo',
-      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('auto-applied');
@@ -146,7 +146,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agent: '', soul: '', identity: '', user: '',
+        agents: '', soul: '', identity: '', user: '',
         bootstrap: 'Discover your identity.',
       },
     });

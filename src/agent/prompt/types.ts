@@ -29,7 +29,7 @@ export interface PromptContext {
 }
 
 export interface IdentityFiles {
-  agent: string;     // AGENT.md
+  agents: string;    // AGENTS.md
   soul: string;      // SOUL.md
   identity: string;  // IDENTITY.md
   user: string;      // USER.md

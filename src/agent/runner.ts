@@ -225,7 +225,7 @@ function loadIdentityFile(agentDir: string, filename: string): string {
 function loadIdentityFiles(agentDir?: string): IdentityFiles {
   const load = (name: string) => agentDir ? loadIdentityFile(agentDir, name) : '';
   return {
-    agent: load('AGENT.md'),
+    agents: load('AGENTS.md'),
     soul: load('SOUL.md'),
     identity: load('IDENTITY.md'),
     user: load('USER.md'),
