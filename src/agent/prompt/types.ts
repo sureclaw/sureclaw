@@ -36,6 +36,11 @@ export interface IdentityFiles {
   bootstrap: string; // BOOTSTRAP.md
 }
 
+/** Bootstrap mode: soul is absent but bootstrap instructions exist. */
+export function isBootstrapMode(ctx: PromptContext): boolean {
+  return !ctx.identityFiles.soul && !!ctx.identityFiles.bootstrap;
+}
+
 /**
  * A composable unit of system prompt content.
  */
