@@ -7,6 +7,7 @@ import { request as httpRequest } from 'node:http';
 import { createServer, type AxServer } from '../../src/host/server.js';
 import { loadConfig } from '../../src/config.js';
 import { workspaceDir } from '../../src/paths.js';
+import type { ChannelProvider, InboundMessage, OutboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
 
 /** Send an HTTP request over a Unix socket */
 function sendRequest(
@@ -285,6 +286,47 @@ describe('Server', () => {
       // Cleanup test skill
       try { unlinkSync(testSkillPath); } catch { /* ignore */ }
     }
+  });
+
+  // --- Channel Deduplication ---
+
+  it('should deduplicate channel messages with the same ID', async () => {
+    const sentMessages: { session: SessionAddress; content: OutboundMessage }[] = [];
+    let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
+
+    const mockChannel: ChannelProvider = {
+      name: 'test',
+      async connect() {},
+      onMessage(handler) { messageHandler = handler; },
+      shouldRespond() { return true; },
+      async send(session, content) { sentMessages.push({ session, content }); },
+      async disconnect() {},
+    };
+
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath, channels: [mockChannel] });
+    await server.start();
+
+    const msg: InboundMessage = {
+      id: 'test-msg-1',
+      session: { provider: 'test', scope: 'channel', identifiers: { channel: 'C123', peer: 'U123' } },
+      sender: 'U123',
+      content: 'hello',
+      attachments: [],
+      timestamp: new Date(),
+    };
+
+    // Simulate Slack delivering the same event multiple times
+    // (e.g., due to socket reconnection or missed ack)
+    await Promise.all([
+      messageHandler!(msg),
+      messageHandler!(msg),
+      messageHandler!(msg),
+    ]);
+
+    // Should receive exactly ONE response despite 3 deliveries
+    expect(sentMessages).toHaveLength(1);
+    expect(sentMessages[0].content.content.length).toBeGreaterThan(0);
   });
 
   it('should accept request without session_id (ephemeral workspace)', async () => {
