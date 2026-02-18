@@ -19,25 +19,29 @@ export function allocateModules(modules: PromptModule[], ctx: PromptContext): Mo
   const optional = modules.filter(m => m.optional);
 
   // Required modules always included
-  const result: ModuleAllocation[] = required.map(m => ({ module: m, useMinimal: false }));
+  const allocations = new Map<PromptModule, ModuleAllocation>();
+  for (const m of required) {
+    allocations.set(m, { module: m, useMinimal: false });
+  }
   let used = required.reduce((sum, m) => sum + m.estimateTokens(ctx), 0);
 
   // Add optional modules that fit
   for (const mod of optional) {
     const fullTokens = mod.estimateTokens(ctx);
     if (used + fullTokens <= budget) {
-      result.push({ module: mod, useMinimal: false });
+      allocations.set(mod, { module: mod, useMinimal: false });
       used += fullTokens;
     } else if (mod.renderMinimal) {
       // Try minimal version
       const minTokens = Math.ceil(mod.renderMinimal(ctx).join('\n').length / 4);
       if (used + minTokens <= budget) {
-        result.push({ module: mod, useMinimal: true });
+        allocations.set(mod, { module: mod, useMinimal: true });
         used += minTokens;
       }
     }
     // Otherwise drop the module
   }
 
-  return result;
+  // Preserve original priority order
+  return modules.filter(m => allocations.has(m)).map(m => allocations.get(m)!);
 }

@@ -9,6 +9,7 @@ import type { PromptContext } from '../types.js';
 export class SkillsModule extends BasePromptModule {
   readonly name = 'skills';
   readonly priority = 70;
+  readonly optional = true;
 
   shouldInclude(ctx: PromptContext): boolean {
     return ctx.skills.length > 0;
