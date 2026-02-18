@@ -329,6 +329,79 @@ describe('Server', () => {
     expect(sentMessages[0].content.content.length).toBeGreaterThan(0);
   });
 
+  it('should block sequential retries within the dedup window', async () => {
+    const sentMessages: { session: SessionAddress; content: OutboundMessage }[] = [];
+    let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
+
+    const mockChannel: ChannelProvider = {
+      name: 'test',
+      async connect() {},
+      onMessage(handler) { messageHandler = handler; },
+      shouldRespond() { return true; },
+      async send(session, content) { sentMessages.push({ session, content }); },
+      async disconnect() {},
+    };
+
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath, channels: [mockChannel], dedupeWindowMs: 5000 });
+    await server.start();
+
+    const msg: InboundMessage = {
+      id: 'test-msg-seq',
+      session: { provider: 'test', scope: 'channel', identifiers: { channel: 'C123', peer: 'U123' } },
+      sender: 'U123',
+      content: 'hello',
+      attachments: [],
+      timestamp: new Date(),
+    };
+
+    // First delivery — processed
+    await messageHandler!(msg);
+    expect(sentMessages).toHaveLength(1);
+
+    // Sequential retry right after completion — should be blocked (within window)
+    await messageHandler!(msg);
+    expect(sentMessages).toHaveLength(1);
+  });
+
+  it('should process channel message again after dedup window expires', async () => {
+    const sentMessages: { session: SessionAddress; content: OutboundMessage }[] = [];
+    let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
+
+    const mockChannel: ChannelProvider = {
+      name: 'test',
+      async connect() {},
+      onMessage(handler) { messageHandler = handler; },
+      shouldRespond() { return true; },
+      async send(session, content) { sentMessages.push({ session, content }); },
+      async disconnect() {},
+    };
+
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath, channels: [mockChannel], dedupeWindowMs: 50 });
+    await server.start();
+
+    const msg: InboundMessage = {
+      id: 'test-msg-ttl',
+      session: { provider: 'test', scope: 'channel', identifiers: { channel: 'C123', peer: 'U123' } },
+      sender: 'U123',
+      content: 'hello',
+      attachments: [],
+      timestamp: new Date(),
+    };
+
+    // First delivery — should be processed
+    await messageHandler!(msg);
+    expect(sentMessages).toHaveLength(1);
+
+    // Wait for dedup window to expire
+    await new Promise(r => setTimeout(r, 80));
+
+    // Second delivery after window — should be processed again
+    await messageHandler!(msg);
+    expect(sentMessages).toHaveLength(2);
+  });
+
   it('should accept request without session_id (ephemeral workspace)', async () => {
     const config = loadConfig('tests/integration/ax-test.yaml');
     server = await createServer(config, { socketPath });

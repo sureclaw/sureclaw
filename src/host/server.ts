@@ -33,6 +33,7 @@ export interface ServerOptions {
   daemon?: boolean;
   verbose?: boolean;
   channels?: import('../providers/channel/types.js').ChannelProvider[];
+  dedupeWindowMs?: number;
 }
 
 export interface AxServer {
@@ -122,8 +123,27 @@ export async function createServer(
   // Session tracking for canary tokens
   const sessionCanaries = new Map<string, string>();
 
-  // Deduplication for channel messages (Slack can deliver the same event multiple times)
-  const processingMessages = new Set<string>();
+  // Deduplication for channel messages (Slack can deliver the same event multiple times).
+  // TTL-based: remembers processed messages for a window so sequential retries are also blocked.
+  const DEDUPE_WINDOW_MS = opts.dedupeWindowMs ?? 60_000;
+  const DEDUPE_MAX = 1000;
+  const processedMessages = new Map<string, number>();
+
+  function isChannelDuplicate(key: string): boolean {
+    const now = Date.now();
+    const seen = processedMessages.get(key);
+    if (seen !== undefined && now - seen < DEDUPE_WINDOW_MS) {
+      return true;
+    }
+    processedMessages.set(key, now);
+    // Lazy prune when over capacity
+    if (processedMessages.size > DEDUPE_MAX) {
+      for (const [k, ts] of processedMessages) {
+        if (now - ts >= DEDUPE_WINDOW_MS) processedMessages.delete(k);
+      }
+    }
+    return false;
+  }
 
   // Model ID for API responses
   const modelId = providers.llm.name;
@@ -631,29 +651,24 @@ export async function createServer(
         // Deduplicate: Slack (and other providers) may deliver the same event
         // multiple times due to socket reconnections or missed acks.
         const dedupeKey = `${channel.name}:${msg.id}`;
-        if (processingMessages.has(dedupeKey)) {
+        if (isChannelDuplicate(dedupeKey)) {
           logger.debug('channel_message_deduplicated', { provider: channel.name, messageId: msg.id });
           return;
         }
-        processingMessages.add(dedupeKey);
 
-        try {
-          const result = await router.processInbound(msg);
-          if (!result.queued) {
-            await channel.send(msg.session, {
-              content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
-            });
-            return;
-          }
-          sessionCanaries.set(result.sessionId, result.canaryToken);
-          const { responseContent } = await processCompletion(
-            msg.content, `ch-${randomUUID().slice(0, 8)}`, [], msg.id,
-            { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
-          );
-          await channel.send(msg.session, { content: responseContent });
-        } finally {
-          processingMessages.delete(dedupeKey);
+        const result = await router.processInbound(msg);
+        if (!result.queued) {
+          await channel.send(msg.session, {
+            content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
+          });
+          return;
         }
+        sessionCanaries.set(result.sessionId, result.canaryToken);
+        const { responseContent } = await processCompletion(
+          msg.content, `ch-${randomUUID().slice(0, 8)}`, [], msg.id,
+          { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
+        );
+        await channel.send(msg.session, { content: responseContent });
       });
       await channel.connect();
     }
