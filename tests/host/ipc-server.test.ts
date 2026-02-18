@@ -600,7 +600,7 @@ describe('user_write', () => {
       expect(result.applied).toBe(true);
 
       // Verify file was written to per-user dir
-      const userFile = readFileSync(join(axHome, 'agents', 'assistant', 'users', 'U12345', 'USER.md'), 'utf-8');
+      const userFile = readFileSync(join(axHome, 'agents', 'main', 'users', 'U12345', 'USER.md'), 'utf-8');
       expect(userFile).toContain('Likes TypeScript');
     } finally {
       if (originalAxHome !== undefined) {

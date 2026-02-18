@@ -304,7 +304,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
       // 3. Write to per-user dir
       const { agentUserDir } = await import('../paths.js');
-      const userDir = agentUserDir('assistant', ctx.userId);
+      const userDir = agentUserDir('main', ctx.userId);
       mkdirSync(userDir, { recursive: true });
       writeFileSync(join(userDir, 'USER.md'), req.content, 'utf-8');
 

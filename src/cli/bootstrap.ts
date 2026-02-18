@@ -27,7 +27,7 @@ export async function resetAgent(agentDir: string, templatesDir: string): Promis
 }
 
 export async function runBootstrap(args: string[]): Promise<void> {
-  const agentName = args[0] || 'assistant';
+  const agentName = args[0] || 'main';
   const agentDir = agentDirPath(agentName);
   const templatesDir = resolve('templates');
 

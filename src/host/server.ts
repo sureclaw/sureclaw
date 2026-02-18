@@ -109,7 +109,7 @@ export async function createServer(
     threshold: thresholdForProfile(config.profile),
   });
   const router = createRouter(providers, db, { taintBudget });
-  const agentName = 'assistant';
+  const agentName = 'main';
   const agentDirVal = agentDirPath(agentName);
   mkdirSync(agentDirVal, { recursive: true });
 
