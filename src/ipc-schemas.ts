@@ -173,10 +173,13 @@ export const AgentDelegateSchema = ipcAction('agent_delegate', {
 
 export const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md', 'USER.md'] as const;
 
+export const IDENTITY_ORIGINS = ['user_request', 'agent_initiated'] as const;
+
 export const IdentityWriteSchema = ipcAction('identity_write', {
   file: z.enum(IDENTITY_FILES),
   content: safeString(32_768),
   reason: safeString(512),
+  origin: z.enum(IDENTITY_ORIGINS),
 });
 
 // ═══════════════════════════════════════════════════════

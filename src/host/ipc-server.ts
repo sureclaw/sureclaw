@@ -208,7 +208,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         await providers.audit.log({
           action: 'identity_write',
           sessionId: ctx.sessionId,
-          args: { file: req.file, reason: req.reason, decision: 'scanner_blocked', verdict: scanResult.verdict },
+          args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'scanner_blocked', verdict: scanResult.verdict },
         });
         return { ok: false, error: `Identity content blocked by scanner: ${scanResult.reason ?? 'policy violation'}` };
       }
@@ -220,7 +220,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
           await providers.audit.log({
             action: 'identity_write',
             sessionId: ctx.sessionId,
-            args: { file: req.file, reason: req.reason, decision: 'queued_tainted', taintRatio: check.taintRatio },
+            args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'queued_tainted', taintRatio: check.taintRatio },
           });
           return { queued: true, file: req.file, reason: `Taint ${((check.taintRatio ?? 0) * 100).toFixed(0)}% exceeds threshold` };
         }
@@ -231,7 +231,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         await providers.audit.log({
           action: 'identity_write',
           sessionId: ctx.sessionId,
-          args: { file: req.file, reason: req.reason, decision: 'queued_paranoid' },
+          args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'queued_paranoid' },
         });
         return { queued: true, file: req.file, reason: req.reason };
       }
@@ -249,7 +249,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       await providers.audit.log({
         action: 'identity_write',
         sessionId: ctx.sessionId,
-        args: { file: req.file, reason: req.reason, decision: 'applied' },
+        args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'applied' },
       });
       return { applied: true, file: req.file };
     },

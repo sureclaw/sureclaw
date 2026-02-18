@@ -131,11 +131,14 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
       description: 'Write or update an identity file (SOUL.md, IDENTITY.md, or USER.md). ' +
         'Use when you want to evolve your personality, update your self-description, or ' +
         'record user preferences. Auto-applied in clean sessions; queued for review when ' +
-        'external content is present. All changes are audited.',
+        'external content is present. All changes are audited. ' +
+        'Set origin to "user_request" when the user explicitly asked for the change, ' +
+        'or "agent_initiated" when you decide to evolve on your own.',
       parameters: Type.Object({
         file: Type.Union([Type.Literal('SOUL.md'), Type.Literal('IDENTITY.md'), Type.Literal('USER.md')]),
         content: Type.String(),
         reason: Type.String(),
+        origin: Type.Union([Type.Literal('user_request'), Type.Literal('agent_initiated')]),
       }),
       async execute(_id, params) {
         return ipcCall('identity_write', params);

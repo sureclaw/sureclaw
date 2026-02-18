@@ -107,12 +107,14 @@ describe('ipc-tools', () => {
       file: 'SOUL.md',
       content: '# Soul\nI am helpful.',
       reason: 'User asked',
+      origin: 'user_request',
     });
     expect(client.call).toHaveBeenCalledWith({
       action: 'identity_write',
       file: 'SOUL.md',
       content: '# Soul\nI am helpful.',
       reason: 'User asked',
+      origin: 'user_request',
     });
   });
 
