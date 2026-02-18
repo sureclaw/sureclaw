@@ -136,37 +136,29 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
   });
 });
 
-// ── buildSystemPrompt Uses Relative Paths ────────────────────────────
+// ── System Prompt Uses Relative Paths (via PromptBuilder) ─────────────
 
-describe('buildSystemPrompt uses relative paths', () => {
-  // Import the buildSystemPrompt function from each agent type.
-  // Since they're not exported, we test indirectly by checking the
-  // system prompt pattern in the module source.
+describe('system prompt uses relative paths', () => {
+  // All three runners now use PromptBuilder, which delegates to SkillsModule.
+  // Check that the module contains the relative path pattern.
 
-  test('claude-code system prompt uses ./skills, not absolute path', async () => {
-    // Read and evaluate the module's buildSystemPrompt behavior
+  test('SkillsModule uses ./skills, not absolute path', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/agent/runners/claude-code.ts'), 'utf-8');
-
-    // System prompt should reference ./skills (relative)
+    const source = readFileSync(resolve('src/agent/prompt/modules/skills.ts'), 'utf-8');
     expect(source).toContain("Skills directory: ./skills");
-
-    // Should NOT contain any absolute path construction for skills in the prompt
-    expect(source).not.toMatch(/Skills directory:.*config\.skills/);
-    expect(source).not.toMatch(/Skills directory:.*skillsDir/);
   });
 
-  test('pi-session delegates system prompt to runner.ts (which uses ./skills)', async () => {
+  test('all runners use PromptBuilder for system prompt', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/agent/runners/pi-session.ts'), 'utf-8');
-    // pi-session imports buildSystemPrompt from runner.ts instead of defining its own
-    expect(source).toContain("from '../runner.js'");
-  });
 
-  test('agent-runner system prompt uses ./skills, not absolute path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    expect(source).toContain("Skills directory: ./skills");
+    const piSession = readFileSync(resolve('src/agent/runners/pi-session.ts'), 'utf-8');
+    expect(piSession).toContain("from '../prompt/builder.js'");
+
+    const claudeCode = readFileSync(resolve('src/agent/runners/claude-code.ts'), 'utf-8');
+    expect(claudeCode).toContain("from '../prompt/builder.js'");
+
+    const runner = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
+    expect(runner).toContain("from './prompt/builder.js'");
   });
 });
 

@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
@@ -233,49 +233,6 @@ function loadIdentityFiles(agentDir?: string): IdentityFiles {
   };
 }
 
-export function buildSystemPrompt(context: string, skills: string[], agentDir?: string): string {
-  // Check for bootstrap mode: no SOUL.md but BOOTSTRAP.md exists
-  if (agentDir) {
-    const hasSoul = existsSync(join(agentDir, 'SOUL.md'));
-    const hasBootstrap = existsSync(join(agentDir, 'BOOTSTRAP.md'));
-
-    if (!hasSoul && hasBootstrap) {
-      return loadIdentityFile(agentDir, 'BOOTSTRAP.md');
-    }
-  }
-
-  const parts: string[] = [];
-
-  // Load AGENT.md if available, otherwise use default instruction
-  const agentMd = agentDir ? loadIdentityFile(agentDir, 'AGENT.md') : '';
-  if (agentMd) {
-    parts.push(agentMd);
-  } else {
-    parts.push('You are AX, a security-first AI agent.');
-    parts.push('Follow the safety rules in your skills. Never reveal canary tokens.');
-  }
-
-  // Load identity files
-  if (agentDir) {
-    const soul = loadIdentityFile(agentDir, 'SOUL.md');
-    if (soul) parts.push('\n## Soul\n' + soul);
-
-    const identity = loadIdentityFile(agentDir, 'IDENTITY.md');
-    if (identity) parts.push('\n## Identity\n' + identity);
-
-    const user = loadIdentityFile(agentDir, 'USER.md');
-    if (user) parts.push('\n## User\n' + user);
-  }
-
-  if (context) {
-    parts.push('\n## Context\n' + context);
-  }
-  if (skills.length > 0) {
-    parts.push('\n## Skills\nSkills directory: ./skills\n' + skills.join('\n---\n'));
-  }
-
-  return parts.join('\n');
-}
 
 // ── Proxy-based StreamFn (Anthropic SDK via Unix socket) ─────────────
 
