@@ -1,5 +1,6 @@
 // src/agent/prompt/builder.ts
 import type { PromptContext, PromptModule } from './types.js';
+import { allocateModules } from './budget.js';
 import { IdentityModule } from './modules/identity.js';
 import { InjectionDefenseModule } from './modules/injection-defense.js';
 import { SecurityModule } from './modules/security.js';
@@ -40,13 +41,16 @@ export class PromptBuilder {
   build(ctx: PromptContext): PromptResult {
     const start = Date.now();
 
-    // Filter modules that should be included
-    const active = this.modules.filter(m => m.shouldInclude(ctx));
+    // Filter modules that should be included, then allocate within budget
+    const eligible = this.modules.filter(m => m.shouldInclude(ctx));
+    const allocations = allocateModules(eligible, ctx);
 
-    // Render each module
+    // Render each module (using minimal version when flagged by budget manager)
     const sections: string[] = [];
-    for (const mod of active) {
-      const lines = mod.render(ctx);
+    for (const { module: mod, useMinimal } of allocations) {
+      const lines = useMinimal && mod.renderMinimal
+        ? mod.renderMinimal(ctx)
+        : mod.render(ctx);
       if (lines.length > 0) {
         sections.push(lines.join('\n'));
       }
@@ -58,8 +62,8 @@ export class PromptBuilder {
     return {
       content,
       metadata: {
-        moduleCount: active.length,
-        modules: active.map(m => m.name),
+        moduleCount: allocations.length,
+        modules: allocations.map(a => a.module.name),
         estimatedTokens,
         buildTimeMs: Date.now() - start,
       },
