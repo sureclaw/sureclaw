@@ -360,8 +360,8 @@ describe('unified identity_write', () => {
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'identity_write',
-      file: 'USER.md',
-      content: '# User\nPrefers dark mode',
+      file: 'SOUL.md',
+      content: '# Soul\nI am brave and bold.',
       reason: 'Observed preference',
       origin: 'agent_initiated',
     }), { sessionId: 'test-session', agentId: 'test' }));
@@ -372,7 +372,7 @@ describe('unified identity_write', () => {
     rmSync(agentDir, { recursive: true });
   });
 
-  test('same rules apply to SOUL.md, IDENTITY.md, and USER.md', async () => {
+  test('same rules apply to SOUL.md and IDENTITY.md', async () => {
     const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
     mkdirSync(agentDir, { recursive: true });
 
@@ -381,7 +381,7 @@ describe('unified identity_write', () => {
       profile: 'balanced',
     });
 
-    for (const file of ['SOUL.md', 'IDENTITY.md', 'USER.md']) {
+    for (const file of ['SOUL.md', 'IDENTITY.md']) {
       const result = JSON.parse(await handle(JSON.stringify({
         action: 'identity_write',
         file,
@@ -460,8 +460,8 @@ describe('unified identity_write', () => {
 
     await handle(JSON.stringify({
       action: 'identity_write',
-      file: 'USER.md',
-      content: '# User\nLikes TypeScript',
+      file: 'SOUL.md',
+      content: '# Soul\nLikes TypeScript',
       reason: 'Learned from conversation',
       origin: 'user_request',
     }), ctx);
@@ -469,7 +469,7 @@ describe('unified identity_write', () => {
     // Find the handler's audit entry (has file and reason in args)
     const handlerAudit = auditEntries.find(e => e.action === 'identity_write' && e.args?.file);
     expect(handlerAudit).toBeDefined();
-    expect(handlerAudit.args.file).toBe('USER.md');
+    expect(handlerAudit.args.file).toBe('SOUL.md');
     expect(handlerAudit.args.reason).toBe('Learned from conversation');
     expect(handlerAudit.args.origin).toBe('user_request');
     expect(handlerAudit.args.decision).toBe('applied');
@@ -551,5 +551,98 @@ describe('unified identity_write', () => {
     expect(result.applied).toBe(true);
 
     rmSync(agentDir, { recursive: true });
+  });
+
+  test('identity_write writes to agentStateDir not agentDir', async () => {
+    const agentDir = join(tmpdir(), `ax-test-def-${randomUUID()}`);
+    const stateDir = join(tmpdir(), `ax-test-state-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(stateDir, { recursive: true });
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      agentStateDir: stateDir,
+      profile: 'balanced',
+    });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'SOUL.md',
+      content: '# Soul\nWritten to state dir.',
+      reason: 'Test',
+      origin: 'agent_initiated',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(true);
+    // Should write to stateDir, not agentDir
+    expect(existsSync(join(stateDir, 'SOUL.md'))).toBe(true);
+    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(false);
+
+    rmSync(agentDir, { recursive: true });
+    rmSync(stateDir, { recursive: true });
+  });
+});
+
+describe('user_write', () => {
+  test('writes USER.md to per-user dir', async () => {
+    const originalAxHome = process.env.AX_HOME;
+    const axHome = join(tmpdir(), `ax-test-home-${randomUUID()}`);
+    process.env.AX_HOME = axHome;
+
+    try {
+      const handle = createIPCHandler(mockRegistry(), {
+        profile: 'balanced',
+      });
+
+      const result = JSON.parse(await handle(JSON.stringify({
+        action: 'user_write',
+        content: '# User prefs\nLikes TypeScript',
+        reason: 'Learned from chat',
+        origin: 'agent_initiated',
+      }), { sessionId: 'test', agentId: 'test', userId: 'U12345' }));
+
+      expect(result.ok).toBe(true);
+      expect(result.applied).toBe(true);
+
+      // Verify file was written to per-user dir
+      const userFile = readFileSync(join(axHome, 'agents', 'assistant', 'users', 'U12345', 'USER.md'), 'utf-8');
+      expect(userFile).toContain('Likes TypeScript');
+    } finally {
+      if (originalAxHome !== undefined) {
+        process.env.AX_HOME = originalAxHome;
+      } else {
+        delete process.env.AX_HOME;
+      }
+      rmSync(axHome, { recursive: true, force: true });
+    }
+  });
+
+  test('fails without userId', async () => {
+    const handle = createIPCHandler(mockRegistry(), { profile: 'balanced' });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'user_write',
+      content: '# User',
+      reason: 'Test',
+      origin: 'agent_initiated',
+    }), { sessionId: 'test', agentId: 'test' }));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('userId');
+  });
+
+  test('queues in paranoid profile', async () => {
+    const handle = createIPCHandler(mockRegistry(), { profile: 'paranoid' });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'user_write',
+      content: '# User prefs',
+      reason: 'Test',
+      origin: 'agent_initiated',
+    }), { sessionId: 'test', agentId: 'test', userId: 'U12345' }));
+
+    expect(result.ok).toBe(true);
+    expect(result.queued).toBe(true);
   });
 });

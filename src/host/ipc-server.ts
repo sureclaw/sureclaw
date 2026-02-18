@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import type { ProviderRegistry } from '../types.js';
@@ -11,6 +11,7 @@ const logger = getLogger().child({ component: 'ipc' });
 export interface IPCContext {
   sessionId: string;
   agentId: string;
+  userId?: string;
 }
 
 export interface DelegationConfig {
@@ -23,8 +24,10 @@ export interface IPCHandlerOptions {
   delegation?: DelegationConfig;
   /** Called when an agent_delegate request is received. Returns agent response. */
   onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
-  /** Path to agents/{name}/ directory for identity file persistence. */
+  /** Path to agents/{name}/ directory (repo) for reading immutable files. */
   agentDir?: string;
+  /** Path to ~/.ax/agents/{name}/ for writing mutable identity state. */
+  agentStateDir?: string;
   /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
   profile?: string;
 }
@@ -36,6 +39,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
   const maxDepth = opts?.delegation?.maxDepth ?? 2;
   let activeDelegations = 0;
   const agentDir = opts?.agentDir ?? resolve('agents/assistant');
+  const stateDir = opts?.agentStateDir ?? agentDir; // backward compat
   const profile = opts?.profile ?? 'paranoid';
 
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
@@ -237,10 +241,12 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       }
 
       // 3. Auto-apply (balanced + clean, or yolo)
-      const filePath = join(agentDir, req.file);
+      // Write to state dir (not repo dir)
+      mkdirSync(stateDir, { recursive: true });
+      const filePath = join(stateDir, req.file);
       writeFileSync(filePath, req.content, 'utf-8');
 
-      // Bootstrap completion: delete BOOTSTRAP.md when SOUL.md is written
+      // Bootstrap completion: delete BOOTSTRAP.md from REPO dir when SOUL.md is written
       if (req.file === 'SOUL.md') {
         const bootstrapPath = join(agentDir, 'BOOTSTRAP.md');
         try { unlinkSync(bootstrapPath); } catch { /* may not exist */ }
@@ -252,6 +258,63 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'applied' },
       });
       return { applied: true, file: req.file };
+    },
+
+    user_write: async (req, ctx) => {
+      if (!ctx.userId) {
+        return { ok: false, error: 'user_write requires userId in context' };
+      }
+
+      // 0. Scan proposed content — blocks injection in user files
+      const scanResult = await providers.scanner.scanInput({
+        content: req.content,
+        source: 'user_mutation',
+        sessionId: ctx.sessionId,
+      });
+      if (scanResult.verdict === 'BLOCK') {
+        await providers.audit.log({
+          action: 'user_write',
+          sessionId: ctx.sessionId,
+          args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'scanner_blocked' },
+        });
+        return { ok: false, error: `User content blocked by scanner: ${scanResult.reason ?? 'policy violation'}` };
+      }
+
+      // 1. Taint check
+      if (profile !== 'yolo' && taintBudget) {
+        const check = taintBudget.checkAction(ctx.sessionId, 'user_write');
+        if (!check.allowed) {
+          await providers.audit.log({
+            action: 'user_write',
+            sessionId: ctx.sessionId,
+            args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'queued_tainted' },
+          });
+          return { queued: true, reason: `Taint ${((check.taintRatio ?? 0) * 100).toFixed(0)}% exceeds threshold` };
+        }
+      }
+
+      // 2. Paranoid gate
+      if (profile === 'paranoid') {
+        await providers.audit.log({
+          action: 'user_write',
+          sessionId: ctx.sessionId,
+          args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'queued_paranoid' },
+        });
+        return { queued: true, reason: req.reason };
+      }
+
+      // 3. Write to per-user dir
+      const { agentUserDir } = await import('../paths.js');
+      const userDir = agentUserDir('assistant', ctx.userId);
+      mkdirSync(userDir, { recursive: true });
+      writeFileSync(join(userDir, 'USER.md'), req.content, 'utf-8');
+
+      await providers.audit.log({
+        action: 'user_write',
+        sessionId: ctx.sessionId,
+        args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'applied' },
+      });
+      return { applied: true, userId: ctx.userId };
     },
   };
 
@@ -312,7 +375,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
     // Step 3.5: Taint budget check (SC-SEC-003)
     // identity_write has custom taint handling (queues instead of hard-blocking)
-    if (taintBudget && actionName !== 'identity_write') {
+    if (taintBudget && actionName !== 'identity_write' && actionName !== 'user_write') {
       const taintCheck = taintBudget.checkAction(ctx.sessionId, actionName);
       if (!taintCheck.allowed) {
         logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });
