@@ -91,12 +91,12 @@ describe('ipc-tools', () => {
     expect(text).toMatch(/error|failed/i);
   });
 
-  test('exports identity tools', () => {
+  test('exports identity_write tool (no identity_propose)', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
     const names = tools.map((t) => t.name);
     expect(names).toContain('identity_write');
-    expect(names).toContain('identity_propose');
+    expect(names).not.toContain('identity_propose');
   });
 
   test('identity_write sends IPC call with correct action', async () => {
@@ -116,20 +116,12 @@ describe('ipc-tools', () => {
     });
   });
 
-  test('identity_propose sends IPC call with correct action', async () => {
+  test('identity_write has updated description mentioning taint-aware behavior', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'identity_propose');
-    await tool.execute('tc8', {
-      file: 'SOUL.md',
-      content: '# Updated soul',
-      reason: 'Noticed pattern',
-    });
-    expect(client.call).toHaveBeenCalledWith({
-      action: 'identity_propose',
-      file: 'SOUL.md',
-      content: '# Updated soul',
-      reason: 'Noticed pattern',
-    });
+    const tool = findTool(tools, 'identity_write');
+    expect(tool.description).toContain('Auto-applied');
+    expect(tool.description).toContain('queued');
+    expect(tool.description).toContain('audited');
   });
 });

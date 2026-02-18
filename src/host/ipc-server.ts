@@ -198,6 +198,45 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     },
 
     identity_write: async (req, ctx) => {
+      // 0. Scan proposed content — blocks injection in identity files
+      const scanResult = await providers.scanner.scanInput({
+        content: req.content,
+        source: 'identity_mutation',
+        sessionId: ctx.sessionId,
+      });
+      if (scanResult.verdict === 'BLOCK') {
+        await providers.audit.log({
+          action: 'identity_write',
+          sessionId: ctx.sessionId,
+          args: { file: req.file, reason: req.reason, decision: 'scanner_blocked', verdict: scanResult.verdict },
+        });
+        return { ok: false, error: `Identity content blocked by scanner: ${scanResult.reason ?? 'policy violation'}` };
+      }
+
+      // 1. Check taint — if tainted, queue for approval (except yolo)
+      if (profile !== 'yolo' && taintBudget) {
+        const check = taintBudget.checkAction(ctx.sessionId, 'identity_write');
+        if (!check.allowed) {
+          await providers.audit.log({
+            action: 'identity_write',
+            sessionId: ctx.sessionId,
+            args: { file: req.file, reason: req.reason, decision: 'queued_tainted', taintRatio: check.taintRatio },
+          });
+          return { queued: true, file: req.file, reason: `Taint ${((check.taintRatio ?? 0) * 100).toFixed(0)}% exceeds threshold` };
+        }
+      }
+
+      // 2. Check profile — paranoid always queues
+      if (profile === 'paranoid') {
+        await providers.audit.log({
+          action: 'identity_write',
+          sessionId: ctx.sessionId,
+          args: { file: req.file, reason: req.reason, decision: 'queued_paranoid' },
+        });
+        return { queued: true, file: req.file, reason: req.reason };
+      }
+
+      // 3. Auto-apply (balanced + clean, or yolo)
       const filePath = join(agentDir, req.file);
       writeFileSync(filePath, req.content, 'utf-8');
 
@@ -210,32 +249,9 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       await providers.audit.log({
         action: 'identity_write',
         sessionId: ctx.sessionId,
-        args: { file: req.file, reason: req.reason },
+        args: { file: req.file, reason: req.reason, decision: 'applied' },
       });
-      return { written: req.file };
-    },
-
-    identity_propose: async (req, ctx) => {
-      // Paranoid: block agent-initiated changes
-      if (profile === 'paranoid') {
-        return { ok: false, error: 'Soul modifications require explicit user request in paranoid profile' };
-      }
-
-      await providers.audit.log({
-        action: 'identity_propose',
-        sessionId: ctx.sessionId,
-        args: { file: req.file, reason: req.reason, profile },
-      });
-
-      // Yolo: auto-apply
-      if (profile === 'yolo') {
-        const filePath = join(agentDir, req.file);
-        writeFileSync(filePath, req.content, 'utf-8');
-        return { applied: true, file: req.file };
-      }
-
-      // Balanced: queue for user approval
-      return { queued: true, file: req.file, reason: req.reason };
+      return { applied: true, file: req.file };
     },
   };
 
@@ -295,7 +311,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     }
 
     // Step 3.5: Taint budget check (SC-SEC-003)
-    if (taintBudget) {
+    // identity_write has custom taint handling (queues instead of hard-blocking)
+    if (taintBudget && actionName !== 'identity_write') {
       const taintCheck = taintBudget.checkAction(ctx.sessionId, actionName);
       if (!taintCheck.allowed) {
         logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });

@@ -124,11 +124,14 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
       },
     },
 
-    // ── Identity tools ──
+    // ── Identity tool ──
     {
       name: 'identity_write',
       label: 'Write Identity',
-      description: 'Write or update an identity file (SOUL.md, IDENTITY.md, or USER.md). Use when the user explicitly asks you to remember a preference or change your personality.',
+      description: 'Write or update an identity file (SOUL.md, IDENTITY.md, or USER.md). ' +
+        'Use when you want to evolve your personality, update your self-description, or ' +
+        'record user preferences. Auto-applied in clean sessions; queued for review when ' +
+        'external content is present. All changes are audited.',
       parameters: Type.Object({
         file: Type.Union([Type.Literal('SOUL.md'), Type.Literal('IDENTITY.md'), Type.Literal('USER.md')]),
         content: Type.String(),
@@ -136,19 +139,6 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
       }),
       async execute(_id, params) {
         return ipcCall('identity_write', params);
-      },
-    },
-    {
-      name: 'identity_propose',
-      label: 'Propose Identity Change',
-      description: 'Propose a change to an identity file based on observed patterns. May require user approval depending on security profile.',
-      parameters: Type.Object({
-        file: Type.Union([Type.Literal('SOUL.md'), Type.Literal('IDENTITY.md'), Type.Literal('USER.md')]),
-        content: Type.String(),
-        reason: Type.String(),
-      }),
-      async execute(_id, params) {
-        return ipcCall('identity_propose', params);
       },
     },
   ];

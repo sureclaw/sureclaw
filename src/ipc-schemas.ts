@@ -179,12 +179,6 @@ export const IdentityWriteSchema = ipcAction('identity_write', {
   reason: safeString(512),
 });
 
-export const IdentityProposeSchema = ipcAction('identity_propose', {
-  file: z.enum(IDENTITY_FILES),
-  content: safeString(32_768),
-  reason: safeString(512),
-});
-
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry
 // ═══════════════════════════════════════════════════════

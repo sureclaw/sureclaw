@@ -31,11 +31,11 @@ const PROFILE_THRESHOLDS: Record<string, number> = {
 };
 
 const DEFAULT_SENSITIVE_ACTIONS = new Set([
+  'identity_write',
   'oauth_call',
   'skill_propose',
   'browser_navigate',
   'scheduler_add_cron',
-  'identity_propose',
 ]);
 
 // Rough token estimation: ~4 characters per token

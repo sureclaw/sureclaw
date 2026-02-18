@@ -82,8 +82,76 @@ describe('IdentityModule', () => {
     const lines = mod.render(ctx);
     const text = lines.join('\n');
     expect(text).toContain('Custom agent.');
-    expect(text).not.toContain('## Soul');
-    expect(text).not.toContain('## Identity');
-    expect(text).not.toContain('## User');
+    // Identity file h2 headers should not appear when files are empty
+    // (## Identity Evolution is fine — it's the evolution guidance, not a file section)
+    expect(text).not.toContain('## Soul\n');
+    expect(text).not.toContain('## Identity\n');
+    expect(text).not.toContain('## User\n');
+  });
+
+  test('tells agent it can evolve via identity_write (not identity_propose)', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agent: 'You are TestBot.',
+        soul: 'I am curious.',
+        identity: 'Name: TestBot',
+        user: '',
+        bootstrap: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('identity_write');
+    expect(text).toContain('Identity Evolution');
+    // Should NOT reference the removed identity_propose
+    expect(text).not.toContain('identity_propose');
+  });
+
+  test('explains paranoid profile: always queued', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      profile: 'paranoid',
+      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('paranoid');
+    expect(text).toContain('queued');
+    expect(text).toContain('user');
+  });
+
+  test('explains balanced profile: taint-aware auto-apply', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      profile: 'balanced',
+      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('auto-applied');
+    expect(text).toContain('taint');
+    expect(text).toContain('queued');
+  });
+
+  test('explains yolo profile: full autonomy', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      profile: 'yolo',
+      identityFiles: { agent: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('auto-applied');
+    expect(text).toContain('full autonomy');
+  });
+
+  test('does not include evolution guidance in bootstrap mode', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agent: '', soul: '', identity: '', user: '',
+        bootstrap: 'Discover your identity.',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).not.toContain('Identity Evolution');
+    expect(text).not.toContain('identity_write');
   });
 });

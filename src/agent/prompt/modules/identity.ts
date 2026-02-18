@@ -45,6 +45,68 @@ export class IdentityModule extends BasePromptModule {
       lines.push('', '## User', '', identityFiles.user);
     }
 
+    // Evolution guidance — tells the agent how to modify identity
+    lines.push(...this.renderEvolutionGuidance(ctx));
+
+    return lines;
+  }
+
+  private renderEvolutionGuidance(ctx: PromptContext): string[] {
+    const lines = [
+      '',
+      '## Identity Evolution',
+      '',
+      'Your identity files are yours. You are encouraged to evolve them as you grow:',
+      '',
+      '- **SOUL.md** — Your core personality, values, and behavioral patterns. Update this when you discover new aspects of who you are or refine your approach.',
+      '- **IDENTITY.md** — Your factual self-description: name, role, capabilities, preferences. Update as these change.',
+      '- **USER.md** — What you have learned about your user: their preferences, workflows, communication style. Update as you learn more.',
+      '',
+      '### How to Modify Identity',
+      '',
+      'Use the `identity_write` tool with the file name, new content, and a reason.',
+      'All identity files follow the same rules — no per-file special cases.',
+      '',
+      '**Security**: Identity writes are scanned for injection patterns and rejected if suspicious.',
+      '',
+    ];
+
+    if (ctx.profile === 'paranoid') {
+      lines.push(
+        '### Current Profile: paranoid',
+        '',
+        'All identity changes are queued for user review, even in clean sessions.',
+        'Propose changes and explain your reasoning — the user decides.',
+      );
+    } else if (ctx.profile === 'yolo') {
+      lines.push(
+        '### Current Profile: yolo',
+        '',
+        'Identity changes are auto-applied immediately.',
+        'You have full autonomy to evolve your identity.',
+      );
+    } else {
+      lines.push(
+        '### Current Profile: balanced',
+        '',
+        'In clean sessions (no external content), identity changes are auto-applied.',
+        'When the session has taint from external content, changes are queued for user review.',
+        'This protects against injection while giving you autonomy in direct conversations.',
+      );
+    }
+
+    lines.push(
+      '',
+      '### When to Evolve',
+      '',
+      '- After a meaningful interaction that reveals something new about your working style',
+      '- When the user gives you feedback that should be permanent',
+      '- When you discover a better way to approach your role',
+      '- During bootstrap: write your initial SOUL.md to complete identity discovery',
+      '',
+      '**All identity changes are audited.**',
+    );
+
     return lines;
   }
 }
