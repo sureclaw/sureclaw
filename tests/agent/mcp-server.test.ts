@@ -144,7 +144,29 @@ describe('IPC MCP Server', () => {
     expect(names).not.toContain('skill_list');
   });
 
-  test('all 8 IPC tools are registered', () => {
+  test('identity_write calls IPC client with correct action', async () => {
+    const client = createMockClient({ ok: true, queued: false });
+    const server = createIPCMcpServer(client);
+    const tools = getTools(server);
+
+    expect(tools['identity_write']).toBeDefined();
+
+    const result = await tools['identity_write'].handler(
+      { file: 'SOUL.md', content: '# Witty Bot', reason: 'User asked to be more witty', origin: 'user_request' },
+      {},
+    );
+
+    expect(client.call).toHaveBeenCalledWith({
+      action: 'identity_write',
+      file: 'SOUL.md',
+      content: '# Witty Bot',
+      reason: 'User asked to be more witty',
+      origin: 'user_request',
+    });
+    expect(result.content[0].text).toContain('"ok":true');
+  });
+
+  test('all 9 IPC tools are registered', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -153,12 +175,13 @@ describe('IPC MCP Server', () => {
       'memory_write', 'memory_query', 'memory_read', 'memory_delete', 'memory_list',
       'web_search', 'web_fetch',
       'audit_query',
+      'identity_write',
     ];
 
     const registeredNames = Object.keys(tools);
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(8);
+    expect(registeredNames.length).toBe(9);
   });
 });

@@ -22,7 +22,7 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
     {
       name: 'memory_write',
       label: 'Write Memory',
-      description: 'Store a memory entry with scope, content, and optional tags.',
+      description: 'Store a factual memory entry with scope, content, and optional tags. For name, personality, or style changes use identity_write instead.',
       parameters: Type.Object({
         scope: Type.String(),
         content: Type.String(),

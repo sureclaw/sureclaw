@@ -52,7 +52,7 @@ export function createIPCMcpServer(client: IPCClient): McpSdkServerConfigWithIns
     version: '1.0.0',
     tools: [
       // ── Memory tools ──
-      tool('memory_write', 'Store a memory entry with scope, content, and optional tags.', {
+      tool('memory_write', 'Store a factual memory entry with scope, content, and optional tags. For name, personality, or style changes use identity_write instead.', {
         scope: z.string(),
         content: z.string(),
         tags: z.array(z.string()).optional(),
@@ -94,6 +94,24 @@ export function createIPCMcpServer(client: IPCClient): McpSdkServerConfigWithIns
         sessionId: z.string().optional(),
         limit: z.number().optional(),
       }, (args) => ipcCall('audit_query', args)),
+
+      // ── Identity tool ──
+      tool(
+        'identity_write',
+        'Write or update an identity file (SOUL.md, IDENTITY.md, or USER.md). ' +
+        'Use when you want to evolve your personality, change your name, update your self-description, or ' +
+        'record user preferences. Auto-applied in clean sessions; queued for review when ' +
+        'external content is present. All changes are audited. ' +
+        'Set origin to "user_request" when the user explicitly asked for the change, ' +
+        'or "agent_initiated" when you decide to evolve on your own.',
+        {
+          file: z.enum(['SOUL.md', 'IDENTITY.md', 'USER.md']),
+          content: z.string(),
+          reason: z.string(),
+          origin: z.enum(['user_request', 'agent_initiated']),
+        },
+        (args) => ipcCall('identity_write', args),
+      ),
     ],
   });
 }
