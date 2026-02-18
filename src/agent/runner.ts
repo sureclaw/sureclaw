@@ -190,6 +190,8 @@ function parseArgs(): AgentConfig {
   let maxTokens = 0;
   let verbose = false;
   let agentDir = '';
+  let agentDefDir = '';
+  let agentStateDir = '';
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -201,6 +203,8 @@ function parseArgs(): AgentConfig {
       case '--max-tokens': maxTokens = parseInt(args[++i], 10) || 0; break;
       case '--verbose': verbose = true; break;
       case '--agent-dir': agentDir = args[++i]; break;
+      case '--agent-def-dir': agentDefDir = args[++i]; break;
+      case '--agent-state-dir': agentStateDir = args[++i]; break;
     }
   }
 
@@ -213,7 +217,15 @@ function parseArgs(): AgentConfig {
     process.exit(1);
   }
 
-  return { agent, ipcSocket, workspace, skills, proxySocket: proxySocket || undefined, maxTokens: maxTokens || undefined, verbose, agentDir: agentDir || undefined };
+  return {
+    agent, ipcSocket, workspace, skills,
+    proxySocket: proxySocket || undefined,
+    maxTokens: maxTokens || undefined,
+    verbose,
+    agentDir: agentDir || undefined,
+    agentDefDir: agentDefDir || undefined,
+    agentStateDir: agentStateDir || undefined,
+  };
 }
 
 // ── Proxy-based StreamFn (Anthropic SDK via Unix socket) ─────────────
@@ -502,6 +514,7 @@ export interface StdinPayload {
   taintThreshold: number;
   profile: string;
   sandboxType: string;
+  userId?: string;
 }
 
 /**
@@ -529,6 +542,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         taintThreshold: typeof parsed.taintThreshold === 'number' ? parsed.taintThreshold : 1,
         profile: typeof parsed.profile === 'string' ? parsed.profile : 'balanced',
         sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'subprocess',
+        userId: typeof parsed.userId === 'string' ? parsed.userId : undefined,
       };
     }
   } catch {
@@ -581,6 +595,7 @@ if (isMain) {
     config.taintThreshold = payload.taintThreshold;
     config.profile = payload.profile;
     config.sandboxType = payload.sandboxType;
+    config.userId = payload.userId;
     return run(config);
   }).catch((err) => {
     logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });

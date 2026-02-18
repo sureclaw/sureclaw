@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, 
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { axHome, dataDir, dataFile, isValidSessionId, workspaceDir } from '../paths.js';
+import { axHome, dataDir, dataFile, isValidSessionId, workspaceDir, agentStateDir } from '../paths.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
 import { loadProviders } from './registry.js';
@@ -110,13 +110,24 @@ export async function createServer(
   });
   const router = createRouter(providers, db, { taintBudget });
   const agentName = 'assistant';
-  const agentDir = resolve('agents', agentName);
-  const handleIPC = createIPCHandler(providers, { taintBudget, agentDir, profile: config.profile });
+  const agentDefDir = resolve('agents', agentName);
+  const agentState = agentStateDir(agentName);
+  mkdirSync(agentState, { recursive: true });
+  const handleIPC = createIPCHandler(providers, {
+    taintBudget,
+    agentDir: agentDefDir,
+    agentStateDir: agentState,
+    profile: config.profile,
+  });
+
+  // Per-session userId tracking for IPC context enrichment
+  const sessionUserIds = new Map<string, string>();
 
   // IPC socket server (internal agent-to-host socket)
   const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
-  const defaultCtx = { sessionId: 'server', agentId: 'system' };
+  const defaultUserId = process.env.USER ?? 'default';
+  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
   const ipcServer: NetServer = createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
   logger.info('ipc_server_started', { socket: ipcSocketPath });
 
@@ -296,6 +307,7 @@ export async function createServer(
     clientMessages: { role: string; content: string }[] = [],
     persistentSessionId?: string,
     preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
+    userId?: string,
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter' }> {
     const sessionId = preProcessed?.sessionId ?? randomUUID();
     const reqLogger = logger.child({ reqId: requestId.slice(-8) });
@@ -419,7 +431,8 @@ export async function createServer(
         '--workspace', workspace,
         '--skills', wsSkillsDir,
         '--max-tokens', String(maxTokens),
-        '--agent-dir', agentDir,
+        '--agent-def-dir', agentDefDir,
+        '--agent-state-dir', agentState,
         ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
         ...(opts.verbose ? ['--verbose'] : []),
       ];
@@ -453,6 +466,7 @@ export async function createServer(
         taintThreshold: thresholdForProfile(config.profile),
         profile: config.profile,
         sandboxType: config.providers.sandbox,
+        userId: userId ?? process.env.USER ?? 'default',
       });
       reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
       proc.stdin.write(stdinPayload);
@@ -667,6 +681,7 @@ export async function createServer(
         const { responseContent } = await processCompletion(
           msg.content, `ch-${randomUUID().slice(0, 8)}`, [], msg.id,
           { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
+          msg.sender,  // userId from channel message
         );
         await channel.send(msg.session, { content: responseContent });
       });
