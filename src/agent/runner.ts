@@ -517,24 +517,46 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   client.disconnect();
 }
 
+export interface StdinPayload {
+  message: string;
+  history: ConversationTurn[];
+  taintRatio: number;
+  taintThreshold: number;
+  profile: string;
+  sandboxType: string;
+}
+
 /**
  * Parse stdin data. Supports two formats:
- * 1. JSON: {"history": [{role, content}, ...], "message": "current message"}
+ * 1. JSON: {"history": [...], "message": "...", taintRatio, taintThreshold, profile, sandboxType}
  * 2. Plain text (backward compat): treated as the current message with no history
  */
-function parseStdinPayload(data: string): { message: string; history: ConversationTurn[] } {
+export function parseStdinPayload(data: string): StdinPayload {
+  const defaults: StdinPayload = {
+    message: data,
+    history: [],
+    taintRatio: 0,
+    taintThreshold: 1,   // permissive default (no blocking)
+    profile: 'balanced',
+    sandboxType: 'subprocess',
+  };
+
   try {
     const parsed = JSON.parse(data);
     if (parsed && typeof parsed === 'object' && typeof parsed.message === 'string') {
       return {
         message: parsed.message,
         history: Array.isArray(parsed.history) ? parsed.history : [],
+        taintRatio: typeof parsed.taintRatio === 'number' ? parsed.taintRatio : 0,
+        taintThreshold: typeof parsed.taintThreshold === 'number' ? parsed.taintThreshold : 1,
+        profile: typeof parsed.profile === 'string' ? parsed.profile : 'balanced',
+        sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'subprocess',
       };
     }
   } catch {
     // Not JSON — fall through to plain text
   }
-  return { message: data, history: [] };
+  return defaults;
 }
 
 /**

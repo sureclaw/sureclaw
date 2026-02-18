@@ -398,7 +398,16 @@ export async function createServer(
       reqLogger.info('agent_spawn', { sandbox: 'subprocess' });
 
       // Send raw user message to agent (not the taint-tagged queued.content)
-      const stdinPayload = JSON.stringify({ history, message: content });
+      // Include taint state so agent-side prompt modules can adapt behavior
+      const taintState = taintBudget.getState(sessionId);
+      const stdinPayload = JSON.stringify({
+        history,
+        message: content,
+        taintRatio: taintState ? taintState.taintedTokens / (taintState.totalTokens || 1) : 0,
+        taintThreshold: thresholdForProfile(config.profile),
+        profile: config.profile,
+        sandboxType: config.providers.sandbox,
+      });
       reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
       proc.stdin.write(stdinPayload);
       proc.stdin.end();
