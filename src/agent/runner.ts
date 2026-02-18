@@ -22,9 +22,9 @@ import { createIPCStreamFn } from './ipc-transport.js';
 import { createLocalTools } from './local-tools.js';
 import { createIPCTools } from './ipc-tools.js';
 import { convertPiMessages, emitStreamEvents, createLazyAnthropicClient, loadContext, loadSkills } from './stream-utils.js';
-import { debug, truncate } from '../logger.js';
+import { getLogger, truncate } from '../logger.js';
 
-const SRC = 'container:agent-runner';
+const logger = getLogger().child({ component: 'runner' });
 
 // Default model — the actual model ID is forwarded through IPC to the host,
 // which routes it to the configured LLM provider. This just needs to be a
@@ -200,7 +200,7 @@ function parseArgs(): AgentConfig {
   skills = skills || process.env.AX_SKILLS || '';
 
   if (!ipcSocket || !workspace) {
-    console.error('Usage: agent-runner --agent <type> --ipc-socket <path> --workspace <path> [--skills <path>]');
+    logger.error('missing_args', { message: 'Usage: agent-runner --agent <type> --ipc-socket <path> --workspace <path> [--skills <path>]' });
     process.exit(1);
   }
 
@@ -291,7 +291,7 @@ function createProxyStreamFn(proxySocket: string) {
 
     const msgCount = context.messages.length;
     const toolCount = context.tools?.length ?? 0;
-    debug(SRC, 'proxy_stream_start', {
+    logger.debug('proxy_stream_start', {
       model: model?.id,
       messageCount: msgCount,
       toolCount,
@@ -313,7 +313,7 @@ function createProxyStreamFn(proxySocket: string) {
       try {
         const anthropic = await getClient();
 
-        debug(SRC, 'proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
+        logger.debug('proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
 
         // Use .stream() for SSE streaming, then extract from finalMessage.
         const sdkStream = anthropic.messages.stream({
@@ -368,7 +368,7 @@ function createProxyStreamFn(proxySocket: string) {
           timestamp: Date.now(),
         };
 
-        debug(SRC, 'proxy_stream_done', {
+        logger.debug('proxy_stream_done', {
           stopReason,
           textLength: fullText.length,
           toolCallCount: toolCalls.length,
@@ -377,7 +377,7 @@ function createProxyStreamFn(proxySocket: string) {
         });
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        debug(SRC, 'proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
+        logger.debug('proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeProxyErrorMessage((err as Error).message);
         stream.push({ type: 'start', partial: errMsg });
         stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -399,14 +399,14 @@ async function readStdin(): Promise<string> {
 export async function runPiCore(config: AgentConfig): Promise<void> {
   const userMessage = config.userMessage ?? '';
   if (!userMessage.trim()) {
-    debug(SRC, 'pi_core_skip_empty');
+    logger.debug('pi_core_skip_empty');
     return;
   }
 
   // Decide LLM transport: proxy (direct Anthropic SDK) or IPC fallback
   const useProxy = !!config.proxySocket;
 
-  debug(SRC, 'pi_core_start', {
+  logger.debug('pi_core_start', {
     workspace: config.workspace,
     messageLength: userMessage.length,
     historyTurns: config.history?.length ?? 0,
@@ -415,7 +415,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   });
 
   if (!useProxy) {
-    debug(SRC, 'proxy_unavailable', { reason: 'config.proxySocket not set, falling back to IPC for LLM calls' });
+    logger.debug('proxy_unavailable', { reason: 'config.proxySocket not set, falling back to IPC for LLM calls' });
   }
 
   const client = new IPCClient({ socketPath: config.ipcSocket });
@@ -430,7 +430,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   const ipcTools = createIPCTools(client);
   const allTools = [...localTools, ...ipcTools];
 
-  debug(SRC, 'pi_core_tools', {
+  logger.debug('pi_core_tools', {
     localToolCount: localTools.length,
     ipcToolCount: ipcTools.length,
     toolNames: allTools.map(t => t.name),
@@ -452,7 +452,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
     ? createProxyStreamFn(config.proxySocket!)
     : createIPCStreamFn(client);
 
-  debug(SRC, 'pi_core_agent_create', {
+  logger.debug('pi_core_agent_create', {
     historyMessages: historyMessages.length,
     model: model.id,
     maxTokens: model.maxTokens,
@@ -478,7 +478,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
     eventCount++;
     if (event.type === 'message_update') {
       const ame = event.assistantMessageEvent;
-      debug(SRC, 'agent_event', { type: ame.type, eventCount });
+      logger.debug('agent_event', { type: ame.type, eventCount });
 
       if (ame.type === 'text_start' && hasOutput) {
         process.stdout.write('\n\n');
@@ -488,19 +488,19 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
         hasOutput = true;
       }
       if (ame.type === 'toolcall_end') {
-        debug(SRC, 'tool_call', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
+        logger.debug('tool_call', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
         if (config.verbose) {
           process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
         }
       }
       if (ame.type === 'error') {
         const errText = ame.error?.errorMessage ?? String(ame.error);
-        debug(SRC, 'agent_error_event', { error: errText });
+        logger.error('agent_error_event', { error: errText });
         process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
         turnCount++;
-        debug(SRC, 'agent_done_event', { reason: ame.reason });
+        logger.debug('agent_done_event', { reason: ame.reason });
         if (config.verbose) {
           process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
         }
@@ -509,11 +509,11 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   });
 
   // Send the user message and wait for the agent to finish
-  debug(SRC, 'pi_core_prompt', { messagePreview: truncate(userMessage, 200) });
+  logger.debug('pi_core_prompt', { messagePreview: truncate(userMessage, 200) });
   await agent.prompt(userMessage);
   await agent.waitForIdle();
 
-  debug(SRC, 'pi_core_complete', { eventCount, hasOutput });
+  logger.debug('pi_core_complete', { eventCount, hasOutput });
   client.disconnect();
 }
 
@@ -542,7 +542,7 @@ function parseStdinPayload(data: string): { message: string; history: Conversati
  */
 export async function run(config: AgentConfig): Promise<void> {
   const agent = config.agent ?? 'pi-agent-core';
-  debug(SRC, 'dispatch', { agent, workspace: config.workspace, ipcSocket: config.ipcSocket });
+  logger.debug('dispatch', { agent, workspace: config.workspace, ipcSocket: config.ipcSocket });
   switch (agent) {
     case 'pi-agent-core':
       return runPiCore(config);
@@ -555,8 +555,7 @@ export async function run(config: AgentConfig): Promise<void> {
       return runClaudeCode(config);
     }
     default:
-      debug(SRC, 'unknown_agent', { agent });
-      console.error(`Unknown agent type: ${agent}`);
+      logger.error('unknown_agent', { agent });
       process.exit(1);
   }
 }
@@ -566,10 +565,10 @@ const isMain = process.argv[1]?.endsWith('runner.js') ||
                process.argv[1]?.endsWith('runner.ts');
 if (isMain) {
   const config = parseArgs();
-  debug(SRC, 'main_start', { agent: config.agent, workspace: config.workspace });
+  logger.debug('main_start', { agent: config.agent, workspace: config.workspace });
   readStdin().then((data) => {
     const { message, history } = parseStdinPayload(data);
-    debug(SRC, 'stdin_parsed', {
+    logger.debug('stdin_parsed', {
       messageLength: message.length,
       historyTurns: history.length,
       messagePreview: truncate(message, 200),
@@ -578,7 +577,7 @@ if (isMain) {
     config.history = history;
     return run(config);
   }).catch((err) => {
-    debug(SRC, 'main_error', { error: (err as Error).message, stack: (err as Error).stack });
+    logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });
     // Use process.exitCode instead of process.exit() so Node.js drains
     // the event loop and flushes stderr before terminating. process.exit()
     // kills immediately and can lose piped stderr output.

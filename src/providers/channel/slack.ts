@@ -7,6 +7,7 @@ import type {
   Attachment,
 } from './types.js';
 import type { Config } from '../../types.js';
+import { getLogger } from '../../logger.js';
 
 const SLACK_MAX_TEXT = 4000;
 const HEALTH_CHECK_MS = 30_000;
@@ -112,12 +113,15 @@ export async function create(config: Config): Promise<ChannelProvider> {
     reconnecting = true;
     let delay = INITIAL_BACKOFF_MS;
 
+    const slackLogger = getLogger().child({ component: 'slack' });
+
     while (!intentionalDisconnect) {
       try {
         // Quick probe: can we reach Slack at all?
         await app.client.auth.test({ token: botToken });
-      } catch {
+      } catch (err) {
         // Network still down — wait and try again
+        slackLogger.warn('slack_probe_failed', { error: (err as Error).message, backoffMs: delay });
         await new Promise(r => setTimeout(r, delay));
         delay = Math.min(delay * 2, MAX_BACKOFF_MS);
         continue;
@@ -130,10 +134,12 @@ export async function create(config: Config): Promise<ChannelProvider> {
         const authResult = await app.client.auth.test({ token: botToken });
         botUserId = authResult.user_id as string;
         teamId = authResult.team_id as string;
+        slackLogger.info('slack_reconnected');
         reconnecting = false;
         return;
-      } catch {
+      } catch (err) {
         // Socket reconnect failed — retry with backoff
+        slackLogger.warn('slack_reconnect_failed', { error: (err as Error).message, backoffMs: delay });
         await new Promise(r => setTimeout(r, delay));
         delay = Math.min(delay * 2, MAX_BACKOFF_MS);
       }

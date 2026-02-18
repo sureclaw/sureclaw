@@ -34,9 +34,9 @@ import { IPCClient } from '../ipc-client.js';
 import { compactHistory, historyToPiMessages } from '../runner.js';
 import type { AgentConfig } from '../runner.js';
 import { convertPiMessages, emitStreamEvents, createLazyAnthropicClient, loadContext, loadSkills } from '../stream-utils.js';
-import { debug, truncate } from '../../logger.js';
+import { getLogger, truncate } from '../../logger.js';
 
-const SRC = 'container:pi-session';
+const logger = getLogger().child({ component: 'pi-session' });
 
 // LLM calls can take minutes for complex prompts. The default IPC timeout
 // (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.
@@ -97,7 +97,7 @@ function createIPCStreamFunction(client: IPCClient) {
 
     const msgCount = context.messages.length;
     const toolCount = context.tools?.length ?? 0;
-    debug(SRC, 'stream_start', {
+    logger.debug('stream_start', {
       model: model?.id,
       messageCount: msgCount,
       toolCount,
@@ -119,7 +119,7 @@ function createIPCStreamFunction(client: IPCClient) {
           : messages;
 
         const maxTokens = options?.maxTokens ?? model?.maxTokens;
-        debug(SRC, 'ipc_call', { messageCount: allMessages.length, toolCount: tools?.length ?? 0, maxTokens });
+        logger.debug('ipc_call', { messageCount: allMessages.length, toolCount: tools?.length ?? 0, maxTokens });
         const response = await client.call({
           action: 'llm_call',
           model: model?.id,
@@ -129,7 +129,7 @@ function createIPCStreamFunction(client: IPCClient) {
         }, LLM_CALL_TIMEOUT_MS) as unknown as IPCResponse;
 
         if (!response.ok) {
-          debug(SRC, 'ipc_error', { error: response.error });
+          logger.debug('ipc_error', { error: response.error });
           const errMsg = makeErrorMessage(response.error ?? 'LLM call failed');
           stream.push({ type: 'start', partial: errMsg });
           stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -137,7 +137,7 @@ function createIPCStreamFunction(client: IPCClient) {
         }
 
         const chunks = response.chunks ?? [];
-        debug(SRC, 'ipc_response', { chunkCount: chunks.length, chunkTypes: chunks.map(c => c.type) });
+        logger.debug('ipc_response', { chunkCount: chunks.length, chunkTypes: chunks.map(c => c.type) });
         const textParts: string[] = [];
         const toolCalls: ToolCall[] = [];
         let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
@@ -179,7 +179,7 @@ function createIPCStreamFunction(client: IPCClient) {
           timestamp: Date.now(),
         };
 
-        debug(SRC, 'stream_done', {
+        logger.debug('stream_done', {
           stopReason,
           textLength: fullText.length,
           toolCallCount: toolCalls.length,
@@ -188,7 +188,7 @@ function createIPCStreamFunction(client: IPCClient) {
         });
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        debug(SRC, 'stream_error', { error: (err as Error).message, stack: (err as Error).stack });
+        logger.debug('stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message);
         stream.push({ type: 'start', partial: errMsg });
         stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -221,7 +221,7 @@ function createProxyStreamFunction(proxySocket: string) {
 
     const msgCount = context.messages.length;
     const toolCount = context.tools?.length ?? 0;
-    debug(SRC, 'proxy_stream_start', {
+    logger.debug('proxy_stream_start', {
       model: model?.id,
       messageCount: msgCount,
       toolCount,
@@ -243,7 +243,7 @@ function createProxyStreamFunction(proxySocket: string) {
       try {
         const anthropic = await getClient();
 
-        debug(SRC, 'proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
+        logger.debug('proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
 
         // Use .stream() for SSE streaming, then extract from finalMessage.
         // Event listeners (.on('contentBlockDelta')) are unreliable because the
@@ -304,7 +304,7 @@ function createProxyStreamFunction(proxySocket: string) {
           timestamp: Date.now(),
         };
 
-        debug(SRC, 'proxy_stream_done', {
+        logger.debug('proxy_stream_done', {
           stopReason,
           textLength: fullText.length,
           toolCallCount: toolCalls.length,
@@ -313,7 +313,7 @@ function createProxyStreamFunction(proxySocket: string) {
         });
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        debug(SRC, 'proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
+        logger.debug('proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message, 'ax-proxy');
         stream.push({ type: 'start', partial: errMsg });
         stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -333,11 +333,11 @@ function text(t: string) {
 function createIPCToolDefinitions(client: IPCClient): ToolDefinition[] {
   async function ipcCall(action: string, params: Record<string, unknown> = {}) {
     try {
-      debug(SRC, 'tool_ipc_call', { action });
+      logger.debug('tool_ipc_call', { action });
       const result = await client.call({ action, ...params });
       return text(JSON.stringify(result));
     } catch (err: unknown) {
-      debug(SRC, 'tool_ipc_error', { action, error: (err as Error).message });
+      logger.debug('tool_ipc_error', { action, error: (err as Error).message });
       return text(`Error: ${(err as Error).message}`);
     }
   }
@@ -438,7 +438,7 @@ import { buildSystemPrompt } from '../runner.js';
 export async function runPiSession(config: AgentConfig): Promise<void> {
   const userMessage = config.userMessage ?? '';
   if (!userMessage.trim()) {
-    debug(SRC, 'skip_empty');
+    logger.debug('skip_empty');
     return;
   }
 
@@ -447,7 +447,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   const activeModel = useProxy ? createProxyModel(config.maxTokens) : createIPCModel(config.maxTokens);
   const apiName = useProxy ? 'ax-proxy' : 'ax-ipc';
 
-  debug(SRC, 'session_start', {
+  logger.debug('session_start', {
     workspace: config.workspace,
     messageLength: userMessage.length,
     messagePreview: truncate(userMessage, 200),
@@ -457,7 +457,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   });
 
   if (!useProxy) {
-    debug(SRC, 'proxy_unavailable', { reason: 'config.proxySocket not set, falling back to IPC for LLM calls' });
+    logger.debug('proxy_unavailable', { reason: 'config.proxySocket not set, falling back to IPC for LLM calls' });
   }
 
   const client = new IPCClient({ socketPath: config.ipcSocket });
@@ -480,7 +480,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
       streamSimple: ipcStreamFn,
     });
   }
-  debug(SRC, 'provider_registered', { api: apiName });
+  logger.debug('provider_registered', { api: apiName });
 
   // Build system prompt
   const context = loadContext(config.workspace);
@@ -496,7 +496,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Create IPC tool definitions for pi-coding-agent
   const ipcToolDefs = createIPCToolDefinitions(client);
 
-  debug(SRC, 'session_config', {
+  logger.debug('session_config', {
     systemPromptLength: systemPrompt.length,
     codingToolCount: tools.length,
     ipcToolCount: ipcToolDefs.length,
@@ -512,7 +512,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   authStorage.setRuntimeApiKey(activeModel.provider, apiName);
 
   // Create session with in-memory manager (no persistence in sandbox)
-  debug(SRC, 'creating_agent_session');
+  logger.debug('creating_agent_session');
   const { session } = await createAgentSession({
     model: activeModel,
     tools,
@@ -521,7 +521,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     authStorage,
     sessionManager: SessionManager.inMemory(config.workspace),
   });
-  debug(SRC, 'agent_session_created');
+  logger.debug('agent_session_created');
 
   // Override system prompt
   session.agent.state.systemPrompt = systemPrompt;
@@ -530,11 +530,11 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Without this, each request starts a fresh conversation and the agent can't
   // remember anything from earlier exchanges.
   if (config.history && config.history.length > 0) {
-    debug(SRC, 'history_load', { turns: config.history.length });
+    logger.debug('history_load', { turns: config.history.length });
     const compacted = await compactHistory(config.history, client);
     const historyMessages = historyToPiMessages(compacted);
     session.agent.state.messages = historyMessages;
-    debug(SRC, 'history_loaded', {
+    logger.debug('history_loaded', {
       originalTurns: config.history.length,
       compactedTurns: compacted.length,
       piMessages: historyMessages.length,
@@ -549,7 +549,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     eventCount++;
     if (event.type === 'message_update') {
       const ame = event.assistantMessageEvent;
-      debug(SRC, 'agent_event', { type: ame.type, eventCount });
+      logger.debug('agent_event', { type: ame.type, eventCount });
 
       if (ame.type === 'text_start' && hasOutput) {
         process.stdout.write('\n\n');
@@ -559,19 +559,19 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
         hasOutput = true;
       }
       if (ame.type === 'toolcall_end') {
-        debug(SRC, 'tool_call_event', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
+        logger.debug('tool_call_event', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
         if (config.verbose) {
           process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
         }
       }
       if (ame.type === 'error') {
         const errText = ame.error?.errorMessage ?? String(ame.error);
-        debug(SRC, 'agent_error_event', { error: errText });
+        logger.debug('agent_error_event', { error: errText });
         process.stderr.write(`Agent error: ${errText}\n`);
       }
       if (ame.type === 'done') {
         turnCount++;
-        debug(SRC, 'agent_done_event', { reason: ame.reason });
+        logger.debug('agent_done_event', { reason: ame.reason });
         if (config.verbose) {
           process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
         }
@@ -580,11 +580,11 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   });
 
   // Send message and wait
-  debug(SRC, 'prompt_start', { messagePreview: truncate(userMessage, 200) });
+  logger.debug('prompt_start', { messagePreview: truncate(userMessage, 200) });
   await session.prompt(userMessage);
   await session.agent.waitForIdle();
 
-  debug(SRC, 'session_complete', { eventCount, hasOutput });
+  logger.debug('session_complete', { eventCount, hasOutput });
   session.dispose();
   client.disconnect();
 }

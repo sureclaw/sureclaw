@@ -165,7 +165,7 @@ describe('App', () => {
     await wait(100);
 
     const frame = lastFrame();
-    expect(frame).toContain('Cannot connect');
+    expect(frame).toContain('refused');
     expect(frame).toContain('ax serve');
   });
 

@@ -18,6 +18,9 @@ import { IPCClient } from '../ipc-client.js';
 import { startTCPBridge } from '../tcp-bridge.js';
 import { createIPCMcpServer } from '../mcp-server.js';
 import type { AgentConfig } from '../runner.js';
+import { getLogger } from '../../logger.js';
+
+const logger = getLogger().child({ component: 'claude-code' });
 
 // ── System prompt builder ───────────────────────────────────────────
 
@@ -51,7 +54,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   if (!userMessage.trim()) return;
 
   if (!config.proxySocket) {
-    console.error('claude-code agent requires --proxy-socket');
+    logger.error('missing_proxy_socket', { message: 'claude-code agent requires --proxy-socket' });
     process.exit(1);
   }
 
@@ -118,6 +121,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         }
       } else if (msg.type === 'error') {
         const errText = 'error' in msg ? String((msg as Record<string, unknown>).error) : 'unknown error';
+        logger.error('claude_code_error', { error: errText });
         process.stderr.write(`Claude Code error: ${errText}\n`);
       }
     }
@@ -125,6 +129,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   } catch (err) {
     // Surface the error clearly — expired OAuth, network failures, etc.
     const message = (err as Error).message ?? String(err);
+    logger.error('claude_code_agent_failed', { error: message });
     process.stderr.write(`Claude Code agent failed: ${message}\n`);
     process.exitCode = 1;
   } finally {

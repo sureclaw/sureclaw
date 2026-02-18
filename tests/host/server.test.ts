@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
-import { createServer, extractFailureReason, type AxServer } from '../../src/host/server.js';
+import { createServer, type AxServer } from '../../src/host/server.js';
 import { loadConfig } from '../../src/config.js';
 import { workspaceDir } from '../../src/paths.js';
 
@@ -285,28 +285,6 @@ describe('Server', () => {
       // Cleanup test skill
       try { unlinkSync(testSkillPath); } catch { /* ignore */ }
     }
-  });
-
-  // --- extractFailureReason ---
-
-  it('should extract HTTP status errors from stderr', () => {
-    const stderr = 'Some debug output\nError: Request failed with status 401 Unauthorized\nmore stuff';
-    expect(extractFailureReason(stderr)).toContain('401');
-  });
-
-  it('should extract generic error lines from stderr', () => {
-    const stderr = 'loading agent...\nTypeError: Cannot read properties of undefined\nat Object.<anonymous>';
-    expect(extractFailureReason(stderr)).toContain('TypeError');
-  });
-
-  it('should fall back to last line when no error pattern matches', () => {
-    const stderr = 'some debug line\nagent exited unexpectedly';
-    expect(extractFailureReason(stderr)).toBe('agent exited unexpectedly');
-  });
-
-  it('should handle empty stderr', () => {
-    expect(extractFailureReason('')).toBe('agent exited with no output');
-    expect(extractFailureReason('  \n  ')).toBe('agent exited with no output');
   });
 
   it('should accept request without session_id (ephemeral workspace)', async () => {

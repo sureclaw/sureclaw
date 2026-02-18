@@ -20,11 +20,9 @@ import { MessageQueue } from '../db.js';
 import { createRouter, type Router } from './router.js';
 import { createIPCHandler, createIPCServer } from './ipc-server.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
-import { createLogger, type Logger } from '../logger.js';
+import { type Logger, getLogger, truncate } from '../logger.js';
 import { startAnthropicProxy } from './proxy.js';
-import { debug, truncate } from '../logger.js';
-
-const SRC = 'host:server';
+import { diagnoseError } from '../errors.js';
 
 // =====================================================
 // Types
@@ -79,25 +77,6 @@ interface OpenAIStreamChunk {
 // Helpers
 // =====================================================
 
-/** Extract a human-readable failure reason from agent stderr. */
-export function extractFailureReason(stderr: string): string {
-  if (!stderr.trim()) return 'agent exited with no output';
-
-  // Look for common error patterns — last meaningful line is usually the cause
-  const lines = stderr.split('\n').map(l => l.trim()).filter(Boolean);
-
-  // Check for HTTP status errors (e.g. 401 from expired OAuth)
-  const httpError = lines.find(l => /\b(401|403|429|500|502|503)\b/.test(l));
-  if (httpError) return httpError.slice(0, 200);
-
-  // Check for lines containing "error" (case-insensitive)
-  const errorLine = lines.findLast(l => /error/i.test(l));
-  if (errorLine) return errorLine.slice(0, 200);
-
-  // Fall back to last non-empty line
-  return lines[lines.length - 1].slice(0, 200);
-}
-
 // =====================================================
 // Server Factory
 // =====================================================
@@ -108,14 +87,13 @@ export async function createServer(
 ): Promise<AxServer> {
   const socketPath = opts.socketPath ?? join(axHome(), 'ax.sock');
 
-  // Initialize logger
-  const logFormat = process.env.LOG_FORMAT === 'json' ? 'json' as const : 'pretty' as const;
-  const logger = createLogger({ format: logFormat });
+  // Use the singleton logger
+  const logger = getLogger();
 
   // Load providers
-  logger.info('Loading providers...');
+  logger.info('loading_providers');
   const providers = await loadProviders(config);
-  logger.info('Providers loaded');
+  logger.info('providers_loaded');
 
   // Initialize DB + Taint Budget + Router + IPC
   mkdirSync(dataDir(), { recursive: true });
@@ -133,7 +111,7 @@ export async function createServer(
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
   const defaultCtx = { sessionId: 'server', agentId: 'system' };
   const ipcServer: NetServer = createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
-  logger.info('IPC server started', { socket: ipcSocketPath });
+  logger.info('ipc_server_started', { socket: ipcSocketPath });
 
   // Session tracking for canary tokens
   const sessionCanaries = new Map<string, string>();
@@ -175,7 +153,7 @@ export async function createServer(
       try {
         await handleCompletions(req, res);
       } catch (err) {
-        logger.error('Request failed', { error: (err as Error).message });
+        logger.error('request_failed', { error: (err as Error).message });
         if (!res.headersSent) {
           sendError(res, 500, 'Internal server error');
         }
@@ -290,8 +268,9 @@ export async function createServer(
     persistentSessionId?: string,
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter' }> {
     const sessionId = randomUUID();
-    debug(SRC, 'completion_start', {
-      requestId,
+    const reqLogger = logger.child({ reqId: requestId.slice(-8) });
+
+    reqLogger.debug('completion_start', {
       sessionId,
       contentLength: content.length,
       contentPreview: truncate(content, 200),
@@ -310,22 +289,22 @@ export async function createServer(
     const result = await router.processInbound(inbound);
 
     if (!result.queued) {
-      debug(SRC, 'inbound_blocked', { requestId, reason: result.scanResult.reason });
-      logger.scan_inbound('blocked', result.scanResult.reason ?? 'scan failed');
+      reqLogger.debug('inbound_blocked', { reason: result.scanResult.reason });
+      reqLogger.info('scan_inbound', { status: 'blocked', reason: result.scanResult.reason ?? 'scan failed' });
       return {
         responseContent: `Request blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
         finishReason: 'content_filter',
       };
     }
 
-    logger.scan_inbound('clean');
+    reqLogger.info('scan_inbound', { status: 'clean' });
     sessionCanaries.set(result.sessionId, result.canaryToken);
-    debug(SRC, 'inbound_clean', { requestId, messageId: result.messageId });
+    reqLogger.debug('inbound_clean', { messageId: result.messageId });
 
     // Dequeue the specific message we just enqueued (by ID, not FIFO)
     const queued = result.messageId ? db.dequeueById(result.messageId) : db.dequeue();
     if (!queued) {
-      debug(SRC, 'dequeue_failed', { requestId, messageId: result.messageId });
+      reqLogger.debug('dequeue_failed', { messageId: result.messageId });
       return { responseContent: 'Internal error: message not queued', finishReason: 'stop' };
     }
 
@@ -347,7 +326,9 @@ export async function createServer(
         for (const f of readdirSync(hostSkillsDir)) {
           if (f.endsWith('.md')) copyFileSync(join(hostSkillsDir, f), join(wsSkillsDir, f));
         }
-      } catch { /* skills dir may not exist */ }
+      } catch {
+        reqLogger.debug('skills_copy_failed', { hostSkillsDir });
+      }
 
       // Write workspace files with raw user message (no taint tags or canary)
       writeFileSync(join(workspace, 'CONTEXT.md'), `# Session: ${queued.session_id}\n`);
@@ -397,8 +378,7 @@ export async function createServer(
         ...(opts.verbose ? ['--verbose'] : []),
       ];
 
-      debug(SRC, 'agent_spawn', {
-        requestId,
+      reqLogger.debug('agent_spawn', {
         agentType,
         workspace,
         command: spawnCommand.join(' '),
@@ -415,11 +395,11 @@ export async function createServer(
         command: spawnCommand,
       });
 
-      logger.agent_spawn(requestId, 'subprocess');
+      reqLogger.info('agent_spawn', { sandbox: 'subprocess' });
 
       // Send raw user message to agent (not the taint-tagged queued.content)
       const stdinPayload = JSON.stringify({ history, message: content });
-      debug(SRC, 'stdin_write', { requestId, payloadBytes: stdinPayload.length });
+      reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
       proc.stdin.write(stdinPayload);
       proc.stdin.end();
 
@@ -441,7 +421,7 @@ export async function createServer(
           stderr += text;
           if (opts.verbose) {
             for (const line of text.split('\n').filter((l: string) => l.trim())) {
-              logger.info(line);
+              reqLogger.info('agent_stderr', { line });
             }
           }
         }
@@ -450,8 +430,7 @@ export async function createServer(
       await Promise.all([stdoutDone, stderrDone]);
       const exitCode = await proc.exitCode;
 
-      debug(SRC, 'agent_exit', {
-        requestId,
+      reqLogger.debug('agent_exit', {
         exitCode,
         stdoutLength: response.length,
         stderrLength: stderr.length,
@@ -459,28 +438,26 @@ export async function createServer(
         stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
       });
 
-      logger.agent_complete(requestId, 0, exitCode);
+      reqLogger.info('agent_complete', { durationSec: 0, exitCode });
 
       if (exitCode !== 0) {
-        debug(SRC, 'agent_failed', { requestId, exitCode, stderr: truncate(stderr, 1000) });
-        logger.error('Agent failed', { exit_code: exitCode, stderr: stderr.slice(0, 2000) });
+        reqLogger.error('agent_failed', { exitCode, stderr: stderr.slice(0, 2000) });
         db.fail(queued.id);
-        const reason = extractFailureReason(stderr);
-        return { responseContent: `Agent processing failed: ${reason}`, finishReason: 'stop' };
+        const diagnosed = diagnoseError(stderr || 'agent exited with no output');
+        return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
       }
 
       if (stderr) {
-        logger.warn('Agent stderr', { stderr: stderr.slice(0, 500) });
+        reqLogger.warn('agent_stderr', { stderr: stderr.slice(0, 500) });
       }
 
       // Process outbound
       const canaryToken = sessionCanaries.get(queued.session_id) ?? '';
-      debug(SRC, 'outbound_start', { requestId, responseLength: response.length, hasCanary: canaryToken.length > 0 });
+      reqLogger.debug('outbound_start', { responseLength: response.length, hasCanary: canaryToken.length > 0 });
       const outbound = await router.processOutbound(response, queued.session_id, canaryToken);
 
       if (outbound.canaryLeaked) {
-        debug(SRC, 'canary_leaked', { requestId, sessionId: queued.session_id });
-        logger.warn('Canary leak detected -- response redacted', { session_id: queued.session_id });
+        reqLogger.warn('canary_leaked', { sessionId: queued.session_id });
       }
 
       // Memorize if provider supports it
@@ -492,7 +469,7 @@ export async function createServer(
           ];
           await providers.memory.memorize(fullHistory);
         } catch (err) {
-          logger.warn('memorize() failed (non-fatal)', { error: (err as Error).message });
+          reqLogger.warn('memorize_failed', { error: (err as Error).message });
         }
       }
 
@@ -500,8 +477,7 @@ export async function createServer(
       sessionCanaries.delete(queued.session_id);
 
       const finishReason = outbound.scanResult.verdict === 'BLOCK' ? 'content_filter' as const : 'stop' as const;
-      debug(SRC, 'completion_done', {
-        requestId,
+      reqLogger.debug('completion_done', {
         finishReason,
         responseLength: outbound.content.length,
         scanVerdict: outbound.scanResult.verdict,
@@ -509,20 +485,22 @@ export async function createServer(
       return { responseContent: outbound.content, finishReason };
 
     } catch (err) {
-      debug(SRC, 'completion_error', {
-        requestId,
+      reqLogger.error('completion_error', {
         error: (err as Error).message,
         stack: (err as Error).stack,
       });
-      logger.error('Processing error', { error: (err as Error).message });
       db.fail(queued.id);
       return { responseContent: 'Internal processing error', finishReason: 'stop' };
     } finally {
       if (proxyCleanup) {
-        try { proxyCleanup(); } catch { /* cleanup best-effort */ }
+        try { proxyCleanup(); } catch {
+          reqLogger.debug('proxy_cleanup_failed');
+        }
       }
       if (workspace && !isPersistent) {
-        try { rmSync(workspace, { recursive: true, force: true }); } catch { /* cleanup best-effort */ }
+        try { rmSync(workspace, { recursive: true, force: true }); } catch {
+          reqLogger.debug('workspace_cleanup_failed', { workspace });
+        }
       }
     }
   }
@@ -567,11 +545,15 @@ export async function createServer(
             const stat = statSync(entryPath);
             if (stat.isDirectory() && stat.mtimeMs < cutoff) {
               rmSync(entryPath, { recursive: true, force: true });
-              logger.info('Cleaned stale workspace', { sessionId: entry });
+              logger.info('cleaned_stale_workspace', { sessionId: entry });
             }
-          } catch { /* skip entries we can't stat */ }
+          } catch {
+            logger.debug('workspace_stat_failed', { entry });
+          }
         }
-      } catch { /* skip if workspaces dir can't be read */ }
+      } catch {
+        logger.debug('workspaces_dir_read_failed');
+      }
     }
 
     // Remove stale socket
@@ -584,7 +566,7 @@ export async function createServer(
     await new Promise<void>((resolveP, rejectP) => {
       httpServer!.listen(socketPath, () => {
         listening = true;
-        logger.info('AX server listening', { socket: socketPath });
+        logger.info('server_listening', { socket: socketPath });
         resolveP();
       });
       httpServer!.on('error', rejectP);
@@ -596,7 +578,7 @@ export async function createServer(
       if (result.queued) {
         sessionCanaries.set(result.sessionId, result.canaryToken);
         const { responseContent } = await processCompletion(msg.content, `sched-${randomUUID().slice(0, 8)}`);
-        logger.info('Scheduler message processed', { content_length: responseContent.length });
+        logger.info('scheduler_message_processed', { contentLength: responseContent.length });
       }
     });
 
@@ -604,7 +586,7 @@ export async function createServer(
     for (const channel of providers.channels) {
       channel.onMessage(async (msg: InboundMessage) => {
         if (!channel.shouldRespond(msg)) {
-          logger.debug('Channel message filtered', { provider: channel.name, sender: msg.sender });
+          logger.debug('channel_message_filtered', { provider: channel.name, sender: msg.sender });
           return;
         }
         const result = await router.processInbound(msg);
@@ -645,14 +627,22 @@ export async function createServer(
     }
 
     // Stop IPC server
-    try { ipcServer.close(); } catch { /* ignore */ }
+    try { ipcServer.close(); } catch {
+      logger.debug('ipc_server_close_failed');
+    }
 
     // Close DB
-    try { db.close(); } catch { /* ignore */ }
+    try { db.close(); } catch {
+      logger.debug('db_close_failed');
+    }
 
     // Clean up sockets
-    try { unlinkSync(socketPath); } catch { /* ignore */ }
-    try { rmSync(ipcSocketDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { unlinkSync(socketPath); } catch {
+      logger.debug('socket_cleanup_failed', { socketPath });
+    }
+    try { rmSync(ipcSocketDir, { recursive: true, force: true }); } catch {
+      logger.debug('ipc_dir_cleanup_failed', { ipcSocketDir });
+    }
 
     listening = false;
   }

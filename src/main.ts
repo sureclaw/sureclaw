@@ -7,7 +7,9 @@
 
 import { main } from './cli/index.js';
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
+main().catch(async (err) => {
+  const { diagnoseError, formatDiagnosedError } = await import('./errors.js');
+  const diagnosed = diagnoseError(err as Error);
+  console.error(formatDiagnosedError(diagnosed));
   process.exit(1);
 });

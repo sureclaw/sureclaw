@@ -172,7 +172,9 @@ export async function runSend(args: string[]): Promise<void> {
     await client.send();
     process.exit(0);
   } catch (err) {
-    console.error('Error:', (err as Error).message);
+    const { diagnoseError, formatDiagnosedError } = await import('../errors.js');
+    const diagnosed = diagnoseError(err as Error);
+    console.error(formatDiagnosedError(diagnosed));
     process.exit(1);
   }
 }

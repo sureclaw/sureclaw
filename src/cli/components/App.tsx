@@ -143,10 +143,12 @@ export function App({ fetchFn, sessionId, stream = true, model = 'default', onRe
         setHistory(finalHistory);
         historyRef.current = finalHistory;
       }
-    } catch {
+    } catch (err) {
+      const { diagnoseError } = await import('../../errors.js');
+      const diagnosed = diagnoseError(err as Error);
       addMessage({
         role: 'system',
-        content: 'Cannot connect to AX server. Make sure it\'s running with: ax serve',
+        content: `${diagnosed.diagnosis}: ${diagnosed.raw}\n${diagnosed.suggestion}`,
         type: 'error',
       });
       setConnectionStatus('disconnected');

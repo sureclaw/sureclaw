@@ -4,9 +4,9 @@ import { join, resolve } from 'node:path';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import type { ProviderRegistry } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
-import { debug, truncate } from '../logger.js';
+import { getLogger, truncate } from '../logger.js';
 
-const SRC = 'host:ipc';
+const logger = getLogger().child({ component: 'ipc' });
 
 export interface IPCContext {
   sessionId: string;
@@ -41,7 +41,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
 
     llm_call: async (req) => {
-      debug(SRC, 'llm_call_params', {
+      logger.debug('llm_call_params', {
         model: req.model,
         maxTokens: req.maxTokens,
         toolCount: req.tools?.length ?? 0,
@@ -59,7 +59,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       }
       const chunkTypes = chunks.map((c: any) => c.type);
       const toolUseChunks = chunks.filter((c: any) => c.type === 'tool_use');
-      debug(SRC, 'llm_call_result', {
+      logger.debug('llm_call_result', {
         chunkCount: chunks.length,
         chunkTypes,
         toolUseCount: toolUseChunks.length,
@@ -241,14 +241,14 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
   return async function handleIPC(raw: string, ctx: IPCContext): Promise<string> {
     const handlerStart = Date.now();
-    debug(SRC, 'request_received', { rawBytes: raw.length, sessionId: ctx.sessionId, agentId: ctx.agentId });
+    logger.debug('request_received', { rawBytes: raw.length, sessionId: ctx.sessionId, agentId: ctx.agentId });
 
     // Step 1: Parse JSON
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      debug(SRC, 'parse_error', { rawPreview: truncate(raw, 200) });
+      logger.debug('parse_error', { rawPreview: truncate(raw, 200) });
       await providers.audit.log({
         action: 'ipc_parse_error',
         sessionId: ctx.sessionId,
@@ -261,7 +261,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     // Step 2: Validate envelope
     const envelope = IPCEnvelopeSchema.safeParse(parsed);
     if (!envelope.success) {
-      debug(SRC, 'envelope_invalid', { rawPreview: truncate(raw, 200) });
+      logger.debug('envelope_invalid', { rawPreview: truncate(raw, 200) });
       await providers.audit.log({
         action: 'ipc_unknown_action',
         sessionId: ctx.sessionId,
@@ -275,13 +275,13 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     }
 
     const actionName = envelope.data.action;
-    debug(SRC, 'action_parsed', { action: actionName });
+    logger.debug('action_parsed', { action: actionName });
 
     // Step 3: Validate action-specific schema (strict mode)
     const schema = IPC_SCHEMAS[actionName];
     const validated = schema.safeParse(parsed);
     if (!validated.success) {
-      debug(SRC, 'validation_failed', { action: actionName, errors: validated.error?.message });
+      logger.debug('validation_failed', { action: actionName, errors: validated.error?.message });
       await providers.audit.log({
         action: 'ipc_validation_failure',
         sessionId: ctx.sessionId,
@@ -298,7 +298,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     if (taintBudget) {
       const taintCheck = taintBudget.checkAction(ctx.sessionId, actionName);
       if (!taintCheck.allowed) {
-        debug(SRC, 'taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });
+        logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });
         await providers.audit.log({
           action: 'ipc_taint_blocked',
           sessionId: ctx.sessionId,
@@ -320,16 +320,16 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     // Step 4: Dispatch
     const handler = handlers[actionName];
     if (!handler) {
-      debug(SRC, 'no_handler', { action: actionName });
+      logger.debug('no_handler', { action: actionName });
       return JSON.stringify({ ok: false, error: `No handler for action "${actionName}"` });
     }
 
     try {
       const startMs = Date.now();
-      debug(SRC, 'handler_start', { action: actionName });
+      logger.debug('handler_start', { action: actionName });
       const result = await handler(validated.data, ctx);
       const durationMs = Date.now() - startMs;
-      debug(SRC, 'handler_done', {
+      logger.debug('handler_done', {
         action: actionName,
         durationMs,
         totalDurationMs: Date.now() - handlerStart,
@@ -345,7 +345,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       return JSON.stringify({ ok: true, ...result });
     } catch (err) {
       const durationMs = Date.now() - handlerStart;
-      debug(SRC, 'handler_error', {
+      logger.debug('handler_error', {
         action: actionName,
         error: err instanceof Error ? err.message : String(err),
         stack: err instanceof Error ? err.stack : undefined,
@@ -380,7 +380,7 @@ export function createIPCServer(
 ): Server {
   const server = createServer((socket: Socket) => {
     let buffer = Buffer.alloc(0);
-    debug(SRC, 'client_connected', { socketPath });
+    logger.debug('client_connected', { socketPath });
 
     socket.on('data', async (data: Buffer) => {
       buffer = Buffer.concat([buffer, data]);
@@ -390,7 +390,7 @@ export function createIPCServer(
         const msgLen = buffer.readUInt32BE(0);
 
         if (msgLen > 10_000_000) {
-          debug(SRC, 'message_too_large', { msgLen, limit: 10_000_000 });
+          logger.debug('message_too_large', { msgLen, limit: 10_000_000 });
           socket.destroy();
           return;
         }
@@ -402,26 +402,26 @@ export function createIPCServer(
         const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
         buffer = buffer.subarray(4 + msgLen);
 
-        debug(SRC, 'message_received', { msgLen });
+        logger.debug('message_received', { msgLen });
         const response = await handler(raw, defaultCtx);
         const responseBuf = Buffer.from(response, 'utf-8');
         const lenBuf = Buffer.alloc(4);
         lenBuf.writeUInt32BE(responseBuf.length, 0);
-        debug(SRC, 'message_response', { responseBytes: responseBuf.length });
+        logger.debug('message_response', { responseBytes: responseBuf.length });
         socket.write(Buffer.concat([lenBuf, responseBuf]));
       }
     });
 
     socket.on('close', () => {
-      debug(SRC, 'client_disconnected');
+      logger.debug('client_disconnected');
     });
 
     socket.on('error', (err) => {
-      debug(SRC, 'socket_error', { error: err.message });
+      logger.debug('socket_error', { error: err.message });
     });
   });
 
   server.listen(socketPath);
-  debug(SRC, 'server_listening', { socketPath });
+  logger.debug('server_listening', { socketPath });
   return server;
 }

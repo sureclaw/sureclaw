@@ -1,251 +1,204 @@
-// src/logger.ts
-import { type Writable } from 'node:stream';
-import { styleText } from 'node:util';
-import { appendFileSync, mkdirSync } from 'node:fs';
+// src/logger.ts — Unified pino-based logger
+//
+// Single logger with two transports:
+//   1. Console: color-coded compact structured output (pino-pretty or custom)
+//   2. File: JSONL to ~/.ax/data/ax.log (always debug level)
+//
+// Call sites use our Logger interface, never import pino directly.
+// This makes OTel upgrade a one-file change.
+
+import pino from 'pino';
+import type { Logger as PinoLogger, DestinationStream } from 'pino';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { styleText } from 'node:util';
 
 // ═══════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════
 
-export interface LogEvent {
-  timestamp: string;
-  event: string;
-  status: string;
-  details?: Record<string, unknown>;
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+
+export interface Logger {
+  debug(msg: string, details?: Record<string, unknown>): void;
+  info(msg: string, details?: Record<string, unknown>): void;
+  warn(msg: string, details?: Record<string, unknown>): void;
+  error(msg: string, details?: Record<string, unknown>): void;
+  fatal(msg: string, details?: Record<string, unknown>): void;
+  child(bindings: Record<string, unknown>): Logger;
 }
 
 export interface LoggerOptions {
-  format?: 'json' | 'pretty';
-  stream?: Writable;
+  /** Console log level. Default: 'info'. Use 'silent' to disable console. */
+  level?: LogLevel;
+  /** Override console output stream (for testing). */
+  stream?: DestinationStream;
+  /** Enable file transport to ~/.ax/data/ax.log. Default: true. */
+  file?: boolean;
+  /** Pretty print to console. Default: true when stdout is a TTY. */
+  pretty?: boolean;
 }
 
-export interface Logger {
-  llm_call(model: string, inputTokens: number, outputTokens: number, status: string): void;
-  tool_use(tool: string, command: string, status: string): void;
-  scan_inbound(status: 'clean' | 'blocked', reason?: string): void;
-  scan_outbound(status: 'clean' | 'blocked', taint?: number, reason?: string): void;
-  agent_spawn(requestId: string, sandbox: string): void;
-  agent_complete(requestId: string, durationSec: number, exitCode: number): void;
-  info(message: string, details?: Record<string, unknown>): void;
-  warn(message: string, details?: Record<string, unknown>): void;
-  error(message: string, details?: Record<string, unknown>): void;
+// ═══════════════════════════════════════════════════════
+// Pretty formatter
+// ═══════════════════════════════════════════════════════
+
+const LEVEL_COLORS: Record<number, (s: string) => string> = {
+  20: (s: string) => styleText('gray', s),       // debug
+  30: (s: string) => styleText('green', s),      // info
+  40: (s: string) => styleText('yellow', s),     // warn
+  50: (s: string) => styleText('red', s),        // error
+  60: (s: string) => styleText('red', s),        // fatal
+};
+
+const LEVEL_LABELS: Record<number, string> = {
+  20: 'debug',
+  30: 'info',
+  40: 'warn',
+  50: 'error',
+  60: 'fatal',
+};
+
+// Keys to exclude from the details display
+const SKIP_KEYS = new Set(['level', 'time', 'pid', 'hostname', 'msg', 'name']);
+
+function formatTimestamp(epoch: number): string {
+  const d = new Date(epoch);
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+function formatDetails(obj: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (SKIP_KEYS.has(k)) continue;
+    if (v === undefined || v === null) continue;
+    parts.push(`${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`);
+  }
+  return parts.join('  ');
+}
+
+export function prettyFormat(obj: Record<string, unknown>): string {
+  const time = formatTimestamp(obj.time as number);
+  const level = obj.level as number;
+  const msg = obj.msg as string ?? '';
+  const colorize = LEVEL_COLORS[level] ?? ((s: string) => s);
+
+  // Extract reqId for the request ID column
+  const reqId = obj.reqId as string | undefined;
+  const reqCol = reqId ? styleText('cyan', `[${reqId}]`) + ' ' : '';
+
+  const details = formatDetails(obj);
+  const detailStr = details ? '  ' + details : '';
+
+  const levelLabel = LEVEL_LABELS[level] ?? 'unknown';
+
+  return `${styleText('gray', time)} ${reqCol}${colorize(`${msg}${detailStr}`)}  ${colorize(levelLabel)}\n`;
 }
 
 // ═══════════════════════════════════════════════════════
 // Logger Factory
 // ═══════════════════════════════════════════════════════
 
-export function createLogger(opts: LoggerOptions = {}): Logger {
-  const format = opts.format ?? 'pretty';
-  const stream = opts.stream ?? process.stdout;
+function getLogPath(): string {
+  const home = process.env.AX_HOME || join(homedir(), '.ax');
+  const dir = join(home, 'data');
+  try { mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
+  return join(dir, 'ax.log');
+}
 
-  function write(event: LogEvent): void {
-    if (format === 'json') {
-      stream.write(JSON.stringify(event) + '\n');
-    } else {
-      stream.write(formatPretty(event) + '\n');
-    }
-  }
-
-  function timestamp(): string {
-    return new Date().toISOString();
-  }
-
-  function timestampShort(): string {
-    const now = new Date();
-    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  }
-
-  function pad(n: number): string {
-    return n.toString().padStart(2, '0');
-  }
-
-  function formatPretty(event: LogEvent): string {
-    const time = timestampShort();
-    const status = colorizeStatus(event.status);
-    const details = formatDetails(event.details);
-
-    return `${styleText('gray', time)} ${event.event} ${details} ${status}`;
-  }
-
-  function colorizeStatus(status: string): string {
-    if (status === 'ok' || status === 'clean') {
-      return styleText('green', status);
-    }
-    if (status === 'blocked' || status === 'error') {
-      return styleText('red', status);
-    }
-    if (status === 'warn') {
-      return styleText('yellow', status);
-    }
-    return status;
-  }
-
-  function formatDetails(details?: Record<string, unknown>): string {
-    if (!details) return '';
-
-    const parts: string[] = [];
-
-    if (details.model) parts.push(`${details.model}`);
-    if (details.tool) parts.push(`${details.tool}`);
-    if (details.command) parts.push(`"${details.command}"`);
-    if (details.reason) parts.push(`${details.reason}`);
-    if (details.taint !== undefined) parts.push(`taint:${details.taint}`);
-    if (details.input_tokens) parts.push(`${details.input_tokens} in`);
-    if (details.output_tokens) parts.push(`${details.output_tokens} out`);
-    if (details.sandbox) parts.push(`${details.sandbox}`);
-    if (details.duration_sec) parts.push(`${details.duration_sec}s`);
-    if (details.message) parts.push(`${details.message}`);
-
-    return parts.join(' ');
-  }
-
+function wrapPino(p: PinoLogger): Logger {
   return {
-    llm_call(model: string, inputTokens: number, outputTokens: number, status: string): void {
-      write({
-        timestamp: timestamp(),
-        event: 'llm_call',
-        status,
-        details: {
-          model,
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-        },
-      });
-    },
-
-    tool_use(tool: string, command: string, status: string): void {
-      write({
-        timestamp: timestamp(),
-        event: 'tool_use',
-        status,
-        details: { tool, command },
-      });
-    },
-
-    scan_inbound(status: 'clean' | 'blocked', reason?: string): void {
-      write({
-        timestamp: timestamp(),
-        event: 'scan_inbound',
-        status,
-        details: reason ? { reason } : undefined,
-      });
-    },
-
-    scan_outbound(status: 'clean' | 'blocked', taint?: number, reason?: string): void {
-      write({
-        timestamp: timestamp(),
-        event: 'scan_outbound',
-        status,
-        details: {
-          ...(taint !== undefined && { taint }),
-          ...(reason && { reason }),
-        },
-      });
-    },
-
-    agent_spawn(requestId: string, sandbox: string): void {
-      write({
-        timestamp: timestamp(),
-        event: 'agent_spawn',
-        status: 'spawning',
-        details: { request_id: requestId, sandbox },
-      });
-    },
-
-    agent_complete(requestId: string, durationSec: number, exitCode: number): void {
-      write({
-        timestamp: timestamp(),
-        event: 'agent_complete',
-        status: exitCode === 0 ? 'ok' : 'error',
-        details: {
-          request_id: requestId,
-          duration_sec: durationSec,
-          exit_code: exitCode,
-        },
-      });
-    },
-
-    info(message: string, details?: Record<string, unknown>): void {
-      write({
-        timestamp: timestamp(),
-        event: 'info',
-        status: 'info',
-        details: { message, ...details },
-      });
-    },
-
-    warn(message: string, details?: Record<string, unknown>): void {
-      write({
-        timestamp: timestamp(),
-        event: 'warn',
-        status: 'warn',
-        details: { message, ...details },
-      });
-    },
-
-    error(message: string, details?: Record<string, unknown>): void {
-      write({
-        timestamp: timestamp(),
-        event: 'error',
-        status: 'error',
-        details: { message, ...details },
-      });
-    },
+    debug(msg, details) { details ? p.debug(details, msg) : p.debug(msg); },
+    info(msg, details) { details ? p.info(details, msg) : p.info(msg); },
+    warn(msg, details) { details ? p.warn(details, msg) : p.warn(msg); },
+    error(msg, details) { details ? p.error(details, msg) : p.error(msg); },
+    fatal(msg, details) { details ? p.fatal(details, msg) : p.fatal(msg); },
+    child(bindings) { return wrapPino(p.child(bindings)); },
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// File-based Debug Logger
-// ═══════════════════════════════════════════════════════
-//
-// Writes JSONL entries to ~/.ax/data/debug.log (or $AX_HOME/data/debug.log).
-// Each line is a self-contained JSON object with timestamp, source, event, and details.
-// Designed to NEVER crash the application — all errors are silently swallowed.
+export function createLogger(opts: LoggerOptions = {}): Logger {
+  const level = opts.level ?? (process.env.LOG_LEVEL as LogLevel) ?? 'info';
+  const usePretty = opts.pretty ?? process.stdout.isTTY ?? false;
+  const useFile = opts.file ?? !opts.stream; // disable file when test stream is provided
 
-let resolvedLogPath: string | null = null;
+  // Build transports
+  const targets: pino.TransportTargetOptions[] = [];
 
-function getLogPath(): string {
-  if (!resolvedLogPath) {
-    const home = process.env.AX_HOME || join(homedir(), '.ax');
-    const dir = join(home, 'data');
-    try { mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
-    resolvedLogPath = join(dir, 'ax.log');
+  if (useFile) {
+    targets.push({
+      target: 'pino/file',
+      options: { destination: getLogPath(), mkdir: true },
+      level: 'debug', // file always captures everything
+    });
   }
-  return resolvedLogPath;
+
+  // If a test stream is provided, use it directly (no transports)
+  if (opts.stream) {
+    const pinoInstance = pino({ level }, opts.stream);
+    return wrapPino(pinoInstance);
+  }
+
+  if (usePretty) {
+    targets.push({
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss',
+        ignore: 'pid,hostname',
+        messageFormat: false,
+        customPrettifiers: {},
+      },
+      level,
+    });
+  } else {
+    // JSON to stdout for production/piping
+    targets.push({
+      target: 'pino/file',
+      options: { destination: 1 }, // fd 1 = stdout
+      level,
+    });
+  }
+
+  const transport = pino.transport({ targets });
+  const pinoInstance = pino({ level }, transport);
+  return wrapPino(pinoInstance);
 }
 
-/**
- * Append a debug log entry to the debug log file. Safe to call from any context — never throws.
- *
- * @param source  Component identifier (e.g. 'host:ipc', 'container:ipc-client')
- * @param event   Event name (e.g. 'call_start', 'validation_failed')
- * @param details Optional key-value details to include in the log entry
- */
-export function debug(source: string, event: string, details?: Record<string, unknown>): void {
-  try {
-    const entry: Record<string, unknown> = {
-      ts: new Date().toISOString(),
-      pid: process.pid,
-      src: source,
-      event,
-    };
-    if (details) {
-      for (const [k, v] of Object.entries(details)) {
-        entry[k] = v;
-      }
-    }
-    appendFileSync(getLogPath(), JSON.stringify(entry) + '\n');
-  } catch {
-    // Debug logging must never crash the application
+// ═══════════════════════════════════════════════════════
+// Singleton & Convenience
+// ═══════════════════════════════════════════════════════
+
+let _defaultLogger: Logger | null = null;
+
+/** Get or create the default singleton logger. */
+export function getLogger(): Logger {
+  if (!_defaultLogger) {
+    _defaultLogger = createLogger();
   }
+  return _defaultLogger;
 }
 
-/**
- * Truncate a string for logging (avoids massive payloads in debug log).
- */
+/** Initialize the singleton logger with specific options. Call once at startup. */
+export function initLogger(opts: LoggerOptions): Logger {
+  _defaultLogger = createLogger(opts);
+  return _defaultLogger;
+}
+
+/** Reset singleton (for tests). */
+export function resetLogger(): void {
+  _defaultLogger = null;
+}
+
+// ═══════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════
+
+/** Truncate a string for logging (avoids massive payloads). */
 export function truncate(s: string, maxLen = 500): string {
   return s.length > maxLen ? s.slice(0, maxLen) + `...[${s.length} total]` : s;
 }

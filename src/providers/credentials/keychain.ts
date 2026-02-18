@@ -34,10 +34,11 @@ export async function create(config: Config): Promise<CredentialProvider> {
     await keytar.findCredentials(SERVICE_NAME);
   } catch {
     // keytar not available — fall back to encrypted provider
-    console.warn(
-      '[keychain] keytar not available, falling back to encrypted file provider.\n' +
-      'Install keytar for native keychain support: npm install keytar',
-    );
+    const { getLogger } = await import('../../logger.js');
+    getLogger().warn('keytar_unavailable', {
+      message: 'keytar not available, falling back to encrypted file provider',
+      suggestion: 'Install keytar for native keychain support: npm install keytar',
+    });
     const { create: createEncrypted } = await import('./encrypted.js');
     return createEncrypted(config);
   }

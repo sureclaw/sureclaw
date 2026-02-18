@@ -13,9 +13,9 @@
 import { createServer, type Server } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync, unlinkSync } from 'node:fs';
-import { debug } from '../logger.js';
+import { getLogger } from '../logger.js';
 
-const SRC = 'host:proxy';
+const logger = getLogger().child({ component: 'proxy' });
 
 const DEFAULT_TARGET = 'https://api.anthropic.com';
 
@@ -90,7 +90,7 @@ async function forwardWithCredentials(
   // Fail fast when no credentials are available — don't send unauthenticated
   // requests to the Anthropic API and wait for a cryptic 401.
   if (!apiKey && !oauthToken) {
-    debug(SRC, 'no_credentials', { url: req.url });
+    logger.warn('no_credentials', { url: req.url });
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       type: 'error',
@@ -162,7 +162,7 @@ async function forwardWithCredentials(
 
   // Log non-2xx responses — helps diagnose auth failures (401), rate limits (429), etc.
   if (response.status >= 400) {
-    debug(SRC, 'upstream_error', {
+    logger.warn('upstream_error', {
       status: response.status,
       url: req.url,
       authMethod: apiKey ? 'api-key' : oauthToken ? 'oauth' : 'none',

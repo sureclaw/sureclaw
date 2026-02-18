@@ -1,7 +1,8 @@
 import { connect, type Socket } from 'node:net';
-import { debug, truncate } from '../logger.js';
+import { getLogger, truncate } from '../logger.js';
 
-const SRC = 'container:ipc-client';
+const logger = getLogger().child({ component: 'ipc-client' });
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface IPCClientOptions {
@@ -23,16 +24,16 @@ export class IPCClient {
   async connect(): Promise<void> {
     if (this.connected) return;
 
-    debug(SRC, 'connect_start', { socketPath: this.socketPath });
+    logger.debug('connect_start', { socketPath: this.socketPath });
     return new Promise<void>((resolve, reject) => {
       this.socket = connect(this.socketPath, () => {
         this.connected = true;
-        debug(SRC, 'connect_ok', { socketPath: this.socketPath });
+        logger.debug('connect_ok', { socketPath: this.socketPath });
         resolve();
       });
       this.socket.on('error', (err) => {
         this.connected = false;
-        debug(SRC, 'connect_error', { error: err.message });
+        logger.debug('connect_error', { error: err.message });
         reject(err);
       });
     });
@@ -51,11 +52,11 @@ export class IPCClient {
     lenBuf.writeUInt32BE(payload.length, 0);
 
     const effectiveTimeout = callTimeoutMs ?? this.timeoutMs;
-    debug(SRC, 'call_start', { action, payloadBytes: payload.length, timeoutMs: effectiveTimeout });
+    logger.debug('call_start', { action, payloadBytes: payload.length, timeoutMs: effectiveTimeout });
 
     return new Promise<Record<string, unknown>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        debug(SRC, 'call_timeout', { action, timeoutMs: effectiveTimeout });
+        logger.debug('call_timeout', { action, timeoutMs: effectiveTimeout });
         reject(new Error(`IPC call timed out after ${effectiveTimeout}ms`));
       }, effectiveTimeout);
 
@@ -77,7 +78,7 @@ export class IPCClient {
         const durationMs = Date.now() - callStart;
         try {
           const parsed = JSON.parse(raw);
-          debug(SRC, 'call_done', {
+          logger.debug('call_done', {
             action,
             ok: parsed.ok,
             responseBytes: msgLen,
@@ -86,7 +87,7 @@ export class IPCClient {
           });
           resolve(parsed);
         } catch {
-          debug(SRC, 'call_error', { action, error: 'Invalid JSON in response', durationMs });
+          logger.debug('call_error', { action, error: 'Invalid JSON in response', durationMs });
           reject(new Error('Invalid JSON in IPC response'));
         }
       };
@@ -94,7 +95,7 @@ export class IPCClient {
       const onError = (err: Error) => {
         clearTimeout(timer);
         socket.off('data', onData);
-        debug(SRC, 'call_error', { action, error: err.message, durationMs: Date.now() - callStart });
+        logger.debug('call_error', { action, error: err.message, durationMs: Date.now() - callStart });
         reject(err);
       };
 
@@ -108,7 +109,7 @@ export class IPCClient {
 
   disconnect(): void {
     if (this.socket) {
-      debug(SRC, 'disconnect');
+      logger.debug('disconnect');
       this.socket.destroy();
       this.socket = null;
       this.connected = false;

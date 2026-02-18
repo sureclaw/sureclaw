@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { LLMProvider, ChatRequest, ChatChunk } from './types.js';
 import type { Config, ContentBlock } from '../../types.js';
-import { debug } from '../../logger.js';
+import { getLogger } from '../../logger.js';
 
-const SRC = 'host:anthropic';
+const logger = getLogger().child({ component: 'anthropic' });
 
 /** Convert a Message.content (string or ContentBlock[]) to Anthropic API format. */
 function toAnthropicContent(
@@ -73,7 +73,7 @@ export async function create(config: Config): Promise<LLMProvider> {
         .join('\n\n');
 
       const maxTokens = req.maxTokens ?? 4096;
-      debug(SRC, 'chat_start', {
+      logger.debug('chat_start', {
         model: req.model,
         maxTokens,
         toolCount: tools?.length ?? 0,
@@ -105,7 +105,7 @@ export async function create(config: Config): Promise<LLMProvider> {
         } else if (event.type === 'content_block_stop') {
           const finalMsg = await stream.finalMessage();
           const block = finalMsg.content[event.index];
-          debug(SRC, 'content_block_stop', {
+          logger.debug('content_block_stop', {
             index: event.index,
             blockType: block?.type,
             stopReason: finalMsg.stop_reason,
@@ -113,7 +113,7 @@ export async function create(config: Config): Promise<LLMProvider> {
           });
           if (block?.type === 'tool_use') {
             toolUseCount++;
-            debug(SRC, 'tool_use_yield', { toolName: block.name, toolId: block.id });
+            logger.debug('tool_use_yield', { toolName: block.name, toolId: block.id });
             yield {
               type: 'tool_use',
               toolCall: {
@@ -127,7 +127,7 @@ export async function create(config: Config): Promise<LLMProvider> {
       }
 
       const finalMessage = await stream.finalMessage();
-      debug(SRC, 'chat_done', {
+      logger.debug('chat_done', {
         stopReason: finalMessage.stop_reason,
         contentBlockCount: finalMessage.content.length,
         contentBlockTypes: finalMessage.content.map(b => b.type),

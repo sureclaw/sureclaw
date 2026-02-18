@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, sandboxProcess } from './utils.js';
+import { getLogger } from '../../logger.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   let warned = false;
@@ -9,7 +10,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   return {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       if (!warned) {
-        console.warn('[sandbox-subprocess] WARNING: No isolation — dev-only fallback');
+        getLogger().warn('no_isolation', { message: 'dev-only fallback — no sandbox isolation' });
         warned = true;
       }
 

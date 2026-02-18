@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs';
 import { configPath as getConfigPath, axHome } from '../paths.js';
 import { loadDotEnv } from '../dotenv.js';
+import type { LogLevel } from '../logger.js';
 
 // ═══════════════════════════════════════════════════════
 // Command Router (also used by tests)
@@ -161,29 +162,37 @@ async function runServe(args: string[]): Promise<void> {
     }
   }
 
+  // Initialize logger before anything else
+  const { initLogger } = await import('../logger.js');
+  const logger = initLogger({
+    level: verbose ? 'debug' : (process.env.LOG_LEVEL as LogLevel) ?? 'info',
+    pretty: true,
+    file: true,
+  });
+
   // First-run detection
   const resolvedConfigPath = configPath ?? getConfigPath();
   if (!existsSync(resolvedConfigPath)) {
-    console.log('[server] No ax.yaml found — running first-time setup...\n');
+    logger.info('first_run', { message: 'No ax.yaml found — running first-time setup...' });
     const { runConfigure } = await import('../onboarding/configure.js');
     await runConfigure(axHome());
     await loadDotEnv();
-    console.log('[server] Setup complete! Starting AX...\n');
+    logger.info('setup_complete', { message: 'Setup complete! Starting AX...' });
   }
 
   // Load config and create server
   const { loadConfig } = await import('../config.js');
   const { createServer } = await import('../host/server.js');
 
-  console.log('[server] Loading config...');
+  logger.info('loading_config');
   const config = loadConfig(configPath);
-  console.log(`[server] Profile: ${config.profile}`);
+  logger.info('config_loaded', { profile: config.profile });
 
   const server = await createServer(config, { socketPath, daemon, verbose });
   await server.start();
 
   if (daemon) {
-    console.log('[server] Running in daemon mode');
+    logger.info('daemon_mode');
     process.disconnect?.();
   }
 }
@@ -191,8 +200,10 @@ async function runServe(args: string[]): Promise<void> {
 // Run if called directly
 const scriptUrl = `file://${process.argv[1]}`;
 if (import.meta.url === scriptUrl) {
-  main().catch((err) => {
-    console.error('Fatal error:', err);
+  main().catch(async (err) => {
+    const { diagnoseError, formatDiagnosedError } = await import('../errors.js');
+    const diagnosed = diagnoseError(err as Error);
+    console.error(formatDiagnosedError(diagnosed));
     process.exit(1);
   });
 }

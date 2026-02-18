@@ -60,10 +60,11 @@ async function maybeRefreshOAuthToken(envFilePath: string): Promise<void> {
     await refreshOAuthTokenAsync(refreshToken, envFilePath);
   } catch (err) {
     // Refresh failed — warn clearly so the user knows why requests will fail
-    console.error(
-      `[auth] OAuth token refresh failed: ${(err as Error).message}\n` +
-      `[auth] Run \`ax configure\` to re-authenticate.`,
-    );
+    const { getLogger } = await import('./logger.js');
+    getLogger().warn('oauth_refresh_failed', {
+      error: (err as Error).message,
+      suggestion: 'Run `ax configure` to re-authenticate',
+    });
   }
 }
 

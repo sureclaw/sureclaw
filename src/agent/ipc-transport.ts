@@ -11,9 +11,9 @@ import type {
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 import type { IPCClient } from './ipc-client.js';
 import { convertPiMessages, emitStreamEvents } from './stream-utils.js';
-import { debug } from '../logger.js';
+import { getLogger } from '../logger.js';
 
-const SRC = 'container:ipc-transport';
+const logger = getLogger().child({ component: 'ipc-transport' });
 
 // LLM calls can take minutes for complex prompts. The default IPC timeout
 // (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.
@@ -59,7 +59,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
 
     const msgCount = context.messages.length;
     const toolCount = context.tools?.length ?? 0;
-    debug(SRC, 'stream_start', {
+    logger.debug('stream_start', {
       model: model?.id,
       messageCount: msgCount,
       toolCount,
@@ -85,7 +85,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           : messages;
 
         const maxTokens = options?.maxTokens ?? model?.maxTokens;
-        debug(SRC, 'ipc_call', { messageCount: allMessages.length, toolCount: tools?.length ?? 0, maxTokens });
+        logger.debug('ipc_call', { messageCount: allMessages.length, toolCount: tools?.length ?? 0, maxTokens });
         const response = await client.call({
           action: 'llm_call',
           model: model?.id,
@@ -95,7 +95,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
         }, LLM_CALL_TIMEOUT_MS) as IPCResponse;
 
         if (!response.ok) {
-          debug(SRC, 'ipc_error', { error: response.error });
+          logger.debug('ipc_error', { error: response.error });
           const errMsg = makeErrorMessage(response.error ?? 'LLM call failed');
           stream.push({ type: 'start', partial: errMsg });
           stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -103,7 +103,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
         }
 
         const chunks = response.chunks ?? [];
-        debug(SRC, 'ipc_response', { chunkCount: chunks.length, chunkTypes: chunks.map(c => c.type) });
+        logger.debug('ipc_response', { chunkCount: chunks.length, chunkTypes: chunks.map(c => c.type) });
         const textParts: string[] = [];
         const toolCalls: ToolCall[] = [];
         let usage = { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 };
@@ -141,7 +141,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           timestamp: Date.now(),
         };
 
-        debug(SRC, 'stream_done', {
+        logger.debug('stream_done', {
           stopReason,
           textLength: fullText.length,
           toolCallCount: toolCalls.length,
@@ -150,7 +150,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
         });
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        debug(SRC, 'stream_error', { error: (err as Error).message, stack: (err as Error).stack });
+        logger.debug('stream_error', { error: (err as Error).message, stack: (err as Error).stack });
         const errMsg = makeErrorMessage((err as Error).message);
         stream.push({ type: 'start', partial: errMsg });
         stream.push({ type: 'error', reason: 'error', error: errMsg });

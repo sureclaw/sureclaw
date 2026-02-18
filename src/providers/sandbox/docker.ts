@@ -46,10 +46,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
   // Warn at create time if gVisor requested but not available
   if (useGVisor && !isGVisorAvailable()) {
-    console.warn(
-      '[docker] gVisor runtime requested but runsc not found.\n' +
-      'Install gVisor: https://gvisor.dev/docs/user_guide/install/',
-    );
+    const { getLogger } = await import('../../logger.js');
+    getLogger().warn('gvisor_not_found', {
+      message: 'gVisor runtime requested but runsc not found',
+      installUrl: 'https://gvisor.dev/docs/user_guide/install/',
+    });
   }
 
   return {
