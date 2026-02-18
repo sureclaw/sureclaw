@@ -410,7 +410,7 @@ describe('MCP server tool registry security', () => {
     expect(names).not.toContain('skill_list');
   });
 
-  test('exposes exactly 8 IPC tools', () => {
+  test('exposes exactly 10 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -419,10 +419,12 @@ describe('MCP server tool registry security', () => {
       'memory_write', 'memory_query', 'memory_read', 'memory_delete', 'memory_list',
       'web_search', 'web_fetch',
       'audit_query',
+      'identity_write',
+      'user_write',
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(8);
+    expect(Object.keys(tools).length).toBe(10);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {

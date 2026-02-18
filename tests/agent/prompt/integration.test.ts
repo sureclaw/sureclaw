@@ -17,7 +17,7 @@ describe('PromptBuilder integration', () => {
       taintRatio: 0.15,
       taintThreshold: 0.10,
       identityFiles: {
-        agent: 'You are Manon, a TypeScript developer for the AX project.',
+        agents: 'You are Manon, a TypeScript developer for the AX project.',
         soul: 'I am methodical, security-conscious, and thorough. I explain before acting.',
         identity: 'Name: Manon\nRole: TypeScript developer\nProject: AX',
         user: 'The user prefers concise responses and TDD workflow.',
@@ -76,7 +76,7 @@ describe('PromptBuilder integration', () => {
       sandboxType: 'subprocess',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agent: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
       contextContent: 'x'.repeat(4000), // ~1000 tokens
       contextWindow: 2000, // Very tight
       historyTokens: 500,

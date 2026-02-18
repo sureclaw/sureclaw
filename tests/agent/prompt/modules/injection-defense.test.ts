@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'subprocess',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agent: '', soul: '', identity: '', user: '', bootstrap: '' },
+    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '' },
     contextContent: '',
     contextWindow: 200000,
     historyTokens: 0,
@@ -29,7 +29,7 @@ describe('InjectionDefenseModule', () => {
   test('not included in bootstrap mode', () => {
     const mod = new InjectionDefenseModule();
     const ctx = makeContext({
-      identityFiles: { agent: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...' },
+      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });
