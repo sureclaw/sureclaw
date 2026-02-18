@@ -134,9 +134,9 @@ describe('ipc-tools', () => {
     expect(names).toContain('user_write');
   });
 
-  test('user_write sends IPC call with correct action', async () => {
+  test('user_write sends IPC call with userId from options', async () => {
     const client = createMockClient();
-    const tools = createIPCTools(client as any);
+    const tools = createIPCTools(client as any, { userId: 'U12345' });
     const tool = findTool(tools, 'user_write');
     await tool.execute('tc8', {
       content: '# User prefs\nLikes dark mode',
@@ -148,6 +148,7 @@ describe('ipc-tools', () => {
       content: '# User prefs\nLikes dark mode',
       reason: 'Observed preference',
       origin: 'agent_initiated',
+      userId: 'U12345',
     });
   });
 

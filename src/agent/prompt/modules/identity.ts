@@ -26,7 +26,7 @@ export class IdentityModule extends BasePromptModule {
 
     const lines: string[] = [];
 
-    // Agent instruction (AGENT.md or default)
+    // Agent instruction (AGENTS.md or default)
     if (identityFiles.agents) {
       lines.push(identityFiles.agents);
     } else {
@@ -43,6 +43,8 @@ export class IdentityModule extends BasePromptModule {
     }
     if (identityFiles.user) {
       lines.push('', '## User', '', identityFiles.user);
+    } else if (identityFiles.userBootstrap) {
+      lines.push('', '## User Discovery', '', identityFiles.userBootstrap);
     }
 
     // Evolution guidance — tells the agent how to modify identity

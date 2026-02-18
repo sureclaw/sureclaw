@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'nsjail',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '' },
+    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     contextContent: '',
     contextWindow: 200000,
     historyTokens: 0,
@@ -49,7 +49,7 @@ describe('SecurityModule', () => {
   test('not included in bootstrap mode', () => {
     const mod = new SecurityModule();
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...' },
+      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...', userBootstrap: '' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });

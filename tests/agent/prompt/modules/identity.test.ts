@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'subprocess',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '' },
+    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     contextContent: '',
     contextWindow: 200000,
     historyTokens: 0,
@@ -36,7 +36,7 @@ describe('IdentityModule', () => {
     const ctx = makeContext({
       identityFiles: {
         agents: '', soul: '', identity: '', user: '',
-        bootstrap: 'You are bootstrapping. Discover your identity.',
+        bootstrap: 'You are bootstrapping. Discover your identity.', userBootstrap: '',
       },
     });
     const lines = mod.render(ctx);
@@ -53,7 +53,7 @@ describe('IdentityModule', () => {
         soul: 'I am curious and helpful.',
         identity: 'Name: TestBot',
         user: 'User prefers short answers.',
-        bootstrap: '',
+        bootstrap: '', userBootstrap: '',
       },
     });
     const lines = mod.render(ctx);
@@ -77,7 +77,7 @@ describe('IdentityModule', () => {
   test('skips empty identity sections', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
-      identityFiles: { agents: 'Custom agent.', soul: '', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Custom agent.', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     });
     const lines = mod.render(ctx);
     const text = lines.join('\n');
@@ -97,7 +97,7 @@ describe('IdentityModule', () => {
         soul: 'I am curious.',
         identity: 'Name: TestBot',
         user: '',
-        bootstrap: '',
+        bootstrap: '', userBootstrap: '',
       },
     });
     const text = mod.render(ctx).join('\n');
@@ -113,7 +113,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'paranoid',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('paranoid');
@@ -125,7 +125,7 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'balanced',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('auto-applied');
@@ -137,11 +137,48 @@ describe('IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       profile: 'yolo',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('auto-applied');
     expect(text).toContain('full autonomy');
+  });
+
+  test('shows user bootstrap when USER.md is absent but USER_BOOTSTRAP.md exists', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: 'You are TestBot.',
+        soul: 'Curious.',
+        identity: '',
+        user: '',
+        bootstrap: '',
+        userBootstrap: 'You are meeting a new user. Learn their preferences.',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('## User Discovery');
+    expect(text).toContain('Learn their preferences');
+    expect(text).not.toContain('## User\n');
+  });
+
+  test('skips user bootstrap when USER.md exists', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: 'Bot.',
+        soul: 'Soul.',
+        identity: '',
+        user: 'Prefers concise answers.',
+        bootstrap: '',
+        userBootstrap: 'You are meeting a new user.',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('## User');
+    expect(text).toContain('Prefers concise answers');
+    expect(text).not.toContain('User Discovery');
+    expect(text).not.toContain('meeting a new user');
   });
 
   test('does not include evolution guidance in bootstrap mode', () => {
@@ -149,7 +186,7 @@ describe('IdentityModule', () => {
     const ctx = makeContext({
       identityFiles: {
         agents: '', soul: '', identity: '', user: '',
-        bootstrap: 'Discover your identity.',
+        bootstrap: 'Discover your identity.', userBootstrap: '',
       },
     });
     const text = mod.render(ctx).join('\n');

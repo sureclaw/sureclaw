@@ -28,11 +28,15 @@ export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
     user = readFile(join(agentDir, 'users', userId), 'USER.md');
   }
 
+  // USER_BOOTSTRAP.md is shown when the user has no USER.md yet
+  const userBootstrap = (!user && agentDir) ? readFile(agentDir, 'USER_BOOTSTRAP.md') : '';
+
   return {
     agents: load('AGENTS.md'),
     soul: load('SOUL.md'),
     identity: load('IDENTITY.md'),
     user,
     bootstrap: load('BOOTSTRAP.md'),
+    userBootstrap,
   };
 }

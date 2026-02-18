@@ -186,9 +186,9 @@ describe('IPC MCP Server', () => {
     expect(registeredNames.length).toBe(10);
   });
 
-  test('user_write calls IPC client with correct action', async () => {
+  test('user_write calls IPC client with userId from options', async () => {
     const client = createMockClient({ ok: true, applied: true });
-    const server = createIPCMcpServer(client);
+    const server = createIPCMcpServer(client, { userId: 'U12345' });
     const tools = getTools(server);
 
     expect(tools['user_write']).toBeDefined();
@@ -203,6 +203,7 @@ describe('IPC MCP Server', () => {
       content: '# User prefs',
       reason: 'Learned from chat',
       origin: 'agent_initiated',
+      userId: 'U12345',
     });
     expect(result.content[0].text).toContain('"ok":true');
   });

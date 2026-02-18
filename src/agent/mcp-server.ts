@@ -37,7 +37,12 @@ function errorResult(err: unknown) {
   };
 }
 
-export function createIPCMcpServer(client: IPCClient): McpSdkServerConfigWithInstance {
+export interface MCPServerOptions {
+  /** Current user ID — included in user_write calls for per-user scoping. */
+  userId?: string;
+}
+
+export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): McpSdkServerConfigWithInstance {
   async function ipcCall(action: string, params: Record<string, unknown> = {}) {
     try {
       const result = await client.call({ action, ...params });
@@ -119,7 +124,7 @@ export function createIPCMcpServer(client: IPCClient): McpSdkServerConfigWithIns
           reason: z.string(),
           origin: z.enum(['user_request', 'agent_initiated']),
         },
-        (args) => ipcCall('user_write', args),
+        (args) => ipcCall('user_write', { ...args, userId: opts?.userId ?? '' }),
       ),
     ],
   });

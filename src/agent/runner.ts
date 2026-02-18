@@ -408,7 +408,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
 
   // Build tools: local (execute in sandbox) + IPC (route to host)
   const localTools = createLocalTools(config.workspace);
-  const ipcTools = createIPCTools(client);
+  const ipcTools = createIPCTools(client, { userId: config.userId });
   const allTools = [...localTools, ...ipcTools];
 
   logger.debug('pi_core_tools', {

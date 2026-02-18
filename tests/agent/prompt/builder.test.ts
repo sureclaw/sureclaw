@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'subprocess',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '' },
+    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     contextContent: '',
     contextWindow: 200000,
     historyTokens: 0,
@@ -27,7 +27,7 @@ describe('PromptBuilder', () => {
       identityFiles: {
         agents: 'You are TestBot.',
         soul: 'Curious helper.',
-        identity: '', user: '', bootstrap: '',
+        identity: '', user: '', bootstrap: '', userBootstrap: '',
       },
       contextContent: 'Node.js project.',
       skills: ['# Skill\nDo stuff.'],
@@ -46,7 +46,7 @@ describe('PromptBuilder', () => {
   test('modules are ordered by priority', () => {
     const builder = new PromptBuilder();
     const ctx = makeContext({
-      identityFiles: { agents: 'Agent.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Agent.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
       skills: ['# Skill\nContent.'],
     });
     const result = builder.build(ctx);
@@ -65,7 +65,7 @@ describe('PromptBuilder', () => {
     const ctx = makeContext({
       identityFiles: {
         agents: '', soul: '', identity: '', user: '',
-        bootstrap: 'Discover your identity.',
+        bootstrap: 'Discover your identity.', userBootstrap: '',
       },
     });
     const result = builder.build(ctx);
@@ -79,7 +79,7 @@ describe('PromptBuilder', () => {
   test('metadata includes module names', () => {
     const builder = new PromptBuilder();
     const ctx = makeContext({
-      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
     });
     const result = builder.build(ctx);
 
@@ -100,7 +100,7 @@ describe('PromptBuilder', () => {
   test('metadata includes per-module token breakdown', () => {
     const builder = new PromptBuilder();
     const ctx = makeContext({
-      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
       contextContent: 'Context.',
       skills: ['# Skill\nContent.'],
     });

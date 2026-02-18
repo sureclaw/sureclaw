@@ -16,10 +16,12 @@ export async function resetAgent(agentDir: string, templatesDir: string): Promis
 
   mkdirSync(agentDir, { recursive: true });
 
-  // Copy BOOTSTRAP.md template
-  const bootstrapSrc = join(templatesDir, 'BOOTSTRAP.md');
-  if (existsSync(bootstrapSrc)) {
-    copyFileSync(bootstrapSrc, join(agentDir, 'BOOTSTRAP.md'));
+  // Copy template files
+  for (const file of ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md']) {
+    const src = join(templatesDir, file);
+    if (existsSync(src)) {
+      copyFileSync(src, join(agentDir, file));
+    }
   }
 
   // Note: per-user USER.md files are NOT deleted during bootstrap.

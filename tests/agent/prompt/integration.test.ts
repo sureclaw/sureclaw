@@ -22,6 +22,7 @@ describe('PromptBuilder integration', () => {
         identity: 'Name: Manon\nRole: TypeScript developer\nProject: AX',
         user: 'The user prefers concise responses and TDD workflow.',
         bootstrap: '',
+        userBootstrap: '',
       },
       contextContent: '# AX Project\n\nA security-first AI agent framework.\n\n## Stack\nTypeScript, Node.js, Vitest',
       contextWindow: 200000,
@@ -76,7 +77,7 @@ describe('PromptBuilder integration', () => {
       sandboxType: 'subprocess',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '' },
+      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '' },
       contextContent: 'x'.repeat(4000), // ~1000 tokens
       contextWindow: 2000, // Very tight
       historyTokens: 500,

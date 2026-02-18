@@ -51,6 +51,7 @@ describe('loadIdentityFiles', () => {
     expect(files.identity).toBe('');
     expect(files.user).toBe('');
     expect(files.bootstrap).toBe('');
+    expect(files.userBootstrap).toBe('');
   });
 
   test('returns empty user when no userId provided', () => {
@@ -64,6 +65,25 @@ describe('loadIdentityFiles', () => {
     const files = loadIdentityFiles({});
     expect(files.agents).toBe('');
     expect(files.soul).toBe('');
+  });
+
+  test('loads USER_BOOTSTRAP.md when USER.md is absent', () => {
+    writeFileSync(join(agentDir, 'USER_BOOTSTRAP.md'), '# New User\nLearn about this user.');
+
+    const files = loadIdentityFiles({ agentDir, userId: 'newuser' });
+    expect(files.user).toBe('');
+    expect(files.userBootstrap).toBe('# New User\nLearn about this user.');
+  });
+
+  test('skips USER_BOOTSTRAP.md when USER.md exists', () => {
+    writeFileSync(join(agentDir, 'USER_BOOTSTRAP.md'), '# New User');
+    const userDir = join(agentDir, 'users', 'existing');
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, 'USER.md'), '# Known user prefs');
+
+    const files = loadIdentityFiles({ agentDir, userId: 'existing' });
+    expect(files.user).toBe('# Known user prefs');
+    expect(files.userBootstrap).toBe('');
   });
 
   test('reads all identity files from single directory', () => {

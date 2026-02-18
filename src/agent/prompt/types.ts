@@ -29,11 +29,12 @@ export interface PromptContext {
 }
 
 export interface IdentityFiles {
-  agents: string;    // AGENTS.md
-  soul: string;      // SOUL.md
-  identity: string;  // IDENTITY.md
-  user: string;      // USER.md
-  bootstrap: string; // BOOTSTRAP.md
+  agents: string;         // AGENTS.md
+  soul: string;           // SOUL.md
+  identity: string;       // IDENTITY.md
+  user: string;           // USER.md
+  bootstrap: string;      // BOOTSTRAP.md
+  userBootstrap: string;  // USER_BOOTSTRAP.md (shown when USER.md is absent)
 }
 
 /** Bootstrap mode: soul is absent but bootstrap instructions exist. */

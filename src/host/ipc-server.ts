@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import type { ProviderRegistry } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
+import { agentUserDir } from '../paths.js';
 import { getLogger, truncate } from '../logger.js';
 
 const logger = getLogger().child({ component: 'ipc' });
@@ -26,6 +27,8 @@ export interface IPCHandlerOptions {
   onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
   /** Path to ~/.ax/agents/{name}/ for all identity files. */
   agentDir?: string;
+  /** Agent name (e.g. 'main') for resolving per-user directories. */
+  agentName?: string;
   /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
   profile?: string;
 }
@@ -37,6 +40,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
   const maxDepth = opts?.delegation?.maxDepth ?? 2;
   let activeDelegations = 0;
   const agentDir = opts?.agentDir;
+  const agentName = opts?.agentName ?? 'main';
   const profile = opts?.profile ?? 'paranoid';
 
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
@@ -260,8 +264,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     },
 
     user_write: async (req, ctx) => {
-      if (!ctx.userId) {
-        return { ok: false, error: 'user_write requires userId in context' };
+      if (!req.userId) {
+        return { ok: false, error: 'user_write requires userId in payload' };
       }
 
       // 0. Scan proposed content — blocks injection in user files
@@ -274,7 +278,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         await providers.audit.log({
           action: 'user_write',
           sessionId: ctx.sessionId,
-          args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'scanner_blocked' },
+          args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'scanner_blocked' },
         });
         return { ok: false, error: `User content blocked by scanner: ${scanResult.reason ?? 'policy violation'}` };
       }
@@ -286,7 +290,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
           await providers.audit.log({
             action: 'user_write',
             sessionId: ctx.sessionId,
-            args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'queued_tainted' },
+            args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'queued_tainted' },
           });
           return { queued: true, reason: `Taint ${((check.taintRatio ?? 0) * 100).toFixed(0)}% exceeds threshold` };
         }
@@ -297,23 +301,22 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         await providers.audit.log({
           action: 'user_write',
           sessionId: ctx.sessionId,
-          args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'queued_paranoid' },
+          args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'queued_paranoid' },
         });
         return { queued: true, reason: req.reason };
       }
 
       // 3. Write to per-user dir
-      const { agentUserDir } = await import('../paths.js');
-      const userDir = agentUserDir('main', ctx.userId);
+      const userDir = agentUserDir(agentName, req.userId);
       mkdirSync(userDir, { recursive: true });
       writeFileSync(join(userDir, 'USER.md'), req.content, 'utf-8');
 
       await providers.audit.log({
         action: 'user_write',
         sessionId: ctx.sessionId,
-        args: { userId: ctx.userId, reason: req.reason, origin: req.origin, decision: 'applied' },
+        args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'applied' },
       });
-      return { applied: true, userId: ctx.userId };
+      return { applied: true, userId: req.userId };
     },
   };
 

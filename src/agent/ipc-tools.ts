@@ -6,8 +6,13 @@ function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }], details: undefined };
 }
 
+export interface IPCToolsOptions {
+  /** Current user ID — included in user_write calls for per-user scoping. */
+  userId?: string;
+}
+
 /** Create tools that route through IPC to the host process. */
-export function createIPCTools(client: IPCClient): AgentTool[] {
+export function createIPCTools(client: IPCClient, opts?: IPCToolsOptions): AgentTool[] {
   async function ipcCall(action: string, params: Record<string, unknown> = {}) {
     try {
       const result = await client.call({ action, ...params });
@@ -156,7 +161,7 @@ export function createIPCTools(client: IPCClient): AgentTool[] {
         origin: Type.Union([Type.Literal('user_request'), Type.Literal('agent_initiated')]),
       }),
       async execute(_id, params) {
-        return ipcCall('user_write', params);
+        return ipcCall('user_write', { ...params, userId: opts?.userId ?? '' });
       },
     },
   ];

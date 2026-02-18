@@ -115,7 +115,7 @@ export async function createServer(
 
   // First-run: copy default templates into agent dir if files don't already exist
   const templatesDir = resolve('templates');
-  for (const file of ['AGENTS.md', 'BOOTSTRAP.md', 'capabilities.yaml']) {
+  for (const file of ['AGENTS.md', 'BOOTSTRAP.md', 'USER_BOOTSTRAP.md', 'capabilities.yaml']) {
     const dest = join(agentDirVal, file);
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) {
@@ -126,11 +126,9 @@ export async function createServer(
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
     agentDir: agentDirVal,
+    agentName,
     profile: config.profile,
   });
-
-  // Per-session userId tracking for IPC context enrichment
-  const sessionUserIds = new Map<string, string>();
 
   // IPC socket server (internal agent-to-host socket)
   const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));

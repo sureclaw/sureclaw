@@ -42,7 +42,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   await client.connect();
 
   // 3. Create IPC MCP server
-  const ipcMcpServer = createIPCMcpServer(client);
+  const ipcMcpServer = createIPCMcpServer(client, { userId: config.userId });
 
   // 4. Build system prompt via modular PromptBuilder
   const contextContent = loadContext(config.workspace);

@@ -149,6 +149,7 @@ describe('claude-code identity file loading', () => {
       identity: loadIdentityFile(agentDir, 'IDENTITY.md'),
       user: loadIdentityFile(agentDir, 'USER.md'),
       bootstrap: loadIdentityFile(agentDir, 'BOOTSTRAP.md'),
+      userBootstrap: '',
     };
 
     const builder = new PromptBuilder();
@@ -173,7 +174,7 @@ describe('claude-code identity file loading', () => {
   test('system prompt falls back to default when agentDir has no identity files', async () => {
     agentDir = mkdtempSync(join(tmpdir(), 'cc-identity-empty-'));
 
-    const identityFiles = { agents: '', soul: '', identity: '', user: '', bootstrap: '' };
+    const identityFiles = { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' };
 
     const builder = new PromptBuilder();
     const result = builder.build({

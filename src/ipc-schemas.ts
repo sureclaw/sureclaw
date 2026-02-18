@@ -183,6 +183,7 @@ export const IdentityWriteSchema = ipcAction('identity_write', {
 });
 
 export const UserWriteSchema = ipcAction('user_write', {
+  userId: safeString(200),
   content: safeString(32_768),
   reason: safeString(512),
   origin: z.enum(IDENTITY_ORIGINS),
