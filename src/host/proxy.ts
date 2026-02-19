@@ -22,6 +22,7 @@ const DEFAULT_TARGET = 'https://api.anthropic.com';
 export function startAnthropicProxy(
   proxySocketPath: string,
   targetBaseUrl?: string,
+  refreshCredentials?: () => Promise<void>,
 ): { server: Server; stop: () => void } {
   const target = targetBaseUrl ?? DEFAULT_TARGET;
 
@@ -51,7 +52,7 @@ export function startAnthropicProxy(
 
     try {
       const body = await readBody(req);
-      await forwardWithCredentials(target, body, req, res);
+      await forwardWithCredentials(target, body, req, res, refreshCredentials);
     } catch (err) {
       if (!res.headersSent) {
         res.writeHead(502, { 'Content-Type': 'application/json' });
@@ -83,6 +84,8 @@ async function forwardWithCredentials(
   body: string,
   req: IncomingMessage,
   res: ServerResponse,
+  refreshCredentials?: () => Promise<void>,
+  isRetry = false,
 ): Promise<void> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -167,6 +170,33 @@ async function forwardWithCredentials(
       url: req.url,
       authMethod: apiKey ? 'api-key' : oauthToken ? 'oauth' : 'none',
     });
+  }
+
+  // Reactive retry: if the OAuth token expired mid-turn, refresh and retry once.
+  // Only retry for OAuth (API key 401 = bad key, not expiry). Never retry twice.
+  if (
+    response.status === 401
+    && !isRetry
+    && !apiKey
+    && oauthToken
+    && refreshCredentials
+  ) {
+    // Consume the error body before retrying (releases the connection)
+    let errorBody = '';
+    try { errorBody = await response.text(); } catch { /* ignore */ }
+
+    logger.info('oauth_401_retry', { url: req.url });
+    try {
+      await refreshCredentials();
+      return forwardWithCredentials(targetBaseUrl, body, req, res, refreshCredentials, true);
+    } catch (err) {
+      logger.warn('oauth_refresh_on_401_failed', { error: (err as Error).message });
+      // Refresh failed — forward the original 401 response to the agent.
+      // Body was already consumed, so send it directly.
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(errorBody);
+      return;
+    }
   }
 
   // Forward status + headers back to agent

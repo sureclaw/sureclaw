@@ -23,6 +23,7 @@ import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { type Logger, getLogger, truncate } from '../logger.js';
 import { startAnthropicProxy } from './proxy.js';
 import { diagnoseError } from '../errors.js';
+import { ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
 
 // =====================================================
 // Types
@@ -438,6 +439,10 @@ export async function createServer(
       // Mock LLM uses IPC only — no proxy needed.
       let proxySocketPath: string | undefined;
       if (config.providers.llm !== 'mock') {
+        // Refresh OAuth token if expired or expiring (pre-flight check).
+        // Handles 99% of cases where token expires between conversation turns.
+        await ensureOAuthTokenFresh();
+
         // Fail fast if no credentials are available — don't spawn an agent
         // that will just retry 401s with exponential backoff for minutes.
         const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
@@ -451,7 +456,9 @@ export async function createServer(
         }
 
         proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
-        const proxy = startAnthropicProxy(proxySocketPath);
+        const proxy = startAnthropicProxy(proxySocketPath, undefined, async () => {
+          await refreshOAuthTokenFromEnv();
+        });
         proxyCleanup = proxy.stop;
       }
 

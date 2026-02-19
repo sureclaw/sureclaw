@@ -34,14 +34,20 @@ export async function loadDotEnv(): Promise<void> {
 
   // Auto-refresh OAuth token if expired or within 5 minutes of expiry.
   // Await the refresh so credentials are ready before the server starts.
-  await maybeRefreshOAuthToken(envPathResolved);
+  await _refreshIfNeeded(envPathResolved);
 }
 
 /**
- * Check if the OAuth token needs refreshing and refresh it before returning.
- * Must complete before the server starts so the proxy has valid credentials.
+ * Check if the OAuth token needs refreshing and refresh it if expired or expiring.
+ * Safe to call frequently — returns immediately when the token has >5 min remaining.
+ * Exported so server.ts can call it pre-flight before each agent run.
  */
-async function maybeRefreshOAuthToken(envFilePath: string): Promise<void> {
+export async function ensureOAuthTokenFresh(): Promise<void> {
+  const envFilePath = envPath();
+  return _refreshIfNeeded(envFilePath);
+}
+
+async function _refreshIfNeeded(envFilePath: string): Promise<void> {
   const refreshToken = process.env.AX_OAUTH_REFRESH_TOKEN;
   const expiresAtStr = process.env.AX_OAUTH_EXPIRES_AT;
 
@@ -57,7 +63,7 @@ async function maybeRefreshOAuthToken(envFilePath: string): Promise<void> {
 
   // Token expired or about to expire — refresh before server starts
   try {
-    await refreshOAuthTokenAsync(refreshToken, envFilePath);
+    await _doRefresh(refreshToken, envFilePath);
   } catch (err) {
     // Refresh failed — warn clearly so the user knows why requests will fail
     const { getLogger } = await import('./logger.js');
@@ -68,7 +74,18 @@ async function maybeRefreshOAuthToken(envFilePath: string): Promise<void> {
   }
 }
 
-async function refreshOAuthTokenAsync(refreshToken: string, envFilePath: string): Promise<void> {
+/**
+ * Force-refresh the OAuth token using the refresh token from process.env.
+ * Updates both process.env and ~/.ax/.env. Exported for the proxy's
+ * reactive retry on 401.
+ */
+export async function refreshOAuthTokenFromEnv(): Promise<void> {
+  const refreshToken = process.env.AX_OAUTH_REFRESH_TOKEN;
+  if (!refreshToken) throw new Error('No refresh token available');
+  await _doRefresh(refreshToken, envPath());
+}
+
+async function _doRefresh(refreshToken: string, envFilePath: string): Promise<void> {
   const { refreshOAuthTokens } = await import('./host/oauth.js');
   const tokens = await refreshOAuthTokens(refreshToken);
 
