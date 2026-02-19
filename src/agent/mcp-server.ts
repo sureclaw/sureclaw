@@ -126,6 +126,34 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
         },
         (args) => ipcCall('user_write', { ...args, userId: opts?.userId ?? '' }),
       ),
+
+      // ── Scheduler tools ──
+      tool(
+        'scheduler_add_cron',
+        'Schedule a recurring task using a 5-field cron expression (minute hour day month weekday). The prompt will be sent to you at each matching time.',
+        {
+          schedule: z.string().describe('Cron expression, e.g. "0 9 * * 1" for 9am every Monday'),
+          prompt: z.string().describe('The instruction/prompt to execute on each trigger'),
+          maxTokenBudget: z.number().optional().describe('Optional max token budget per execution'),
+        },
+        (args) => ipcCall('scheduler_add_cron', args),
+      ),
+
+      tool(
+        'scheduler_remove_cron',
+        'Remove a previously scheduled cron job by its ID.',
+        {
+          jobId: z.string().describe('The job ID returned by scheduler_add_cron'),
+        },
+        (args) => ipcCall('scheduler_remove_cron', args),
+      ),
+
+      tool(
+        'scheduler_list_jobs',
+        'List all currently scheduled cron jobs.',
+        {},
+        () => ipcCall('scheduler_list_jobs', {}),
+      ),
     ],
   });
 }

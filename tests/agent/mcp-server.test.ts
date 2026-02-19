@@ -177,13 +177,43 @@ describe('IPC MCP Server', () => {
       'audit_query',
       'identity_write',
       'user_write',
+      'scheduler_add_cron',
+      'scheduler_remove_cron',
+      'scheduler_list_jobs',
     ];
 
     const registeredNames = Object.keys(tools);
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(10);
+    expect(registeredNames.length).toBe(13);
+  });
+
+  test('includes scheduler_add_cron tool', () => {
+    const client = createMockClient();
+    const server = createIPCMcpServer(client);
+    const tools = getTools(server);
+    const toolNames = Object.keys(tools);
+
+    expect(toolNames).toContain('scheduler_add_cron');
+  });
+
+  test('includes scheduler_remove_cron tool', () => {
+    const client = createMockClient();
+    const server = createIPCMcpServer(client);
+    const tools = getTools(server);
+    const toolNames = Object.keys(tools);
+
+    expect(toolNames).toContain('scheduler_remove_cron');
+  });
+
+  test('includes scheduler_list_jobs tool', () => {
+    const client = createMockClient();
+    const server = createIPCMcpServer(client);
+    const tools = getTools(server);
+    const toolNames = Object.keys(tools);
+
+    expect(toolNames).toContain('scheduler_list_jobs');
   });
 
   test('user_write calls IPC client with userId from options', async () => {
