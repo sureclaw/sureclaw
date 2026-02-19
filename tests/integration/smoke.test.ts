@@ -53,8 +53,8 @@ function waitForReady(proc: ChildProcess, output: { stdout: string[]; stderr: st
 
     const check = setInterval(() => {
       const combined = output.stdout.join('') + output.stderr.join('');
-      // Server logs "AX server listening" when ready
-      if (combined.includes('AX server listening') || combined.includes('server listening')) {
+      // Server logs "server_listening" via pino when ready
+      if (combined.includes('server_listening')) {
         clearInterval(check);
         clearTimeout(timeout);
         resolve();

@@ -161,7 +161,7 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
     expect(source).toContain('...process.env');
 
     // It does emit a warning about no isolation
-    expect(source).toContain('No isolation');
+    expect(source).toContain('no_isolation');
     expect(source).toContain('dev-only');
   });
 
@@ -463,7 +463,7 @@ describe('MCP server tool registry security', () => {
     expect(names).not.toContain('skill_list');
   });
 
-  test('exposes exactly 10 IPC tools', () => {
+  test('exposes exactly 13 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -474,10 +474,13 @@ describe('MCP server tool registry security', () => {
       'audit_query',
       'identity_write',
       'user_write',
+      'scheduler_add_cron',
+      'scheduler_remove_cron',
+      'scheduler_list_jobs',
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(10);
+    expect(Object.keys(tools).length).toBe(13);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {

@@ -505,7 +505,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     historyTokens: config.history?.length ? JSON.stringify(config.history).length / 4 : 0,
   });
   const systemPrompt = promptResult.content;
-  debug(SRC, 'prompt_built', promptResult.metadata);
+  logger.debug('prompt_built', promptResult.metadata);
 
   // Create coding tools bound to the workspace directory.
   // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()
