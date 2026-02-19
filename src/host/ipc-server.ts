@@ -1,6 +1,7 @@
 import { createServer, type Server, type Socket } from 'node:net';
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import type { ProviderRegistry } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
@@ -317,6 +318,44 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'applied' },
       });
       return { applied: true, userId: req.userId };
+    },
+
+    scheduler_add_cron: async (req, ctx) => {
+      const jobId = randomUUID();
+      providers.scheduler.addCron?.({
+        id: jobId,
+        schedule: req.schedule,
+        agentId: ctx.agentId,
+        prompt: req.prompt,
+        maxTokenBudget: req.maxTokenBudget,
+      });
+      await providers.audit.log({
+        action: 'scheduler_add_cron',
+        sessionId: ctx.sessionId,
+        args: { jobId, schedule: req.schedule },
+        result: 'success',
+        timestamp: new Date(),
+        durationMs: 0,
+      });
+      return { jobId };
+    },
+
+    scheduler_remove_cron: async (req, ctx) => {
+      providers.scheduler.removeCron?.(req.jobId);
+      await providers.audit.log({
+        action: 'scheduler_remove_cron',
+        sessionId: ctx.sessionId,
+        args: { jobId: req.jobId },
+        result: 'success',
+        timestamp: new Date(),
+        durationMs: 0,
+      });
+      return { removed: true };
+    },
+
+    scheduler_list_jobs: async () => {
+      const jobs = providers.scheduler.listJobs?.() ?? [];
+      return { jobs };
     },
   };
 

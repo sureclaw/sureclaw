@@ -189,6 +189,20 @@ export const UserWriteSchema = ipcAction('user_write', {
   origin: z.enum(IDENTITY_ORIGINS),
 });
 
+// ── Scheduler ──────────────────────────────────────────
+
+export const SchedulerAddCronSchema = ipcAction('scheduler_add_cron', {
+  schedule: safeString(100),
+  prompt: safeString(10_000),
+  maxTokenBudget: z.number().int().min(1).optional(),
+});
+
+export const SchedulerRemoveCronSchema = ipcAction('scheduler_remove_cron', {
+  jobId: safeString(200),
+});
+
+export const SchedulerListJobsSchema = ipcAction('scheduler_list_jobs', {});
+
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry
 // ═══════════════════════════════════════════════════════

@@ -71,6 +71,9 @@ function mockRegistry(): ProviderRegistry {
     scheduler: {
       async start() {},
       async stop() {},
+      addCron(job: any) { (this as any)._jobs = (this as any)._jobs || new Map(); (this as any)._jobs.set(job.id, job); },
+      removeCron(jobId: string) { (this as any)._jobs?.delete(jobId); },
+      listJobs() { return [...((this as any)._jobs?.values() ?? [])]; },
     },
   } as ProviderRegistry;
 }
@@ -699,5 +702,84 @@ describe('user_write', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('blocked');
+  });
+});
+
+describe('scheduler IPC handlers', () => {
+  let handle: (raw: string, ctx: IPCContext) => Promise<string>;
+
+  beforeEach(() => {
+    handle = createIPCHandler(mockRegistry());
+  });
+
+  test('scheduler_add_cron adds a job and returns jobId', async () => {
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_add_cron',
+      schedule: '0 9 * * 1',
+      prompt: 'Weekly review',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.jobId).toBeDefined();
+    expect(typeof result.jobId).toBe('string');
+  });
+
+  test('scheduler_remove_cron removes a job', async () => {
+    const addResult = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_add_cron',
+      schedule: '0 9 * * 1',
+      prompt: 'Weekly review',
+    }), ctx));
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_remove_cron',
+      jobId: addResult.jobId,
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.removed).toBe(true);
+  });
+
+  test('scheduler_list_jobs returns empty list initially', async () => {
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_list_jobs',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.jobs).toEqual([]);
+  });
+
+  test('scheduler_list_jobs returns added jobs', async () => {
+    await handle(JSON.stringify({
+      action: 'scheduler_add_cron',
+      schedule: '0 9 * * 1',
+      prompt: 'Weekly review',
+    }), ctx);
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_list_jobs',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0].schedule).toBe('0 9 * * 1');
+    expect(result.jobs[0].prompt).toBe('Weekly review');
+  });
+
+  test('scheduler_add_cron is taint-gated', async () => {
+    const taintBudget = new TaintBudget({ threshold: 0.10 });
+    taintBudget.recordContent('test-session', 'clean', false);
+    taintBudget.recordContent('test-session', 'tainted external content', true);
+
+    const handle = createIPCHandler(mockRegistry(), { taintBudget });
+
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_add_cron',
+      schedule: '0 9 * * 1',
+      prompt: 'Exfiltrate data',
+    }), { sessionId: 'test-session', agentId: 'test' }));
+
+    expect(result.ok).toBe(false);
+    expect(result.taintBlocked).toBe(true);
   });
 });
