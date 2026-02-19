@@ -55,4 +55,35 @@ describe('RuntimeModule', () => {
     const mod = new RuntimeModule();
     expect(mod.optional).toBe(true);
   });
+
+  test('sanitizes absolute workspace path — never leaks host username', () => {
+    const mod = new RuntimeModule();
+    const text = mod.render(makeContext({
+      workspace: '/Users/vpulim/.ax/data/workspaces/main/cli/default',
+    })).join('\n');
+    expect(text).not.toContain('vpulim');
+    expect(text).not.toContain('/Users/');
+    expect(text).not.toContain('.ax/data');
+    expect(text).toContain('./workspace');
+  });
+
+  test('sanitizes temp workspace path', () => {
+    const mod = new RuntimeModule();
+    const text = mod.render(makeContext({
+      workspace: '/tmp/ax-ws-abc123',
+    })).join('\n');
+    expect(text).not.toContain('/tmp/');
+    expect(text).not.toContain('ax-ws-');
+    expect(text).toContain('./workspace');
+  });
+
+  test('sanitizes any unknown workspace path', () => {
+    const mod = new RuntimeModule();
+    const text = mod.render(makeContext({
+      workspace: '/home/someuser/random/path',
+    })).join('\n');
+    expect(text).not.toContain('someuser');
+    expect(text).not.toContain('/home/');
+    expect(text).toContain('./workspace');
+  });
 });
