@@ -55,6 +55,7 @@ const KEEP_RECENT_TURNS = 6;      // Keep last 6 turns (3 user + 3 assistant)
 export interface ConversationTurn {
   role: 'user' | 'assistant';
   content: string;
+  sender?: string;
 }
 
 export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
@@ -78,6 +79,11 @@ export interface AgentConfig {
   sandboxType?: string;
 }
 
+/** Sanitize a sender name: only alphanumeric, underscore, dot, dash. */
+function sanitizeSender(sender: string): string {
+  return sender.replace(/[^a-zA-Z0-9_.\-]/g, '');
+}
+
 /**
  * Convert stored conversation history to pi-ai message format
  * for pre-populating the Agent's state.
@@ -85,9 +91,16 @@ export interface AgentConfig {
 export function historyToPiMessages(history: ConversationTurn[]): AgentMessage[] {
   return history.map((turn): AgentMessage => {
     if (turn.role === 'user') {
+      let content = turn.content;
+      if (turn.sender) {
+        const safe = sanitizeSender(turn.sender);
+        if (safe) {
+          content = `[${safe}]: ${content}`;
+        }
+      }
       return {
         role: 'user',
-        content: turn.content,
+        content,
         timestamp: Date.now(),
       } satisfies UserMessage;
     }
@@ -528,7 +541,11 @@ export function parseStdinPayload(data: string): StdinPayload {
     if (parsed && typeof parsed === 'object' && typeof parsed.message === 'string') {
       return {
         message: parsed.message,
-        history: Array.isArray(parsed.history) ? parsed.history : [],
+        history: Array.isArray(parsed.history) ? parsed.history.map((h: Record<string, unknown>) => ({
+          role: h.role as 'user' | 'assistant',
+          content: h.content as string,
+          ...(typeof h.sender === 'string' ? { sender: h.sender } : {}),
+        })) : [],
         taintRatio: typeof parsed.taintRatio === 'number' ? parsed.taintRatio : 0,
         taintThreshold: typeof parsed.taintThreshold === 'number' ? parsed.taintThreshold : 1,
         profile: typeof parsed.profile === 'string' ? parsed.profile : 'balanced',

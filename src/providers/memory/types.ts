@@ -20,6 +20,7 @@ export interface MemoryQuery {
 export interface ConversationTurn {
   role: 'user' | 'assistant';
   content: string;
+  sender?: string;
 }
 
 export interface ProactiveHint {
