@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { axHome, dataDir, dataFile, isValidSessionId, workspaceDir, agentDir as agentDirPath } from '../paths.js';
 import type { Config, ProviderRegistry } from '../types.js';
-import type { InboundMessage } from '../providers/channel/types.js';
+import { canonicalize, type InboundMessage } from '../providers/channel/types.js';
 import { loadProviders } from './registry.js';
 import { MessageQueue } from '../db.js';
 import { createRouter, type Router } from './router.js';
@@ -797,7 +797,7 @@ export async function createServer(
         }
         sessionCanaries.set(result.sessionId, result.canaryToken);
         const { responseContent } = await processCompletion(
-          msg.content, `ch-${randomUUID().slice(0, 8)}`, [], msg.id,
+          msg.content, `ch-${randomUUID().slice(0, 8)}`, [], canonicalize(msg.session),
           { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
           msg.sender,  // userId from channel message
         );
