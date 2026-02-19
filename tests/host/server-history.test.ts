@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { unlinkSync } from 'node:fs';
+import { mkdirSync, unlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -46,14 +46,29 @@ function sendRequest(
 describe('Server conversation history persistence', () => {
   let server: AxServer;
   let socketPath: string;
+  let testAxHome: string;
+  let originalAxHome: string | undefined;
 
   beforeEach(() => {
     socketPath = join(tmpdir(), `ax-test-hist-${randomUUID()}.sock`);
+    // Isolate each test's AX_HOME so ConversationStore + MessageQueue use separate DBs
+    testAxHome = join(tmpdir(), `ax-test-home-${randomUUID()}`);
+    mkdirSync(testAxHome, { recursive: true });
+    originalAxHome = process.env.AX_HOME;
+    process.env.AX_HOME = testAxHome;
   });
 
   afterEach(async () => {
     if (server) await server.stop();
     try { unlinkSync(socketPath); } catch { /* ignore */ }
+    // Restore AX_HOME
+    if (originalAxHome !== undefined) {
+      process.env.AX_HOME = originalAxHome;
+    } else {
+      delete process.env.AX_HOME;
+    }
+    // Clean up temp dir
+    rmSync(testAxHome, { recursive: true, force: true });
   });
 
   it('should persist user and assistant turns for persistent sessions', async () => {
