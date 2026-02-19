@@ -63,6 +63,7 @@ export interface Config {
     heartbeat_interval_min: number;
     proactive_hint_confidence_threshold?: number;
     proactive_hint_cooldown_sec?: number;
+    agent_dir?: string;
   };
 }
 

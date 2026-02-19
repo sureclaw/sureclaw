@@ -1,4 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SchedulerProvider, CronJobDef } from './types.js';
 import type { InboundMessage } from '../channel/types.js';
 import type { ProactiveHint, MemoryProvider } from '../memory/types.js';
@@ -44,6 +46,7 @@ export async function create(
   const confidenceThreshold = config.scheduler.proactive_hint_confidence_threshold ?? 0.7;
   const cooldownSec = config.scheduler.proactive_hint_cooldown_sec ?? 1800;
   const maxTokenBudget = config.scheduler.max_token_budget;
+  const agentDir = config.scheduler.agent_dir;
 
   // Cooldown tracking: signature → timestamp of last fire
   const cooldownMap = new Map<string, number>();
@@ -60,11 +63,19 @@ export async function create(
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
 
+    let content = 'Heartbeat check — review pending tasks and proactive hints.';
+    if (agentDir) {
+      try {
+        const md = readFileSync(join(agentDir, 'HEARTBEAT.md'), 'utf-8');
+        if (md.trim()) content = md;
+      } catch { /* no HEARTBEAT.md — use default */ }
+    }
+
     onMessageHandler({
       id: randomUUID(),
       session: schedulerSession('heartbeat'),
       sender: 'heartbeat',
-      content: 'Heartbeat check — review pending tasks and proactive hints.',
+      content,
       attachments: [],
       timestamp: new Date(),
     });

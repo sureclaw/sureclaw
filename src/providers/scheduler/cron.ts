@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { SchedulerProvider, CronJobDef } from './types.js';
 import type { InboundMessage } from '../channel/types.js';
 import type { Config } from '../../types.js';
@@ -20,15 +22,25 @@ export async function create(config: Config): Promise<SchedulerProvider> {
   };
 
   const heartbeatIntervalMs = config.scheduler.heartbeat_interval_min * 60 * 1000;
+  const agentDir = config.scheduler.agent_dir;
 
   function fireHeartbeat(): void {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
+
+    let content = 'Heartbeat check — review pending tasks and proactive hints.';
+    if (agentDir) {
+      try {
+        const md = readFileSync(join(agentDir, 'HEARTBEAT.md'), 'utf-8');
+        if (md.trim()) content = md;
+      } catch { /* no HEARTBEAT.md — use default */ }
+    }
+
     onMessageHandler({
       id: randomUUID(),
       session: schedulerSession('heartbeat'),
       sender: 'heartbeat',
-      content: 'Heartbeat check — review pending tasks and proactive hints.',
+      content,
       attachments: [],
       timestamp: new Date(),
     });

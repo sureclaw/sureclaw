@@ -54,6 +54,7 @@ const ConfigSchema = z.strictObject({
     }),
     max_token_budget: z.number().int().min(1),
     heartbeat_interval_min: z.number().int().min(1),
+    agent_dir: z.string().optional(),
   }),
 });
 
