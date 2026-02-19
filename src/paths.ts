@@ -16,7 +16,12 @@
  *       audit.db        — SQLite audit provider
  *       audit/          — file audit provider
  *       credentials.enc — encrypted credentials
- *       workspaces/     — persistent agent workspaces (keyed by session UUID)
+ *       workspaces/     — persistent agent workspaces
+ *         <uuid>/                        — legacy flat UUID workspace
+ *         main/cli/default/              — default CLI chat session
+ *         main/cli/<name>/               — named CLI session
+ *         main/slack/dm/<userId>/        — Slack DM
+ *         main/slack/channel/<chanId>/   — Slack channel
  *     agents/
  *       assistant/          — all agent files (AGENTS.md, BOOTSTRAP.md, capabilities.yaml, SOUL.md, IDENTITY.md)
  *         users/
@@ -54,14 +59,55 @@ export function dataFile(...segments: string[]): string {
 /** UUID format regex (same as ipc-schemas.ts line 24). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** Validate that a string is a valid lowercase UUID (prevents path traversal). */
+/** Valid segment: alphanumeric, underscore, hyphen, dot — all filesystem-safe. */
+const SEGMENT_RE = /^[a-zA-Z0-9_.\-]+$/;
+
+/**
+ * Validate that a string is a valid session ID.
+ * Accepts either a lowercase UUID or 3+ colon-separated segments
+ * where each segment matches SEGMENT_RE.
+ */
 export function isValidSessionId(id: string): boolean {
-  return UUID_RE.test(id);
+  if (UUID_RE.test(id)) return true;
+  if (!id.includes(':')) return false;
+  const parts = id.split(':');
+  if (parts.length < 3) return false;
+  return parts.every(p => p.length > 0 && SEGMENT_RE.test(p));
 }
 
-/** Path to a persistent agent workspace directory for a given session. */
+/**
+ * Path to a persistent agent workspace directory for a given session.
+ * Colon-separated IDs become nested directories; UUIDs stay flat.
+ */
 export function workspaceDir(sessionId: string): string {
+  if (sessionId.includes(':')) {
+    const parts = sessionId.split(':');
+    return join(dataDir(), 'workspaces', ...parts);
+  }
   return join(dataDir(), 'workspaces', sessionId);
+}
+
+/** Compose a session ID from parts, joining with ':'. Validates each segment. */
+export function composeSessionId(...parts: string[]): string {
+  if (parts.length < 3) {
+    throw new Error('Session ID requires at least 3 segments');
+  }
+  for (const p of parts) {
+    if (!p || !SEGMENT_RE.test(p)) {
+      throw new Error(`Invalid session ID segment: "${p}"`);
+    }
+  }
+  return parts.join(':');
+}
+
+/** Parse a session ID into segments. Returns array for colon-format, null for UUIDs. */
+export function parseSessionId(id: string): string[] | null {
+  if (UUID_RE.test(id)) return null;
+  if (!id.includes(':')) return null;
+  const parts = id.split(':');
+  if (parts.length < 3) return null;
+  if (!parts.every(p => p.length > 0 && SEGMENT_RE.test(p))) return null;
+  return parts;
 }
 
 const SAFE_NAME_RE = /^[a-zA-Z0-9_-]+$/;

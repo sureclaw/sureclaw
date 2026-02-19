@@ -2,9 +2,8 @@
 import React from 'react';
 import { render } from 'ink';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { Agent } from 'undici';
-import { axHome } from '../paths.js';
+import { axHome, composeSessionId } from '../paths.js';
 import { App } from './components/App.js';
 
 // ═══════════════════════════════════════════════════════
@@ -14,6 +13,7 @@ import { App } from './components/App.js';
 export interface ChatClientOptions {
   socketPath?: string;
   noStream?: boolean;
+  sessionId?: string;
   fetch?: typeof fetch;
 }
 
@@ -25,7 +25,7 @@ export function createChatClient(opts: ChatClientOptions = {}) {
   const socketPath = opts.socketPath ?? join(axHome(), 'ax.sock');
   const stream = opts.noStream !== true;
   const fetchFn = opts.fetch ?? createSocketFetch(socketPath);
-  const sessionId = randomUUID();
+  const sessionId = opts.sessionId ?? composeSessionId('main', 'cli', 'default');
 
   async function start(): Promise<void> {
     const { waitUntilExit } = render(
@@ -58,15 +58,24 @@ function createSocketFetch(socketPath: string): typeof fetch {
 export async function runChat(args: string[]): Promise<void> {
   let socketPath: string | undefined;
   let noStream = false;
+  let sessionName: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--socket') {
       socketPath = args[++i];
     } else if (args[i] === '--no-stream') {
       noStream = true;
+    } else if (args[i] === '--session') {
+      sessionName = args[++i];
     }
   }
 
-  const client = createChatClient({ socketPath, noStream });
+  // If --session given and doesn't contain ':', compose as main:cli:<name>
+  // If it contains ':', pass through as full session ID
+  const sessionId = sessionName
+    ? (sessionName.includes(':') ? sessionName : composeSessionId('main', 'cli', sessionName))
+    : undefined; // falls back to default in createChatClient
+
+  const client = createChatClient({ socketPath, noStream, sessionId });
   await client.start();
 }

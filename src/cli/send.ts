@@ -2,7 +2,7 @@
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 import { Agent } from 'undici';
-import { axHome } from '../paths.js';
+import { axHome, composeSessionId } from '../paths.js';
 
 // ═══════════════════════════════════════════════════════
 // Types
@@ -159,13 +159,19 @@ export async function runSend(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // If --session given and doesn't contain ':', compose as main:cli:<name>
+  // If it contains ':', pass through as full session ID
+  const resolvedSessionId = sessionId
+    ? (sessionId.includes(':') ? sessionId : composeSessionId('main', 'cli', sessionId))
+    : undefined; // no session (ephemeral)
+
   const client = createSendClient({
     message,
     socketPath,
     noStream,
     json,
     fromStdin,
-    sessionId,
+    sessionId: resolvedSessionId,
   });
 
   try {
