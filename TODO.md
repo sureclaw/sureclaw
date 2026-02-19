@@ -1,7 +1,7 @@
 ## Features
 
-[ ] Slack channel
-[ ] Prompts (system, AGENTS.md, SOUL.md, IDENTITY.md, BOOTSTRAP.md)
+[x] Slack channel
+[x] Prompts (system, AGENTS.md, SOUL.md, IDENTITY.md, BOOTSTRAP.md)
 [x] HEARTBEAT.md
 [ ] Memu integration
 [ ] Use Nexus landing page design
