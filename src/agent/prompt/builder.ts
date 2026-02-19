@@ -6,6 +6,7 @@ import { InjectionDefenseModule } from './modules/injection-defense.js';
 import { SecurityModule } from './modules/security.js';
 import { ContextModule } from './modules/context.js';
 import { SkillsModule } from './modules/skills.js';
+import { HeartbeatModule } from './modules/heartbeat.js';
 import { RuntimeModule } from './modules/runtime.js';
 
 export interface PromptResult {
@@ -35,6 +36,7 @@ export class PromptBuilder {
       new SecurityModule(),           // 10
       new ContextModule(),            // 60
       new SkillsModule(),             // 70
+      new HeartbeatModule(),          // 80
       new RuntimeModule(),            // 90
     ].sort((a, b) => a.priority - b.priority);
   }
