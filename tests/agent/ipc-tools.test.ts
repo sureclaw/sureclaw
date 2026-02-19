@@ -152,9 +152,29 @@ describe('ipc-tools', () => {
     });
   });
 
-  test('total tool count is 10', () => {
+  test('includes scheduler_add_cron tool', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(10);
+    const tool = tools.find((t) => t.name === 'scheduler_add_cron');
+    expect(tool).toBeDefined();
+    expect(tool!.description).toContain('cron');
+  });
+
+  test('includes scheduler_remove_cron tool', () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    expect(tools.find((t) => t.name === 'scheduler_remove_cron')).toBeDefined();
+  });
+
+  test('includes scheduler_list_jobs tool', () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    expect(tools.find((t) => t.name === 'scheduler_list_jobs')).toBeDefined();
+  });
+
+  test('total tool count is 13', () => {
+    const client = createMockClient();
+    const tools = createIPCTools(client as any);
+    expect(tools.length).toBe(13);
   });
 });

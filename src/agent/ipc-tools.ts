@@ -164,5 +164,40 @@ export function createIPCTools(client: IPCClient, opts?: IPCToolsOptions): Agent
         return ipcCall('user_write', { ...params, userId: opts?.userId ?? '' });
       },
     },
+
+    // ── Scheduler tools ──
+    {
+      name: 'scheduler_add_cron',
+      label: 'Add Cron Job',
+      description: 'Schedule a recurring task using a 5-field cron expression (minute hour day month weekday). The prompt will be sent to you at each matching time.',
+      parameters: Type.Object({
+        schedule: Type.String({ description: 'Cron expression, e.g. "0 9 * * 1" for 9am every Monday' }),
+        prompt: Type.String({ description: 'The instruction/prompt to execute on each trigger' }),
+        maxTokenBudget: Type.Optional(Type.Number({ description: 'Optional max token budget per execution' })),
+      }),
+      async execute(_id, params) {
+        return ipcCall('scheduler_add_cron', params);
+      },
+    },
+    {
+      name: 'scheduler_remove_cron',
+      label: 'Remove Cron Job',
+      description: 'Remove a previously scheduled cron job by its ID.',
+      parameters: Type.Object({
+        jobId: Type.String({ description: 'The job ID returned by scheduler_add_cron' }),
+      }),
+      async execute(_id, params) {
+        return ipcCall('scheduler_remove_cron', params);
+      },
+    },
+    {
+      name: 'scheduler_list_jobs',
+      label: 'List Cron Jobs',
+      description: 'List all currently scheduled cron jobs.',
+      parameters: Type.Object({}),
+      async execute(_id) {
+        return ipcCall('scheduler_list_jobs', {});
+      },
+    },
   ];
 }
