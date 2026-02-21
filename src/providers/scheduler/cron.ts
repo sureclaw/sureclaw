@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { SchedulerProvider, CronJobDef } from './types.js';
 import type { InboundMessage } from '../channel/types.js';
 import type { Config } from '../../types.js';
+import { HeartbeatState, parseCadences } from '../../agent/heartbeat-state.js';
 import {
   type ActiveHours,
   schedulerSession, parseTime, isWithinActiveHours, matchesCron,
@@ -23,6 +24,7 @@ export async function create(config: Config): Promise<SchedulerProvider> {
 
   const heartbeatIntervalMs = config.scheduler.heartbeat_interval_min * 60 * 1000;
   const agentDir = config.scheduler.agent_dir;
+  const heartbeatState = agentDir ? new HeartbeatState(agentDir) : null;
 
   function fireHeartbeat(): void {
     if (!onMessageHandler) return;
@@ -32,7 +34,11 @@ export async function create(config: Config): Promise<SchedulerProvider> {
     if (agentDir) {
       try {
         const md = readFileSync(join(agentDir, 'HEARTBEAT.md'), 'utf-8');
-        if (md.trim()) content = md;
+        if (md.trim()) {
+          const cadences = parseCadences(md);
+          const statusSummary = heartbeatState!.summarize(cadences);
+          content = `${md}\n\n## Current Status\n${statusSummary}`;
+        }
       } catch { /* no HEARTBEAT.md — use default */ }
     }
 

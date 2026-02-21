@@ -6,6 +6,7 @@ import type { InboundMessage } from '../channel/types.js';
 import type { ProactiveHint, MemoryProvider } from '../memory/types.js';
 import type { AuditProvider } from '../audit/types.js';
 import type { Config } from '../../types.js';
+import { HeartbeatState, parseCadences } from '../../agent/heartbeat-state.js';
 import {
   type ActiveHours,
   schedulerSession, parseTime, isWithinActiveHours, matchesCron,
@@ -47,6 +48,7 @@ export async function create(
   const cooldownSec = config.scheduler.proactive_hint_cooldown_sec ?? 1800;
   const maxTokenBudget = config.scheduler.max_token_budget;
   const agentDir = config.scheduler.agent_dir;
+  const heartbeatState = agentDir ? new HeartbeatState(agentDir) : null;
 
   // Cooldown tracking: signature → timestamp of last fire
   const cooldownMap = new Map<string, number>();
@@ -67,7 +69,11 @@ export async function create(
     if (agentDir) {
       try {
         const md = readFileSync(join(agentDir, 'HEARTBEAT.md'), 'utf-8');
-        if (md.trim()) content = md;
+        if (md.trim()) {
+          const cadences = parseCadences(md);
+          const statusSummary = heartbeatState!.summarize(cadences);
+          content = `${md}\n\n## Current Status\n${statusSummary}`;
+        }
       } catch { /* no HEARTBEAT.md — use default */ }
     }
 

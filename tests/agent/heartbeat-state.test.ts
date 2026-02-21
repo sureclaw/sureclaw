@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { HeartbeatState } from '../../src/agent/heartbeat-state.js';
+import { HeartbeatState, parseCadences } from '../../src/agent/heartbeat-state.js';
 
 describe('HeartbeatState', () => {
   let dir: string;
@@ -58,5 +58,40 @@ describe('HeartbeatState', () => {
     const summary = state.summarize({ 'new-check': 30 });
     expect(summary).toContain('never run');
     expect(summary).toContain('OVERDUE');
+  });
+});
+
+describe('parseCadences', () => {
+  it('parses hours cadence from HEARTBEAT.md format', () => {
+    const md = '- **memory-review** (every 4h): Review memories';
+    expect(parseCadences(md)).toEqual({ 'memory-review': 240 });
+  });
+
+  it('parses minutes cadence', () => {
+    const md = '- **quick-check** (every 30m): Do a quick check';
+    expect(parseCadences(md)).toEqual({ 'quick-check': 30 });
+  });
+
+  it('parses multiple checks', () => {
+    const md = [
+      '# Heartbeat Checklist',
+      '',
+      '## Checks',
+      '',
+      '- **memory-review** (every 4h): Review recent memories',
+      '- **pending-tasks** (every 1h): Check pending tasks',
+    ].join('\n');
+    expect(parseCadences(md)).toEqual({
+      'memory-review': 240,
+      'pending-tasks': 60,
+    });
+  });
+
+  it('returns empty object for content with no checks', () => {
+    expect(parseCadences('# Just a heading\nSome text')).toEqual({});
+  });
+
+  it('returns empty object for empty string', () => {
+    expect(parseCadences('')).toEqual({});
   });
 });
