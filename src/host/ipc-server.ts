@@ -63,11 +63,15 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       })) {
         chunks.push(chunk);
       }
-      const chunkTypes = chunks.map((c: any) => c.type);
+      const typeCounts: Record<string, number> = {};
+      for (const c of chunks) {
+        const t = (c as any).type ?? 'unknown';
+        typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+      }
       const toolUseChunks = chunks.filter((c: any) => c.type === 'tool_use');
       logger.debug('llm_call_result', {
         chunkCount: chunks.length,
-        chunkTypes,
+        chunkTypes: typeCounts,
         toolUseCount: toolUseChunks.length,
         toolNames: toolUseChunks.map((c: any) => c.toolCall?.name),
       });
