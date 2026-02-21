@@ -26,34 +26,35 @@ function envBaseUrl(providerName: string): string {
 // Message format translation (AX -> OpenAI)
 // ───────────────────────────────────────────────────────
 
-/** Convert AX Message to OpenAI ChatCompletionMessageParam. */
-function toOpenAIMessage(msg: Message): ChatCompletionMessageParam {
+/** Convert AX Message to one or more OpenAI ChatCompletionMessageParams.
+ *  A single AX Message with multiple tool_result blocks expands to multiple
+ *  OpenAI tool messages (one per result). Use with flatMap(). */
+function toOpenAIMessages(msg: Message): ChatCompletionMessageParam[] {
   // String content — pass through directly
   if (typeof msg.content === 'string') {
     if (msg.role === 'system') {
-      return { role: 'system', content: msg.content };
+      return [{ role: 'system', content: msg.content }];
     }
     if (msg.role === 'assistant') {
-      return { role: 'assistant', content: msg.content };
+      return [{ role: 'assistant', content: msg.content }];
     }
-    return { role: 'user', content: msg.content };
+    return [{ role: 'user', content: msg.content }];
   }
 
   // ContentBlock[] — need to inspect block types
   const blocks = msg.content as ContentBlock[];
 
-  // tool_result blocks -> OpenAI tool messages
+  // tool_result blocks -> individual OpenAI tool messages
   const toolResults = blocks.filter(b => b.type === 'tool_result');
   if (toolResults.length > 0) {
-    // Return the first tool_result as a tool message.
-    // If there are multiple, they'd each be a separate message in practice,
-    // but the caller should have split them already.
-    const tr = toolResults[0] as Extract<ContentBlock, { type: 'tool_result' }>;
-    return {
-      role: 'tool' as const,
-      tool_call_id: tr.tool_use_id,
-      content: tr.content || '[no output]',
-    };
+    return toolResults.map(b => {
+      const tr = b as Extract<ContentBlock, { type: 'tool_result' }>;
+      return {
+        role: 'tool' as const,
+        tool_call_id: tr.tool_use_id,
+        content: tr.content || '[no output]',
+      };
+    });
   }
 
   // tool_use blocks -> OpenAI assistant message with tool_calls
@@ -64,7 +65,7 @@ function toOpenAIMessage(msg: Message): ChatCompletionMessageParam {
       .map(b => (b as Extract<ContentBlock, { type: 'text' }>).text)
       .join('');
 
-    return {
+    return [{
       role: 'assistant',
       content: textParts || null,
       tool_calls: toolUses.map(b => {
@@ -78,7 +79,7 @@ function toOpenAIMessage(msg: Message): ChatCompletionMessageParam {
           },
         };
       }),
-    };
+    }];
   }
 
   // Plain text ContentBlock[] — join text parts
@@ -88,12 +89,12 @@ function toOpenAIMessage(msg: Message): ChatCompletionMessageParam {
     .join('');
 
   if (msg.role === 'assistant') {
-    return { role: 'assistant', content: text || '.' };
+    return [{ role: 'assistant', content: text || '.' }];
   }
   if (msg.role === 'system') {
-    return { role: 'system', content: text || '.' };
+    return [{ role: 'system', content: text || '.' }];
   }
-  return { role: 'user', content: text || '.' };
+  return [{ role: 'user', content: text || '.' }];
 }
 
 // ───────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ export async function create(config: Config, providerName?: string): Promise<LLM
     name,
 
     async *chat(req: ChatRequest): AsyncIterable<ChatChunk> {
-      const messages = req.messages.map(toOpenAIMessage);
+      const messages = req.messages.flatMap(toOpenAIMessages);
 
       const tools = req.tools?.map(t => ({
         type: 'function' as const,
