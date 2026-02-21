@@ -22,6 +22,8 @@ export async function create(config: Config, deps: CronSchedulerDeps = {}): Prom
 
   // Track last-fired minute per job to prevent duplicate fires within the same minute
   const lastFiredMinute = new Map<string, string>();
+  // Timers for one-shot jobs scheduled via scheduleOnce()
+  const onceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   const activeHours: ActiveHours = {
     start: parseTime(config.scheduler.active_hours.start),
@@ -54,6 +56,20 @@ export async function create(config: Config, deps: CronSchedulerDeps = {}): Prom
     });
   }
 
+  function fireOnceJob(job: CronJobDef): void {
+    if (!onMessageHandler) return;
+    onMessageHandler({
+      id: randomUUID(),
+      session: schedulerSession(`cron:${job.id}`),
+      sender: `cron:${job.id}`,
+      content: job.prompt,
+      attachments: [],
+      timestamp: new Date(),
+    });
+    jobs.delete(job.id);
+    onceTimers.delete(job.id);
+  }
+
   function checkCronJobs(at?: Date): void {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
@@ -71,6 +87,10 @@ export async function create(config: Config, deps: CronSchedulerDeps = {}): Prom
         attachments: [],
         timestamp: now,
       });
+      if (job.runOnce) {
+        jobs.delete(job.id);
+        lastFiredMinute.delete(job.id);
+      }
     }
   }
 
@@ -94,6 +114,8 @@ export async function create(config: Config, deps: CronSchedulerDeps = {}): Prom
         clearInterval(cronTimer);
         cronTimer = null;
       }
+      for (const timer of onceTimers.values()) clearTimeout(timer);
+      onceTimers.clear();
       onMessageHandler = null;
     },
 
@@ -102,11 +124,23 @@ export async function create(config: Config, deps: CronSchedulerDeps = {}): Prom
     },
 
     removeCron(jobId: string): void {
+      const timer = onceTimers.get(jobId);
+      if (timer) {
+        clearTimeout(timer);
+        onceTimers.delete(jobId);
+      }
       jobs.delete(jobId);
     },
 
     listJobs(): CronJobDef[] {
       return jobs.list();
+    },
+
+    scheduleOnce(job: CronJobDef, fireAt: Date): void {
+      jobs.set(job);
+      const delayMs = Math.max(0, fireAt.getTime() - Date.now());
+      const timer = setTimeout(() => fireOnceJob(job), delayMs);
+      onceTimers.set(job.id, timer);
     },
 
     checkCronNow(at?: Date): void {

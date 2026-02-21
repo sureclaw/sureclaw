@@ -74,6 +74,7 @@ function mockRegistry(): ProviderRegistry {
       addCron(job: any) { (this as any)._jobs = (this as any)._jobs || new Map(); (this as any)._jobs.set(job.id, job); },
       removeCron(jobId: string) { (this as any)._jobs?.delete(jobId); },
       listJobs() { return [...((this as any)._jobs?.values() ?? [])]; },
+      scheduleOnce(job: any, _fireAt: Date) { (this as any)._jobs = (this as any)._jobs || new Map(); (this as any)._jobs.set(job.id, job); (this as any)._lastScheduleOnce = { job, fireAt: _fireAt }; },
     },
   } as ProviderRegistry;
 }
@@ -818,6 +819,46 @@ describe('scheduler IPC handlers', () => {
     expect(jobs).toHaveLength(1);
     // Should use agentName ('main'), not ctx.agentId ('system')
     expect(jobs[0].agentId).toBe('main');
+  });
+
+  test('scheduler_run_at uses scheduleOnce with correct datetime', async () => {
+    const registry = mockRegistry();
+    const handle = createIPCHandler(registry);
+
+    const datetime = '2026-03-01T14:30:00';
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_run_at',
+      datetime,
+      prompt: 'Send weather report',
+    }), ctx));
+
+    expect(result.ok).toBe(true);
+    expect(result.jobId).toBeDefined();
+
+    // Schedule is derived from local time getters
+    const dt = new Date(datetime);
+    const expectedSchedule = `${dt.getMinutes()} ${dt.getHours()} ${dt.getDate()} ${dt.getMonth() + 1} *`;
+    expect(result.schedule).toBe(expectedSchedule);
+
+    // Verify scheduleOnce was called (not addCron)
+    const last = (registry.scheduler as any)._lastScheduleOnce;
+    expect(last).toBeDefined();
+    expect(last.job.runOnce).toBe(true);
+    expect(last.job.prompt).toBe('Send weather report');
+    expect(last.job.delivery).toEqual({ mode: 'channel', target: 'last' });
+    expect(last.fireAt.getTime()).toBe(dt.getTime());
+  });
+
+  test('scheduler_run_at rejects invalid datetime', async () => {
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'scheduler_run_at',
+      datetime: 'not-a-date',
+      prompt: 'Should fail',
+    }), ctx));
+
+    // Handler returns { ok: false, error }, spread overwrites wrapper's ok: true
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('Invalid datetime string');
   });
 
   test('scheduler_add_cron is taint-gated', async () => {

@@ -147,6 +147,17 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     }),
   },
   {
+    name: 'scheduler_run_at',
+    label: 'Run Once At',
+    description:
+      'Schedule a one-shot task at a specific date/time. The prompt executes once and the job is automatically removed.',
+    parameters: Type.Object({
+      datetime: Type.String({ description: 'ISO 8601 datetime string, e.g. "2026-02-21T19:30:00"' }),
+      prompt: Type.String({ description: 'The instruction/prompt to execute' }),
+      maxTokenBudget: Type.Optional(Type.Number({ description: 'Optional max token budget for execution' })),
+    }),
+  },
+  {
     name: 'scheduler_remove_cron',
     label: 'Remove Cron Job',
     description: 'Remove a previously scheduled cron job by its ID.',

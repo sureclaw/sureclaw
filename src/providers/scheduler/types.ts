@@ -14,6 +14,7 @@ export interface CronJobDef {
   prompt: string;
   maxTokenBudget?: number;
   delivery?: CronDelivery;
+  runOnce?: boolean;
 }
 
 export interface JobStore {
@@ -43,6 +44,8 @@ export interface SchedulerProvider {
   addCron?(job: CronJobDef): void;
   removeCron?(jobId: string): void;
   listJobs?(): CronJobDef[];
+  /** Schedule a one-shot job at a specific Date via setTimeout (exact timing). */
+  scheduleOnce?(job: CronJobDef, fireAt: Date): void;
   /** Manually trigger cron check at optional Date (for testing). */
   checkCronNow?(at?: Date): void;
   /** Record tokens used so budget tracking can suppress hints. */

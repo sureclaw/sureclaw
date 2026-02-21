@@ -143,6 +143,17 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
       ),
 
       tool(
+        'scheduler_run_at',
+        'Schedule a one-shot task at a specific date/time. The prompt executes once and the job is automatically removed.',
+        {
+          datetime: z.string().describe('ISO 8601 datetime string, e.g. "2026-02-21T19:30:00"'),
+          prompt: z.string().describe('The instruction/prompt to execute'),
+          maxTokenBudget: z.number().optional().describe('Optional max token budget for execution'),
+        },
+        (args) => ipcCall('scheduler_run_at', args),
+      ),
+
+      tool(
         'scheduler_remove_cron',
         'Remove a previously scheduled cron job by its ID.',
         {

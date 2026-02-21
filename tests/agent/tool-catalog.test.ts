@@ -2,8 +2,8 @@ import { describe, test, expect } from 'vitest';
 import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 13 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(13);
+  test('exports exactly 14 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(14);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -55,7 +55,7 @@ describe('tool-catalog', () => {
       'web_fetch', 'web_search',
       'audit_query',
       'identity_write', 'user_write',
-      'scheduler_add_cron', 'scheduler_remove_cron', 'scheduler_list_jobs',
+      'scheduler_add_cron', 'scheduler_run_at', 'scheduler_remove_cron', 'scheduler_list_jobs',
     ];
     expect(TOOL_NAMES).toEqual(expected);
   });

@@ -160,6 +160,33 @@ describe('scheduler-cron', () => {
     rmSync(agentDir, { recursive: true, force: true });
   });
 
+  test('runOnce job fires once and is auto-deleted', async () => {
+    const scheduler = await create(mockConfig);
+    const received: InboundMessage[] = [];
+
+    scheduler.addCron!({
+      id: 'once-job',
+      schedule: '* * * * *',
+      agentId: 'assistant',
+      prompt: 'Run once only',
+      runOnce: true,
+    });
+
+    await scheduler.start((msg) => received.push(msg));
+    stopFn = () => scheduler.stop();
+
+    // First check — should fire
+    scheduler.checkCronNow!(new Date('2026-03-01T12:05:00Z'));
+    expect(received.filter(m => m.sender === 'cron:once-job')).toHaveLength(1);
+
+    // Job should be deleted
+    expect(scheduler.listJobs!()).toHaveLength(0);
+
+    // Next minute — should NOT fire (job was removed)
+    scheduler.checkCronNow!(new Date('2026-03-01T12:06:00Z'));
+    expect(received.filter(m => m.sender === 'cron:once-job')).toHaveLength(1);
+  });
+
   test('cron job fires only once per matching minute (no duplicate on re-check)', async () => {
     const scheduler = await create(mockConfig);
     const received: InboundMessage[] = [];
@@ -187,6 +214,60 @@ describe('scheduler-cron', () => {
     // Next minute — should fire again
     scheduler.checkCronNow!(new Date('2026-03-01T12:06:00Z'));
     expect(received.filter(m => m.sender === 'cron:dedup-job')).toHaveLength(2);
+  });
+
+  test('scheduleOnce fires job via setTimeout and auto-deletes', async () => {
+    const scheduler = await create(mockConfig);
+    const received: InboundMessage[] = [];
+
+    await scheduler.start((msg) => received.push(msg));
+    stopFn = () => scheduler.stop();
+
+    const fireAt = new Date(Date.now() + 50); // 50ms from now
+    scheduler.scheduleOnce!({
+      id: 'once-timer',
+      schedule: '* * * * *',
+      agentId: 'assistant',
+      prompt: 'Timed one-shot',
+      runOnce: true,
+    }, fireAt);
+
+    // Job should be listed before firing
+    expect(scheduler.listJobs!()).toHaveLength(1);
+
+    // Wait for the timer to fire
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(received.filter(m => m.sender === 'cron:once-timer')).toHaveLength(1);
+    expect(received[0].content).toBe('Timed one-shot');
+
+    // Job should be auto-deleted after firing
+    expect(scheduler.listJobs!()).toHaveLength(0);
+  });
+
+  test('scheduleOnce job can be cancelled via removeCron', async () => {
+    const scheduler = await create(mockConfig);
+    const received: InboundMessage[] = [];
+
+    await scheduler.start((msg) => received.push(msg));
+    stopFn = () => scheduler.stop();
+
+    const fireAt = new Date(Date.now() + 100);
+    scheduler.scheduleOnce!({
+      id: 'cancel-me',
+      schedule: '* * * * *',
+      agentId: 'assistant',
+      prompt: 'Should not fire',
+      runOnce: true,
+    }, fireAt);
+
+    // Cancel before it fires
+    scheduler.removeCron!('cancel-me');
+
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(received.filter(m => m.sender === 'cron:cancel-me')).toHaveLength(0);
+    expect(scheduler.listJobs!()).toHaveLength(0);
   });
 
   test('heartbeat uses default content when no HEARTBEAT.md exists', async () => {

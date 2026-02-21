@@ -178,6 +178,7 @@ describe('IPC MCP Server', () => {
       'identity_write',
       'user_write',
       'scheduler_add_cron',
+      'scheduler_run_at',
       'scheduler_remove_cron',
       'scheduler_list_jobs',
     ];
@@ -186,7 +187,7 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(13);
+    expect(registeredNames.length).toBe(14);
   });
 
   test('includes scheduler_add_cron tool', () => {
