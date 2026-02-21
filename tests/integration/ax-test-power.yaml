@@ -2,6 +2,7 @@
 # Uses Phase 2 providers: promptfoo scanner, search web, memu memory
 # LLM is still mock for testing (no API key needed)
 profile: yolo
+model: mock/default
 providers:
   llm: mock
   memory: file

@@ -15,7 +15,7 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
     openai:     '../providers/llm/openai.js',
     openrouter: '../providers/llm/openai.js',
     groq:       '../providers/llm/openai.js',
-    multi:      '../providers/llm/multi.js',
+    router:     '../providers/llm/router.js',
     mock:       '../providers/llm/mock.js',
   },
   memory: {
@@ -71,7 +71,9 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
 } as const;
 
 /**
- * Returns the module path for a given provider kind and name.
+ * Returns an absolute file URL for a given provider kind and name.
+ * Resolves the relative path from the PROVIDER_MAP against this module's
+ * location so the result can be used from any file in the project.
  * Throws if the combination is not in the allowlist.
  */
 export function resolveProviderPath(kind: string, name: string): string {
@@ -83,13 +85,15 @@ export function resolveProviderPath(kind: string, name: string): string {
     );
   }
 
-  const modulePath = kindMap[name];
-  if (!modulePath) {
+  const relativePath = kindMap[name];
+  if (!relativePath) {
     throw new Error(
       `Unknown ${kind} provider: "${name}". ` +
       `Valid ${kind} providers: ${Object.keys(kindMap).join(', ')}`
     );
   }
 
-  return modulePath;
+  // Resolve the relative path against this module's location to produce
+  // an absolute file:// URL usable from any import() call site.
+  return new URL(relativePath, import.meta.url).href;
 }

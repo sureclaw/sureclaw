@@ -9,8 +9,16 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
     channelNames.map(name => loadProvider('channel', name, config))
   );
 
+  // For claude-code agents, LLM calls go through the credential-injecting proxy,
+  // not through IPC. Load the config-specified provider (typically 'anthropic') as
+  // a stub. For all other agents, always use the LLM router for model routing
+  // and fallback — it parses compound provider/model IDs from config.model.
+  const llmProviderName = config.agent === 'claude-code'
+    ? config.providers.llm
+    : 'router';
+
   return {
-    llm:         await loadProvider('llm', config.providers.llm, config),
+    llm:         await loadProvider('llm', llmProviderName, config),
     memory:      await loadProvider('memory', config.providers.memory, config),
     scanner:     await loadProvider('scanner', config.providers.scanner, config),
     channels,

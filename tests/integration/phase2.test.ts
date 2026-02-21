@@ -172,7 +172,7 @@ describe('Phase 2 Provider Map', () => {
     expect(PROVIDER_MAP.web).toHaveProperty('tavily');
     expect(PROVIDER_MAP.browser).toHaveProperty('container');
     expect(PROVIDER_MAP.credentials).toHaveProperty('keychain');
-    expect(PROVIDER_MAP.llm).toHaveProperty('multi');
+    expect(PROVIDER_MAP.llm).toHaveProperty('router');
   });
 
   test('provider map paths use correct subdirectory format', async () => {

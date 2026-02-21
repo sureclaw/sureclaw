@@ -1,5 +1,6 @@
 profile: paranoid
 agent: pi-coding-agent
+model: mock/default
 providers:
   llm: mock
   memory: file

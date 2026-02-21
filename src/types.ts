@@ -33,6 +33,7 @@ export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
 export interface Config {
   agent?: AgentType;
   model?: string;
+  model_fallbacks?: string[];
   max_tokens?: number;
   profile: ProfileName;
   providers: {

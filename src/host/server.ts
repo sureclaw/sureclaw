@@ -487,12 +487,11 @@ export async function createServer(
       const tsxBin = resolve('node_modules/.bin/tsx');
       const agentType = config.agent ?? 'pi-agent-core';
 
-      // Start credential-injecting proxy for Anthropic LLM provider only.
-      // The proxy forwards Anthropic API requests with injected credentials.
-      // Non-Anthropic providers (groq, openai, etc.) use IPC to the host-side
-      // provider — no proxy needed. Mock LLM also uses IPC only.
+      // Start credential-injecting proxy for claude-code agents only.
+      // claude-code talks to Anthropic directly via the proxy; all other agents
+      // route LLM calls through IPC to the host-side LLM router.
       let proxySocketPath: string | undefined;
-      const needsAnthropicProxy = config.providers.llm === 'anthropic';
+      const needsAnthropicProxy = agentType === 'claude-code';
       if (needsAnthropicProxy) {
         // Refresh OAuth token if expired or expiring (pre-flight check).
         // Handles 99% of cases where token expires between conversation turns.
@@ -519,13 +518,6 @@ export async function createServer(
 
       const maxTokens = config.max_tokens ?? 8192;
 
-      // Parse model: strip provider prefix (e.g., 'groq/moonshotai/kimi-k2' → 'moonshotai/kimi-k2')
-      const configModelId = config.model
-        ? config.model.includes('/')
-          ? config.model.slice(config.model.indexOf('/') + 1)
-          : config.model
-        : undefined;
-
       const spawnCommand = [tsxBin, resolve('src/agent/runner.ts'),
         '--agent', agentType,
         '--ipc-socket', ipcSocketPath,
@@ -533,7 +525,6 @@ export async function createServer(
         '--skills', wsSkillsDir,
         '--max-tokens', String(maxTokens),
         '--agent-dir', agentDirVal,
-        ...(configModelId ? ['--model', configModelId] : []),
         ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
         ...(opts.verbose ? ['--verbose'] : []),
       ];

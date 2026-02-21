@@ -34,6 +34,7 @@ let testDataDir: string;
 function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Config {
   return {
     profile,
+    model: 'mock/default',
     providers: {
       llm: 'mock', memory: 'sqlite', scanner: 'patterns',
       channels: [], web: 'none', browser: 'none',
@@ -351,7 +352,7 @@ describe('Balanced Profile Config', () => {
       const providers = await loadProviders(config);
 
       // Verify key Phase 1 providers loaded
-      expect(providers.llm.name).toBe('mock');
+      expect(providers.llm.name).toContain('router');
       expect(providers.scanner).toBeDefined();
       expect(providers.memory).toBeDefined();
       expect(providers.audit).toBeDefined();

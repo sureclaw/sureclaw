@@ -495,6 +495,11 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
         const errText = ame.error?.errorMessage ?? String(ame.error);
         logger.error('agent_error_event', { error: errText });
         process.stderr.write(`Agent error: ${errText}\n`);
+        // Also write to stdout so the server can surface the error in the response
+        if (!hasOutput) {
+          process.stdout.write(errText);
+          hasOutput = true;
+        }
       }
       if (ame.type === 'done') {
         turnCount++;

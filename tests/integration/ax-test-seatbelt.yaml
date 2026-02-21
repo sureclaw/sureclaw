@@ -1,4 +1,5 @@
 profile: paranoid
+model: mock/default
 providers:
   llm: mock
   memory: file

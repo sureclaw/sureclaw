@@ -2,6 +2,7 @@
 # Uses Phase 1 providers: patterns scanner, sqlite audit, cron scheduler
 # LLM is still mock for testing (no API key needed)
 profile: balanced
+model: mock/default
 providers:
   llm: mock
   memory: sqlite
