@@ -122,4 +122,37 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       expect(IPC_SCHEMAS, `IPC schema missing for tool "${tool.name}"`).toHaveProperty(tool.name);
     }
   });
+
+  test('every IPC_SCHEMAS action has a corresponding tool in TOOL_CATALOG or is an internal-only action', () => {
+    // Some IPC actions exist only in IPC_SCHEMAS without a tool catalog entry
+    // because they're host-internal (e.g. browser_*, skill_*, agent_delegate, llm_call).
+    // The catalog contains agent-facing tools; IPC schemas cover all actions.
+    // This test verifies that every CATALOG tool has a schema (no gaps in the other direction).
+    const schemaActions = new Set(Object.keys(IPC_SCHEMAS));
+    const catalogNames = new Set(TOOL_NAMES);
+
+    // Every catalog tool MUST have a schema
+    for (const name of catalogNames) {
+      expect(schemaActions.has(name), `Tool "${name}" in catalog but missing from IPC_SCHEMAS`).toBe(true);
+    }
+
+    // Every schema action should either be in the catalog OR be a known internal action
+    // (browser_*, skill_*, agent_delegate, llm_call are not agent-exposed tools)
+    const knownInternalActions = new Set([
+      'llm_call',
+      'browser_launch', 'browser_navigate', 'browser_snapshot',
+      'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
+      'skill_read', 'skill_list', 'skill_propose',
+      'agent_delegate',
+    ]);
+
+    for (const action of schemaActions) {
+      const inCatalog = catalogNames.has(action);
+      const isInternal = knownInternalActions.has(action);
+      expect(
+        inCatalog || isInternal,
+        `IPC action "${action}" is neither in TOOL_CATALOG nor in knownInternalActions — update the test or add it to the catalog`,
+      ).toBe(true);
+    }
+  });
 });
