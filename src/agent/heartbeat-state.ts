@@ -3,24 +3,6 @@ import { join, dirname } from 'node:path';
 
 const STATE_FILE = 'heartbeat-state.json';
 
-/**
- * Parse cadences from HEARTBEAT.md content.
- * Expects lines like: `- **check-name** (every 4h): description`
- * Returns { 'check-name': 240 } (minutes).
- */
-export function parseCadences(md: string): Record<string, number> {
-  const result: Record<string, number> = {};
-  const re = /\*\*([^*]+)\*\*\s*\(every\s+(\d+)(h|m)\)/g;
-  let match;
-  while ((match = re.exec(md)) !== null) {
-    const name = match[1].trim();
-    const value = parseInt(match[2], 10);
-    const unit = match[3];
-    result[name] = unit === 'h' ? value * 60 : value;
-  }
-  return result;
-}
-
 export class HeartbeatState {
   private data: Record<string, number> = {};
   private filePath: string;

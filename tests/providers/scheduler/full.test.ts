@@ -447,44 +447,6 @@ describe('scheduler-full', () => {
     rmSync(agentDir, { recursive: true, force: true });
   });
 
-  test('heartbeat message includes overdue status summary from HeartbeatState', async () => {
-    const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const { tmpdir } = await import('node:os');
-
-    const agentDir = mkdtempSync(join(tmpdir(), 'hb-status-'));
-    writeFileSync(
-      join(agentDir, 'HEARTBEAT.md'),
-      '- **memory-review** (every 4h): Review memories\n- **pending-tasks** (every 1h): Check tasks',
-    );
-
-    const config = {
-      ...mockConfig,
-      scheduler: {
-        ...mockConfig.scheduler,
-        agent_dir: agentDir,
-        heartbeat_interval_min: 0.001,
-      },
-    } as Config;
-
-    const scheduler = await create(config);
-    const received: InboundMessage[] = [];
-
-    await scheduler.start(msg => received.push(msg));
-    await new Promise(r => setTimeout(r, 150));
-    await scheduler.stop();
-
-    const hbMsg = received.find(m => m.sender === 'heartbeat');
-    expect(hbMsg).toBeTruthy();
-    // Should contain the status summary section
-    expect(hbMsg!.content).toContain('Current Status');
-    // Both checks should appear as never run / OVERDUE
-    expect(hbMsg!.content).toMatch(/memory-review.*OVERDUE/i);
-    expect(hbMsg!.content).toMatch(/pending-tasks.*OVERDUE/i);
-
-    rmSync(agentDir, { recursive: true, force: true });
-  });
-
   test('heartbeat uses default content when no HEARTBEAT.md exists', async () => {
     const fastConfig = {
       ...mockConfig,
