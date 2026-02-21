@@ -24,6 +24,9 @@ function testConfig(channelConfig?: Record<string, unknown>): Config {
 const mockPostMessage = vi.fn().mockResolvedValue({ ok: true });
 const mockFilesUploadV2 = vi.fn().mockResolvedValue({ ok: true });
 const mockAuthTest = vi.fn().mockResolvedValue({ user_id: 'UBOT', team_id: 'T01' });
+const mockReactionsAdd = vi.fn().mockResolvedValue({ ok: true });
+const mockReactionsRemove = vi.fn().mockResolvedValue({ ok: true });
+const mockConversationsReplies = vi.fn().mockResolvedValue({ ok: true, messages: [] });
 const mockStart = vi.fn().mockResolvedValue(undefined);
 const mockStop = vi.fn().mockResolvedValue(undefined);
 const mockIsActive = vi.fn().mockReturnValue(true);
@@ -45,6 +48,8 @@ vi.mock('@slack/bolt', () => ({
       auth: { test: mockAuthTest },
       chat: { postMessage: mockPostMessage },
       files: { uploadV2: mockFilesUploadV2 },
+      reactions: { add: mockReactionsAdd, remove: mockReactionsRemove },
+      conversations: { replies: mockConversationsReplies },
     };
   },
   SocketModeReceiver: class MockSocketModeReceiver {
@@ -267,6 +272,115 @@ describe('Slack channel provider', () => {
     });
   });
 
+  describe('thread reply routing', () => {
+    test('app.message passes through thread replies in channels', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const messageHandler = eventHandlers.get('message')!;
+      await messageHandler({
+        message: {
+          text: 'a reply in a thread',
+          user: 'U123',
+          channel: 'C01',
+          ts: '2222.3333',
+          thread_ts: '1111.2222',
+          channel_type: 'channel',
+        },
+      });
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({ scope: 'thread' }),
+          content: 'a reply in a thread',
+          isMention: false,
+        }),
+      );
+    });
+
+    test('app.message still ignores top-level channel messages (no thread_ts)', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const messageHandler = eventHandlers.get('message')!;
+      await messageHandler({
+        message: {
+          text: 'top level in channel',
+          user: 'U123',
+          channel: 'C01',
+          ts: '1111.2222',
+          channel_type: 'channel',
+        },
+      });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    test('app_mention sets isMention=true', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const mentionHandler = eventHandlers.get('app_mention')!;
+      await mentionHandler({
+        event: {
+          text: '<@UBOT> do something',
+          user: 'U123',
+          channel: 'C01',
+          ts: '1111.2222',
+        },
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ isMention: true }),
+      );
+    });
+
+    test('DMs have isMention=false', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const handler = vi.fn();
+      provider.onMessage(handler);
+
+      const messageHandler = eventHandlers.get('message')!;
+      await messageHandler({
+        message: {
+          text: 'hello',
+          user: 'U123',
+          channel: 'D01',
+          ts: '1111.2222',
+          channel_type: 'im',
+        },
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ isMention: false }),
+      );
+    });
+  });
+
   describe('send', () => {
     test('posts message to channel', async () => {
       process.env.SLACK_BOT_TOKEN = 'xoxb-test';
@@ -358,6 +472,102 @@ describe('Slack channel provider', () => {
       };
       await expect(provider.send(session, { content: 'test' }))
         .rejects.toThrow('no channel or peer');
+    });
+  });
+
+  describe('reactions', () => {
+    test('addReaction calls reactions.add with correct params', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+
+      const session: SessionAddress = {
+        provider: 'slack', scope: 'thread',
+        identifiers: { channel: 'C01', thread: '1234.5678' },
+      };
+      await provider.addReaction!(session, '1234.5678', 'eyes');
+
+      expect(mockReactionsAdd).toHaveBeenCalledWith({
+        token: 'xoxb-test', channel: 'C01', name: 'eyes', timestamp: '1234.5678',
+      });
+    });
+
+    test('removeReaction calls reactions.remove and swallows errors', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      mockReactionsRemove.mockRejectedValueOnce(new Error('no_reaction'));
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+
+      const session: SessionAddress = {
+        provider: 'slack', scope: 'channel',
+        identifiers: { channel: 'C01' },
+      };
+      // Should not throw even when API returns error
+      await expect(provider.removeReaction!(session, '1111.2222', 'eyes')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('fetchThreadHistory', () => {
+    test('returns messages from conversations.replies', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      mockConversationsReplies.mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          { user: 'U1', text: 'first message', ts: '1000.0001' },
+          { user: 'U2', text: 'reply', ts: '1000.0002' },
+          { user: 'UBOT', text: 'bot reply', ts: '1000.0003' },
+        ],
+      });
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const history = await provider.fetchThreadHistory!('C01', '1000.0001', 20);
+
+      expect(mockConversationsReplies).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: 'C01', ts: '1000.0001', limit: 20 }),
+      );
+      expect(history).toEqual([
+        { sender: 'U1', content: 'first message', ts: '1000.0001' },
+        { sender: 'U2', content: 'reply', ts: '1000.0002' },
+        { sender: 'UBOT', content: 'bot reply', ts: '1000.0003' },
+      ]);
+    });
+
+    test('returns empty array on API error (graceful degradation)', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      mockConversationsReplies.mockRejectedValueOnce(new Error('ratelimited'));
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const history = await provider.fetchThreadHistory!('C01', '1000.0001');
+      expect(history).toEqual([]);
+    });
+
+    test('filters messages without text or user', async () => {
+      process.env.SLACK_BOT_TOKEN = 'xoxb-test';
+      process.env.SLACK_APP_TOKEN = 'xapp-test';
+      mockConversationsReplies.mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          { user: 'U1', text: 'valid', ts: '1000.0001' },
+          { text: 'no user', ts: '1000.0002' },
+          { user: 'U2', ts: '1000.0003' },
+        ],
+      });
+      const { create } = await import('../../../src/providers/channel/slack.js');
+      const provider = await create(testConfig());
+      await provider.connect();
+
+      const history = await provider.fetchThreadHistory!('C01', '1000.0001', 20);
+      expect(history).toEqual([
+        { sender: 'U1', content: 'valid', ts: '1000.0001' },
+      ]);
     });
   });
 

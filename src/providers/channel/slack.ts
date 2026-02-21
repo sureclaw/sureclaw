@@ -224,15 +224,18 @@ export async function create(config: Config): Promise<ChannelProvider> {
       }));
   }
 
-  // Handle direct messages only — channel messages are handled by app_mention
+  // Handle DMs, group DMs, and thread replies — top-level channel messages are handled by app_mention
   app.message(async ({ message }) => {
     const msg = message as SlackMessage;
     if (!msg.text || !msg.user) return;
     if (msg.user === botUserId) return;
     if (!messageHandler) return;
 
-    // Process DMs and group DMs here; channels handled by app_mention
-    if (msg.channel_type !== 'im' && msg.channel_type !== 'mpim') return;
+    const isDm = msg.channel_type === 'im' || msg.channel_type === 'mpim';
+    const isThreadReply = !!msg.thread_ts;
+
+    // Drop top-level channel messages — only app_mention handles those
+    if (!isDm && !isThreadReply) return;
 
     await messageHandler({
       id: msg.ts,
@@ -243,6 +246,7 @@ export async function create(config: Config): Promise<ChannelProvider> {
       timestamp: new Date(parseFloat(msg.ts) * 1000),
       replyTo: msg.thread_ts,
       raw: message,
+      isMention: false,
     });
   });
 
@@ -268,6 +272,7 @@ export async function create(config: Config): Promise<ChannelProvider> {
       timestamp: new Date(parseFloat(event.ts) * 1000),
       replyTo: event.thread_ts,
       raw: event,
+      isMention: true,
     });
   });
 
@@ -338,6 +343,39 @@ export async function create(config: Config): Promise<ChannelProvider> {
           ...(threadTs ? { thread_ts: threadTs } : {}),
         });
       }
+    },
+
+    async fetchThreadHistory(channel: string, threadTs: string, limit: number = 20): Promise<{sender: string; content: string; ts: string}[]> {
+      try {
+        const response = await app.client.conversations.replies({
+          token: botToken,
+          channel,
+          ts: threadTs,
+          limit,
+          inclusive: true,
+        }) as { ok: boolean; messages?: Array<{ user?: string; text?: string; ts?: string }> };
+
+        if (!response.messages) return [];
+
+        return response.messages
+          .filter((m): m is { user: string; text: string; ts: string } =>
+            !!m.user && !!m.text && !!m.ts)
+          .map(m => ({ sender: m.user, content: m.text, ts: m.ts }));
+      } catch {
+        return [];
+      }
+    },
+
+    async addReaction(session: SessionAddress, messageId: string, emoji: string): Promise<void> {
+      const channel = session.identifiers.channel ?? session.identifiers.peer;
+      if (!channel) return;
+      await app.client.reactions.add({ token: botToken, channel, name: emoji, timestamp: messageId });
+    },
+
+    async removeReaction(session: SessionAddress, messageId: string, emoji: string): Promise<void> {
+      const channel = session.identifiers.channel ?? session.identifiers.peer;
+      if (!channel) return;
+      await app.client.reactions.remove({ token: botToken, channel, name: emoji, timestamp: messageId }).catch(() => {});
     },
 
     async disconnect(): Promise<void> {
