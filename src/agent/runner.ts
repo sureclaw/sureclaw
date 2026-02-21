@@ -78,6 +78,7 @@ export interface AgentConfig {
   taintThreshold?: number;
   profile?: string;
   sandboxType?: string;
+  replyOptional?: boolean;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -419,6 +420,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
     contextContent,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     historyTokens: config.history?.length ? estimateTokens(JSON.stringify(config.history)) : 0,
+    replyOptional: config.replyOptional ?? false,
   });
   const systemPrompt = promptResult.content;
   logger.debug('prompt_built', promptResult.metadata);
@@ -523,6 +525,7 @@ export interface StdinPayload {
   profile: string;
   sandboxType: string;
   userId?: string;
+  replyOptional?: boolean;
 }
 
 /**
@@ -555,6 +558,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         profile: typeof parsed.profile === 'string' ? parsed.profile : 'balanced',
         sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'subprocess',
         userId: typeof parsed.userId === 'string' ? parsed.userId : undefined,
+        replyOptional: parsed.replyOptional === true,
       };
     }
   } catch {
@@ -608,6 +612,7 @@ if (isMain) {
     config.profile = payload.profile;
     config.sandboxType = payload.sandboxType;
     config.userId = payload.userId;
+    config.replyOptional = payload.replyOptional;
     return run(config);
   }).catch((err) => {
     logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });

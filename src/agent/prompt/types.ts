@@ -23,6 +23,9 @@ export interface PromptContext {
   // Workspace context (CONTEXT.md content)
   contextContent: string;
 
+  // Reply gating (from host — channel messages where bot may choose silence)
+  replyOptional?: boolean;
+
   // Budget
   contextWindow: number;  // model's max tokens (default 200000)
   historyTokens: number;  // estimated tokens in conversation history

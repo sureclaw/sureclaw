@@ -256,6 +256,33 @@ describe('parseStdinPayload with taint state', () => {
     expect(result.message).toBe('just text');
     expect(result.taintRatio).toBe(0);
   });
+
+  test('extracts replyOptional when true', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      taintRatio: 0,
+      taintThreshold: 0.3,
+      profile: 'balanced',
+      sandboxType: 'subprocess',
+      replyOptional: true,
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.replyOptional).toBe(true);
+  });
+
+  test('defaults replyOptional to false when absent', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      taintRatio: 0,
+      taintThreshold: 0.3,
+      profile: 'balanced',
+      sandboxType: 'subprocess',
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.replyOptional).toBe(false);
+  });
 });
 
 // buildSystemPrompt tests removed — behavior is now covered by

@@ -342,6 +342,7 @@ export async function createServer(
     persistentSessionId?: string,
     preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
     userId?: string,
+    replyOptional?: boolean,
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter' }> {
     const sessionId = preProcessed?.sessionId ?? randomUUID();
     const reqLogger = logger.child({ reqId: requestId.slice(-8) });
@@ -569,6 +570,7 @@ export async function createServer(
         profile: config.profile,
         sandboxType: config.providers.sandbox,
         userId: userId ?? process.env.USER ?? 'default',
+        replyOptional: replyOptional ?? false,
       });
       reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
       proc.stdin.write(stdinPayload);
@@ -851,10 +853,44 @@ export async function createServer(
 
         // Deduplicate: Slack (and other providers) may deliver the same event
         // multiple times due to socket reconnections or missed acks.
+        // Also handles app.message + app_mention overlap for thread messages.
         const dedupeKey = `${channel.name}:${msg.id}`;
         if (isChannelDuplicate(dedupeKey)) {
           logger.debug('channel_message_deduplicated', { provider: channel.name, messageId: msg.id });
           return;
+        }
+
+        // Thread gating: only process thread messages if the bot has participated
+        // (i.e., was mentioned in the thread at some point, creating a session).
+        const sessionId = canonicalize(msg.session);
+        if (msg.session.scope === 'thread' && !msg.isMention) {
+          const turnCount = conversationStore.count(sessionId);
+          if (turnCount === 0) {
+            logger.debug('thread_message_gated', { provider: channel.name, sessionId, reason: 'bot_not_in_thread' });
+            return;
+          }
+        }
+
+        // Thread backfill: on first entry into a thread, fetch prior messages
+        if (msg.session.scope === 'thread' && msg.isMention && channel.fetchThreadHistory) {
+          const turnCount = conversationStore.count(sessionId);
+          if (turnCount === 0) {
+            const threadChannel = msg.session.identifiers.channel;
+            const threadTs = msg.session.identifiers.thread;
+            if (threadChannel && threadTs) {
+              try {
+                const threadMessages = await channel.fetchThreadHistory(threadChannel, threadTs, 20);
+                // Prepend thread history as user turns (exclude the current message)
+                for (const tm of threadMessages) {
+                  if (tm.ts === msg.id) continue; // skip current message
+                  conversationStore.append(sessionId, 'user', tm.content, tm.sender);
+                }
+                logger.debug('thread_backfill', { sessionId, messagesAdded: threadMessages.length });
+              } catch (err) {
+                logger.warn('thread_backfill_failed', { sessionId, error: (err as Error).message });
+              }
+            }
+          }
         }
 
         // Bootstrap gate: only admins can interact while the agent is being set up.
@@ -866,20 +902,41 @@ export async function createServer(
           return;
         }
 
-        const result = await router.processInbound(msg);
-        if (!result.queued) {
-          await channel.send(msg.session, {
-            content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
-          });
-          return;
+        // Eyes emoji: acknowledge receipt
+        if (channel.addReaction) {
+          channel.addReaction(msg.session, msg.id, 'eyes').catch(() => {});
         }
-        sessionCanaries.set(result.sessionId, result.canaryToken);
-        const { responseContent } = await processCompletion(
-          msg.content, `ch-${randomUUID().slice(0, 8)}`, [], canonicalize(msg.session),
-          { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
-          msg.sender,  // userId from channel message
-        );
-        await channel.send(msg.session, { content: responseContent });
+
+        try {
+          const result = await router.processInbound(msg);
+          if (!result.queued) {
+            await channel.send(msg.session, {
+              content: `Message blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
+            });
+            return;
+          }
+          sessionCanaries.set(result.sessionId, result.canaryToken);
+
+          // Determine if reply is optional (LLM can choose not to respond)
+          const replyOptional = !msg.isMention;
+
+          const { responseContent } = await processCompletion(
+            msg.content, `ch-${randomUUID().slice(0, 8)}`, [], sessionId,
+            { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
+            msg.sender,
+            replyOptional,
+          );
+
+          // If LLM chose not to reply, skip sending
+          if (responseContent.trim()) {
+            await channel.send(msg.session, { content: responseContent });
+          }
+        } finally {
+          // Remove eyes emoji regardless of outcome
+          if (channel.removeReaction) {
+            channel.removeReaction(msg.session, msg.id, 'eyes').catch(() => {});
+          }
+        }
       });
       await channel.connect();
     }

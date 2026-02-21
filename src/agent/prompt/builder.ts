@@ -8,6 +8,7 @@ import { ContextModule } from './modules/context.js';
 import { SkillsModule } from './modules/skills.js';
 import { HeartbeatModule } from './modules/heartbeat.js';
 import { RuntimeModule } from './modules/runtime.js';
+import { ReplyGateModule } from './modules/reply-gate.js';
 
 export interface PromptResult {
   content: string;
@@ -38,6 +39,7 @@ export class PromptBuilder {
       new SkillsModule(),             // 70
       new HeartbeatModule(),          // 80
       new RuntimeModule(),            // 90
+      new ReplyGateModule(),          // 95
     ].sort((a, b) => a.priority - b.priority);
   }
 
