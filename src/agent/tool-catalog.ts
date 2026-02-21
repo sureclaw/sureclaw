@@ -171,6 +171,39 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     description: 'List all currently scheduled cron jobs.',
     parameters: Type.Object({}),
   },
+
+  // ── Skill tools ──
+  {
+    name: 'skill_list',
+    label: 'List Skills',
+    description:
+      'List all available skills. Returns skill names and descriptions.',
+    parameters: Type.Object({}),
+  },
+  {
+    name: 'skill_read',
+    label: 'Read Skill',
+    description:
+      'Read the full content of a skill by name.',
+    parameters: Type.Object({
+      name: Type.String(),
+    }),
+  },
+  {
+    name: 'skill_propose',
+    label: 'Propose Skill',
+    description:
+      'Propose a new skill or update an existing one. The skill content is markdown — ' +
+      'prompt-level instructions that guide your behavior (like a checklist or workflow). ' +
+      'Content is screened for safety: dangerous patterns (exec, eval, fetch) are hard-rejected, ' +
+      'capability patterns (fs-write, env-access) require human review, clean content is auto-approved. ' +
+      'Auto-approved skills are available on your next turn in this session.',
+    parameters: Type.Object({
+      skill: Type.String({ description: 'Skill name (alphanumeric, hyphens, underscores)' }),
+      content: Type.String({ description: 'Skill content as markdown' }),
+      reason: Type.Optional(Type.String({ description: 'Why this skill is needed' })),
+    }),
+  },
 ] as const;
 
 /** All tool names, derived from the catalog. */

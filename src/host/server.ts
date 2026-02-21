@@ -414,16 +414,24 @@ export async function createServer(
       } else {
         workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
       }
-      // Copy skills into workspace so agent only sees sandbox-local paths
+      // Refresh skills into workspace before each agent spawn.
+      // Copies from host skills dir and removes stale files (reverted/deleted skills).
+      // Runs every turn so skill_propose auto-approvals appear on the next turn.
       const hostSkillsDir = resolve('skills');
       const wsSkillsDir = join(workspace, 'skills');
       mkdirSync(wsSkillsDir, { recursive: true });
       try {
-        for (const f of readdirSync(hostSkillsDir)) {
-          if (f.endsWith('.md')) copyFileSync(join(hostSkillsDir, f), join(wsSkillsDir, f));
+        const hostFiles = readdirSync(hostSkillsDir).filter(f => f.endsWith('.md'));
+        for (const f of hostFiles) {
+          copyFileSync(join(hostSkillsDir, f), join(wsSkillsDir, f));
+        }
+        // Remove workspace skill files that no longer exist on host (deleted/reverted)
+        const hostSet = new Set(hostFiles);
+        for (const f of readdirSync(wsSkillsDir).filter(f => f.endsWith('.md'))) {
+          if (!hostSet.has(f)) unlinkSync(join(wsSkillsDir, f));
         }
       } catch {
-        reqLogger.debug('skills_copy_failed', { hostSkillsDir });
+        reqLogger.debug('skills_refresh_failed', { hostSkillsDir });
       }
 
       // Build conversation history: prefer DB-persisted history for persistent sessions,

@@ -12,6 +12,7 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys } from '../../src/agent/tool
 import { createIPCMcpServer } from '../../src/agent/mcp-server.js';
 import { HeartbeatModule } from '../../src/agent/prompt/modules/heartbeat.js';
 import { IdentityModule } from '../../src/agent/prompt/modules/identity.js';
+import { SkillsModule } from '../../src/agent/prompt/modules/skills.js';
 import { IPC_SCHEMAS } from '../../src/ipc-schemas.js';
 import type { PromptContext } from '../../src/agent/prompt/types.js';
 import type { IPCClient } from '../../src/agent/ipc-client.js';
@@ -98,6 +99,13 @@ describe('tool-catalog ↔ system prompt sync', () => {
     }
   });
 
+  test('skill_propose tool is documented in SkillsModule', () => {
+    const mod = new SkillsModule();
+    const ctx = makePromptContext({ skills: ['# Dummy'] });
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered, 'skill_propose missing from SkillsModule system prompt').toContain('skill_propose');
+  });
+
   test('every identity/user tool in catalog is documented in IdentityModule', () => {
     const identityTools = TOOL_CATALOG.filter(t =>
       t.name === 'identity_write' || t.name === 'user_write'
@@ -142,7 +150,6 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       'llm_call',
       'browser_launch', 'browser_navigate', 'browser_snapshot',
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
-      'skill_read', 'skill_list', 'skill_propose',
       'agent_delegate',
     ]);
 

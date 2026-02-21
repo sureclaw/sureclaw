@@ -442,18 +442,7 @@ describe('spawn command construction', () => {
 // ── MCP Server Tool Registry ─────────────────────────────────────────
 
 describe('MCP server tool registry security', () => {
-  test('does not expose skill_read or skill_list tools', () => {
-    const client = createMockClient();
-    const server = createIPCMcpServer(client);
-    const tools = getTools(server);
-    const names = Object.keys(tools);
-
-    // Skill tools were removed — skills are read directly from filesystem
-    expect(names).not.toContain('skill_read');
-    expect(names).not.toContain('skill_list');
-  });
-
-  test('exposes exactly 14 IPC tools', () => {
+  test('exposes exactly 17 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -468,10 +457,13 @@ describe('MCP server tool registry security', () => {
       'scheduler_run_at',
       'scheduler_remove_cron',
       'scheduler_list_jobs',
+      'skill_list',
+      'skill_read',
+      'skill_propose',
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(14);
+    expect(Object.keys(tools).length).toBe(17);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {
@@ -490,18 +482,18 @@ describe('MCP server tool registry security', () => {
 // ── IPC Tools (pi-agent-core) ────────────────────────────────────────
 
 describe('IPC tools for pi-agent-core do not expose paths', () => {
-  test('ipc-tools exports memory, web, and audit tools — no skill tools', async () => {
+  test('ipc-tools exports memory, web, audit, and skill tools', async () => {
     const { createIPCTools } = await import('../src/agent/ipc-tools.js');
     const client = createMockClient();
     const tools = createIPCTools(client);
     const names = tools.map(t => t.name);
 
-    expect(names).not.toContain('skill_read');
-    expect(names).not.toContain('skill_list');
-
     expect(names).toContain('memory_write');
     expect(names).toContain('web_search');
     expect(names).toContain('web_fetch');
     expect(names).toContain('audit_query');
+    expect(names).toContain('skill_list');
+    expect(names).toContain('skill_read');
+    expect(names).toContain('skill_propose');
   });
 });

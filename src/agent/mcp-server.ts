@@ -168,6 +168,24 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
         {},
         () => ipcCall('scheduler_list_jobs', {}),
       ),
+
+      // ── Skill tools ──
+      tool('skill_list', 'List all available skills. Returns skill names and descriptions.', {},
+        () => ipcCall('skill_list', {})),
+
+      tool('skill_read', 'Read the full content of a skill by name.', {
+        name: z.string(),
+      }, (args) => ipcCall('skill_read', args)),
+
+      tool('skill_propose',
+        'Propose a new skill or update an existing one. Content is screened for safety. ' +
+        'Auto-approved skills are available on your next turn.',
+        {
+          skill: z.string().describe('Skill name (alphanumeric, hyphens, underscores)'),
+          content: z.string().describe('Skill content as markdown'),
+          reason: z.string().optional().describe('Why this skill is needed'),
+        },
+        (args) => ipcCall('skill_propose', args)),
     ],
   });
 }

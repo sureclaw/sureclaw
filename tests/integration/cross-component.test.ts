@@ -693,3 +693,153 @@ describe('Memory Tool Round-Trip via IPC', () => {
     expect(tagResult.results[0].content).toBe('Project A note 1');
   });
 });
+
+// ═══════════════════════════════════════════════════════
+// 6. Skill Self-Authoring Flow (Git Provider)
+// ═══════════════════════════════════════════════════════
+
+describe('Skill Self-Authoring Flow (Git Provider)', async () => {
+  const { create } = await import('../../src/providers/skills/git.js');
+
+  let tmpDir: string;
+  let originalCwd: string;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ax-skill-'));
+    originalCwd = process.cwd();
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('skill_propose AUTO_APPROVE writes file to skills dir', async () => {
+    const provider = await create({ providers: {}, agent: 'pi-agent-core' } as any);
+
+    // Propose a safe skill (no dangerous patterns)
+    const result = await provider.propose({
+      skill: 'greeting',
+      content: '# Greeting Skill\n\nSay hello to the user in a friendly way.\n\n## Steps\n1. Greet the user by name\n2. Ask how their day is going',
+      reason: 'Agent learned a greeting pattern',
+    });
+
+    expect(result.verdict).toBe('AUTO_APPROVE');
+    expect(result.id).toBeDefined();
+
+    // Verify skill is listable
+    const skills = await provider.list();
+    expect(skills.length).toBe(1);
+    expect(skills[0]!.name).toBe('greeting');
+
+    // Verify content is readable
+    const content = await provider.read('greeting');
+    expect(content).toContain('# Greeting Skill');
+    expect(content).toContain('Greet the user by name');
+  });
+
+  test('skill_propose REJECT on dangerous content', async () => {
+    const provider = await create({ providers: {}, agent: 'pi-agent-core' } as any);
+
+    // Propose a skill with eval() — hard reject pattern
+    const result = await provider.propose({
+      skill: 'evil-skill',
+      content: '# Evil Skill\n\nRun arbitrary code:\n```js\neval("malicious")\n```',
+      reason: 'Trying to sneak in eval',
+    });
+
+    expect(result.verdict).toBe('REJECT');
+    expect(result.reason).toContain('eval');
+
+    // Verify skill was NOT written
+    const skills = await provider.list();
+    expect(skills.length).toBe(0);
+  });
+
+  test('skill_propose NEEDS_REVIEW on capability content', async () => {
+    const provider = await create({ providers: {}, agent: 'pi-agent-core' } as any);
+
+    // Propose a skill referencing process.env — capability pattern
+    const result = await provider.propose({
+      skill: 'env-reader',
+      content: '# Env Reader\n\nRead configuration from process.env to determine runtime settings.',
+      reason: 'Need to check environment',
+    });
+
+    expect(result.verdict).toBe('NEEDS_REVIEW');
+    expect(result.reason).toContain('env-access');
+    expect(result.id).toBeDefined();
+  });
+
+  test('skill_propose approve after NEEDS_REVIEW writes file', async () => {
+    const provider = await create({ providers: {}, agent: 'pi-agent-core' } as any);
+
+    // Propose capability content → NEEDS_REVIEW
+    const result = await provider.propose({
+      skill: 'config-loader',
+      content: '# Config Loader\n\nUses process.env variables for configuration.',
+      reason: 'Needs env access for config',
+    });
+
+    expect(result.verdict).toBe('NEEDS_REVIEW');
+    const proposalId = result.id;
+
+    // Skill should NOT be readable yet (not committed)
+    const skillsBefore = await provider.list();
+    expect(skillsBefore.find(s => s.name === 'config-loader')).toBeUndefined();
+
+    // Approve the proposal
+    await provider.approve(proposalId);
+
+    // Skill is now readable
+    const skillsAfter = await provider.list();
+    expect(skillsAfter.find(s => s.name === 'config-loader')).toBeDefined();
+
+    const content = await provider.read('config-loader');
+    expect(content).toContain('process.env');
+  });
+
+  test('skill_propose revert removes skill', async () => {
+    const provider = await create({ providers: {}, agent: 'pi-agent-core' } as any);
+
+    // First, create a seed skill so the git repo has an initial commit with a parent
+    const seedResult = await provider.propose({
+      skill: 'seed-skill',
+      content: '# Seed Skill\n\nThis exists to create a parent commit for the revert test.',
+      reason: 'Seed commit',
+    });
+    expect(seedResult.verdict).toBe('AUTO_APPROVE');
+
+    // Now propose and auto-approve the skill we want to revert
+    const result = await provider.propose({
+      skill: 'temp-skill',
+      content: '# Temporary Skill\n\nThis skill will be reverted.',
+      reason: 'Testing revert flow',
+    });
+
+    expect(result.verdict).toBe('AUTO_APPROVE');
+
+    // Verify it was written
+    const skillsBefore = await provider.list();
+    expect(skillsBefore.find(s => s.name === 'temp-skill')).toBeDefined();
+
+    // Get the actual git commit OID for the most recent commit (the auto-approve of temp-skill)
+    const git = await import('isomorphic-git');
+    const fs = await import('node:fs');
+    const gitLog = await git.log({ fs, dir: join(tmpDir, 'skills'), depth: 5 });
+
+    // The most recent commit should be the auto-approve of temp-skill
+    const commitToRevert = gitLog[0]!;
+    expect(commitToRevert.commit.message).toContain('auto-approve');
+    expect(commitToRevert.commit.message).toContain('temp-skill');
+
+    // Revert the commit
+    await provider.revert(commitToRevert.oid);
+
+    // temp-skill should be gone, but seed-skill should remain
+    const skillsAfter = await provider.list();
+    expect(skillsAfter.find(s => s.name === 'temp-skill')).toBeUndefined();
+    expect(skillsAfter.find(s => s.name === 'seed-skill')).toBeDefined();
+  });
+});

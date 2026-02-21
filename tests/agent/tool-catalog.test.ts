@@ -2,8 +2,8 @@ import { describe, test, expect } from 'vitest';
 import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 14 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(14);
+  test('exports exactly 17 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(17);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -56,7 +56,30 @@ describe('tool-catalog', () => {
       'audit_query',
       'identity_write', 'user_write',
       'scheduler_add_cron', 'scheduler_run_at', 'scheduler_remove_cron', 'scheduler_list_jobs',
+      'skill_list', 'skill_read', 'skill_propose',
     ];
     expect(TOOL_NAMES).toEqual(expected);
+  });
+
+  test('skill tools exist in catalog', () => {
+    const skillTools = TOOL_CATALOG.filter(t => t.name.startsWith('skill_'));
+    expect(skillTools.map(t => t.name).sort()).toEqual([
+      'skill_list', 'skill_propose', 'skill_read',
+    ]);
+  });
+
+  test('skill_propose has correct params', () => {
+    const keys = getToolParamKeys('skill_propose');
+    expect(keys.sort()).toEqual(['content', 'reason', 'skill']);
+  });
+
+  test('skill_read has correct params', () => {
+    const keys = getToolParamKeys('skill_read');
+    expect(keys).toEqual(['name']);
+  });
+
+  test('skill_list has no params', () => {
+    const keys = getToolParamKeys('skill_list');
+    expect(keys).toEqual([]);
   });
 });

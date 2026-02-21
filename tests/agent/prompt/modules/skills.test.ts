@@ -45,4 +45,25 @@ describe('SkillsModule', () => {
     const mod = new SkillsModule();
     expect(mod.priority).toBe(70);
   });
+
+  test('includes meta-skill instructions with skill_propose', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: ['# Test Skill\nDo stuff'] });
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered).toContain('skill_propose');
+  });
+
+  test('includes auto-continue hint', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: ['# Test Skill\nDo stuff'] });
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered).toContain('next turn');
+  });
+
+  test('includes creating skills section', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: ['# Test Skill\nDo stuff'] });
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered).toContain('Creating Skills');
+  });
 });

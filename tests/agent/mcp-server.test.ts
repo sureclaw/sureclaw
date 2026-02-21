@@ -134,14 +134,15 @@ describe('IPC MCP Server', () => {
     expect(parsed[1].taint).toBeUndefined();
   });
 
-  test('does not include skill_read or skill_list tools', () => {
+  test('includes skill tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    expect(names).not.toContain('skill_read');
-    expect(names).not.toContain('skill_list');
+    expect(names).toContain('skill_list');
+    expect(names).toContain('skill_read');
+    expect(names).toContain('skill_propose');
   });
 
   test('identity_write calls IPC client with correct action', async () => {
@@ -166,7 +167,7 @@ describe('IPC MCP Server', () => {
     expect(result.content[0].text).toContain('"ok":true');
   });
 
-  test('all 10 IPC tools are registered', () => {
+  test('all 17 IPC tools are registered', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -181,13 +182,16 @@ describe('IPC MCP Server', () => {
       'scheduler_run_at',
       'scheduler_remove_cron',
       'scheduler_list_jobs',
+      'skill_list',
+      'skill_read',
+      'skill_propose',
     ];
 
     const registeredNames = Object.keys(tools);
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(14);
+    expect(registeredNames.length).toBe(17);
   });
 
   test('includes scheduler_add_cron tool', () => {
