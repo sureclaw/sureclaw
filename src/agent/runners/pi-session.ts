@@ -543,7 +543,11 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   });
   logger.debug('agent_session_created');
 
-  // Override system prompt
+  // Override system prompt.
+  // Must set _baseSystemPrompt — the session resets agent.state.systemPrompt
+  // to _baseSystemPrompt before every prompt() call (line ~551 in agent-session.js).
+  // Setting only agent.state.systemPrompt gets overwritten immediately.
+  (session as any)._baseSystemPrompt = systemPrompt;
   session.agent.state.systemPrompt = systemPrompt;
 
   // Prepopulate conversation history from prior turns (server sends this via stdin).

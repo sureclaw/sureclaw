@@ -19,6 +19,7 @@ const PROJECT_ROOT = resolve(import.meta.dirname, '../..');
 const TEST_CONFIG = resolve(import.meta.dirname, 'ax-test.yaml');
 const SEATBELT_CONFIG = resolve(import.meta.dirname, 'ax-test-seatbelt.yaml');
 const PI_CODING_AGENT_CONFIG = resolve(import.meta.dirname, 'ax-test-pi-coding-agent.yaml');
+const GROQ_CONFIG = resolve(import.meta.dirname, 'ax-test-groq.yaml');
 const IS_BUN = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
 const IS_MACOS = process.platform === 'darwin';
 
@@ -337,6 +338,47 @@ describe('Smoke Test', () => {
     expect(data.choices[0].message.content).not.toContain('Agent processing failed');
     expect(data.choices[0].message.content.trim().length).toBeGreaterThan(0);
   }, 60_000);
+
+  test('groq provider: does not require Anthropic credentials', async () => {
+    // When providers.llm is 'groq', the server must NOT start the Anthropic
+    // proxy or check for ANTHROPIC_API_KEY. The agent should use IPC for LLM
+    // calls. Without a GROQ_API_KEY the provider returns an error, but the
+    // server itself should start and process the request (no credential gate).
+    const hostScript = resolve(PROJECT_ROOT, 'src/main.ts');
+    const cmd = IS_BUN ? 'bun' : 'npx';
+    const args = IS_BUN
+      ? ['run', hostScript, '--config', GROQ_CONFIG, '--socket', socketPath]
+      : ['tsx', hostScript, '--config', GROQ_CONFIG, '--socket', socketPath];
+    proc = spawn(cmd, args, {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        NODE_NO_WARNINGS: '1',
+        AX_HOME: smokeTestHome,
+        ANTHROPIC_API_KEY: '',          // explicitly unset
+        CLAUDE_CODE_OAUTH_TOKEN: '',    // explicitly unset
+        GROQ_API_KEY: '',               // no real key — provider will error
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    const output = collectOutput(proc);
+    await waitForReady(proc, output);
+
+    // Server should start and accept requests (no Anthropic credential gate)
+    expect(existsSync(socketPath)).toBe(true);
+
+    const res = await sendMessage(socketPath, 'hello');
+    expect(res.status).toBe(200);
+
+    const data = JSON.parse(res.body);
+    // Should NOT contain 'ax configure' credential error (that's Anthropic-specific)
+    expect(data.choices[0].message.content).not.toContain('ax configure');
+
+    // Verify no upstream_error for /v1/messages (Anthropic proxy path)
+    const stderr = output.stderr.join('');
+    expect(stderr).not.toContain('/v1/messages');
+  }, 30_000);
 
   test.skipIf(!IS_MACOS)('seatbelt sandbox: agent runs inside sandbox-exec', async () => {
     proc = startServer(SEATBELT_CONFIG);

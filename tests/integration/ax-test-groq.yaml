@@ -1,0 +1,22 @@
+profile: paranoid
+agent: pi-coding-agent
+model: groq/test-model
+providers:
+  llm: groq
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 30
+  memory_mb: 256
+scheduler:
+  active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30

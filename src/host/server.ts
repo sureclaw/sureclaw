@@ -487,11 +487,13 @@ export async function createServer(
       const tsxBin = resolve('node_modules/.bin/tsx');
       const agentType = config.agent ?? 'pi-agent-core';
 
-      // Start credential-injecting proxy for agents using a real LLM provider.
+      // Start credential-injecting proxy for Anthropic LLM provider only.
       // The proxy forwards Anthropic API requests with injected credentials.
-      // Mock LLM uses IPC only — no proxy needed.
+      // Non-Anthropic providers (groq, openai, etc.) use IPC to the host-side
+      // provider — no proxy needed. Mock LLM also uses IPC only.
       let proxySocketPath: string | undefined;
-      if (config.providers.llm !== 'mock') {
+      const needsAnthropicProxy = config.providers.llm === 'anthropic';
+      if (needsAnthropicProxy) {
         // Refresh OAuth token if expired or expiring (pre-flight check).
         // Handles 99% of cases where token expires between conversation turns.
         await ensureOAuthTokenFresh();

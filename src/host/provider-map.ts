@@ -11,11 +11,12 @@
 
 export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   llm: {
-    anthropic: '../providers/llm/anthropic.js',
-    openai:    '../providers/llm/openai.js',
-    groq:      '../providers/llm/openai.js',
-    multi:     '../providers/llm/multi.js',
-    mock:      '../providers/llm/mock.js',
+    anthropic:  '../providers/llm/anthropic.js',
+    openai:     '../providers/llm/openai.js',
+    openrouter: '../providers/llm/openai.js',
+    groq:       '../providers/llm/openai.js',
+    multi:      '../providers/llm/multi.js',
+    mock:       '../providers/llm/mock.js',
   },
   memory: {
     file:   '../providers/memory/file.js',
