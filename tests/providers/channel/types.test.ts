@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { canonicalize, type SessionAddress } from '../../../src/providers/channel/types.js';
+import { canonicalize, type SessionAddress, type InboundMessage } from '../../../src/providers/channel/types.js';
 
 describe('canonicalize', () => {
   test('serializes DM session', () => {
@@ -45,5 +45,20 @@ describe('canonicalize', () => {
       identifiers: { peer: 'heartbeat' },
     };
     expect(canonicalize(addr)).toBe('scheduler:dm:heartbeat');
+  });
+});
+
+describe('InboundMessage', () => {
+  test('InboundMessage supports isMention field', () => {
+    const msg: InboundMessage = {
+      id: '1',
+      session: { provider: 'test', scope: 'channel', identifiers: {} },
+      sender: 'U1',
+      content: 'hello',
+      attachments: [],
+      timestamp: new Date(),
+      isMention: true,
+    };
+    expect(msg.isMention).toBe(true);
   });
 });

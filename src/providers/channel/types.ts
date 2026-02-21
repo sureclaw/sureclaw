@@ -51,6 +51,7 @@ export interface InboundMessage {
   timestamp: Date;
   replyTo?: string;
   raw?: unknown;
+  isMention?: boolean;  // true when user explicitly @mentioned the bot
 }
 
 export interface OutboundMessage {
@@ -81,4 +82,7 @@ export interface ChannelProvider {
   shouldRespond(msg: InboundMessage): boolean;
   send(session: SessionAddress, content: OutboundMessage): Promise<void>;
   disconnect(): Promise<void>;
+  addReaction?(session: SessionAddress, messageId: string, emoji: string): Promise<void>;
+  removeReaction?(session: SessionAddress, messageId: string, emoji: string): Promise<void>;
+  fetchThreadHistory?(channel: string, threadTs: string, limit?: number): Promise<{sender: string; content: string; ts: string}[]>;
 }
