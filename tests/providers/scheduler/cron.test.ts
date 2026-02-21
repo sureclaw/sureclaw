@@ -245,6 +245,36 @@ describe('scheduler-cron', () => {
     expect(scheduler.listJobs!()).toHaveLength(0);
   });
 
+  test('scheduleOnce: job is still in store when async handler runs', async () => {
+    const scheduler = await create(mockConfig);
+    let jobListDuringHandler: ReturnType<NonNullable<typeof scheduler.listJobs>> = [];
+
+    // Use an async handler (like the real server handler) that yields before checking the job store
+    await scheduler.start(async (_msg) => {
+      await new Promise(r => setTimeout(r, 10)); // yield to event loop
+      jobListDuringHandler = scheduler.listJobs!();
+    });
+    stopFn = () => scheduler.stop();
+
+    const fireAt = new Date(Date.now() + 50);
+    scheduler.scheduleOnce!({
+      id: 'race-test',
+      schedule: '* * * * *',
+      agentId: 'assistant',
+      prompt: 'Race condition test',
+      runOnce: true,
+    }, fireAt);
+
+    // Wait for timer to fire and async handler to complete
+    await new Promise(r => setTimeout(r, 200));
+
+    // The handler should have been able to find the job (not yet deleted)
+    expect(jobListDuringHandler.some(j => j.id === 'race-test')).toBe(true);
+
+    // But after handler completes, job should be cleaned up
+    expect(scheduler.listJobs!()).toHaveLength(0);
+  });
+
   test('scheduleOnce job can be cancelled via removeCron', async () => {
     const scheduler = await create(mockConfig);
     const received: InboundMessage[] = [];

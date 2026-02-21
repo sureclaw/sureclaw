@@ -851,6 +851,9 @@ export async function createServer(
             if (job) {
               jobAgentId = job.agentId;
               delivery = job.delivery ?? config.scheduler.defaultDelivery;
+            } else {
+              // Job may have been auto-deleted (runOnce) — use default delivery
+              delivery = config.scheduler.defaultDelivery;
             }
           } else if (msg.sender === 'heartbeat') {
             delivery = config.scheduler.defaultDelivery;

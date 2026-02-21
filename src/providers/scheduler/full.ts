@@ -90,7 +90,8 @@ export async function create(
 
   function fireOnceJob(job: CronJobDef): void {
     if (!onMessageHandler) return;
-    onMessageHandler({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any = onMessageHandler({
       id: randomUUID(),
       session: schedulerSession(`cron:${job.id}`),
       sender: `cron:${job.id}`,
@@ -98,8 +99,18 @@ export async function create(
       attachments: [],
       timestamp: new Date(),
     });
-    jobs.delete(job.id);
-    onceTimers.delete(job.id);
+    // Defer cleanup until after async handler completes so the handler can
+    // still look up the job in the store (e.g., for delivery resolution).
+    // Sync handlers clean up immediately.
+    const cleanup = () => {
+      jobs.delete(job.id);
+      onceTimers.delete(job.id);
+    };
+    if (result?.then) {
+      result.then(cleanup, cleanup);
+    } else {
+      cleanup();
+    }
   }
 
   function checkCronJobs(at?: Date): void {
@@ -113,7 +124,8 @@ export async function create(
       if (!matchesCron(job.schedule, now)) continue;
       if (lastFiredMinute.get(job.id) === mk) continue; // already fired this minute
       lastFiredMinute.set(job.id, mk);
-      onMessageHandler({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = onMessageHandler({
         id: randomUUID(),
         session: schedulerSession(`cron:${job.id}`),
         sender: `cron:${job.id}`,
@@ -122,8 +134,16 @@ export async function create(
         timestamp: now,
       });
       if (job.runOnce) {
-        jobs.delete(job.id);
-        lastFiredMinute.delete(job.id);
+        // Defer cleanup until after async handler so it can still look up the job.
+        const runOnceCleanup = () => {
+          jobs.delete(job.id);
+          lastFiredMinute.delete(job.id);
+        };
+        if (result?.then) {
+          result.then(runOnceCleanup, runOnceCleanup);
+        } else {
+          runOnceCleanup();
+        }
       }
     }
   }

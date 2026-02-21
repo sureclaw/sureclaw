@@ -64,6 +64,7 @@ describe('HeartbeatModule', () => {
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('HEARTBEAT_OK');
     expect(text).toContain('scheduler_add_cron');
+    expect(text).toContain('scheduler_run_at');
     expect(text).toContain('scheduler_remove_cron');
     expect(text).toContain('scheduler_list_jobs');
     expect(text).toContain('review emails');

@@ -1,12 +1,19 @@
 /**
- * Sync test: verifies mcp-server.ts tool names and parameter keys
- * match the shared tool catalog. Catches drift between the Zod-based
- * MCP server and the TypeBox-based catalog.
+ * Sync tests: verify the tool catalog stays in sync with consumers.
+ *
+ * - tool-catalog ↔ mcp-server: tool names and parameter keys match
+ * - tool-catalog ↔ system prompt: every tool is documented in the
+ *   appropriate prompt module so the LLM knows to use it
+ * - tool-catalog ↔ IPC schemas: every tool has a Zod schema
  */
 
 import { describe, test, expect, vi } from 'vitest';
-import { TOOL_NAMES, getToolParamKeys } from '../../src/agent/tool-catalog.js';
+import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys } from '../../src/agent/tool-catalog.js';
 import { createIPCMcpServer } from '../../src/agent/mcp-server.js';
+import { HeartbeatModule } from '../../src/agent/prompt/modules/heartbeat.js';
+import { IdentityModule } from '../../src/agent/prompt/modules/identity.js';
+import { IPC_SCHEMAS } from '../../src/ipc-schemas.js';
+import type { PromptContext } from '../../src/agent/prompt/types.js';
 import type { IPCClient } from '../../src/agent/ipc-client.js';
 
 function createMockClient(): IPCClient {
@@ -46,6 +53,73 @@ describe('tool-catalog ↔ mcp-server sync', () => {
       const catalogKeys = getToolParamKeys(name).sort();
 
       expect(mcpKeys, `Parameter keys mismatch for tool "${name}"`).toEqual(catalogKeys);
+    }
+  });
+});
+
+// ── tool-catalog ↔ system prompt sync ────────────────────────────────
+//
+// Tools registered in the API's tools[] are only half the story.
+// The system prompt must ALSO document each tool so the LLM knows
+// when and how to use it. Without prompt guidance, models hallucinate
+// the behavior instead of calling the tool.
+
+function makePromptContext(overrides: Partial<PromptContext> = {}): PromptContext {
+  return {
+    agentType: 'pi-agent-core',
+    workspace: '/tmp',
+    skills: [],
+    profile: 'balanced',
+    sandboxType: 'subprocess',
+    taintRatio: 0,
+    taintThreshold: 0.10,
+    identityFiles: {
+      agents: '', soul: 'I am a test agent', identity: '', user: '',
+      bootstrap: '', userBootstrap: '',
+      heartbeat: '# Test Checks\n- check stuff',
+    },
+    contextWindow: 200000,
+    historyTokens: 0,
+    ...overrides,
+  };
+}
+
+describe('tool-catalog ↔ system prompt sync', () => {
+  test('every scheduler_* tool in catalog is documented in HeartbeatModule', () => {
+    const schedulerTools = TOOL_CATALOG.filter(t => t.name.startsWith('scheduler_'));
+    expect(schedulerTools.length).toBeGreaterThan(0);
+
+    const mod = new HeartbeatModule();
+    const ctx = makePromptContext();
+    const rendered = mod.render(ctx).join('\n');
+
+    for (const tool of schedulerTools) {
+      expect(rendered, `scheduler tool "${tool.name}" missing from HeartbeatModule system prompt`).toContain(tool.name);
+    }
+  });
+
+  test('every identity/user tool in catalog is documented in IdentityModule', () => {
+    const identityTools = TOOL_CATALOG.filter(t =>
+      t.name === 'identity_write' || t.name === 'user_write'
+    );
+    expect(identityTools.length).toBeGreaterThan(0);
+
+    const mod = new IdentityModule();
+    const ctx = makePromptContext();
+    const rendered = mod.render(ctx).join('\n');
+
+    for (const tool of identityTools) {
+      expect(rendered, `identity tool "${tool.name}" missing from IdentityModule system prompt`).toContain(tool.name);
+    }
+  });
+});
+
+// ── tool-catalog ↔ IPC schemas sync ──────────────────────────────────
+
+describe('tool-catalog ↔ IPC schemas sync', () => {
+  test('every tool in catalog has a corresponding IPC schema', () => {
+    for (const tool of TOOL_CATALOG) {
+      expect(IPC_SCHEMAS, `IPC schema missing for tool "${tool.name}"`).toHaveProperty(tool.name);
     }
   });
 });
