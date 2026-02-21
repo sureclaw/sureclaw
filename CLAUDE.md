@@ -99,11 +99,6 @@ If they don't already exist, create these files at the start of any session:
 - `.claude/journal.md`
 - `.claude/lessons.md`
 
-### Before Starting Any Task
-
-1. **Read `.claude/lessons.md` in full.** Internalize every entry. Do not repeat past mistakes.
-2. **Read the last 5 entries in `.claude/journal.md`** to understand recent context.
-
 ### Journal (`.claude/journal.md`)
 
 Append an entry every time you complete a meaningful unit of work (a fix, a feature, a refactor, an investigation, etc). Use this exact format:
