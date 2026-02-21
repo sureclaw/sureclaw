@@ -147,16 +147,14 @@ Rules:
 
 ```
 START OF TASK:
-  1. Read .claude/lessons.md (full)
-  2. Read .claude/journal.md (last 5 entries)
-  3. Plan approach (considering lessons)
-  4. Do the work
-  5. Append to journal.md
-  6. If you learned something new → append to lessons.md
+  1. Plan approach (considering lessons)
+  2. Do the work
+  3. Append to journal.md
+  4. If you learned something new → append to lessons.md
 END OF TASK
 ```
 
-**IMPORTANT:** Steps 5 and 6 MUST happen BEFORE creating any git commit. Never commit without first updating the journal and lessons. The commit should reflect that journal/lessons are already up to date.
+**IMPORTANT:** Steps 3 and 4 MUST happen BEFORE creating any git commit. Never commit without first updating the journal and lessons. The commit should reflect that journal/lessons are already up to date.
 
 ### Periodic Maintenance
 

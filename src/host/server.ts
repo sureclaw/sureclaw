@@ -635,8 +635,8 @@ export async function createServer(
       if (providers.memory.memorize) {
         try {
           const fullHistory = [
-            ...clientMessages,
-            { role: 'assistant', content: outbound.content },
+            ...clientMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+            { role: 'assistant' as const, content: outbound.content },
           ];
           await providers.memory.memorize(fullHistory);
         } catch (err) {

@@ -6,7 +6,8 @@ export async function create(_config: Config): Promise<LLMProvider> {
     name: 'mock',
 
     async *chat(req: ChatRequest): AsyncIterable<ChatChunk> {
-      const lastMsg = req.messages[req.messages.length - 1]?.content ?? '';
+      const rawContent = req.messages[req.messages.length - 1]?.content ?? '';
+      const lastMsg = typeof rawContent === 'string' ? rawContent : '';
 
       // Simple canned responses for testing
       let response = 'Hello from mock LLM.';

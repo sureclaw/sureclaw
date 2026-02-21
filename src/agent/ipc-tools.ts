@@ -27,10 +27,11 @@ export function createIPCTools(client: IPCClient, opts?: IPCToolsOptions): Agent
     label: spec.label,
     description: spec.description,
     parameters: spec.parameters,
-    async execute(_id: string, params: Record<string, unknown>) {
+    async execute(_id: string, params: unknown) {
+      const p = params as Record<string, unknown>;
       const callParams = spec.injectUserId
-        ? { ...params, userId: opts?.userId ?? '' }
-        : params;
+        ? { ...p, userId: opts?.userId ?? '' }
+        : p;
       return ipcCall(spec.name, callParams);
     },
   }));

@@ -25,7 +25,7 @@ export function createLocalTools(workspace: string): AgentTool[] {
       parameters: Type.Object({
         command: Type.String({ description: 'The bash command to execute' }),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params: any) {
         try {
           const out = execSync(params.command, {
             cwd: workspace,
@@ -49,7 +49,7 @@ export function createLocalTools(workspace: string): AgentTool[] {
       parameters: Type.Object({
         path: Type.String({ description: 'Relative path to the file' }),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params: any) {
         const abs = safePath(workspace, params.path);
         if (!abs) return text('Error: path outside workspace');
         try {
@@ -67,7 +67,7 @@ export function createLocalTools(workspace: string): AgentTool[] {
         path: Type.String({ description: 'Relative path to the file' }),
         content: Type.String({ description: 'Content to write' }),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params: any) {
         const abs = safePath(workspace, params.path);
         if (!abs) return text('Error: path outside workspace');
         try {
@@ -88,7 +88,7 @@ export function createLocalTools(workspace: string): AgentTool[] {
         old_string: Type.String({ description: 'Text to find' }),
         new_string: Type.String({ description: 'Replacement text' }),
       }),
-      async execute(_toolCallId, params) {
+      async execute(_toolCallId, params: any) {
         const abs = safePath(workspace, params.path);
         if (!abs) return text('Error: path outside workspace');
         try {

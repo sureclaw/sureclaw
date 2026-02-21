@@ -234,7 +234,7 @@ function createProxyStreamFunction(proxySocket: string) {
     const tools: AnthropicTool[] | undefined = context.tools?.map(t => ({
       name: t.name,
       description: t.description ?? '',
-      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as AnthropicTool['input_schema'],
+      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as unknown as AnthropicTool['input_schema'],
     }));
 
     const maxTokens = options?.maxTokens ?? model?.maxTokens ?? 8192;
@@ -440,7 +440,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     historyTokens: config.history?.length ? JSON.stringify(config.history).length / 4 : 0,
   });
   const systemPrompt = promptResult.content;
-  logger.debug('prompt_built', promptResult.metadata);
+  logger.debug('prompt_built', { ...promptResult.metadata });
 
   // Create coding tools bound to the workspace directory.
   // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()

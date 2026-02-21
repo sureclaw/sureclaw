@@ -79,7 +79,7 @@ const renderer = {
     return '  ' + chalk.dim('\u2022') + ' ' + text + '\n';
   },
 
-  link(href: string, _title: string | null, text: string) {
+  link(href: string, _title: string | null | undefined, text: string) {
     return chalk.blue.underline(text) + chalk.gray(' (' + href + ')');
   },
 

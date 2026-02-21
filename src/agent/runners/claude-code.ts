@@ -111,8 +111,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
             hasOutput = true;
           }
         }
-      } else if (msg.type === 'error') {
-        const errText = 'error' in msg ? String((msg as Record<string, unknown>).error) : 'unknown error';
+      } else if (msg.type === 'result' && 'is_error' in msg && msg.is_error) {
+        const errText = 'errors' in msg ? String((msg as Record<string, unknown>).errors) : 'unknown error';
         logger.error('claude_code_error', { error: errText });
         process.stderr.write(`Claude Code error: ${errText}\n`);
       }

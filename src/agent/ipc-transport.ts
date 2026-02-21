@@ -39,7 +39,7 @@ function makeErrorMessage(errorText: string): AssistantMessage {
     api: 'anthropic-messages',
     provider: 'anthropic',
     model: 'unknown',
-    usage: { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 },
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     stopReason: 'stop',
     errorMessage: errorText,
     timestamp: Date.now(),
@@ -92,7 +92,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           messages: allMessages,
           tools,
           maxTokens,
-        }, LLM_CALL_TIMEOUT_MS) as IPCResponse;
+        }, LLM_CALL_TIMEOUT_MS) as unknown as IPCResponse;
 
         if (!response.ok) {
           logger.debug('ipc_error', { error: response.error });
@@ -106,7 +106,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
         logger.debug('ipc_response', { chunkCount: chunks.length, chunkTypes: chunks.map(c => c.type) });
         const textParts: string[] = [];
         const toolCalls: ToolCall[] = [];
-        let usage = { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 };
+        let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 
         for (const chunk of chunks) {
           if (chunk.type === 'text' && chunk.content) {
@@ -119,7 +119,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
               arguments: chunk.toolCall.args,
             });
           } else if (chunk.type === 'done' && chunk.usage) {
-            usage = { ...usage, inputTokens: chunk.usage.inputTokens, outputTokens: chunk.usage.outputTokens };
+            usage = { ...usage, input: chunk.usage.inputTokens, output: chunk.usage.outputTokens, totalTokens: chunk.usage.inputTokens + chunk.usage.outputTokens };
           }
         }
 
@@ -137,7 +137,7 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
           provider: model.provider,
           model: model.id,
           usage,
-          stopReason,
+          stopReason: stopReason as 'stop' | 'toolUse',
           timestamp: Date.now(),
         };
 

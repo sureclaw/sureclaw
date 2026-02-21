@@ -73,7 +73,7 @@ export async function create(_config: Config): Promise<CredentialProvider> {
     try {
       const raw = readFileSync(storePath, 'utf-8');
       const file: EncryptedFile = JSON.parse(raw);
-      cachedStore = JSON.parse(decrypt(file, passphrase));
+      cachedStore = JSON.parse(decrypt(file, passphrase!));
       return cachedStore!;
     } catch {
       cachedStore = {};
@@ -84,7 +84,7 @@ export async function create(_config: Config): Promise<CredentialProvider> {
   function saveStore(store: Record<string, string>): void {
     mkdirSync(dirname(storePath), { recursive: true });
     const plaintext = JSON.stringify(store);
-    const file = encrypt(plaintext, passphrase);
+    const file = encrypt(plaintext, passphrase!);
     writeFileSync(storePath, JSON.stringify(file));
     cachedStore = store;
   }

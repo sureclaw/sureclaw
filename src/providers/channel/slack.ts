@@ -323,13 +323,14 @@ export async function create(config: Config): Promise<ChannelProvider> {
       if (content.attachments?.length) {
         for (const att of content.attachments) {
           if (att.content) {
-            await app.client.files.uploadV2({
+            const uploadArgs: Record<string, unknown> = {
               token: botToken,
               channel_id: channel,
               file: att.content,
               filename: att.filename,
-              ...(threadTs ? { thread_ts: threadTs } : {}),
-            });
+            };
+            if (threadTs) uploadArgs.thread_ts = threadTs;
+            await app.client.files.uploadV2(uploadArgs as any);
           }
         }
       }

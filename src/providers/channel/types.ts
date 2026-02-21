@@ -12,6 +12,7 @@ export interface SessionAddress {
     channel?: string;
     thread?: string;
     peer?: string;
+    dmChannel?: string;
   };
   parent?: SessionAddress;
 }

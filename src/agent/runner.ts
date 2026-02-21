@@ -15,7 +15,7 @@ import type {
   ToolCall,
 } from '@mariozechner/pi-ai';
 import type { MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages';
-import { estimateTokens } from '@mariozechner/pi-coding-agent';
+
 import { IPCClient } from './ipc-client.js';
 import { createIPCStreamFn } from './ipc-transport.js';
 import { createLocalTools } from './local-tools.js';
@@ -113,7 +113,7 @@ export function historyToPiMessages(history: ConversationTurn[]): AgentMessage[]
       api: 'anthropic-messages',
       provider: 'anthropic',
       model: DEFAULT_MODEL_ID,
-      usage: { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 },
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
       stopReason: 'stop',
       timestamp: Date.now(),
     } satisfies AssistantMessage;
@@ -121,11 +121,10 @@ export function historyToPiMessages(history: ConversationTurn[]): AgentMessage[]
 }
 
 /**
- * Estimate total tokens in a conversation history using pi-coding-agent's
- * token estimator (chars/4 heuristic, conservative).
+ * Estimate total tokens in a conversation history (chars/4 heuristic, conservative).
  */
 function estimateHistoryTokens(messages: AgentMessage[]): number {
-  return messages.reduce((sum, msg) => sum + estimateTokens(msg), 0);
+  return messages.reduce((sum, msg) => sum + Math.ceil(JSON.stringify(msg).length / 4), 0);
 }
 
 /**
@@ -248,7 +247,7 @@ function makeProxyErrorMessage(errorText: string): AssistantMessage {
     api: 'anthropic-messages',
     provider: 'anthropic',
     model: 'unknown',
-    usage: { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 },
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     stopReason: 'stop',
     errorMessage: errorText,
     timestamp: Date.now(),
@@ -284,7 +283,7 @@ function createProxyStreamFn(proxySocket: string) {
     const tools: AnthropicTool[] | undefined = context.tools?.map(t => ({
       name: t.name,
       description: t.description ?? '',
-      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as AnthropicTool['input_schema'],
+      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as unknown as AnthropicTool['input_schema'],
     }));
 
     const maxTokens = options?.maxTokens ?? model?.maxTokens ?? 8192;
@@ -330,11 +329,12 @@ function createProxyStreamFn(proxySocket: string) {
 
         const stopReason = finalMessage.stop_reason === 'tool_use' ? 'toolUse' : 'stop';
         const usage = {
-          inputTokens: finalMessage.usage?.input_tokens ?? 0,
-          outputTokens: finalMessage.usage?.output_tokens ?? 0,
-          inputCachedTokens: (finalMessage.usage as Record<string, number>)?.cache_read_input_tokens ?? 0,
-          reasoningTokens: 0,
-          totalCost: 0,
+          input: finalMessage.usage?.input_tokens ?? 0,
+          output: finalMessage.usage?.output_tokens ?? 0,
+          cacheRead: (finalMessage.usage as Record<string, number>)?.cache_read_input_tokens ?? 0,
+          cacheWrite: (finalMessage.usage as Record<string, number>)?.cache_creation_input_tokens ?? 0,
+          totalTokens: (finalMessage.usage?.input_tokens ?? 0) + (finalMessage.usage?.output_tokens ?? 0),
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
         };
 
         const msg: AssistantMessage = {
@@ -418,11 +418,11 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
     taintThreshold: config.taintThreshold ?? 1,
     identityFiles,
     contextWindow: DEFAULT_CONTEXT_WINDOW,
-    historyTokens: config.history?.length ? estimateTokens(JSON.stringify(config.history)) : 0,
+    historyTokens: config.history?.length ? Math.ceil(JSON.stringify(config.history).length / 4) : 0,
     replyOptional: config.replyOptional ?? false,
   });
   const systemPrompt = promptResult.content;
-  logger.debug('prompt_built', promptResult.metadata);
+  logger.debug('prompt_built', { ...promptResult.metadata });
 
   // Build tools: local (execute in sandbox) + IPC (route to host)
   const localTools = createLocalTools(config.workspace);
