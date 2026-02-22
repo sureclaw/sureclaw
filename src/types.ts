@@ -11,6 +11,12 @@ import type { SkillStoreProvider, SkillScreenerProvider } from './providers/skil
 import type { AuditProvider } from './providers/audit/types.js';
 import type { SandboxProvider } from './providers/sandbox/types.js';
 import type { SchedulerProvider, CronDelivery } from './providers/scheduler/types.js';
+import type {
+  MemoryProviderName, ScannerProviderName, ChannelProviderName,
+  WebProviderName, BrowserProviderName, CredentialProviderName,
+  SkillsProviderName, AuditProviderName, SandboxProviderName,
+  SchedulerProviderName,
+} from './host/provider-map.js';
 
 export type ContentBlock =
   | { type: 'text'; text: string }
@@ -37,16 +43,16 @@ export interface Config {
   max_tokens?: number;
   profile: ProfileName;
   providers: {
-    memory: string;
-    scanner: string;
-    channels: string[];
-    web: string;
-    browser: string;
-    credentials: string;
-    skills: string;
-    audit: string;
-    sandbox: string;
-    scheduler: string;
+    memory: MemoryProviderName;
+    scanner: ScannerProviderName;
+    channels: ChannelProviderName[];
+    web: WebProviderName;
+    browser: BrowserProviderName;
+    credentials: CredentialProviderName;
+    skills: SkillsProviderName;
+    audit: AuditProviderName;
+    sandbox: SandboxProviderName;
+    scheduler: SchedulerProviderName;
     skillScreener?: string;
   };
   channel_config?: Record<string, Partial<ChannelAccessConfig>>;

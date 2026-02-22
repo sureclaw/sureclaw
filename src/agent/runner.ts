@@ -1,28 +1,18 @@
 import { join } from 'node:path';
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import {
-  createAssistantMessageEventStream,
-} from '@mariozechner/pi-ai';
 import type {
   Model,
   UserMessage,
   AssistantMessage,
-  AssistantMessageEventStream,
-  Context,
-  SimpleStreamOptions,
-  TextContent,
-  ToolCall,
 } from '@mariozechner/pi-ai';
-import type { MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages';
 
 import { IPCClient } from './ipc-client.js';
 import { createIPCStreamFn } from './ipc-transport.js';
 import { createLocalTools } from './local-tools.js';
 import { createIPCTools } from './ipc-tools.js';
-import { convertPiMessages, emitStreamEvents, createLazyAnthropicClient, loadSkills } from './stream-utils.js';
-import { PromptBuilder } from './prompt/builder.js';
-import { loadIdentityFiles } from './identity-loader.js';
+import { createProxyStreamFn } from './proxy-stream.js';
+import { buildSystemPrompt, subscribeAgentEvents } from './agent-setup.js';
 import { getLogger, truncate } from '../logger.js';
 
 const logger = getLogger().child({ component: 'runner' });
@@ -237,136 +227,6 @@ function parseArgs(): AgentConfig {
   };
 }
 
-// ── Proxy-based StreamFn (Anthropic SDK via Unix socket) ─────────────
-
-function makeProxyErrorMessage(errorText: string): AssistantMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text: errorText }],
-    api: 'anthropic-messages',
-    provider: 'anthropic',
-    model: 'unknown',
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    stopReason: 'stop',
-    errorMessage: errorText,
-    timestamp: Date.now(),
-  };
-}
-
-/**
- * Create a StreamFn that routes LLM calls through the credential-injecting
- * proxy via the Anthropic SDK. The proxy injects real API credentials — the
- * container never sees them.
- *
- * This is an async StreamFn (returns Promise<AssistantMessageEventStream>),
- * which pi-agent-core's Agent class supports.
- */
-function createProxyStreamFn(proxySocket: string) {
-  const getClient = createLazyAnthropicClient(proxySocket);
-
-  return async (model: Model<any>, context: Context, options?: SimpleStreamOptions): Promise<AssistantMessageEventStream> => {
-    const stream = createAssistantMessageEventStream();
-
-    const msgCount = context.messages.length;
-    const toolCount = context.tools?.length ?? 0;
-    logger.debug('proxy_stream_start', {
-      model: model?.id,
-      messageCount: msgCount,
-      toolCount,
-      hasSystemPrompt: !!context.systemPrompt,
-    });
-
-    const messages = convertPiMessages(context.messages) as MessageParam[];
-
-    // Convert pi-ai tools to Anthropic SDK Tool[] format.
-    const tools: AnthropicTool[] | undefined = context.tools?.map(t => ({
-      name: t.name,
-      description: t.description ?? '',
-      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as unknown as AnthropicTool['input_schema'],
-    }));
-
-    const maxTokens = options?.maxTokens ?? model?.maxTokens ?? 8192;
-
-    (async () => {
-      try {
-        const anthropic = await getClient();
-
-        logger.debug('proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
-
-        // Use .stream() for SSE streaming, then extract from finalMessage.
-        const sdkStream = anthropic.messages.stream({
-          model: model?.id ?? DEFAULT_MODEL_ID,
-          max_tokens: maxTokens,
-          system: context.systemPrompt || undefined,
-          messages,
-          tools: tools && tools.length > 0 ? tools : undefined,
-        });
-
-        const finalMessage = await sdkStream.finalMessage();
-
-        // Build pi-ai AssistantMessage from the final response.
-        const contentArr: (TextContent | ToolCall)[] = [];
-        const toolCalls: ToolCall[] = [];
-        const textParts: string[] = [];
-
-        for (const block of finalMessage.content) {
-          if (block.type === 'text') {
-            textParts.push(block.text);
-          } else if (block.type === 'tool_use') {
-            toolCalls.push({
-              type: 'toolCall',
-              id: block.id,
-              name: block.name,
-              arguments: block.input as Record<string, unknown>,
-            });
-          }
-        }
-
-        const fullText = textParts.join('');
-        if (fullText) contentArr.push({ type: 'text', text: fullText });
-        contentArr.push(...toolCalls);
-
-        const stopReason = finalMessage.stop_reason === 'tool_use' ? 'toolUse' : 'stop';
-        const usage = {
-          input: finalMessage.usage?.input_tokens ?? 0,
-          output: finalMessage.usage?.output_tokens ?? 0,
-          cacheRead: (finalMessage.usage as Record<string, number>)?.cache_read_input_tokens ?? 0,
-          cacheWrite: (finalMessage.usage as Record<string, number>)?.cache_creation_input_tokens ?? 0,
-          totalTokens: (finalMessage.usage?.input_tokens ?? 0) + (finalMessage.usage?.output_tokens ?? 0),
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        };
-
-        const msg: AssistantMessage = {
-          role: 'assistant',
-          content: contentArr,
-          api: model.api,
-          provider: model.provider,
-          model: model.id,
-          usage,
-          stopReason,
-          timestamp: Date.now(),
-        };
-
-        logger.debug('proxy_stream_done', {
-          stopReason,
-          textLength: fullText.length,
-          toolCallCount: toolCalls.length,
-          toolNames: toolCalls.map(t => t.name),
-          usage,
-        });
-        emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
-      } catch (err: unknown) {
-        logger.debug('proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
-        const errMsg = makeProxyErrorMessage((err as Error).message);
-        stream.push({ type: 'start', partial: errMsg });
-        stream.push({ type: 'error', reason: 'error', error: errMsg });
-      }
-    })();
-
-    return stream;
-  };
-}
-
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
@@ -401,28 +261,7 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
   const client = new IPCClient({ socketPath: config.ipcSocket });
   await client.connect();
 
-  const skills = loadSkills(config.skills);
-  const identityFiles = loadIdentityFiles({
-    agentDir: config.agentDir,
-    userId: config.userId,
-  });
-
-  const promptBuilder = new PromptBuilder();
-  const promptResult = promptBuilder.build({
-    agentType: config.agent ?? 'pi-agent-core',
-    workspace: config.workspace,
-    skills,
-    profile: config.profile ?? 'balanced',
-    sandboxType: config.sandboxType ?? 'subprocess',
-    taintRatio: config.taintRatio ?? 0,
-    taintThreshold: config.taintThreshold ?? 1,
-    identityFiles,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    historyTokens: config.history?.length ? Math.ceil(JSON.stringify(config.history).length / 4) : 0,
-    replyOptional: config.replyOptional ?? false,
-  });
-  const systemPrompt = promptResult.content;
-  logger.debug('prompt_built', { ...promptResult.metadata });
+  const { systemPrompt } = buildSystemPrompt(config);
 
   // Build tools: local (execute in sandbox) + IPC (route to host)
   const localTools = createLocalTools(config.workspace);
@@ -469,58 +308,18 @@ export async function runPiCore(config: AgentConfig): Promise<void> {
     streamFn,
   });
 
-  // Subscribe to events — stream text to stdout, log all events for debugging
-  let hasOutput = false;
-  let eventCount = 0;
-  let turnCount = 0;
-  agent.subscribe((event) => {
-    eventCount++;
-    if (event.type === 'message_update') {
-      const ame = event.assistantMessageEvent;
-      logger.debug('agent_event', { type: ame.type, eventCount });
-
-      if (ame.type === 'text_start' && hasOutput) {
-        process.stdout.write('\n\n');
-      }
-      if (ame.type === 'text_delta') {
-        process.stdout.write(ame.delta);
-        hasOutput = true;
-      }
-      if (ame.type === 'toolcall_end') {
-        logger.debug('tool_call', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
-        if (config.verbose) {
-          process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
-        }
-      }
-      if (ame.type === 'error') {
-        const errText = ame.error?.errorMessage ?? String(ame.error);
-        logger.error('agent_error_event', { error: errText });
-        process.stderr.write(`Agent error: ${errText}\n`);
-        // Also write to stdout so the server can surface the error in the response
-        if (!hasOutput) {
-          process.stdout.write(errText);
-          hasOutput = true;
-        }
-      }
-      if (ame.type === 'done') {
-        turnCount++;
-        logger.debug('agent_done_event', { reason: ame.reason });
-        if (config.verbose) {
-          process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
-        }
-      }
-    }
-  });
+  // Subscribe to events — stream text to stdout, log tools/errors to stderr
+  const eventState = subscribeAgentEvents(agent, config);
 
   // Send the user message and wait for the agent to finish
   process.stderr.write(`[diag] pi_core_prompt\n`);
   logger.debug('pi_core_prompt', { messagePreview: truncate(userMessage, 200) });
   await agent.prompt(userMessage);
-  process.stderr.write(`[diag] pi_core_prompt_returned events=${eventCount} hasOutput=${hasOutput}\n`);
+  process.stderr.write(`[diag] pi_core_prompt_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
   await agent.waitForIdle();
-  process.stderr.write(`[diag] pi_core_idle events=${eventCount} hasOutput=${hasOutput}\n`);
+  process.stderr.write(`[diag] pi_core_idle events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
 
-  logger.debug('pi_core_complete', { eventCount, hasOutput });
+  logger.debug('pi_core_complete', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
   client.disconnect();
 }
 

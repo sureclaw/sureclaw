@@ -4,7 +4,7 @@ import type { Config, ProviderRegistry } from '../types.js';
 export async function loadProviders(config: Config): Promise<ProviderRegistry> {
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.
   // Old configs may still list it; silently skip for backward compatibility.
-  const channelNames = config.providers.channels.filter(name => name !== 'cli');
+  const channelNames = config.providers.channels.filter(name => (name as string) !== 'cli');
   const channels = await Promise.all(
     channelNames.map(name => loadProvider('channel', name, config))
   );
