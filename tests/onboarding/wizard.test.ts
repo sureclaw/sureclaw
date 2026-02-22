@@ -615,14 +615,14 @@ describe('Onboarding Wizard', () => {
         agent: 'pi-agent-core',
         model: 'openrouter/anthropic/claude-sonnet-4',
         llmProvider: 'openrouter',
-        apiKey: 'or-key-123456',
+        apiKey: 'or-key-123456', // gitleaks:allow
         channels: [],
         skipSkills: true,
       },
     });
 
     const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('OPENROUTER_API_KEY=or-key-123456');
+    expect(envContent).toContain('OPENROUTER_API_KEY=or-key-123456'); // gitleaks:allow
     expect(envContent).not.toContain('ANTHROPIC_API_KEY');
   });
 
