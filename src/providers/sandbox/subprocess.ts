@@ -22,6 +22,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           AX_IPC_SOCKET: config.ipcSocket,
           AX_WORKSPACE: config.workspace,
           AX_SKILLS: config.skills,
+          ...(config.agentWorkspace ? { AX_AGENT_WORKSPACE: config.agentWorkspace } : {}),
+          ...(config.userWorkspace ? { AX_USER_WORKSPACE: config.userWorkspace } : {}),
+          ...(config.scratchDir ? { AX_SCRATCH: config.scratchDir } : {}),
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });

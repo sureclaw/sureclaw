@@ -17,12 +17,23 @@ export async function create(_config: Config): Promise<MemoryProvider> {
       content TEXT NOT NULL,
       tags TEXT,
       taint TEXT,
+      agent_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_entries_scope ON entries(scope)
   `);
+  // Enterprise: agent-scoped index
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_entries_agent_scope ON entries(agent_id, scope)
+  `);
+  // Migration: add agent_id column if missing (existing installs)
+  try {
+    db.exec(`ALTER TABLE entries ADD COLUMN agent_id TEXT`);
+  } catch {
+    // Column already exists — expected for new installs
+  }
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
       entry_id,
@@ -46,6 +57,7 @@ export async function create(_config: Config): Promise<MemoryProvider> {
       tags: deserializeTags(row.tags as string | null),
       taint: row.taint ? JSON.parse(row.taint as string) : undefined,
       createdAt: new Date(row.created_at as string),
+      ...(row.agent_id ? { agentId: row.agent_id as string } : {}),
     };
   }
 
@@ -56,14 +68,15 @@ export async function create(_config: Config): Promise<MemoryProvider> {
       db.prepare('DELETE FROM entries_fts WHERE entry_id = ?').run(id);
       db.prepare('DELETE FROM entries WHERE id = ?').run(id);
       db.prepare(`
-        INSERT INTO entries (id, scope, content, tags, taint, created_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO entries (id, scope, content, tags, taint, agent_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
       `).run(
         id,
         entry.scope,
         entry.content,
         serializeTags(entry.tags),
         entry.taint ? JSON.stringify(entry.taint) : null,
+        entry.agentId ?? null,
       );
       db.prepare('INSERT INTO entries_fts (entry_id, content) VALUES (?, ?)').run(id, entry.content);
       return id;
@@ -71,16 +84,23 @@ export async function create(_config: Config): Promise<MemoryProvider> {
 
     async query(q: MemoryQuery): Promise<MemoryEntry[]> {
       const limit = q.limit ?? 50;
+      const agentFilter = q.agentId !== undefined;
 
       if (q.query) {
-        // Use FTS5 for text search, scoped by scope
-        const rows = db.prepare(`
-          SELECT e.* FROM entries e
-          JOIN entries_fts fts ON fts.entry_id = e.id
-          WHERE e.scope = ? AND entries_fts MATCH ?
-          ORDER BY fts.rank
-          LIMIT ?
-        `).all(q.scope, q.query, limit) as Record<string, unknown>[];
+        // Use FTS5 for text search, scoped by scope (and optionally agent)
+        const sql = agentFilter
+          ? `SELECT e.* FROM entries e
+             JOIN entries_fts fts ON fts.entry_id = e.id
+             WHERE e.scope = ? AND e.agent_id = ? AND entries_fts MATCH ?
+             ORDER BY fts.rank LIMIT ?`
+          : `SELECT e.* FROM entries e
+             JOIN entries_fts fts ON fts.entry_id = e.id
+             WHERE e.scope = ? AND entries_fts MATCH ?
+             ORDER BY fts.rank LIMIT ?`;
+        const params = agentFilter
+          ? [q.scope, q.agentId, q.query, limit]
+          : [q.scope, q.query, limit];
+        const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
 
         let results = rows.map(rowToEntry);
         if (q.tags) {
@@ -91,9 +111,13 @@ export async function create(_config: Config): Promise<MemoryProvider> {
         return results;
       }
 
-      // No query text — list by scope
-      let sql = 'SELECT * FROM entries WHERE scope = ?';
-      const params: unknown[] = [q.scope];
+      // No query text — list by scope (and optionally agent)
+      let sql = agentFilter
+        ? 'SELECT * FROM entries WHERE scope = ? AND agent_id = ?'
+        : 'SELECT * FROM entries WHERE scope = ?';
+      const params: unknown[] = agentFilter
+        ? [q.scope, q.agentId]
+        : [q.scope];
 
       sql += ' ORDER BY created_at DESC LIMIT ?';
       params.push(limit);

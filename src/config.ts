@@ -90,5 +90,9 @@ export function loadConfig(path?: string): Config {
   const configPath = resolve(path ?? defaultConfigPath());
   const raw = readFileSync(configPath, 'utf-8');
   const parsed = parseYaml(raw);
-  return ConfigSchema.parse(parsed);
+  // The Zod schema enforces the same provider-name constraints at runtime,
+  // but providerEnum() builds enums from PROVIDER_MAP's loosely-typed keys
+  // so TypeScript can't narrow the output to the literal union types Config
+  // expects.  The assertion is safe — invalid names are caught by parse().
+  return ConfigSchema.parse(parsed) as unknown as Config;
 }

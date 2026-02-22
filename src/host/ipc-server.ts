@@ -13,6 +13,9 @@ import { createSkillsHandlers } from './ipc-handlers/skills.js';
 import { createIdentityHandlers } from './ipc-handlers/identity.js';
 import { createDelegationHandlers } from './ipc-handlers/delegation.js';
 import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
+import { createWorkspaceHandlers } from './ipc-handlers/workspace.js';
+import { createGovernanceHandlers } from './ipc-handlers/governance.js';
+import { AgentRegistry } from './agent-registry.js';
 
 const logger = getLogger().child({ component: 'ipc' });
 
@@ -40,6 +43,8 @@ export interface IPCHandlerOptions {
   profile?: string;
   /** Configured model ID from ax.yaml (e.g. 'anthropic/claude-sonnet-4-20250514'). */
   configModel?: string;
+  /** Enterprise agent registry instance. */
+  agentRegistry?: AgentRegistry;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -63,6 +68,13 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     }),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentName),
+    ...createWorkspaceHandlers(providers, { agentName, profile }),
+    ...createGovernanceHandlers(providers, {
+      agentDir: opts?.agentDir,
+      agentName,
+      profile,
+      registry: opts?.agentRegistry ?? new AgentRegistry(),
+    }),
   };
 
   return async function handleIPC(raw: string, ctx: IPCContext): Promise<string> {
@@ -122,7 +134,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
     // Step 3.5: Taint budget check (SC-SEC-003)
     // identity_write has custom taint handling (queues instead of hard-blocking)
-    if (taintBudget && actionName !== 'identity_write' && actionName !== 'user_write') {
+    if (taintBudget && actionName !== 'identity_write' && actionName !== 'user_write' && actionName !== 'identity_propose') {
       const taintCheck = taintBudget.checkAction(ctx.sessionId, actionName);
       if (!taintCheck.allowed) {
         logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });

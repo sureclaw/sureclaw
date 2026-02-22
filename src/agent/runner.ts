@@ -69,6 +69,11 @@ export interface AgentConfig {
   profile?: string;
   sandboxType?: string;
   replyOptional?: boolean;
+  // Enterprise fields
+  agentId?: string;
+  agentWorkspace?: string;
+  userWorkspace?: string;
+  scratchDir?: string;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -332,6 +337,11 @@ export interface StdinPayload {
   sandboxType: string;
   userId?: string;
   replyOptional?: boolean;
+  // Enterprise fields
+  agentId?: string;
+  agentWorkspace?: string;
+  userWorkspace?: string;
+  scratchDir?: string;
 }
 
 /**
@@ -365,6 +375,11 @@ export function parseStdinPayload(data: string): StdinPayload {
         sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'subprocess',
         userId: typeof parsed.userId === 'string' ? parsed.userId : undefined,
         replyOptional: parsed.replyOptional === true,
+        // Enterprise fields
+        agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
+        agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
+        userWorkspace: typeof parsed.userWorkspace === 'string' ? parsed.userWorkspace : undefined,
+        scratchDir: typeof parsed.scratchDir === 'string' ? parsed.scratchDir : undefined,
       };
     }
   } catch {
@@ -420,6 +435,11 @@ if (isMain) {
     config.sandboxType = payload.sandboxType;
     config.userId = payload.userId;
     config.replyOptional = payload.replyOptional;
+    // Enterprise fields
+    config.agentId = payload.agentId;
+    config.agentWorkspace = payload.agentWorkspace;
+    config.userWorkspace = payload.userWorkspace;
+    config.scratchDir = payload.scratchDir;
     return run(config);
   }).catch((err) => {
     logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });

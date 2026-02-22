@@ -56,6 +56,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // Agent identity directory (read-only) — SOUL.md, BOOTSTRAP.md, etc.
         ...(config.agentDir ? ['--ro-bind', config.agentDir, config.agentDir] : []),
 
+        // Enterprise three-tier mounts
+        ...(config.agentWorkspace ? ['--ro-bind', config.agentWorkspace, config.agentWorkspace] : []),
+        ...(config.userWorkspace ? ['--bind', config.userWorkspace, config.userWorkspace] : []),
+        ...(config.scratchDir ? ['--bind', config.scratchDir, config.scratchDir] : []),
+
         // IPC socket directory (read-write)
         '--bind', ipcSocketDir, ipcSocketDir,
 
@@ -83,6 +88,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '--setenv', 'AX_IPC_SOCKET', config.ipcSocket,
         '--setenv', 'AX_WORKSPACE', config.workspace,
         '--setenv', 'AX_SKILLS', config.skills,
+        ...(config.agentWorkspace ? ['--setenv', 'AX_AGENT_WORKSPACE', config.agentWorkspace] : []),
+        ...(config.userWorkspace ? ['--setenv', 'AX_USER_WORKSPACE', config.userWorkspace] : []),
+        ...(config.scratchDir ? ['--setenv', 'AX_SCRATCH', config.scratchDir] : []),
         // Redirect caches and data dirs so they don't pollute the workspace
         '--setenv', 'npm_config_cache', '/tmp/.ax-npm-cache',
         '--setenv', 'XDG_CACHE_HOME', '/tmp/.ax-cache',

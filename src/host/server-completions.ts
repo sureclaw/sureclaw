@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { isValidSessionId, workspaceDir } from '../paths.js';
+import { isValidSessionId, workspaceDir, agentWorkspaceDir, userWorkspaceDir, scratchDir } from '../paths.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
 import type { ConversationStore } from '../conversation-store.js';
@@ -113,6 +113,7 @@ export async function processCompletion(
   let workspace = '';
   const isPersistent = !!persistentSessionId;
   let proxyCleanup: (() => void) | undefined;
+  let enterpriseScratch = '';
   try {
     if (persistentSessionId) {
       workspace = workspaceDir(persistentSessionId);
@@ -251,6 +252,16 @@ export async function processCompletion(
       memoryMB: config.sandbox.memory_mb,
     });
 
+    // Enterprise: set up three-tier workspace directories
+    const agentName = config.agent_name ?? 'main';
+    const currentUserId = userId ?? process.env.USER ?? 'default';
+    const enterpriseAgentWs = agentWorkspaceDir(agentName);
+    const enterpriseUserWs = userWorkspaceDir(agentName, currentUserId);
+    enterpriseScratch = scratchDir(sessionId);
+    mkdirSync(enterpriseAgentWs, { recursive: true });
+    mkdirSync(enterpriseUserWs, { recursive: true });
+    mkdirSync(enterpriseScratch, { recursive: true });
+
     const proc = await providers.sandbox.spawn({
       workspace,
       skills: wsSkillsDir,
@@ -259,6 +270,9 @@ export async function processCompletion(
       timeoutSec: config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
       command: spawnCommand,
+      agentWorkspace: enterpriseAgentWs,
+      userWorkspace: enterpriseUserWs,
+      scratchDir: enterpriseScratch,
     });
 
     reqLogger.info('agent_spawn', { sandbox: 'subprocess' });
@@ -273,8 +287,13 @@ export async function processCompletion(
       taintThreshold: thresholdForProfile(config.profile),
       profile: config.profile,
       sandboxType: config.providers.sandbox,
-      userId: userId ?? process.env.USER ?? 'default',
+      userId: currentUserId,
       replyOptional: replyOptional ?? false,
+      // Enterprise fields
+      agentId: agentName,
+      agentWorkspace: enterpriseAgentWs,
+      userWorkspace: enterpriseUserWs,
+      scratchDir: enterpriseScratch,
     });
     reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
     proc.stdin.write(stdinPayload);
@@ -408,6 +427,12 @@ export async function processCompletion(
     if (workspace && !isPersistent) {
       try { rmSync(workspace, { recursive: true, force: true }); } catch {
         reqLogger.debug('workspace_cleanup_failed', { workspace });
+      }
+    }
+    // Clean up ephemeral scratch directory
+    if (enterpriseScratch) {
+      try { rmSync(enterpriseScratch, { recursive: true, force: true }); } catch {
+        reqLogger.debug('scratch_cleanup_failed', { scratchDir: enterpriseScratch });
       }
     }
   }

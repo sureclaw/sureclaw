@@ -91,12 +91,12 @@ describe('ipc-tools', () => {
     expect(text).toMatch(/error|failed/i);
   });
 
-  test('exports identity_write tool (no identity_propose)', () => {
+  test('exports identity_write and identity_propose tools', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
     const names = tools.map((t) => t.name);
     expect(names).toContain('identity_write');
-    expect(names).not.toContain('identity_propose');
+    expect(names).toContain('identity_propose');
   });
 
   test('identity_write sends IPC call with correct action', async () => {
@@ -172,9 +172,9 @@ describe('ipc-tools', () => {
     expect(tools.find((t) => t.name === 'scheduler_list_jobs')).toBeDefined();
   });
 
-  test('total tool count is 17', () => {
+  test('total tool count is 23', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(17);
+    expect(tools.length).toBe(23);
   });
 });

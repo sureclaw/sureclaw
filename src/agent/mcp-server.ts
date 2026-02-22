@@ -187,6 +187,41 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
           reason: z.string().optional().describe('Why this skill is needed'),
         },
         (args) => ipcCall('skill_propose', args)),
+
+      // ── Enterprise: Workspace tools ──
+
+      tool('workspace_write', 'Write a file to a workspace tier (agent, user, or scratch).', {
+        tier: z.string().describe('"agent", "user", or "scratch"'),
+        path: z.string().describe('Relative path within the tier'),
+        content: z.string().describe('File content'),
+      }, (args) => ipcCall('workspace_write', args)),
+
+      tool('workspace_read', 'Read a file from a workspace tier.', {
+        tier: z.string().describe('"agent", "user", or "scratch"'),
+        path: z.string().describe('Relative path within the tier'),
+      }, (args) => ipcCall('workspace_read', args)),
+
+      tool('workspace_list', 'List files in a workspace tier directory.', {
+        tier: z.string().describe('"agent", "user", or "scratch"'),
+        path: z.string().optional().describe('Subdirectory to list (defaults to root)'),
+      }, (args) => ipcCall('workspace_list', args)),
+
+      // ── Enterprise: Governance tools ──
+
+      tool('identity_propose', 'Propose a change to a shared identity file for review.', {
+        file: z.string().describe('"SOUL.md" or "IDENTITY.md"'),
+        content: z.string(),
+        reason: z.string(),
+        origin: z.string().describe('"user_request" or "agent_initiated"'),
+      }, (args) => ipcCall('identity_propose', { ...args, origin: normalizeOrigin(args.origin) })),
+
+      tool('proposal_list', 'List governance proposals. Optionally filter by status.', {
+        status: z.string().optional().describe('"pending", "approved", or "rejected"'),
+      }, (args) => ipcCall('proposal_list', args)),
+
+      tool('agent_registry_list', 'List all registered agents.', {
+        status: z.string().optional().describe('"active", "suspended", or "archived"'),
+      }, (args) => ipcCall('agent_registry_list', args)),
     ],
   });
 }
