@@ -148,3 +148,11 @@
 **Outcome:** Success — 58 new E2E tests, all passing. Full suite: 1336 pass + 1 skipped (pre-existing)
 **Notes:** Key gotchas: `identity_propose` requires `origin: 'agent_initiated'` (not `'agent'`), `memory_read` ID must be valid UUID per Zod schema, `proposalId` must be valid UUID, multiple TestHarness instances need careful dispose ordering to avoid "database not open" errors in afterEach.
 
+## [2026-02-22 17:54] — Add Kysely database factory for SQLite/PostgreSQL
+
+**Task:** Create a database factory utility that creates Kysely instances configured for SQLite or PostgreSQL dialects
+**What I did:** Created `src/utils/database.ts` with `createKyselyDb()` function accepting a `DbConfig` discriminated union (SqliteDbConfig | PostgresDbConfig). SQLite path uses `better-sqlite3` via `createRequire` (same pattern as `sqlite.ts`), sets WAL mode and foreign keys. PostgreSQL path lazy-loads `pg` and `PostgresDialect`. Created `tests/utils/database.test.ts` with 2 tests: SQLite in-memory SELECT 1, and unsupported type error.
+**Files touched:** src/utils/database.ts (new), tests/utils/database.test.ts (new)
+**Outcome:** Success — both tests pass
+**Notes:** This factory is used by stores during migration — they create a Kysely instance, run migrations, destroy it, then open their own raw SQLite connection for queries. The PostgreSQL path is lazy-loaded since `pg` isn't installed yet.
+
