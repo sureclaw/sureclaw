@@ -6,8 +6,9 @@
  *
  * Layout:
  *   ~/.ax/
- *     ax.yaml     — main config
+ *     ax.yaml           — main config
  *     .env              — API keys
+ *     registry.json     — agent registry (enterprise)
  *     data/
  *       messages.db     — message queue
  *       conversations.db — conversation history
@@ -23,9 +24,25 @@
  *         main/slack/dm/<userId>/        — Slack DM
  *         main/slack/channel/<chanId>/   — Slack channel
  *     agents/
- *       assistant/          — all agent files (AGENTS.md, BOOTSTRAP.md, capabilities.yaml, SOUL.md, IDENTITY.md)
+ *       <agent-id>/
+ *         agent/              — agent's own files (the agent's "self")
+ *           SOUL.md           — personality, tone, boundaries
+ *           IDENTITY.md       — name, role, capabilities
+ *           AGENTS.md         — operating instructions
+ *           HEARTBEAT.md      — scheduled task checklist
+ *           capabilities.yaml — capability declarations
+ *           workspace/        — shared code, docs, skills
+ *             repo/
+ *             docs/
+ *             skills/
  *         users/
- *           <userId>/       — per-user state (USER.md)
+ *           <userId>/         — per-user state (isolated per user)
+ *             USER.md         — user preferences, style, context
+ *             workspace/      — user's persistent files
+ *     scratch/
+ *       <session-id>/         — ephemeral per-session scratch (deleted on session end)
+ *         work/
+ *         tmp/
  */
 
 import { join } from 'node:path';
@@ -132,4 +149,59 @@ export function agentUserDir(agentName: string, userId: string): string {
   validatePathSegment(agentName, 'agent name');
   validatePathSegment(userId, 'userId');
   return join(agentDir(agentName), 'users', userId);
+}
+
+// ═══════════════════════════════════════════════════════
+// Enterprise Agent Architecture — multi-agent paths
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Path to an agent's identity directory (the "self"):
+ * ~/.ax/agents/<agentId>/agent/
+ *
+ * Contains SOUL.md, IDENTITY.md, AGENTS.md, HEARTBEAT.md,
+ * capabilities.yaml, and the shared workspace.
+ */
+export function agentIdentityDir(agentId: string): string {
+  validatePathSegment(agentId, 'agent ID');
+  return join(axHome(), 'agents', agentId, 'agent');
+}
+
+/**
+ * Path to an agent's shared workspace (read-only to agent processes):
+ * ~/.ax/agents/<agentId>/agent/workspace/
+ */
+export function agentWorkspaceDir(agentId: string): string {
+  return join(agentIdentityDir(agentId), 'workspace');
+}
+
+/**
+ * Path to a user's workspace within an agent:
+ * ~/.ax/agents/<agentId>/users/<userId>/workspace/
+ */
+export function userWorkspaceDir(agentId: string, userId: string): string {
+  validatePathSegment(agentId, 'agent ID');
+  validatePathSegment(userId, 'userId');
+  return join(axHome(), 'agents', agentId, 'users', userId, 'workspace');
+}
+
+/**
+ * Path to per-session scratch directory:
+ * ~/.ax/scratch/<sessionId>/
+ *
+ * Ephemeral — deleted on session end.
+ */
+export function scratchDir(sessionId: string): string {
+  validatePathSegment(sessionId, 'session ID');
+  return join(axHome(), 'scratch', sessionId);
+}
+
+/** Path to the agent registry file: ~/.ax/registry.json */
+export function registryPath(): string {
+  return join(axHome(), 'registry.json');
+}
+
+/** Path to the proposals directory for governance: ~/.ax/data/proposals/ */
+export function proposalsDir(): string {
+  return join(dataDir(), 'proposals');
 }
