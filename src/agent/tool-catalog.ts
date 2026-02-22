@@ -204,6 +204,75 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       reason: Type.Optional(Type.String({ description: 'Why this skill is needed' })),
     }),
   },
+
+  // ── Enterprise: Workspace tools ──
+  {
+    name: 'workspace_write',
+    label: 'Write to Workspace',
+    description:
+      'Write a file to a workspace tier. Tiers: "agent" (shared, read-only to sandbox), ' +
+      '"user" (per-user, persistent), "scratch" (ephemeral, per-session). ' +
+      'Agent tier writes may require approval in paranoid mode.',
+    parameters: Type.Object({
+      tier: Type.String({ description: '"agent", "user", or "scratch"' }),
+      path: Type.String({ description: 'Relative path within the tier (e.g. "docs/notes.md")' }),
+      content: Type.String({ description: 'File content to write' }),
+    }),
+  },
+  {
+    name: 'workspace_read',
+    label: 'Read from Workspace',
+    description:
+      'Read a file from a workspace tier.',
+    parameters: Type.Object({
+      tier: Type.String({ description: '"agent", "user", or "scratch"' }),
+      path: Type.String({ description: 'Relative path within the tier' }),
+    }),
+  },
+  {
+    name: 'workspace_list',
+    label: 'List Workspace',
+    description:
+      'List files in a workspace tier directory.',
+    parameters: Type.Object({
+      tier: Type.String({ description: '"agent", "user", or "scratch"' }),
+      path: Type.Optional(Type.String({ description: 'Subdirectory to list (defaults to root)' })),
+    }),
+  },
+
+  // ── Enterprise: Governance tools ──
+  {
+    name: 'identity_propose',
+    label: 'Propose Identity Change',
+    description:
+      'Propose a change to a shared identity file (SOUL.md or IDENTITY.md) for review. ' +
+      'Unlike identity_write which may auto-apply, proposals always go through governance. ' +
+      'Use when you want to suggest a change that requires human approval.',
+    parameters: Type.Object({
+      file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
+      content: Type.String(),
+      reason: Type.String(),
+      origin: Type.String({ description: 'Either "user_request" or "agent_initiated"' }),
+    }),
+  },
+  {
+    name: 'proposal_list',
+    label: 'List Proposals',
+    description:
+      'List governance proposals. Optionally filter by status (pending, approved, rejected).',
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: '"pending", "approved", or "rejected"' })),
+    }),
+  },
+  {
+    name: 'agent_registry_list',
+    label: 'List Agents',
+    description:
+      'List all registered agents in the enterprise registry.',
+    parameters: Type.Object({
+      status: Type.Optional(Type.String({ description: 'Filter by status: "active", "suspended", or "archived"' })),
+    }),
+  },
 ] as const;
 
 /** All tool names, derived from the catalog. */

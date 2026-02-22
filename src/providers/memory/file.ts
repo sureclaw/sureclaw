@@ -48,6 +48,8 @@ export async function create(_config: Config): Promise<MemoryProvider> {
         const filePath = safePath(dir, file);
         try {
           const entry: MemoryEntry = JSON.parse(readFileSync(filePath, 'utf-8'));
+          // Enterprise: filter by agentId when specified
+          if (q.agentId !== undefined && entry.agentId !== q.agentId) continue;
           if (!q.query || entry.content.toLowerCase().includes(q.query.toLowerCase())) {
             if (!q.tags || q.tags.every(t => entry.tags?.includes(t))) {
               results.push(entry);

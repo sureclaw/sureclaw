@@ -120,6 +120,9 @@ export async function create(_config: Config): Promise<MemoryProvider> {
         // Scope filter
         if (entry.scope !== q.scope && q.scope !== '*') continue;
 
+        // Enterprise: agent filter
+        if (q.agentId !== undefined && entry.agentId !== q.agentId) continue;
+
         // Text match
         if (queryLower && !entry.content.toLowerCase().includes(queryLower)) {
           continue;

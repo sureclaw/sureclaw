@@ -55,7 +55,7 @@ export class RuntimeModule extends BasePromptModule {
   }
 
   render(ctx: PromptContext): string[] {
-    return [
+    const lines = [
       '## Runtime',
       '',
       `**Agent Type**: ${ctx.agentType}`,
@@ -64,5 +64,25 @@ export class RuntimeModule extends BasePromptModule {
       `**Workspace**: ${sanitizeWorkspacePath(ctx.workspace)}`,
       `**Current Time**: ${localISOString()}`,
     ];
+
+    // Enterprise context
+    if (ctx.agentId) {
+      lines.push(`**Agent ID**: ${ctx.agentId}`);
+    }
+    if (ctx.hasWorkspaceTiers) {
+      lines.push('', '### Workspace Tiers',
+        '- **agent**: Shared files (read-only in sandbox). Use `workspace_write` with tier "agent" to write.',
+        '- **user**: Your personal persistent files. Use `workspace_write` with tier "user".',
+        '- **scratch**: Ephemeral per-session files. Deleted when session ends.',
+      );
+    }
+    if (ctx.hasGovernance) {
+      lines.push('', '### Governance',
+        'Identity changes go through a proposal system. Use `identity_propose` to suggest changes.',
+        'Use `proposal_list` to check pending proposals.',
+      );
+    }
+
+    return lines;
   }
 }

@@ -44,6 +44,10 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     contextWindow: DEFAULT_CONTEXT_WINDOW,
     historyTokens: config.history?.length ? Math.ceil(JSON.stringify(config.history).length / 4) : 0,
     replyOptional: config.replyOptional ?? false,
+    // Enterprise fields
+    agentId: config.agentId,
+    hasWorkspaceTiers: !!(config.agentWorkspace || config.userWorkspace || config.scratchDir),
+    hasGovernance: config.profile === 'paranoid' || config.profile === 'balanced',
   });
 
   logger.debug('prompt_built', { ...promptResult.metadata });

@@ -151,6 +151,8 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       'browser_launch', 'browser_navigate', 'browser_snapshot',
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
       'agent_delegate',
+      // Enterprise admin-only actions (not in tool catalog, used via direct IPC)
+      'proposal_review', 'agent_registry_get',
     ]);
 
     for (const action of schemaActions) {

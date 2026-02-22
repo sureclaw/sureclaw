@@ -8,6 +8,8 @@ export interface MemoryEntry {
   tags?: string[];
   taint?: TaintTag;
   createdAt?: Date;
+  /** Agent ID for enterprise scoping. When set, entry belongs to this agent only. */
+  agentId?: string;
 }
 
 export interface MemoryQuery {
@@ -15,6 +17,8 @@ export interface MemoryQuery {
   query?: string;
   limit?: number;
   tags?: string[];
+  /** Filter by agent ID. When set, only entries belonging to this agent are returned. */
+  agentId?: string;
 }
 
 export interface ConversationTurn {

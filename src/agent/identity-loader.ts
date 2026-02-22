@@ -15,21 +15,35 @@ export interface IdentityLoadOptions {
   agentDir?: string;
   /** User ID for per-user USER.md loading */
   userId?: string;
+  /**
+   * Enterprise: explicit identity directory (overrides agentDir for identity files).
+   * Maps to ~/.ax/agents/<agentId>/agent/ which contains SOUL.md, IDENTITY.md, etc.
+   */
+  identityDir?: string;
+  /**
+   * Enterprise: explicit user directory (overrides agentDir/users/<userId>).
+   * Maps to ~/.ax/agents/<agentId>/users/<userId>/.
+   */
+  userDir?: string;
 }
 
 export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
   const { agentDir, userId } = opts;
 
-  const load = (name: string) => agentDir ? readFile(agentDir, name) : '';
+  // Enterprise paths take precedence over legacy agentDir layout
+  const idDir = opts.identityDir ?? agentDir;
+  const load = (name: string) => idDir ? readFile(idDir, name) : '';
 
-  // USER.md is per-user: load from agentDir/users/<userId>/USER.md
+  // USER.md is per-user: load from explicit userDir, or agentDir/users/<userId>
   let user = '';
-  if (agentDir && userId) {
+  if (opts.userDir) {
+    user = readFile(opts.userDir, 'USER.md');
+  } else if (agentDir && userId) {
     user = readFile(join(agentDir, 'users', userId), 'USER.md');
   }
 
   // USER_BOOTSTRAP.md is shown when the user has no USER.md yet
-  const userBootstrap = (!user && agentDir) ? readFile(agentDir, 'USER_BOOTSTRAP.md') : '';
+  const userBootstrap = (!user && idDir) ? readFile(idDir, 'USER_BOOTSTRAP.md') : '';
 
   return {
     agents: load('AGENTS.md'),

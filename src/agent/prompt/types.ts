@@ -26,6 +26,14 @@ export interface PromptContext {
   // Budget
   contextWindow: number;  // model's max tokens (default 200000)
   historyTokens: number;  // estimated tokens in conversation history
+
+  // Enterprise (optional — absent for single-agent setups)
+  /** Agent ID in enterprise registry (e.g. 'main', 'research-bot'). */
+  agentId?: string;
+  /** Whether enterprise workspace tiers are available. */
+  hasWorkspaceTiers?: boolean;
+  /** Whether governance (proposal) system is active. */
+  hasGovernance?: boolean;
 }
 
 export interface IdentityFiles {

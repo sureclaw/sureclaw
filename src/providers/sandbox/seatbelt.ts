@@ -25,6 +25,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-D', `PROJECT_DIR=${projectDir}`,
         '-D', `NODE_DIR=${nodeDir}`,
         '-D', `AGENT_DIR=${config.agentDir ?? config.workspace}`,
+        '-D', `AGENT_WORKSPACE=${config.agentWorkspace ?? ''}`,
+        '-D', `USER_WORKSPACE=${config.userWorkspace ?? ''}`,
+        '-D', `SCRATCH_DIR=${config.scratchDir ?? ''}`,
         cmd, ...args,
       ], {
         cwd: config.workspace,
@@ -35,6 +38,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           AX_IPC_SOCKET: config.ipcSocket,
           AX_WORKSPACE: config.workspace,
           AX_SKILLS: config.skills,
+          ...(config.agentWorkspace ? { AX_AGENT_WORKSPACE: config.agentWorkspace } : {}),
+          ...(config.userWorkspace ? { AX_USER_WORKSPACE: config.userWorkspace } : {}),
+          ...(config.scratchDir ? { AX_SCRATCH: config.scratchDir } : {}),
           // Redirect caches and data dirs so they don't pollute the workspace
           npm_config_cache: '/tmp/.ax-npm-cache',
           XDG_CACHE_HOME: '/tmp/.ax-cache',

@@ -82,6 +82,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-v', `${config.skills}:${config.skills}:ro`,
         '-v', `${socketDir}:${socketDir}:rw`,
         ...(config.agentDir ? ['-v', `${config.agentDir}:${config.agentDir}:ro`] : []),
+        // Enterprise three-tier mounts
+        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${config.agentWorkspace}:ro`] : []),
+        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${config.userWorkspace}:rw`] : []),
+        ...(config.scratchDir ? ['-v', `${config.scratchDir}:${config.scratchDir}:rw`] : []),
 
         // Working directory
         '-w', config.workspace,
@@ -90,6 +94,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-e', `AX_IPC_SOCKET=${config.ipcSocket}`,
         '-e', `AX_WORKSPACE=${config.workspace}`,
         '-e', `AX_SKILLS=${config.skills}`,
+        ...(config.agentWorkspace ? ['-e', `AX_AGENT_WORKSPACE=${config.agentWorkspace}`] : []),
+        ...(config.userWorkspace ? ['-e', `AX_USER_WORKSPACE=${config.userWorkspace}`] : []),
+        ...(config.scratchDir ? ['-e', `AX_SCRATCH=${config.scratchDir}`] : []),
         // Redirect caches and data dirs to /tmp (writable tmpfs) instead of workspace
         '-e', 'npm_config_cache=/tmp/.ax-npm-cache',
         '-e', 'XDG_CACHE_HOME=/tmp/.ax-cache',

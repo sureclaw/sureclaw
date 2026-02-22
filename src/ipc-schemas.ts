@@ -241,6 +241,61 @@ export const SchedulerRemoveCronSchema = ipcAction('scheduler_remove_cron', {
 
 export const SchedulerListJobsSchema = ipcAction('scheduler_list_jobs', {});
 
+// ── Enterprise: Workspace ──────────────────────────────
+
+/** Safe path segment: no slashes, dots-only, or nulls. */
+const pathSegment = safeString(255).check(
+  z.refine((s: string) => !/[/\\]/.test(s) && s !== '.' && s !== '..', 'Invalid path segment')
+);
+
+export const WorkspaceWriteSchema = ipcAction('workspace_write', {
+  tier: z.enum(['agent', 'user', 'scratch']),
+  path: safeString(1024),
+  content: safeString(500_000),
+});
+
+export const WorkspaceReadSchema = ipcAction('workspace_read', {
+  tier: z.enum(['agent', 'user', 'scratch']),
+  path: safeString(1024),
+});
+
+export const WorkspaceListSchema = ipcAction('workspace_list', {
+  tier: z.enum(['agent', 'user', 'scratch']),
+  path: safeString(1024).optional(),
+});
+
+// ── Enterprise: Governance ─────────────────────────────
+
+export const PROPOSAL_TYPES = ['identity', 'capability', 'config'] as const;
+export const PROPOSAL_STATUSES = ['pending', 'approved', 'rejected'] as const;
+
+export const IdentityProposeSchema = ipcAction('identity_propose', {
+  file: z.enum(IDENTITY_FILES),
+  content: safeString(32_768),
+  reason: safeString(512),
+  origin: z.enum(IDENTITY_ORIGINS),
+});
+
+export const ProposalListSchema = ipcAction('proposal_list', {
+  status: z.enum(PROPOSAL_STATUSES).optional(),
+});
+
+export const ProposalReviewSchema = ipcAction('proposal_review', {
+  proposalId: uuid,
+  decision: z.enum(['approved', 'rejected']),
+  reason: safeString(512).optional(),
+});
+
+// ── Enterprise: Agent Registry ─────────────────────────
+
+export const AgentRegistryListSchema = ipcAction('agent_registry_list', {
+  status: z.enum(['active', 'suspended', 'archived']).optional(),
+});
+
+export const AgentRegistryGetSchema = ipcAction('agent_registry_get', {
+  agentId: safeString(100),
+});
+
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry
 // ═══════════════════════════════════════════════════════

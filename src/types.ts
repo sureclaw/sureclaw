@@ -38,6 +38,8 @@ export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
 
 export interface Config {
   agent?: AgentType;
+  /** Enterprise agent name — used for registry and workspace paths. Defaults to 'main'. */
+  agent_name?: string;
   model?: string;
   model_fallbacks?: string[];
   max_tokens?: number;
