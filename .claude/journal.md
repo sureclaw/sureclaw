@@ -31,3 +31,11 @@
 **Outcome:** Success — 1140/1141 tests pass (1 pre-existing flaky test unrelated to changes)
 **Notes:** Rebased onto main after PR #15 merge (server decomposition). Key design decisions: proposals stored as individual JSON files, workspace writes queued in paranoid mode, agent registry uses atomic file writes via rename.
 
+## [2026-02-22 02:00] — Rebase onto main and fix build error
+
+**Task:** Rebase feature branch onto latest main to resolve merge conflicts, then update PR
+**What I did:** Fetched latest main, rebased `claude/enterprise-agent-architecture-LyxFf` onto `origin/main`. Git auto-skipped the duplicate server decomposition commit (already merged via PR #15). Fixed a TypeScript build error in `src/config.ts` where `providerEnum()` produced a loosely-typed Zod enum that didn't match Config's literal union types — added a safe type assertion since the schema validates the same constraints at runtime.
+**Files touched:** src/config.ts (modified), .claude/journal.md (modified)
+**Outcome:** Success — clean rebase, build passes
+**Notes:** Rebase reduced branch from 3 to 2 commits ahead of main. The config.ts type issue may have been pre-existing but was exposed by the rebase.
+
