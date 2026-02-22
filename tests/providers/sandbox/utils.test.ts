@@ -45,18 +45,26 @@ describe('sandbox/utils', () => {
       expect(code).toBe(0);
     });
 
-    test('adds grace seconds to timeout', async () => {
+    test('sends SIGTERM at timeout, then SIGKILL after grace period', async () => {
       vi.useFakeTimers();
       const child = spawn('sleep', ['60']);
+      const killSpy = vi.spyOn(child, 'kill');
       enforceTimeout(child, 10, 5);
-      // Should not have killed yet at 10s
-      vi.advanceTimersByTime(10_000);
-      expect(child.killed).toBe(false);
-      // Kill at 15s (10 + 5 grace)
+      // Should not have signaled yet before timeout
+      vi.advanceTimersByTime(9_999);
+      expect(killSpy).not.toHaveBeenCalled();
+      // At 10s, should send SIGTERM (first call)
+      vi.advanceTimersByTime(1);
+      expect(killSpy).toHaveBeenCalledTimes(1);
+      expect(killSpy).toHaveBeenNthCalledWith(1, 'SIGTERM');
+      // With fake timers the child's 'exit' event won't fire synchronously,
+      // so SIGKILL should follow at 10s + 5s grace
       vi.advanceTimersByTime(5_000);
+      expect(killSpy).toHaveBeenCalledTimes(2);
+      expect(killSpy).toHaveBeenNthCalledWith(2, 'SIGKILL');
       vi.useRealTimers();
       // Clean up
-      child.kill('SIGKILL');
+      try { child.kill('SIGKILL'); } catch { /* already dead */ }
       await exitCodePromise(child);
     });
   });

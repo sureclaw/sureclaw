@@ -19,6 +19,10 @@ import { AgentRegistry } from './agent-registry.js';
 
 const logger = getLogger().child({ component: 'ipc' });
 
+// IPC handler timeout — prevents hung handlers from blocking the server indefinitely.
+// LLM calls have their own timeout (10min default), so this is a safety net.
+const IPC_HANDLER_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
+
 export interface IPCContext {
   sessionId: string;
   agentId: string;
@@ -166,7 +170,15 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     try {
       const startMs = Date.now();
       logger.debug('handler_start', { action: actionName });
-      const result = await handler(validated.data, ctx);
+
+      // Race the handler against a timeout to prevent hung handlers from
+      // blocking the IPC server indefinitely (safety net).
+      const handlerPromise = handler(validated.data, ctx);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`IPC handler "${actionName}" timed out after ${IPC_HANDLER_TIMEOUT_MS}ms`)), IPC_HANDLER_TIMEOUT_MS);
+      });
+      const result = await Promise.race([handlerPromise, timeoutPromise]);
+
       const durationMs = Date.now() - startMs;
       logger.debug('handler_done', {
         action: actionName,

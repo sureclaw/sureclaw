@@ -34,7 +34,7 @@ import { sendError, sendSSEChunk, readBody } from './server-http.js';
 import type { OpenAIChatRequest, OpenAIChatResponse, OpenAIStreamChunk } from './server-http.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
-import { ChannelDeduplicator, registerChannelHandler } from './server-channels.js';
+import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
 
 // =====================================================
 // Types
@@ -173,6 +173,35 @@ export async function createServer(
 
   let httpServer: HttpServer | null = null;
   let listening = false;
+  let draining = false;
+
+  // In-flight request tracking for graceful shutdown
+  let inflightCount = 0;
+  let drainResolve: (() => void) | null = null;
+  const DRAIN_TIMEOUT_MS = 30_000; // Max time to wait for in-flight requests to complete
+
+  function trackRequestStart(): void { inflightCount++; }
+  function trackRequestEnd(): void {
+    inflightCount--;
+    if (draining && inflightCount <= 0 && drainResolve) {
+      drainResolve();
+    }
+  }
+
+  /** Wait for all in-flight requests to complete, with a hard timeout. */
+  function waitForDrain(): Promise<void> {
+    if (inflightCount <= 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      drainResolve = resolve;
+      // Hard timeout: don't wait forever for hung requests
+      setTimeout(() => {
+        if (inflightCount > 0) {
+          logger.warn('drain_timeout', { inflight: inflightCount, timeoutMs: DRAIN_TIMEOUT_MS });
+        }
+        resolve();
+      }, DRAIN_TIMEOUT_MS);
+    });
+  }
 
   // --- Request Handler ---
 
@@ -190,9 +219,15 @@ export async function createServer(
 
     const url = req.url ?? '/';
 
+    // Reject new completion requests during shutdown (let health/models through)
+    if (draining && url === '/v1/chat/completions') {
+      sendError(res, 503, 'Server is shutting down — not accepting new requests');
+      return;
+    }
+
     if (url === '/health' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ok' }));
+      res.end(JSON.stringify({ status: draining ? 'draining' : 'ok' }));
       return;
     }
 
@@ -202,6 +237,7 @@ export async function createServer(
     }
 
     if (url === '/v1/chat/completions' && req.method === 'POST') {
+      trackRequestStart();
       try {
         await handleCompletions(req, res);
       } catch (err) {
@@ -209,6 +245,8 @@ export async function createServer(
         if (!res.headersSent) {
           sendError(res, 500, 'Internal server error');
         }
+      } finally {
+        trackRequestEnd();
       }
       return;
     }
@@ -421,7 +459,7 @@ export async function createServer(
         isAgentBootstrapMode,
         isAdmin,
       });
-      await channel.connect();
+      await connectChannelWithRetry(channel, logger);
     }
   }
 
@@ -430,6 +468,14 @@ export async function createServer(
   async function stopServer(): Promise<void> {
     if (stopped) return;
     stopped = true;
+
+    // Enter draining mode: reject new requests but let in-flight ones finish
+    draining = true;
+    if (inflightCount > 0) {
+      logger.info('graceful_drain_start', { inflight: inflightCount });
+      await waitForDrain();
+      logger.info('graceful_drain_complete');
+    }
 
     // Disconnect channels
     for (const channel of providers.channels) {

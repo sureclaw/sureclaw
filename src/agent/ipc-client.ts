@@ -4,21 +4,27 @@ import { getLogger, truncate } from '../logger.js';
 const logger = getLogger().child({ component: 'ipc-client' });
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_BASE_DELAY_MS = 500;
 
 export interface IPCClientOptions {
   socketPath: string;
   timeoutMs?: number;
+  /** Maximum reconnection attempts on connection loss. Default: 3. */
+  maxReconnectAttempts?: number;
 }
 
 export class IPCClient {
   private socketPath: string;
   private timeoutMs: number;
+  private maxReconnectAttempts: number;
   private socket: Socket | null = null;
   private connected = false;
 
   constructor(opts: IPCClientOptions) {
     this.socketPath = opts.socketPath;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.maxReconnectAttempts = opts.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS;
   }
 
   async connect(): Promise<void> {
@@ -39,11 +45,60 @@ export class IPCClient {
     });
   }
 
+  /**
+   * Reconnect to the IPC socket with exponential backoff.
+   * Tears down the old socket before each attempt.
+   */
+  private async reconnect(): Promise<void> {
+    for (let attempt = 1; attempt <= this.maxReconnectAttempts; attempt++) {
+      // Tear down stale socket
+      if (this.socket) {
+        try { this.socket.destroy(); } catch { /* ignore */ }
+        this.socket = null;
+        this.connected = false;
+      }
+
+      const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      logger.debug('reconnect_attempt', { attempt, maxAttempts: this.maxReconnectAttempts, delayMs: delay });
+      await new Promise<void>(r => setTimeout(r, delay));
+
+      try {
+        await this.connect();
+        logger.debug('reconnect_success', { attempt });
+        return;
+      } catch (err) {
+        logger.debug('reconnect_failed', { attempt, error: (err as Error).message });
+        if (attempt >= this.maxReconnectAttempts) {
+          throw new Error(`IPC reconnect failed after ${this.maxReconnectAttempts} attempts: ${(err as Error).message}`);
+        }
+      }
+    }
+  }
+
   async call(request: Record<string, unknown>, callTimeoutMs?: number): Promise<Record<string, unknown>> {
     if (!this.socket || !this.connected) {
       await this.connect();
     }
 
+    try {
+      return await this.callOnce(request, callTimeoutMs);
+    } catch (err) {
+      // On connection-level errors (EPIPE, ECONNRESET, socket destroyed), retry once after reconnect.
+      // Timeouts and application-level errors are NOT retried — they indicate the call was received.
+      if (this.isConnectionError(err)) {
+        logger.debug('call_connection_error', {
+          action: request.action,
+          error: (err as Error).message,
+          willReconnect: true,
+        });
+        await this.reconnect();
+        return await this.callOnce(request, callTimeoutMs);
+      }
+      throw err;
+    }
+  }
+
+  private callOnce(request: Record<string, unknown>, callTimeoutMs?: number): Promise<Record<string, unknown>> {
     const action = request.action as string ?? 'unknown';
     const callStart = Date.now();
     const socket = this.socket!;
@@ -96,6 +151,8 @@ export class IPCClient {
         clearTimeout(timer);
         socket.off('data', onData);
         logger.debug('call_error', { action, error: err.message, durationMs: Date.now() - callStart });
+        // Mark as disconnected so reconnect is triggered
+        this.connected = false;
         reject(err);
       };
 
@@ -105,6 +162,23 @@ export class IPCClient {
       // Send: length prefix + payload
       socket.write(Buffer.concat([lenBuf, payload]));
     });
+  }
+
+  /** Classify whether an error is a connection-level failure (worth reconnecting for). */
+  private isConnectionError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    const msg = err.message.toLowerCase();
+    return (
+      msg.includes('epipe') ||
+      msg.includes('econnreset') ||
+      msg.includes('econnrefused') ||
+      msg.includes('socket') ||
+      msg.includes('destroyed') ||
+      msg.includes('not connected') ||
+      msg.includes('this socket has been ended') ||
+      // Don't retry timeouts — the call may have been received
+      false
+    );
   }
 
   disconnect(): void {
