@@ -17,7 +17,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler_add_cron creates a recurring job via IPC', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('scheduler_add_cron', {
       schedule: '0 9 * * 1-5',
@@ -34,7 +34,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler_run_at creates a one-shot job via IPC', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const futureDate = new Date(Date.now() + 3600_000).toISOString();
     const result = await harness.ipcCall('scheduler_run_at', {
@@ -52,7 +52,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler_list_jobs returns all registered jobs', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Add two jobs
     await harness.ipcCall('scheduler_add_cron', {
@@ -71,7 +71,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler_remove_cron deletes a job', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const addResult = await harness.ipcCall('scheduler_add_cron', {
       schedule: '0 12 * * *',
@@ -89,7 +89,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('cron job fires and calls LLM with the prompt', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // scheduler_add_cron does NOT call LLM, so the first turn is for fireCronJob
         textTurn('Good morning! Here is your standup summary.'),
@@ -110,7 +110,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler_add_cron with custom delivery target', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('scheduler_add_cron', {
       schedule: '30 8 * * *',
@@ -132,7 +132,7 @@ describe('E2E Scenario: Scheduled Tasks', () => {
   });
 
   test('scheduler actions are audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('scheduler_add_cron', {
       schedule: '0 * * * *',

@@ -8,7 +8,7 @@
  * workspace files, identity files).
  *
  * Usage:
- *   const h = new TestHarness({ llmTurns: [...] });
+ *   const h = await TestHarness.create({ llmTurns: [...] });
  *   await h.sendMessage('Hello!');
  *   expect(h.lastChannelReply()).toBe('Hi there!');
  *   h.dispose();
@@ -123,14 +123,16 @@ export class TestHarness {
 
   private originalAxHome: string | undefined;
 
-  constructor(opts: HarnessOptions = {}) {
-    this.tmpDir = mkdtempSync(join(tmpdir(), 'ax-e2e-harness-'));
-    this.agentDir = join(this.tmpDir, 'agents', 'main');
-    mkdirSync(this.agentDir, { recursive: true });
-
-    // Point AX_HOME to our temp dir so workspace/identity paths resolve there
-    this.originalAxHome = process.env.AX_HOME;
-    process.env.AX_HOME = this.tmpDir;
+  private constructor(
+    db: MessageQueue,
+    opts: HarnessOptions,
+    tmpDir: string,
+    agentDir: string,
+    originalAxHome: string | undefined,
+  ) {
+    this.tmpDir = tmpDir;
+    this.agentDir = agentDir;
+    this.originalAxHome = originalAxHome;
 
     this.webFetches = opts.webFetches ?? [];
     this.webSearches = opts.webSearches ?? [];
@@ -169,7 +171,7 @@ export class TestHarness {
     this.providers = this.buildProviders(opts);
 
     // Wire up
-    this.db = new MessageQueue(':memory:');
+    this.db = db;
     this.router = createRouter(this.providers, this.db);
     this.handleIPC = createIPCHandler(this.providers, {
       agentDir: this.agentDir,
@@ -179,6 +181,19 @@ export class TestHarness {
       onDelegate: opts.onDelegate,
       agentRegistry: this.agentRegistry,
     });
+  }
+
+  static async create(opts: HarnessOptions = {}): Promise<TestHarness> {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ax-e2e-harness-'));
+    const agentDir = join(tmpDir, 'agents', 'main');
+    mkdirSync(agentDir, { recursive: true });
+
+    // Point AX_HOME to our temp dir so workspace/identity paths resolve there
+    const originalAxHome = process.env.AX_HOME;
+    process.env.AX_HOME = tmpDir;
+
+    const db = await MessageQueue.create(join(tmpDir, 'messages.db'));
+    return new TestHarness(db, opts, tmpDir, agentDir, originalAxHome);
   }
 
   // ─── Event Drivers ───────────────────────────────

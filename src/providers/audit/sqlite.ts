@@ -4,31 +4,23 @@ import type { SQLiteDatabase } from '../../utils/sqlite.js';
 import { dataDir, dataFile } from '../../paths.js';
 import type { AuditProvider, AuditEntry, AuditFilter } from './types.js';
 import type { Config } from '../../types.js';
+import { createKyselyDb } from '../../utils/database.js';
+import { runMigrations } from '../../utils/migrator.js';
+import { auditMigrations } from '../../migrations/audit.js';
 
 export async function create(_config: Config): Promise<AuditProvider> {
   mkdirSync(dataDir(), { recursive: true });
-  const db: SQLiteDatabase = openDatabase(dataFile('audit.db'));
+  const dbPath = dataFile('audit.db');
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      session_id TEXT,
-      action TEXT NOT NULL,
-      args TEXT,
-      result TEXT NOT NULL,
-      taint TEXT,
-      duration_ms REAL,
-      token_input INTEGER,
-      token_output INTEGER
-    )
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id, timestamp)
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, timestamp)
-  `);
+  const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
+  try {
+    const result = await runMigrations(kyselyDb, auditMigrations);
+    if (result.error) throw result.error;
+  } finally {
+    await kyselyDb.destroy();
+  }
+
+  const db: SQLiteDatabase = openDatabase(dbPath);
 
   function rowToEntry(row: Record<string, unknown>): AuditEntry {
     return {

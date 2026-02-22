@@ -120,9 +120,9 @@ export async function createServer(
 
   // Initialize DB + Conversation Store + Taint Budget + Router + IPC
   mkdirSync(dataDir(), { recursive: true });
-  const db = new MessageQueue(dataFile('messages.db'));
-  const conversationStore = new ConversationStore();
-  const sessionStore = new SessionStore();
+  const db = await MessageQueue.create(dataFile('messages.db'));
+  const conversationStore = await ConversationStore.create();
+  const sessionStore = await SessionStore.create();
   const taintBudget = new TaintBudget({
     threshold: thresholdForProfile(config.profile),
   });

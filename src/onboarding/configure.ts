@@ -17,11 +17,15 @@ import {
   AUTH_METHODS,
   AUTH_METHOD_DISPLAY_NAMES,
   AUTH_METHOD_DESCRIPTIONS,
+  LLM_PROVIDERS,
+  LLM_PROVIDER_DISPLAY_NAMES,
+  LLM_PROVIDER_DESCRIPTIONS,
+  DEFAULT_MODELS,
   PROVIDER_CHOICES,
   ASCII_WELCOME,
   RECONFIGURE_HEADER,
 } from './prompts.js';
-import type { ProfileName, AgentType, AuthMethod } from './prompts.js';
+import type { ProfileName, AgentType, AuthMethod, LLMProviderChoice } from './prompts.js';
 import { runOnboarding, loadExistingConfig } from './wizard.js';
 import type { OnboardingAnswers } from './wizard.js';
 
@@ -29,6 +33,8 @@ export interface InquirerDefaults {
   profile?: ProfileName;
   agent?: AgentType;
   authMethod?: AuthMethod;
+  model?: string;
+  llmProvider?: string;
   apiKey?: string;
   apiKeyMasked?: string;
   oauthToken?: string;
@@ -54,13 +60,15 @@ function maskKey(key: string | undefined): string | undefined {
 
 export function buildInquirerDefaults(existing: OnboardingAnswers | null): InquirerDefaults {
   if (!existing) {
-    return { profile: undefined, agent: undefined, authMethod: undefined, apiKey: undefined, apiKeyMasked: undefined, channels: undefined };
+    return { profile: undefined, agent: undefined, authMethod: undefined, model: undefined, llmProvider: undefined, apiKey: undefined, apiKeyMasked: undefined, channels: undefined };
   }
 
   return {
     profile: existing.profile,
     agent: existing.agent,
     authMethod: existing.authMethod,
+    model: existing.model,
+    llmProvider: existing.llmProvider,
     apiKey: existing.apiKey,
     apiKeyMasked: maskKey(existing.apiKey),
     oauthToken: existing.oauthToken,
@@ -108,9 +116,17 @@ export async function runConfigure(outputDir: string): Promise<void> {
     default: defaults.agent ?? PROFILE_DEFAULTS[profile].agent,
   }) as AgentType;
 
-  // 2. Auth method selection (OAuth only available for claude-code)
+  // 2. Auth & model — different flow depending on agent type
   let authMethod: AuthMethod = 'api-key';
+  let apiKey = '';
+  let oauthToken: string | undefined;
+  let oauthRefreshToken: string | undefined;
+  let oauthExpiresAt: number | undefined;
+  let model: string | undefined;
+  let llmProvider: string | undefined;
+
   if (agent === 'claude-code') {
+    // ── Claude Code: auth method → api-key or OAuth ──
     authMethod = await select({
       message: 'Authentication method',
       choices: AUTH_METHODS.map((method) => ({
@@ -119,49 +135,85 @@ export async function runConfigure(outputDir: string): Promise<void> {
       })),
       default: defaults.authMethod ?? 'api-key',
     }) as AuthMethod;
-  }
 
-  let apiKey = '';
-  let oauthToken: string | undefined;
-  let oauthRefreshToken: string | undefined;
-  let oauthExpiresAt: number | undefined;
+    if (authMethod === 'oauth') {
+      let reauth = true;
+      if (defaults.oauthToken) {
+        reauth = await confirm({
+          message: `Re-authenticate with Claude? (current token: ${defaults.oauthTokenMasked})`,
+          default: true,
+        });
+      }
 
-  if (authMethod === 'oauth') {
-    let reauth = true;
-    if (defaults.oauthToken) {
-      reauth = await confirm({
-        message: `Re-authenticate with Claude? (current token: ${defaults.oauthTokenMasked})`,
-        default: true,
-      });
-    }
-
-    if (reauth) {
-      const { runOAuthFlow } = await import('../host/oauth.js');
-      const tokens = await runOAuthFlow();
-      oauthToken = tokens.access_token;
-      oauthRefreshToken = tokens.refresh_token;
-      oauthExpiresAt = tokens.expires_at;
+      if (reauth) {
+        const { runOAuthFlow } = await import('../host/oauth.js');
+        const tokens = await runOAuthFlow();
+        oauthToken = tokens.access_token;
+        oauthRefreshToken = tokens.refresh_token;
+        oauthExpiresAt = tokens.expires_at;
+      } else {
+        oauthToken = defaults.oauthToken;
+        oauthRefreshToken = existing?.oauthRefreshToken;
+        oauthExpiresAt = existing?.oauthExpiresAt;
+      }
     } else {
-      oauthToken = defaults.oauthToken;
-      oauthRefreshToken = existing?.oauthRefreshToken;
-      oauthExpiresAt = existing?.oauthExpiresAt;
+      // Anthropic API key (only for claude-code with api-key auth)
+      const apiKeyMessage = defaults.apiKeyMasked
+        ? `Anthropic API key (current: ${defaults.apiKeyMasked})`
+        : 'Anthropic API key';
+
+      const apiKeyInput = await password({
+        message: apiKeyMessage,
+        mask: '*',
+      });
+
+      apiKey = apiKeyInput.trim() || defaults.apiKey || '';
+
+      if (!apiKey) {
+        console.log('\nWarning: No API key provided. You can set it later in ~/.ax/.env\n');
+      }
     }
   } else {
-    // API key prompt (unchanged)
-    const apiKeyMessage = defaults.apiKeyMasked
-      ? `Anthropic API key (current: ${defaults.apiKeyMasked})`
-      : 'Anthropic API key';
+    // ── Router-based agents: LLM provider → model → provider API key ──
+
+    // a) LLM provider selection
+    llmProvider = await select({
+      message: 'LLM provider',
+      choices: LLM_PROVIDERS.map((p) => ({
+        name: `${LLM_PROVIDER_DISPLAY_NAMES[p]}  —  ${LLM_PROVIDER_DESCRIPTIONS[p]}`,
+        value: p,
+      })),
+      default: (defaults.llmProvider as LLMProviderChoice | undefined) ?? 'anthropic',
+    }) as LLMProviderChoice;
+
+    // b) Model name input (with sensible default per provider)
+    const existingModelName = defaults.model && defaults.llmProvider === llmProvider
+      ? defaults.model.split('/').slice(1).join('/')
+      : undefined;
+
+    const modelName = await input({
+      message: 'Model name',
+      default: existingModelName ?? DEFAULT_MODELS[llmProvider as LLMProviderChoice],
+    });
+
+    model = `${llmProvider}/${modelName}`;
+
+    // c) Provider-specific API key
+    const providerDisplayName = LLM_PROVIDER_DISPLAY_NAMES[llmProvider as LLMProviderChoice] ?? llmProvider;
+    const envVarName = `${llmProvider.toUpperCase()}_API_KEY`;
+    const apiKeyLabel = defaults.apiKeyMasked
+      ? `${providerDisplayName} API key (current: ${defaults.apiKeyMasked})`
+      : `${providerDisplayName} API key`;
 
     const apiKeyInput = await password({
-      message: apiKeyMessage,
+      message: apiKeyLabel,
       mask: '*',
     });
 
-    // If user pressed Enter without typing, keep existing key
     apiKey = apiKeyInput.trim() || defaults.apiKey || '';
 
     if (!apiKey) {
-      console.log('\nWarning: No API key provided. You can set it later in ~/.ax/.env\n');
+      console.log(`\nWarning: No API key provided. Set ${envVarName} in ~/.ax/.env later.\n`);
     }
   }
 
@@ -307,6 +359,7 @@ export async function runConfigure(outputDir: string): Promise<void> {
     outputDir,
     answers: {
       profile, agent, authMethod, apiKey,
+      model, llmProvider,
       oauthToken, oauthRefreshToken, oauthExpiresAt,
       channels, skipSkills, installSkills,
       credsPassphrase, webProvider, webSearchApiKey,

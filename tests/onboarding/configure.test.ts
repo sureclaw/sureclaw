@@ -132,4 +132,33 @@ describe('Configure UI Helpers', () => {
 
     expect(defaults.agent).toBe('claude-code');
   });
+
+  test('buildInquirerDefaults includes model and llmProvider from existing config', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'openrouter/anthropic/claude-sonnet-4',
+        llmProvider: 'openrouter',
+        apiKey: 'or-key-test-value',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    const defaults = buildInquirerDefaults(existing);
+
+    expect(defaults.model).toBe('openrouter/anthropic/claude-sonnet-4');
+    expect(defaults.llmProvider).toBe('openrouter');
+    expect(defaults.apiKey).toBe('or-key-test-value');
+  });
+
+  test('buildInquirerDefaults returns undefined model when no existing config', () => {
+    const defaults = buildInquirerDefaults(null);
+    expect(defaults.model).toBeUndefined();
+    expect(defaults.llmProvider).toBeUndefined();
+  });
 });

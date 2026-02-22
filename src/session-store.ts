@@ -2,26 +2,27 @@ import { openDatabase } from './utils/sqlite.js';
 import type { SQLiteDatabase } from './utils/sqlite.js';
 import { dataFile } from './paths.js';
 import type { SessionAddress, SessionScope } from './providers/channel/types.js';
+import { createKyselyDb } from './utils/database.js';
+import { runMigrations } from './utils/migrator.js';
+import { sessionsMigrations } from './migrations/sessions.js';
 
 export class SessionStore {
   private db: SQLiteDatabase;
 
-  constructor(dbPath: string = dataFile('sessions.db')) {
-    this.db = openDatabase(dbPath);
-    this.migrate();
+  private constructor(db: SQLiteDatabase) {
+    this.db = db;
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS last_sessions (
-        agent_id    TEXT NOT NULL,
-        provider    TEXT NOT NULL,
-        scope       TEXT NOT NULL,
-        identifiers TEXT NOT NULL,
-        updated_at  INTEGER NOT NULL,
-        PRIMARY KEY (agent_id)
-      )
-    `);
+  static async create(dbPath: string = dataFile('sessions.db')): Promise<SessionStore> {
+    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
+    try {
+      const result = await runMigrations(kyselyDb, sessionsMigrations);
+      if (result.error) throw result.error;
+    } finally {
+      await kyselyDb.destroy();
+    }
+    const db = openDatabase(dbPath);
+    return new SessionStore(db);
   }
 
   /** Record the most recent channel interaction for an agent. */

@@ -172,7 +172,7 @@ describe('Taint Budget E2E', () => {
 
   test('router records taint via taint budget', async () => {
     const providers = mockProviders();
-    const db = new MessageQueue(join(testDataDir, 'messages.db'));
+    const db = await MessageQueue.create(join(testDataDir, 'messages.db'));
     const taintBudget = new TaintBudget({ threshold: thresholdForProfile('balanced') });
     const router = createRouter(providers, db, { taintBudget });
 
@@ -257,7 +257,7 @@ describe('Taint Budget E2E', () => {
 describe('Router + Scanner Integration', () => {
   test('scanner blocks injection and router returns blocked result', async () => {
     const providers = mockProviders({ scanInputVerdict: 'BLOCK' });
-    const db = new MessageQueue(join(testDataDir, 'messages.db'));
+    const db = await MessageQueue.create(join(testDataDir, 'messages.db'));
     const router = createRouter(providers, db);
 
     const msg: InboundMessage = {
@@ -278,7 +278,7 @@ describe('Router + Scanner Integration', () => {
 
   test('canary token detection redacts response', async () => {
     const providers = mockProviders();
-    const db = new MessageQueue(join(testDataDir, 'messages.db'));
+    const db = await MessageQueue.create(join(testDataDir, 'messages.db'));
     const router = createRouter(providers, db);
 
     // Process an inbound message to get a canary token
@@ -307,7 +307,7 @@ describe('Router + Scanner Integration', () => {
 
   test('clean response passes through', async () => {
     const providers = mockProviders();
-    const db = new MessageQueue(join(testDataDir, 'messages.db'));
+    const db = await MessageQueue.create(join(testDataDir, 'messages.db'));
     const router = createRouter(providers, db);
 
     const outResult = await router.processOutbound(

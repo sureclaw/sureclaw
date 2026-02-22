@@ -1,5 +1,17 @@
 # Lessons Learned
 
+### Configure wizard must set config.model for non-claude-code agents
+**Date:** 2026-02-22
+**Context:** Users running `bun serve` after configure got "config.model is required for LLM router" because the wizard never prompted for a model
+**Lesson:** The LLM router (used by pi-agent-core, pi-coding-agent) requires `config.model` as a compound `provider/model` ID (e.g. `anthropic/claude-sonnet-4-20250514`). Only claude-code agents bypass the router (they use the credential-injecting proxy). Any new agent type that uses the router must have model selection in the wizard.
+**Tags:** onboarding, config, llm-router, configure
+
+### API key env var naming follows ${PROVIDER.toUpperCase()}_API_KEY convention
+**Date:** 2026-02-22
+**Context:** The openai.ts provider uses `envKey()` to derive env var names dynamically from provider names
+**Lesson:** When writing API keys to .env, use `${llmProvider.toUpperCase()}_API_KEY` (e.g. OPENROUTER_API_KEY, GROQ_API_KEY). The ANTHROPIC_API_KEY is the special case/default. This convention matches what the provider implementations expect at runtime.
+**Tags:** onboarding, env, api-key, providers
+
 ### safePath() treats its arguments as individual path segments, not relative paths
 **Date:** 2026-02-22
 **Context:** Workspace handler was producing flat filenames like `deep_nested_file.txt` instead of nested paths
@@ -84,9 +96,32 @@
 **Lesson:** When seeding identity/access files, remember that the seeded value (OS username) only works for CLI/local access. Channel providers (Slack, Discord, etc.) use their own user ID formats. For channel access during bootstrap, use an auto-promotion mechanism (`.bootstrap-admin-claimed` atomic claim file) to let the first channel user become admin.
 **Tags:** bootstrap, admin, channels, slack, user-id, access-control
 
+### :memory: SQLite databases don't work with separate connections
+**Date:** 2026-02-22
+**Context:** Converting stores to use Kysely migrations. Kysely creates its own better-sqlite3 connection, runs migrations, then we destroy it and open a new connection via openDatabase(). For file paths this works since both connections see the same file. For :memory:, each connection is an independent in-memory database.
+**Lesson:** When using createKyselyDb() + openDatabase() pattern (two separate connections), :memory: paths won't work because migrations run on one connection and queries on another. Tests must use temp file paths instead: `join(mkdtempSync(...), 'test.db')`. This is already the pattern in conversation-store and job-store tests.
+**Tags:** sqlite, memory, testing, kysely, migrations, better-sqlite3
+
 ### Multiple TestHarness instances need careful dispose ordering
 **Date:** 2026-02-22
 **Context:** "database is not open" error when afterEach tried to dispose a harness that was already disposed
 **Lesson:** If a test creates local TestHarness instances instead of using the module-level `harness`, either: (a) assign one to the module-level `harness` so afterEach handles it, or (b) dispose all local instances at the end of the test and ensure the module-level `harness` isn't stale from a prior test. The afterEach guard `harness?.dispose()` will re-dispose an already-disposed instance and crash on the closed SQLite db.
 **Tags:** testing, e2e, harness, dispose, isolation
 
+### Separate Kysely + openDatabase connections can't share :memory: databases
+**Date:** 2026-02-22
+**Context:** Migrating stores to use Kysely for migrations while keeping openDatabase() for queries
+**Lesson:** When using `createKyselyDb` (which opens its own better-sqlite3 connection) alongside `openDatabase()`, `:memory:` databases won't work because each connection gets an independent in-memory database. Tests must use temp file paths instead. This applies whenever you have two separate SQLite connections to the same logical database.
+**Tags:** sqlite, kysely, testing, memory-database, migrations
+
+### ALTER TABLE ADD COLUMN has no IF NOT EXISTS in SQLite
+**Date:** 2026-02-22
+**Context:** Writing Kysely migration for memory store's agent_id column
+**Lesson:** `ALTER TABLE ... ADD COLUMN` doesn't support `IF NOT EXISTS` in SQLite (or in Kysely's schema builder). For backwards-compatible migrations that add columns, wrap in try-catch to handle the "duplicate column" error. This is the correct pattern — Kysely's migration tracking prevents double-runs on fresh databases, and the try-catch handles pre-migration databases.
+**Tags:** sqlite, kysely, migrations, alter-table, backwards-compatibility
+
+### Always check runMigrations result.error in store factories
+**Date:** 2026-02-22
+**Context:** Code review caught that create() factories discarded the migration result
+**Lesson:** `runMigrations()` returns `{ error }` instead of throwing. Always check `result.error` and throw it explicitly. Also wrap the Kysely lifecycle in try/finally to ensure `kyselyDb.destroy()` runs even on failure — otherwise you leak the connection.
+**Tags:** kysely, migrations, error-handling, resource-cleanup

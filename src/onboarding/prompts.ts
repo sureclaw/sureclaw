@@ -115,6 +115,32 @@ export const AUTH_METHOD_DESCRIPTIONS: Record<AuthMethod, string> = {
   'oauth': 'Authenticate with your Claude Max subscription via browser',
 };
 
+// ── LLM Provider (for router-based agents) ──
+
+export const LLM_PROVIDERS = ['anthropic', 'openai', 'openrouter', 'groq'] as const;
+export type LLMProviderChoice = (typeof LLM_PROVIDERS)[number];
+
+export const LLM_PROVIDER_DISPLAY_NAMES: Record<LLMProviderChoice, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  groq: 'Groq',
+};
+
+export const LLM_PROVIDER_DESCRIPTIONS: Record<LLMProviderChoice, string> = {
+  anthropic: 'Claude models (claude-sonnet-4, claude-opus-4, etc.)',
+  openai: 'GPT models via OpenAI API',
+  openrouter: 'Multi-provider access via OpenRouter',
+  groq: 'Fast inference via Groq',
+};
+
+export const DEFAULT_MODELS: Record<LLMProviderChoice, string> = {
+  anthropic: 'claude-sonnet-4-20250514',
+  openai: 'gpt-4.1',
+  openrouter: 'anthropic/claude-sonnet-4',
+  groq: 'llama-3.3-70b-versatile',
+};
+
 /** Available provider choices per category, derived from the provider map. */
 export const PROVIDER_CHOICES = {
   memory: ['file', 'sqlite'],

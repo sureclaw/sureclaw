@@ -25,7 +25,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_write returns an ID', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('memory_write', {
       scope: 'agent',
@@ -39,7 +39,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_read retrieves a written entry', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const writeResult = await harness.ipcCall('memory_write', {
       scope: 'agent',
@@ -58,7 +58,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_read for nonexistent ID returns null entry', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // ID must be a valid UUID (Zod schema enforces this)
     const result = await harness.ipcCall('memory_read', {
@@ -70,7 +70,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_list returns all entries in a scope', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('memory_write', {
       scope: 'project',
@@ -97,7 +97,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_list respects limit parameter', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     for (let i = 0; i < 5; i++) {
       await harness.ipcCall('memory_write', {
@@ -117,7 +117,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_delete removes an entry', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const writeResult = await harness.ipcCall('memory_write', {
       scope: 'agent',
@@ -145,7 +145,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_delete is audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const writeResult = await harness.ipcCall('memory_write', {
       scope: 'agent',
@@ -159,7 +159,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('memory_query with tags filters correctly', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('memory_write', {
       scope: 'tagged',
@@ -187,7 +187,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('full lifecycle: write → read → query → delete → confirm gone', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Write
     const { id } = await harness.ipcCall('memory_write', {
@@ -223,7 +223,7 @@ describe('E2E Scenario: Memory Lifecycle', () => {
   });
 
   test('multi-turn: LLM writes then reads memory via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Turn 1: LLM writes a memory
         toolUseTurn('memory_write', {

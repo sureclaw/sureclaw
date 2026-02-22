@@ -2,6 +2,9 @@ import { openDatabase } from './utils/sqlite.js';
 import type { SQLiteDatabase } from './utils/sqlite.js';
 import { dataFile } from './paths.js';
 import type { CronJobDef, CronDelivery, JobStore } from './providers/scheduler/types.js';
+import { createKyselyDb } from './utils/database.js';
+import { runMigrations } from './utils/migrator.js';
+import { jobsMigrations } from './migrations/jobs.js';
 
 type JobRow = {
   id: string; agent_id: string; schedule: string; prompt: string;
@@ -11,27 +14,20 @@ type JobRow = {
 export class SqliteJobStore implements JobStore {
   private db: SQLiteDatabase;
 
-  constructor(dbPath: string = dataFile('jobs.db')) {
-    this.db = openDatabase(dbPath);
-    this.migrate();
+  private constructor(db: SQLiteDatabase) {
+    this.db = db;
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS cron_jobs (
-        id        TEXT PRIMARY KEY,
-        agent_id  TEXT NOT NULL,
-        schedule  TEXT NOT NULL,
-        prompt    TEXT NOT NULL,
-        max_token_budget INTEGER,
-        delivery  TEXT,
-        run_once  INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_cron_jobs_agent ON cron_jobs(agent_id)
-    `);
+  static async create(dbPath: string = dataFile('jobs.db')): Promise<SqliteJobStore> {
+    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
+    try {
+      const result = await runMigrations(kyselyDb, jobsMigrations);
+      if (result.error) throw result.error;
+    } finally {
+      await kyselyDb.destroy();
+    }
+    const db = openDatabase(dbPath);
+    return new SqliteJobStore(db);
   }
 
   get(jobId: string): CronJobDef | undefined {

@@ -28,7 +28,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   // ─── Identity Proposals ──────────────────────────
 
   test('identity_propose creates a pending proposal', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -43,7 +43,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('identity_propose is audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -56,7 +56,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('identity_propose blocked by scanner returns error', async () => {
-    harness = new TestHarness({ scannerInputVerdict: 'BLOCK' });
+    harness = await TestHarness.create({ scannerInputVerdict: 'BLOCK' });
 
     const result = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -72,7 +72,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   // ─── Proposal List ───────────────────────────────
 
   test('proposal_list returns empty when no proposals exist', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('proposal_list', {});
 
@@ -81,7 +81,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_list returns created proposals', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -104,7 +104,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_list filters by status', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Create two proposals
     const p1 = await harness.ipcCall('identity_propose', {
@@ -139,7 +139,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   // ─── Proposal Review ─────────────────────────────
 
   test('proposal_review approves a proposal and applies identity file', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const propResult = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -164,7 +164,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_review rejects a proposal without applying', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const propResult = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -188,7 +188,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_review for nonexistent proposal returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // proposalId must be a valid UUID (Zod schema enforces this)
     const result = await harness.ipcCall('proposal_review', {
@@ -202,7 +202,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_review for already-reviewed proposal returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const propResult = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -230,7 +230,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('proposal_review is audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const propResult = await harness.ipcCall('identity_propose', {
       file: 'SOUL.md',
@@ -251,7 +251,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   // ─── Agent Registry ───────────────────────────────
 
   test('agent_registry_list returns empty when no agents registered', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('agent_registry_list', {});
 
@@ -260,7 +260,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('agent_registry_list returns seeded agents', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedAgents: [
         {
           id: 'research-agent',
@@ -292,7 +292,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('agent_registry_list filters by status', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedAgents: [
         {
           id: 'active-agent',
@@ -325,7 +325,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('agent_registry_get returns agent details', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedAgents: [
         {
           id: 'my-agent',
@@ -351,7 +351,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('agent_registry_get for nonexistent agent returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('agent_registry_get', {
       agentId: 'ghost-agent',
@@ -364,7 +364,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   // ─── Full Governance Flow ─────────────────────────
 
   test('full flow: propose → list → review → verify applied', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Step 1: Propose
     const propResult = await harness.ipcCall('identity_propose', {
@@ -398,7 +398,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
   });
 
   test('multi-turn: LLM proposes identity via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         toolUseTurn('identity_propose', {
           file: 'SOUL.md',

@@ -511,7 +511,7 @@ describe('Architectural Invariants', () => {
 
   test('router pipeline works with ML scanner', async () => {
     const providers = mockProviders({ scanInputVerdict: 'BLOCK' });
-    const db = new MessageQueue(join(testDataDir, 'messages.db'));
+    const db = await MessageQueue.create(join(testDataDir, 'messages.db'));
     const taintBudget = new TaintBudget({ threshold: 0.60 });
     const router = createRouter(providers, db, { taintBudget });
 

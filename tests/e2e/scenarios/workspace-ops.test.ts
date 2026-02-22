@@ -22,7 +22,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_write to agent tier creates file', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('workspace_write', {
       tier: 'agent',
@@ -36,7 +36,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_write then workspace_read round-trip', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Use scratch tier — sessionId must be a valid UUID or 3+ colon-separated segments
     const { randomUUID } = await import('node:crypto');
@@ -58,7 +58,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_write to user tier', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('workspace_write', {
       tier: 'user',
@@ -71,7 +71,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_list shows files in a tier', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Write two files
     await harness.ipcCall('workspace_write', {
@@ -95,7 +95,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace operations are audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('workspace_write', {
       tier: 'agent',
@@ -107,7 +107,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('multi-turn: LLM writes to workspace via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Turn 1: LLM writes shared notes
         toolUseTurn('workspace_write', {
@@ -128,7 +128,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_read for nonexistent file returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('workspace_read', {
       tier: 'agent',
@@ -142,7 +142,7 @@ describe('E2E Scenario: Workspace Operations', () => {
   });
 
   test('workspace_write to agent tier in paranoid mode is queued', async () => {
-    harness = new TestHarness({ profile: 'paranoid' });
+    harness = await TestHarness.create({ profile: 'paranoid' });
 
     const result = await harness.ipcCall('workspace_write', {
       tier: 'agent',

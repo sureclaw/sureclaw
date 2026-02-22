@@ -25,7 +25,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('single tool call: memory_write then text response', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         toolUseTurn('memory_write', {
           scope: 'user_notes',
@@ -49,7 +49,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('chained tool calls: search web then write to memory', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webSearches: [{
         query: /node.*version/i,
         results: [{
@@ -85,7 +85,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('three chained tool calls: query memory, search web, write memory', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedMemory: [{
         scope: 'project',
         content: 'Project uses React 18',
@@ -126,7 +126,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('text alongside tool_use in the same turn', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         textAndToolTurn(
           'Let me save that for you.',
@@ -152,7 +152,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
       })
     );
 
-    harness = new TestHarness({ llmTurns: infiniteTools });
+    harness = await TestHarness.create({ llmTurns: infiniteTools });
 
     const result = await harness.runAgentLoop('Do something', { maxTurns: 3 });
 
@@ -162,7 +162,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('tool call failure is propagated as tool_result', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Try to fetch a page — web provider will return a mock response
         toolUseTurn('web_fetch', { url: 'https://example.com/api' }),
@@ -179,7 +179,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('conditional LLM turns: match on tool_result content', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Sequential turn 1: write to memory
         toolUseTurn('memory_write', {
@@ -203,7 +203,7 @@ describe('E2E Scenario: Multi-Turn Tool Use', () => {
   });
 
   test('LLM receives tool_result in conversation history', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         toolUseTurn('memory_write', {
           scope: 'test',

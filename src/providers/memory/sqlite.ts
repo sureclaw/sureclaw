@@ -5,41 +5,23 @@ import type { SQLiteDatabase } from '../../utils/sqlite.js';
 import { dataDir, dataFile } from '../../paths.js';
 import type { MemoryProvider, MemoryEntry, MemoryQuery } from './types.js';
 import type { Config } from '../../types.js';
+import { createKyselyDb } from '../../utils/database.js';
+import { runMigrations } from '../../utils/migrator.js';
+import { memoryMigrations } from '../../migrations/memory.js';
 
 export async function create(_config: Config): Promise<MemoryProvider> {
   mkdirSync(dataDir(), { recursive: true });
-  const db: SQLiteDatabase = openDatabase(dataFile('memory.db'));
+  const dbPath = dataFile('memory.db');
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS entries (
-      id TEXT PRIMARY KEY,
-      scope TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tags TEXT,
-      taint TEXT,
-      agent_id TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_entries_scope ON entries(scope)
-  `);
-  // Enterprise: agent-scoped index
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_entries_agent_scope ON entries(agent_id, scope)
-  `);
-  // Migration: add agent_id column if missing (existing installs)
+  const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
   try {
-    db.exec(`ALTER TABLE entries ADD COLUMN agent_id TEXT`);
-  } catch {
-    // Column already exists — expected for new installs
+    const result = await runMigrations(kyselyDb, memoryMigrations);
+    if (result.error) throw result.error;
+  } finally {
+    await kyselyDb.destroy();
   }
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS entries_fts USING fts5(
-      entry_id,
-      content
-    )
-  `);
+
+  const db: SQLiteDatabase = openDatabase(dbPath);
 
   function serializeTags(tags?: string[]): string | null {
     return tags && tags.length > 0 ? JSON.stringify(tags) : null;

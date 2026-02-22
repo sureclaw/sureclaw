@@ -20,11 +20,11 @@ function basicJob(overrides?: Partial<CronJobDef>): CronJobDef {
 
 // ─── Shared test suite ─────────────────────────────
 
-function jobStoreTests(createStore: () => JobStore, cleanup: () => void) {
+function jobStoreTests(createStore: () => JobStore | Promise<JobStore>, cleanup: () => void) {
   let store: JobStore;
 
-  beforeEach(() => {
-    store = createStore();
+  beforeEach(async () => {
+    store = await createStore();
   });
 
   afterEach(() => {
@@ -140,9 +140,9 @@ describe('SqliteJobStore', () => {
   let tmpDir: string;
 
   jobStoreTests(
-    () => {
+    async () => {
       tmpDir = mkdtempSync(join(tmpdir(), 'ax-job-store-test-'));
-      return new SqliteJobStore(join(tmpDir, 'jobs.db'));
+      return SqliteJobStore.create(join(tmpDir, 'jobs.db'));
     },
     () => {
       rmSync(tmpDir, { recursive: true, force: true });

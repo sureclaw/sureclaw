@@ -1,6 +1,9 @@
 import { openDatabase } from './utils/sqlite.js';
 import type { SQLiteDatabase } from './utils/sqlite.js';
 import { dataFile } from './paths.js';
+import { createKyselyDb } from './utils/database.js';
+import { runMigrations } from './utils/migrator.js';
+import { conversationsMigrations } from './migrations/conversations.js';
 
 export interface StoredTurn {
   id: number;
@@ -14,25 +17,20 @@ export interface StoredTurn {
 export class ConversationStore {
   private db: SQLiteDatabase;
 
-  constructor(dbPath: string = dataFile('conversations.db')) {
-    this.db = openDatabase(dbPath);
-    this.migrate();
+  private constructor(db: SQLiteDatabase) {
+    this.db = db;
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS turns (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        sender TEXT,
-        content TEXT NOT NULL,
-        created_at INTEGER NOT NULL DEFAULT (unixepoch())
-      )
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id, id)
-    `);
+  static async create(dbPath: string = dataFile('conversations.db')): Promise<ConversationStore> {
+    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
+    try {
+      const result = await runMigrations(kyselyDb, conversationsMigrations);
+      if (result.error) throw result.error;
+    } finally {
+      await kyselyDb.destroy();
+    }
+    const db = openDatabase(dbPath);
+    return new ConversationStore(db);
   }
 
   /** Append a turn to the session. */

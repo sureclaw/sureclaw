@@ -23,7 +23,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('agent_delegate succeeds with configured handler', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       onDelegate: async (task, context) => {
         return `Completed task: ${task}`;
       },
@@ -39,7 +39,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('agent_delegate without handler returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('agent_delegate', {
       task: 'Any task',
@@ -50,7 +50,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('agent_delegate is audited', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       onDelegate: async (task) => `Done: ${task}`,
     });
 
@@ -64,7 +64,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   test('agent_delegate passes context to handler', async () => {
     let receivedContext: string | undefined;
 
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       onDelegate: async (task, context) => {
         receivedContext = context;
         return 'Done';
@@ -80,7 +80,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('agent_delegate respects max depth limit', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       delegation: { maxDepth: 2 },
       onDelegate: async (task) => `Done: ${task}`,
     });
@@ -97,7 +97,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('agent_delegate within depth limit succeeds', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       delegation: { maxDepth: 3 },
       onDelegate: async (task) => `Done: ${task}`,
     });
@@ -117,7 +117,7 @@ describe('E2E Scenario: Agent Delegation', () => {
     let resolveFirst: () => void;
     const firstDelegation = new Promise<void>(resolve => { resolveFirst = resolve; });
 
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       delegation: { maxConcurrent: 1 },
       onDelegate: async (task) => {
         if (task === 'blocking') {
@@ -145,7 +145,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   });
 
   test('multi-turn: LLM delegates a task via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       onDelegate: async (task) => {
         return 'The document discusses three main patterns: Factory, Observer, and Strategy.';
       },
@@ -171,7 +171,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   test('delegation handler receives correct child context', async () => {
     let receivedCtx: any;
 
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       onDelegate: async (task, context, ctx) => {
         receivedCtx = ctx;
         return 'Done';

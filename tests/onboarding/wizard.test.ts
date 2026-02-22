@@ -568,4 +568,166 @@ describe('Onboarding Wizard', () => {
     expect(config.channel_config).toBeDefined();
     expect(config.channel_config!.slack).toBeDefined();
   });
+
+  // ── Model selection (compound provider/model ID) ──
+
+  test('writes model to ax.yaml for router-based agent', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'anthropic/claude-sonnet-4-20250514',
+        apiKey: 'sk-test',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.model).toBe('anthropic/claude-sonnet-4-20250514');
+  });
+
+  test('omits model from ax.yaml for claude-code agent', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'claude-code',
+        apiKey: 'sk-test',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
+    expect(config.model).toBeUndefined();
+  });
+
+  test('writes provider-specific API key env var for non-anthropic provider', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'openrouter/anthropic/claude-sonnet-4',
+        llmProvider: 'openrouter',
+        apiKey: 'or-key-123456',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
+    expect(envContent).toContain('OPENROUTER_API_KEY=or-key-123456');
+    expect(envContent).not.toContain('ANTHROPIC_API_KEY');
+  });
+
+  test('writes ANTHROPIC_API_KEY for anthropic llmProvider', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'anthropic/claude-sonnet-4-20250514',
+        llmProvider: 'anthropic',
+        apiKey: 'sk-ant-test-key',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
+    expect(envContent).toContain('ANTHROPIC_API_KEY=sk-ant-test-key');
+  });
+
+  test('does not write empty API key line to .env', async () => {
+    const dir = setup();
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'groq/llama-3.3-70b-versatile',
+        llmProvider: 'groq',
+        apiKey: '',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
+    expect(envContent).not.toContain('GROQ_API_KEY=');
+    expect(envContent).not.toContain('ANTHROPIC_API_KEY=');
+  });
+
+  test('loadExistingConfig reads model and derives llmProvider', async () => {
+    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'openrouter/gpt-4.1',
+        llmProvider: 'openrouter',
+        apiKey: 'or-key-test',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    expect(existing).not.toBeNull();
+    expect(existing!.model).toBe('openrouter/gpt-4.1');
+    expect(existing!.llmProvider).toBe('openrouter');
+  });
+
+  test('loadExistingConfig reads non-Anthropic API key from .env', async () => {
+    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'groq/llama-3.3-70b-versatile',
+        llmProvider: 'groq',
+        apiKey: 'gsk-test-key-value',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const existing = loadExistingConfig(dir);
+    expect(existing!.apiKey).toBe('gsk-test-key-value');
+    expect(existing!.llmProvider).toBe('groq');
+  });
+
+  test('generated config with model passes loadConfig validation', async () => {
+    const { loadConfig } = await import('../../src/config.js');
+    const dir = setup();
+
+    await runOnboarding({
+      outputDir: dir,
+      answers: {
+        profile: 'balanced',
+        agent: 'pi-agent-core',
+        model: 'anthropic/claude-sonnet-4-20250514',
+        apiKey: 'sk-test',
+        channels: [],
+        skipSkills: true,
+      },
+    });
+
+    const config = loadConfig(join(dir, 'ax.yaml'));
+    expect(config.model).toBe('anthropic/claude-sonnet-4-20250514');
+    expect(config.agent).toBe('pi-agent-core');
+  });
 });

@@ -3,6 +3,9 @@ import { createRouter, type Router } from '../../src/host/router.js';
 import { MessageQueue } from '../../src/db.js';
 import type { ProviderRegistry } from '../../src/types.js';
 import type { InboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const CANARY = 'CANARY-test-token-abc123';
 
@@ -105,14 +108,17 @@ function makeMsg(content: string, overrides?: Partial<InboundMessage>): InboundM
 describe('Message Router', () => {
   let router: Router;
   let db: MessageQueue;
+  let tmpDir: string;
 
-  beforeEach(() => {
-    db = new MessageQueue(':memory:');
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ax-router-test-'));
+    db = await MessageQueue.create(join(tmpDir, 'messages.db'));
     router = createRouter(mockRegistry(), db);
   });
 
   afterEach(() => {
     db.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe('processInbound', () => {

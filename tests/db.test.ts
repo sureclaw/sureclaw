@@ -1,15 +1,21 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { MessageQueue } from '../src/db.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 describe('MessageQueue', () => {
   let queue: MessageQueue;
+  let tmpDir: string;
 
-  beforeEach(() => {
-    queue = new MessageQueue(':memory:');
+  beforeEach(async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ax-mq-test-'));
+    queue = await MessageQueue.create(join(tmpDir, 'messages.db'));
   });
 
   afterEach(() => {
     queue.close();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   test('enqueue returns an ID', () => {
@@ -96,4 +102,3 @@ describe('MessageQueue', () => {
     expect(queue.dequeueById(id)).toBeNull(); // can't dequeue again
   });
 });
-

@@ -19,6 +19,8 @@ export interface OnboardingAnswers {
   profile: ProfileName;
   agent?: AgentType;
   authMethod?: 'api-key' | 'oauth';
+  model?: string;
+  llmProvider?: string;
   apiKey: string;
   oauthToken?: string;
   oauthRefreshToken?: string;
@@ -79,6 +81,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   // Build full config
   const config: Record<string, unknown> = {
     agent: answers.agent ?? defaults.agent,
+    ...(answers.model ? { model: answers.model } : {}),
     profile: answers.profile,
     providers,
     ...(Object.keys(channelConfig).length > 0 ? { channel_config: channelConfig } : {}),
@@ -105,8 +108,13 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   let envContent = '# AX Configuration\n';
   if (answers.oauthToken) {
     envContent += `\n# Claude Max OAuth tokens\nCLAUDE_CODE_OAUTH_TOKEN=${answers.oauthToken}\nAX_OAUTH_REFRESH_TOKEN=${answers.oauthRefreshToken || ''}\nAX_OAUTH_EXPIRES_AT=${answers.oauthExpiresAt || ''}\n`;
-  } else {
-    envContent += `ANTHROPIC_API_KEY=${answers.apiKey.trim()}\n`;
+  } else if (answers.apiKey.trim()) {
+    // Use provider-specific env var name (e.g. OPENROUTER_API_KEY) when llmProvider
+    // is set and isn't anthropic. Falls back to ANTHROPIC_API_KEY for backward compat.
+    const apiKeyEnvVar = answers.llmProvider && answers.llmProvider !== 'anthropic'
+      ? `${answers.llmProvider.toUpperCase()}_API_KEY`
+      : 'ANTHROPIC_API_KEY';
+    envContent += `${apiKeyEnvVar}=${answers.apiKey.trim()}\n`;
   }
   if (answers.credsPassphrase) {
     envContent += `\n# Encrypted credential store passphrase\nAX_CREDS_PASSPHRASE=${answers.credsPassphrase.trim()}\n`;
@@ -142,6 +150,10 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const raw = readFileSync(cfgPath, 'utf-8');
     const parsed = parseYaml(raw);
 
+    // Derive LLM provider from compound model ID (e.g. "openrouter/gpt-4.1" → "openrouter")
+    const model: string | undefined = parsed.model;
+    const llmProvider: string | undefined = model ? model.split('/')[0] : undefined;
+
     // Read secrets from .env if it exists
     let apiKey = '';
     let credsPassphrase: string | undefined;
@@ -155,8 +167,16 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const envFilePath = join(dir, '.env');
     if (existsSync(envFilePath)) {
       const envContent = readFileSync(envFilePath, 'utf-8');
-      const apiKeyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-      if (apiKeyMatch) apiKey = apiKeyMatch[1].trim();
+      // Try provider-specific API key first, fall back to ANTHROPIC_API_KEY
+      if (llmProvider && llmProvider !== 'anthropic') {
+        const providerKeyName = `${llmProvider.toUpperCase()}_API_KEY`;
+        const providerKeyMatch = envContent.match(new RegExp(`^${providerKeyName}=(.+)$`, 'm'));
+        if (providerKeyMatch) apiKey = providerKeyMatch[1].trim();
+      }
+      if (!apiKey) {
+        const apiKeyMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
+        if (apiKeyMatch) apiKey = apiKeyMatch[1].trim();
+      }
       const passphraseMatch = envContent.match(/^AX_CREDS_PASSPHRASE=(.+)$/m);
       if (passphraseMatch) credsPassphrase = passphraseMatch[1].trim();
       const tavilyMatch = envContent.match(/^TAVILY_API_KEY=(.+)$/m);
@@ -178,6 +198,8 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
       profile: parsed.profile ?? 'balanced',
       agent: parsed.agent,
       authMethod,
+      model,
+      llmProvider,
       apiKey,
       oauthToken,
       oauthRefreshToken,
