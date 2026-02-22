@@ -300,7 +300,7 @@ describe('Smoke Test', () => {
     const dbDir = join(smokeTestHome, 'data');
     mkdirSync(dbDir, { recursive: true });
     const { MessageQueue } = await import('../../src/db.js');
-    const db = new MessageQueue(join(dbDir, 'messages.db'));
+    const db = await MessageQueue.create(join(dbDir, 'messages.db'));
     db.enqueue({ sessionId: 'stale-session-1', channel: 'cli', sender: 'ghost', content: 'stale msg 1' });
     db.enqueue({ sessionId: 'stale-session-2', channel: 'cli', sender: 'ghost', content: 'stale msg 2' });
     db.close();

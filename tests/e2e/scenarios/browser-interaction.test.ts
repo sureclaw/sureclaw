@@ -27,7 +27,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('browser_click on a ref', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Launch and navigate first
     const launch = await harness.ipcCall('browser_launch', {});
@@ -47,7 +47,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('browser_type enters text at a ref', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const launch = await harness.ipcCall('browser_launch', {});
 
@@ -61,7 +61,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('browser_screenshot returns base64 data', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const launch = await harness.ipcCall('browser_launch', {});
 
@@ -76,7 +76,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('browser_close terminates a session', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const launch = await harness.ipcCall('browser_launch', {});
 
@@ -88,7 +88,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('full browser flow: launch → navigate → snapshot → click → type → screenshot → close', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       browserSnapshot: {
         title: 'Login Form',
         url: 'https://app.example.com/login',
@@ -156,7 +156,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('browser_navigate is audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const launch = await harness.ipcCall('browser_launch', {});
     await harness.ipcCall('browser_navigate', {
@@ -170,7 +170,7 @@ describe('E2E Scenario: Browser Interaction', () => {
   });
 
   test('multi-turn: LLM fills form via browser tools', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       browserSnapshot: {
         title: 'Search',
         url: 'https://search.example.com',

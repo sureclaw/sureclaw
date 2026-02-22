@@ -17,7 +17,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('identity_write SOUL.md in balanced profile applies to filesystem', async () => {
-    harness = new TestHarness({ profile: 'balanced' });
+    harness = await TestHarness.create({ profile: 'balanced' });
 
     const result = await harness.ipcCall('identity_write', {
       file: 'SOUL.md',
@@ -35,7 +35,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('identity_write IDENTITY.md in balanced profile applies', async () => {
-    harness = new TestHarness({ profile: 'balanced' });
+    harness = await TestHarness.create({ profile: 'balanced' });
 
     const result = await harness.ipcCall('identity_write', {
       file: 'IDENTITY.md',
@@ -52,7 +52,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('identity_write in paranoid profile queues instead of applying', async () => {
-    harness = new TestHarness({ profile: 'paranoid' });
+    harness = await TestHarness.create({ profile: 'paranoid' });
 
     const result = await harness.ipcCall('identity_write', {
       file: 'SOUL.md',
@@ -70,7 +70,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('identity_write is audited with the correct decision', async () => {
-    harness = new TestHarness({ profile: 'balanced' });
+    harness = await TestHarness.create({ profile: 'balanced' });
 
     await harness.ipcCall('identity_write', {
       file: 'SOUL.md',
@@ -85,7 +85,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('user_write stores per-user notes', async () => {
-    harness = new TestHarness({ profile: 'balanced' });
+    harness = await TestHarness.create({ profile: 'balanced' });
 
     const result = await harness.ipcCall('user_write', {
       userId: 'alice',
@@ -99,7 +99,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('multi-turn: LLM updates soul via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       profile: 'balanced',
       llmTurns: [
         // Turn 1: LLM decides to update its soul
@@ -126,7 +126,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
   });
 
   test('identity_write rejects invalid file names', async () => {
-    harness = new TestHarness({ profile: 'balanced' });
+    harness = await TestHarness.create({ profile: 'balanced' });
 
     const result = await harness.ipcCall('identity_write', {
       file: 'EVIL.md',  // Not SOUL.md or IDENTITY.md

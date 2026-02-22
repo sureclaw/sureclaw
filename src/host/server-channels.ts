@@ -71,6 +71,7 @@ export interface ChannelHandlerDeps {
   logger: Logger;
   isAgentBootstrapMode: (agentDir: string) => boolean;
   isAdmin: (agentDir: string, userId: string) => boolean;
+  claimBootstrapAdmin: (agentDir: string, userId: string) => boolean;
 }
 
 /**
@@ -86,6 +87,7 @@ export function registerChannelHandler(
     completionDeps, conversationStore, sessionStore, sessionCanaries,
     router, agentName, agentDir, deduplicator, logger,
     isAgentBootstrapMode: isBootstrap, isAdmin: isAdminFn,
+    claimBootstrapAdmin: claimBootstrapAdminFn,
   } = deps;
 
   channel.onMessage(async (msg: InboundMessage) => {
@@ -134,12 +136,17 @@ export function registerChannelHandler(
     }
 
     // Bootstrap gate: only admins can interact while the agent is being set up.
+    // The first channel user to message during bootstrap is auto-promoted to admin.
     if (isBootstrap(agentDir) && !isAdminFn(agentDir, msg.sender)) {
-      logger.info('bootstrap_gate_blocked', { provider: channel.name, sender: msg.sender });
-      await channel.send(msg.session, {
-        content: 'This agent is still being set up. Only admins can interact during bootstrap.',
-      });
-      return;
+      if (claimBootstrapAdminFn(agentDir, msg.sender)) {
+        logger.info('bootstrap_admin_claimed', { provider: channel.name, sender: msg.sender });
+      } else {
+        logger.info('bootstrap_gate_blocked', { provider: channel.name, sender: msg.sender });
+        await channel.send(msg.session, {
+          content: 'This agent is still being set up. Only admins can interact during bootstrap.',
+        });
+        return;
+      }
     }
 
     // Eyes emoji: acknowledge receipt

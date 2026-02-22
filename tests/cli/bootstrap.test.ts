@@ -55,6 +55,14 @@ describe('bootstrap command', () => {
     expect(content).toContain('Bootstrap');
   });
 
+  test('resetAgent deletes .bootstrap-admin-claimed file', async () => {
+    writeFileSync(join(agentDir, '.bootstrap-admin-claimed'), 'U12345');
+
+    await resetAgent(agentDir, templatesDir);
+
+    expect(existsSync(join(agentDir, '.bootstrap-admin-claimed'))).toBe(false);
+  });
+
   test('resetAgent is idempotent (no error if files missing)', async () => {
     // No files exist — should not throw
     await expect(resetAgent(agentDir, templatesDir)).resolves.not.toThrow();

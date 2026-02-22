@@ -21,7 +21,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('complete flow: user message → LLM → text response → outbound', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Hello! I\'m your assistant.')],
     });
 
@@ -41,7 +41,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('scanner blocks malicious input before it reaches the LLM', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('This should never be called')],
       scannerInputVerdict: 'BLOCK',
     });
@@ -59,7 +59,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('response with canary token is redacted on outbound', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Normal safe response')],
     });
 
@@ -79,7 +79,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('multi-message conversation maintains message queue state', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         textTurn('First response'),
         textTurn('Second response'),
@@ -96,7 +96,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('full pipeline with memory write tool call', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Agent's first response: call memory_write tool
         toolUseTurn('memory_write', {
@@ -123,7 +123,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('full pipeline: web search + memory write + final response', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webSearches: [{
         query: /rust.*async/i,
         results: [{
@@ -161,7 +161,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('full pipeline: schedule a task via tool call', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         toolUseTurn('scheduler_add_cron', {
           schedule: '0 9 * * 1',
@@ -180,7 +180,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('full pipeline: update identity via tool call', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       profile: 'balanced',
       llmTurns: [
         toolUseTurn('identity_write', {
@@ -201,7 +201,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('full pipeline: browser launch, navigate, snapshot, close', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       browserSnapshot: {
         title: 'Example Page',
         url: 'https://example.com',
@@ -231,7 +231,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('audit trail captures all actions in a multi-tool pipeline', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         toolUseTurn('web_search', { query: 'test' }),
         toolUseTurn('memory_write', {
@@ -251,7 +251,7 @@ describe('E2E Scenario: Full Pipeline', () => {
   });
 
   test('seed memory is queryable through the pipeline', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedMemory: [
         {
           scope: 'facts',

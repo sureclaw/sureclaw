@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { openDatabase } from './utils/sqlite.js';
 import type { SQLiteDatabase } from './utils/sqlite.js';
 import { dataFile } from './paths.js';
+import { createKyselyDb } from './utils/database.js';
+import { runMigrations } from './utils/migrator.js';
+import { messagesMigrations } from './migrations/messages.js';
 
 // ═══════════════════════════════════════════════════════
 // Message Queue
@@ -21,27 +24,20 @@ export interface QueuedMessage {
 export class MessageQueue {
   private db: SQLiteDatabase;
 
-  constructor(dbPath: string = dataFile('messages.db')) {
-    this.db = openDatabase(dbPath);
-    this.migrate();
+  private constructor(db: SQLiteDatabase) {
+    this.db = db;
   }
 
-  private migrate(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        channel TEXT NOT NULL,
-        sender TEXT NOT NULL,
-        content TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        processed_at TEXT
-      )
-    `);
-    this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)
-    `);
+  static async create(dbPath: string = dataFile('messages.db')): Promise<MessageQueue> {
+    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
+    try {
+      const result = await runMigrations(kyselyDb, messagesMigrations);
+      if (result.error) throw result.error;
+    } finally {
+      await kyselyDb.destroy();
+    }
+    const db = openDatabase(dbPath);
+    return new MessageQueue(db);
   }
 
   enqueue(msg: { sessionId: string; channel: string; sender: string; content: string }): string {

@@ -17,7 +17,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill_propose via IPC auto-approves a safe skill', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('skill_propose', {
       skill: 'greeting',
@@ -35,7 +35,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill_list returns all stored skills', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedSkills: [
         { name: 'skill-a', content: '# Skill A' },
         { name: 'skill-b', content: '# Skill B' },
@@ -50,7 +50,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill_read returns skill content', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedSkills: [
         { name: 'my-skill', content: '# My Skill\n\nDo the thing.' },
       ],
@@ -64,7 +64,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill_propose with NEEDS_REVIEW verdict does not auto-store', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       skillProposalVerdict: {
         id: 'review-001',
         verdict: 'NEEDS_REVIEW',
@@ -86,7 +86,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill_propose with REJECT verdict does not store', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       skillProposalVerdict: {
         id: 'reject-001',
         verdict: 'REJECT',
@@ -105,7 +105,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('multi-turn agent loop: LLM proposes a skill via tool_use', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Turn 1: LLM decides to propose a skill
         toolUseTurn('skill_propose', {
@@ -127,7 +127,7 @@ describe('E2E Scenario: Skill Creation', () => {
   });
 
   test('skill proposal is recorded in skill log', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('skill_propose', {
       skill: 'logged-skill',

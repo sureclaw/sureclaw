@@ -22,7 +22,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web_search returns canned results', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webSearches: [{
         query: 'TypeScript best practices',
         results: [
@@ -54,7 +54,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web_search returns default mock when no stub matches', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('web_search', {
       query: 'anything at all',
@@ -66,7 +66,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web_fetch returns canned response for matched URL', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webFetches: [{
         url: 'https://api.example.com/data',
         response: {
@@ -90,7 +90,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web_fetch with regex URL matching', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webFetches: [{
         url: /example\.com\/api\/.*/,
         response: {
@@ -111,7 +111,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web_fetch returns default mock for unmatched URLs', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('web_fetch', {
       url: 'https://unknown-site.com/page',
@@ -123,7 +123,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('web operations are audited', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     await harness.ipcCall('web_search', { query: 'test' });
     await harness.ipcCall('web_fetch', { url: 'https://example.com' });
@@ -133,7 +133,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('multi-turn: LLM searches web then synthesizes answer', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webSearches: [{
         query: /weather/i,
         results: [{
@@ -160,7 +160,7 @@ describe('E2E Scenario: Web Search & Fetch', () => {
   });
 
   test('multi-turn: LLM fetches a URL then processes content', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       webFetches: [{
         url: 'https://docs.example.com/api',
         response: {

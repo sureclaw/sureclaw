@@ -11,7 +11,7 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server as NetServer } from 'node:net';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -71,6 +71,30 @@ export function isAdmin(agentDirPath: string, userId: string): boolean {
   return lines.includes(userId);
 }
 
+/** Appends a userId to the agent's admins file. */
+export function addAdmin(agentDirPath: string, userId: string): void {
+  const adminsPath = join(agentDirPath, 'admins');
+  appendFileSync(adminsPath, `${userId}\n`, 'utf-8');
+}
+
+/**
+ * Atomically claims the bootstrap admin slot for the given userId.
+ * Returns true if this user is the first to claim (and is added to admins).
+ * Returns false if someone already claimed it.
+ * The 'wx' flag (O_EXCL) ensures only one caller wins the race.
+ */
+export function claimBootstrapAdmin(agentDirPath: string, userId: string): boolean {
+  const claimPath = join(agentDirPath, '.bootstrap-admin-claimed');
+  try {
+    writeFileSync(claimPath, userId, { flag: 'wx' });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  }
+  addAdmin(agentDirPath, userId);
+  return true;
+}
+
 // =====================================================
 // Server Factory
 // =====================================================
@@ -96,9 +120,9 @@ export async function createServer(
 
   // Initialize DB + Conversation Store + Taint Budget + Router + IPC
   mkdirSync(dataDir(), { recursive: true });
-  const db = new MessageQueue(dataFile('messages.db'));
-  const conversationStore = new ConversationStore();
-  const sessionStore = new SessionStore();
+  const db = await MessageQueue.create(dataFile('messages.db'));
+  const conversationStore = await ConversationStore.create();
+  const sessionStore = await SessionStore.create();
   const taintBudget = new TaintBudget({
     threshold: thresholdForProfile(config.profile),
   });
@@ -458,6 +482,7 @@ export async function createServer(
         logger,
         isAgentBootstrapMode,
         isAdmin,
+        claimBootstrapAdmin,
       });
       await connectChannelWithRetry(channel, logger);
     }

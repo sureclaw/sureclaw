@@ -17,7 +17,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('simple greeting flows through the full pipeline', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Hey there! How can I help?')],
     });
 
@@ -31,7 +31,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('message from a specific sender is recorded correctly', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Hello Alice!')],
     });
 
@@ -44,7 +44,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('inbound message is wrapped with external_content taint tag', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Got it.')],
     });
 
@@ -58,7 +58,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('scanner blocks injection attempt before reaching LLM', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Should not reach here')],
       scannerInputVerdict: 'BLOCK',
     });
@@ -73,7 +73,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('canary token leak is detected and response is redacted', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Normal response')],
     });
 
@@ -94,7 +94,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('audit trail is written for inbound, LLM call, and outbound', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('Audited response')],
     });
 
@@ -106,7 +106,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('multiple sequential messages advance through LLM script', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         textTurn('First response'),
         textTurn('Second response'),
@@ -125,7 +125,7 @@ describe('E2E Scenario: Slack Message Flow', () => {
   });
 
   test('DM and channel scopes are handled', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [textTurn('DM reply'), textTurn('Channel reply')],
     });
 

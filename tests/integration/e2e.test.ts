@@ -153,9 +153,9 @@ describe('E2E Integration', () => {
   let handleIPC: (raw: string, ctx: { sessionId: string; agentId: string }) => Promise<string>;
   let testProviders: ReturnType<typeof createTestProviders>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-e2e-'));
-    db = new MessageQueue(':memory:');
+    db = await MessageQueue.create(join(tmpDir, 'messages.db'));
     testProviders = createTestProviders(tmpDir);
     router = createRouter(testProviders.providers, db);
     handleIPC = createIPCHandler(testProviders.providers);

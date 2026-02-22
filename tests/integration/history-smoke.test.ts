@@ -215,7 +215,7 @@ describe('History Smoke Test', () => {
 
     // Directly check the DB to verify isolation
     const { ConversationStore } = await import('../../src/conversation-store.js');
-    const store = new ConversationStore(dbPath);
+    const store = await ConversationStore.create(dbPath);
     const turnsA = store.load(sessionA);
     const turnsB = store.load(sessionB);
 
@@ -268,7 +268,7 @@ describe('History Smoke Test', () => {
     const dbPath = join(smokeTestHome, 'data', 'conversations.db');
     if (existsSync(dbPath)) {
       const { ConversationStore } = await import('../../src/conversation-store.js');
-      const store = new ConversationStore(dbPath);
+      const store = await ConversationStore.create(dbPath);
       // No session_id means nothing to look up -- the store should have no
       // turns for any random session ID
       const turns = store.load(randomUUID());

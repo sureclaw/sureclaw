@@ -25,7 +25,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Invalid JSON ─────────────────────────────────
 
   test('invalid JSON returns parse error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
     const ctx: IPCContext = { sessionId: 'test', agentId: 'agent-1' };
 
     const result = JSON.parse(await harness.handleIPC('not valid json{{{', ctx));
@@ -35,7 +35,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('invalid JSON is audited as parse error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
     const ctx: IPCContext = { sessionId: 'test', agentId: 'agent-1' };
 
     await harness.handleIPC('}{bad', ctx);
@@ -46,7 +46,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Unknown Action ───────────────────────────────
 
   test('unknown action returns error', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
     const ctx: IPCContext = { sessionId: 'test', agentId: 'agent-1' };
 
     const result = JSON.parse(await harness.handleIPC(
@@ -60,7 +60,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Audit Query ──────────────────────────────────
 
   test('audit_query returns logged entries', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Perform some operations to generate audit entries
     await harness.ipcCall('memory_write', {
@@ -80,7 +80,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Empty Inputs ─────────────────────────────────
 
   test('memory_write with empty content succeeds', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('memory_write', {
       scope: 'test',
@@ -93,7 +93,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('web_search with empty query returns default mock', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('web_search', { query: '' });
 
@@ -104,7 +104,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Workspace Edge Cases ─────────────────────────
 
   test('workspace_write with nested path', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('workspace_write', {
       tier: 'agent',
@@ -117,7 +117,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('workspace_write with empty content', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const result = await harness.ipcCall('workspace_write', {
       tier: 'agent',
@@ -131,7 +131,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Sequential Operations ────────────────────────
 
   test('rapid sequential memory writes all succeed', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     const ids: string[] = [];
     for (let i = 0; i < 10; i++) {
@@ -152,7 +152,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('mixed operations maintain consistency', async () => {
-    harness = new TestHarness();
+    harness = await TestHarness.create();
 
     // Write memory
     const memResult = await harness.ipcCall('memory_write', {
@@ -184,7 +184,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── LLM Error Path ──────────────────────────────
 
   test('agent loop handles max turns gracefully', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       llmTurns: [
         // Keep calling tools forever — will hit maxTurns
         toolUseTurn('memory_write', { scope: 'loop', content: 'Turn 1', tags: [] }),
@@ -202,8 +202,8 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('multiple harness instances are isolated', async () => {
-    const harness1 = new TestHarness();
-    const harness2 = new TestHarness();
+    const harness1 = await TestHarness.create();
+    const harness2 = await TestHarness.create();
     // Set module-level harness so afterEach can clean up harness1
     harness = harness1;
 
@@ -226,7 +226,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   // ─── Seed Data ────────────────────────────────────
 
   test('seeded memory is queryable immediately', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedMemory: [
         { id: 'seed-1', scope: 'preloaded', content: 'Pre-loaded fact', tags: ['seed'] },
         { id: 'seed-2', scope: 'preloaded', content: 'Another fact', tags: ['seed'] },
@@ -243,7 +243,7 @@ describe('E2E Scenario: Error Handling & Edge Cases', () => {
   });
 
   test('seeded agents are available in registry', async () => {
-    harness = new TestHarness({
+    harness = await TestHarness.create({
       seedAgents: [
         {
           id: 'preloaded-agent',

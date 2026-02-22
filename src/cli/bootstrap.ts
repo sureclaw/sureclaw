@@ -15,6 +15,9 @@ export async function resetAgent(agentDir: string, templatesDir: string): Promis
   // Delete BOOTSTRAP.md (may exist from previous incomplete bootstrap)
   try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
 
+  // Delete bootstrap admin claim so a new first-user can claim during re-bootstrap
+  try { unlinkSync(join(agentDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+
   mkdirSync(agentDir, { recursive: true });
 
   // Copy template files

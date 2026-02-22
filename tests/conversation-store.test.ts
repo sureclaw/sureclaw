@@ -9,9 +9,9 @@ describe('ConversationStore', () => {
   let dbPath: string;
   let store: ConversationStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dbPath = join(tmpdir(), `ax-conv-test-${randomUUID()}.db`);
-    store = new ConversationStore(dbPath);
+    store = await ConversationStore.create(dbPath);
   });
 
   afterEach(() => {

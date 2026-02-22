@@ -9,9 +9,9 @@ describe('SessionStore', () => {
   let tmpDir: string;
   let store: SessionStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-session-store-test-'));
-    store = new SessionStore(join(tmpDir, 'sessions.db'));
+    store = await SessionStore.create(join(tmpDir, 'sessions.db'));
   });
 
   afterEach(() => {
