@@ -53,3 +53,11 @@
 **Outcome:** Success — 1214/1215 tests pass, tsc clean, semgrep clean, fuzz tests pass
 **Notes:** Community semgrep rulesets (p/security-audit, p/nodejs, p/typescript) couldn't be tested locally due to network restrictions, but nosemgrep annotations cover the known intentional patterns.
 
+## [2026-02-22 04:00] — Fix npm audit CI failure
+
+**Task:** npm audit --audit-level=moderate was failing in CI with 9 vulnerabilities
+**What I did:** Ran `npm audit fix` to resolve 5 direct-fixable vulns (ajv, fast-xml-parser, hono, qs). Remaining 4 were transitive minimatch@9.0.6 via gaxios→rimraf→glob chain. Added npm overrides in package.json to force minimatch>=10.2.1 and glob>=11.0.0.
+**Files touched:** package.json, package-lock.json
+**Outcome:** Success — 0 vulnerabilities, all 1214 tests still pass
+**Notes:** The minimatch vuln was deep transitive (@mariozechner/pi-ai → @google/genai → google-auth-library → gaxios → rimraf → glob → minimatch). npm overrides are the right approach for transitive deps that upstream hasn't patched yet.
+
