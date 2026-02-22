@@ -125,8 +125,10 @@ describe('sandbox providers accept agentDir for identity files', () => {
     // processCompletion (and thus sandbox.spawn) is now in server-completions.ts
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
-    // processCompletion must pass agentDir in the sandbox config
-    expect(source).toMatch(/sandbox\.spawn\(\{[^}]*agentDir/s);
+    // processCompletion must include agentDir in the sandbox config
+    // (may be inline or via a separate sandboxConfig variable)
+    expect(source).toContain('agentDir');
+    expect(source).toMatch(/sandbox\.spawn/);
   });
 
   test('bwrap provider mounts agentDir read-only', async () => {

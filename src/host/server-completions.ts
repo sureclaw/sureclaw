@@ -22,6 +22,10 @@ import { ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
 import { skillsDir as resolveSkillsDir, tsxBin as resolveTsxBin, runnerPath as resolveRunnerPath } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 
+// ── Agent spawn retry ──
+const MAX_AGENT_RETRIES = 2;
+const AGENT_RETRY_DELAY_MS = 1000;
+
 export interface CompletionDeps {
   config: Config;
   providers: ProviderRegistry;
@@ -262,23 +266,7 @@ export async function processCompletion(
     mkdirSync(enterpriseUserWs, { recursive: true });
     mkdirSync(enterpriseScratch, { recursive: true });
 
-    const proc = await providers.sandbox.spawn({
-      workspace,
-      skills: wsSkillsDir,
-      ipcSocket: ipcSocketPath,
-      agentDir,
-      timeoutSec: config.sandbox.timeout_sec,
-      memoryMB: config.sandbox.memory_mb,
-      command: spawnCommand,
-      agentWorkspace: enterpriseAgentWs,
-      userWorkspace: enterpriseUserWs,
-      scratchDir: enterpriseScratch,
-    });
-
-    reqLogger.info('agent_spawn', { sandbox: 'subprocess' });
-
-    // Send raw user message to agent (not the taint-tagged queued.content)
-    // Include taint state so agent-side prompt modules can adapt behavior
+    // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);
     const stdinPayload = JSON.stringify({
       history,
@@ -295,57 +283,102 @@ export async function processCompletion(
       userWorkspace: enterpriseUserWs,
       scratchDir: enterpriseScratch,
     });
-    reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
-    proc.stdin.write(stdinPayload);
-    proc.stdin.end();
 
-    // Collect stdout and stderr in parallel to avoid pipe buffer deadlocks.
-    // Sequential collection can lose data when a stream fills its buffer
-    // while the other stream is being drained.
+    // Spawn, run, and collect agent output — with retry on transient crashes.
+    // Transient: OOM kill (137), segfault (139), generic crash with retryable stderr.
+    // Permanent: auth failures, bad config, content filter blocks.
+    const sandboxConfig = {
+      workspace,
+      skills: wsSkillsDir,
+      ipcSocket: ipcSocketPath,
+      agentDir,
+      timeoutSec: config.sandbox.timeout_sec,
+      memoryMB: config.sandbox.memory_mb,
+      command: spawnCommand,
+      agentWorkspace: enterpriseAgentWs,
+      userWorkspace: enterpriseUserWs,
+      scratchDir: enterpriseScratch,
+    };
+
     let response = '';
     let stderr = '';
+    let exitCode = 1;
 
-    const stdoutDone = (async () => {
-      for await (const chunk of proc.stdout) {
-        response += chunk.toString();
-      }
-    })();
+    for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
+      response = '';
+      stderr = '';
 
-    const stderrDone = (async () => {
-      for await (const chunk of proc.stderr) {
-        const text = chunk.toString();
-        stderr += text;
-        if (deps.verbose) {
-          for (const line of text.split('\n').filter((l: string) => l.trim())) {
-            const tagMatch = line.match(/^\[([\w-]+)\]\s*(.*)/);
-            if (tagMatch) {
-              reqLogger.debug(`agent_${tagMatch[1]}`, { message: tagMatch[2] });
-            } else {
-              reqLogger.info('agent_stderr', { line });
+      const proc = await providers.sandbox.spawn(sandboxConfig);
+      reqLogger.info('agent_spawn', { sandbox: 'subprocess', attempt });
+
+      // Send raw user message to agent (not the taint-tagged queued.content)
+      reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
+      proc.stdin.write(stdinPayload);
+      proc.stdin.end();
+
+      // Collect stdout and stderr in parallel to avoid pipe buffer deadlocks.
+      // Sequential collection can lose data when a stream fills its buffer
+      // while the other stream is being drained.
+      const stdoutDone = (async () => {
+        for await (const chunk of proc.stdout) {
+          response += chunk.toString();
+        }
+      })();
+
+      const stderrDone = (async () => {
+        for await (const chunk of proc.stderr) {
+          const text = chunk.toString();
+          stderr += text;
+          if (deps.verbose) {
+            for (const line of text.split('\n').filter((l: string) => l.trim())) {
+              const tagMatch = line.match(/^\[([\w-]+)\]\s*(.*)/);
+              if (tagMatch) {
+                reqLogger.debug(`agent_${tagMatch[1]}`, { message: tagMatch[2] });
+              } else {
+                reqLogger.info('agent_stderr', { line });
+              }
             }
           }
         }
+      })();
+
+      await Promise.all([stdoutDone, stderrDone]);
+      exitCode = await proc.exitCode;
+
+      reqLogger.debug('agent_exit', {
+        exitCode,
+        attempt,
+        stdoutLength: response.length,
+        stderrLength: stderr.length,
+        stdoutPreview: truncate(response, 500),
+        stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
+      });
+
+      reqLogger.info('agent_complete', { durationSec: 0, exitCode, attempt });
+
+      if (exitCode === 0) break; // Success — no retry needed
+
+      // Determine if this failure is retryable.
+      // Transient signals: killed by signal (137=OOM, 139=SEGV), ECONNRESET, EPIPE, spawn errors.
+      // Permanent: auth errors, bad input, content filter, timeout (already spent the budget).
+      const isTransient = isTransientAgentFailure(exitCode, stderr);
+
+      if (!isTransient || attempt >= MAX_AGENT_RETRIES) {
+        reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, stderr: stderr.slice(0, 2000) });
+        db.fail(queued.id);
+        const diagnosed = diagnoseError(stderr || 'agent exited with no output');
+        return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
       }
-    })();
 
-    await Promise.all([stdoutDone, stderrDone]);
-    const exitCode = await proc.exitCode;
-
-    reqLogger.debug('agent_exit', {
-      exitCode,
-      stdoutLength: response.length,
-      stderrLength: stderr.length,
-      stdoutPreview: truncate(response, 500),
-      stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
-    });
-
-    reqLogger.info('agent_complete', { durationSec: 0, exitCode });
-
-    if (exitCode !== 0) {
-      reqLogger.error('agent_failed', { exitCode, stderr: stderr.slice(0, 2000) });
-      db.fail(queued.id);
-      const diagnosed = diagnoseError(stderr || 'agent exited with no output');
-      return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
+      // Transient failure — retry after delay
+      reqLogger.warn('agent_transient_failure', {
+        exitCode,
+        attempt,
+        maxRetries: MAX_AGENT_RETRIES,
+        retryDelayMs: AGENT_RETRY_DELAY_MS * (attempt + 1),
+        stderr: stderr.slice(0, 500),
+      });
+      await new Promise(r => setTimeout(r, AGENT_RETRY_DELAY_MS * (attempt + 1)));
     }
 
     if (stderr) {
@@ -436,4 +469,44 @@ export async function processCompletion(
       }
     }
   }
+}
+
+/**
+ * Classify whether an agent exit is a transient failure worth retrying.
+ *
+ * Transient: OOM kill (128+9=137), SEGV (128+11=139), connection errors,
+ *   spawn failures, unknown crashes.
+ * Permanent: auth errors (401/403), bad config, timeout (already spent budget),
+ *   content filter blocks, missing API keys.
+ */
+export function isTransientAgentFailure(exitCode: number, stderr: string): boolean {
+  const lower = stderr.toLowerCase();
+
+  // Permanent: auth/credential failures — retrying won't help
+  if (lower.includes('401') || lower.includes('403') || lower.includes('unauthorized') || lower.includes('forbidden')) return false;
+  if (lower.includes('invalid') && lower.includes('api key')) return false;
+  if (lower.includes('no api credentials')) return false;
+
+  // Permanent: bad input / config
+  if (lower.includes('400') || lower.includes('bad request')) return false;
+  if (lower.includes('validation failed')) return false;
+
+  // Permanent: timeout — the sandbox already used its full time budget
+  if (lower.includes('timed out') || lower.includes('timeout') || lower.includes('sigkill')) return false;
+
+  // Transient: signal kills (OOM=137, SEGV=139, other signals=128+N)
+  if (exitCode >= 128 && exitCode <= 191) return true;
+
+  // Transient: connection/network errors in agent stderr
+  if (lower.includes('econnreset') || lower.includes('econnrefused') || lower.includes('epipe')) return true;
+  if (lower.includes('socket hang up') || lower.includes('socket hangup')) return true;
+
+  // Transient: spawn/fork failures
+  if (lower.includes('spawn') && lower.includes('error')) return true;
+  if (lower.includes('enomem') || lower.includes('cannot allocate')) return true;
+
+  // Unknown non-zero exit — assume transient for first retry
+  if (exitCode !== 0) return true;
+
+  return false;
 }

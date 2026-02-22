@@ -1,6 +1,6 @@
 /**
  * Channel ingestion — message deduplication, thread gating, thread
- * backfill, bootstrap gate, and emoji reactions.
+ * backfill, bootstrap gate, emoji reactions, and reconnection.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -12,6 +12,12 @@ import type { Router } from './router.js';
 import type { Logger } from '../logger.js';
 import type { CompletionDeps, CompletionResult } from './server-completions.js';
 import { processCompletion } from './server-completions.js';
+import { withRetry } from '../utils/retry.js';
+
+// ── Channel reconnection constants ──
+const CHANNEL_RECONNECT_MAX_RETRIES = 5;
+const CHANNEL_RECONNECT_INITIAL_DELAY_MS = 2_000;
+const CHANNEL_RECONNECT_MAX_DELAY_MS = 60_000;
 
 // =====================================================
 // Deduplication
@@ -175,4 +181,36 @@ export function registerChannelHandler(
       }
     }
   });
+}
+
+// =====================================================
+// Channel connection with retry
+// =====================================================
+
+/**
+ * Connect a channel provider with retry and exponential backoff.
+ *
+ * If the initial connection fails, retries up to CHANNEL_RECONNECT_MAX_RETRIES
+ * times with exponential backoff. Logs each attempt.
+ */
+export async function connectChannelWithRetry(
+  channel: ChannelProvider,
+  logger: Logger,
+): Promise<void> {
+  await withRetry(
+    () => channel.connect(),
+    {
+      maxRetries: CHANNEL_RECONNECT_MAX_RETRIES,
+      initialDelayMs: CHANNEL_RECONNECT_INITIAL_DELAY_MS,
+      maxDelayMs: CHANNEL_RECONNECT_MAX_DELAY_MS,
+      label: `channel:${channel.name}`,
+      isRetryable: (err) => {
+        // Auth errors are permanent — don't retry with bad tokens
+        const msg = err instanceof Error ? err.message.toLowerCase() : '';
+        if (msg.includes('invalid_auth') || msg.includes('401') || msg.includes('403')) return false;
+        if (msg.includes('not_authed') || msg.includes('token')) return false;
+        return true;
+      },
+    },
+  );
 }

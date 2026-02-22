@@ -13,14 +13,34 @@ export function exitCodePromise(child: ChildProcess): Promise<number> {
   });
 }
 
-/** Kill the child after timeoutSec (+ optional grace period). No-op if undefined. */
-export function enforceTimeout(child: ChildProcess, timeoutSec?: number, graceSec = 0): void {
+/**
+ * Kill the child after timeoutSec. Sends SIGTERM first, then SIGKILL after
+ * a grace period (default 5s) if the process hasn't exited. This gives
+ * the agent a chance to flush output and clean up before being force-killed.
+ *
+ * No-op if timeoutSec is undefined.
+ */
+export function enforceTimeout(child: ChildProcess, timeoutSec?: number, graceSec = 5): void {
   if (!timeoutSec) return;
+
+  // Track whether the child has actually exited (child.killed only tracks
+  // whether we've *called* kill(), not whether the process is dead).
+  let exited = false;
+  child.on('exit', () => { exited = true; });
+
   setTimeout(() => {
-    if (!child.killed) {
-      child.kill('SIGKILL');
-    }
-  }, (timeoutSec + graceSec) * 1000);
+    if (exited) return;
+
+    // Try graceful termination first
+    child.kill('SIGTERM');
+
+    // If still alive after grace period, force kill
+    setTimeout(() => {
+      if (!exited) {
+        child.kill('SIGKILL');
+      }
+    }, graceSec * 1000);
+  }, timeoutSec * 1000);
 }
 
 /** Send SIGKILL to a pid, swallowing errors for already-exited processes. */
