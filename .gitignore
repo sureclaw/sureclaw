@@ -22,7 +22,6 @@ Thumbs.db
 # IDE / AI
 .vscode/
 .idea/
-.claude/
 *.swp
 *.swo
 
