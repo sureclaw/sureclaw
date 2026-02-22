@@ -28,11 +28,13 @@ import {
   AuthStorage,
 } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
-import type { MessageParam, Tool as AnthropicTool } from '@anthropic-ai/sdk/resources/messages';
 import { IPCClient } from '../ipc-client.js';
 import { compactHistory, historyToPiMessages } from '../runner.js';
 import type { AgentConfig } from '../runner.js';
-import { convertPiMessages, emitStreamEvents, createLazyAnthropicClient, loadSkills } from '../stream-utils.js';
+import { convertPiMessages, emitStreamEvents } from '../stream-utils.js';
+import { createProxyStreamFn } from '../proxy-stream.js';
+import { makeProxyErrorMessage } from '../proxy-stream.js';
+import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
 import { getLogger, truncate } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'pi-session' });
@@ -203,128 +205,7 @@ function createIPCStreamFunction(client: IPCClient) {
 }
 
 function makeErrorMessage(errorText: string, api = 'ax-ipc'): AssistantMessage {
-  return {
-    role: 'assistant',
-    content: [{ type: 'text', text: errorText }],
-    api,
-    provider: 'ax',
-    model: 'unknown',
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    stopReason: 'stop',
-    errorMessage: errorText,
-    timestamp: Date.now(),
-  };
-}
-
-function createProxyStreamFunction(proxySocket: string) {
-  const getClient = createLazyAnthropicClient(proxySocket);
-
-  return (model: Model<any>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream => {
-    const stream = createAssistantMessageEventStream();
-
-    const msgCount = context.messages.length;
-    const toolCount = context.tools?.length ?? 0;
-    logger.debug('proxy_stream_start', {
-      model: model?.id,
-      messageCount: msgCount,
-      toolCount,
-      hasSystemPrompt: !!context.systemPrompt,
-    });
-
-    const messages = convertPiMessages(context.messages) as MessageParam[];
-
-    // Convert pi-ai tools to Anthropic SDK Tool[] format.
-    const tools: AnthropicTool[] | undefined = context.tools?.map(t => ({
-      name: t.name,
-      description: t.description ?? '',
-      input_schema: (t.parameters ?? { type: 'object', properties: {} }) as unknown as AnthropicTool['input_schema'],
-    }));
-
-    const maxTokens = options?.maxTokens ?? model?.maxTokens ?? 8192;
-
-    (async () => {
-      try {
-        const anthropic = await getClient();
-
-        logger.debug('proxy_call', { messageCount: messages.length, toolCount: tools?.length ?? 0, maxTokens });
-
-        // Use .stream() for SSE streaming, then extract from finalMessage.
-        // Event listeners (.on('contentBlockDelta')) are unreliable because the
-        // SDK may process chunks before we can attach them. Instead we use
-        // finalMessage() which accumulates everything server-side.
-        const sdkStream = anthropic.messages.stream({
-          model: model?.id ?? 'claude-sonnet-4-5-20250929',
-          max_tokens: maxTokens,
-          system: context.systemPrompt || undefined,
-          messages,
-          tools: tools && tools.length > 0 ? tools : undefined,
-        });
-
-        // Wait for the full message
-        const finalMessage = await sdkStream.finalMessage();
-
-        // Build the pi-ai AssistantMessage from the final response.
-        // Extract text and tool_use blocks from finalMessage.content.
-        const contentArr: (TextContent | ToolCall)[] = [];
-        const toolCalls: ToolCall[] = [];
-        const textParts: string[] = [];
-
-        for (const block of finalMessage.content) {
-          if (block.type === 'text') {
-            textParts.push(block.text);
-          } else if (block.type === 'tool_use') {
-            toolCalls.push({
-              type: 'toolCall',
-              id: block.id,
-              name: block.name,
-              arguments: block.input as Record<string, unknown>,
-            });
-          }
-        }
-
-        const fullText = textParts.join('');
-        if (fullText) contentArr.push({ type: 'text', text: fullText });
-        contentArr.push(...toolCalls);
-
-        const stopReason = finalMessage.stop_reason === 'tool_use' ? 'toolUse' : 'stop';
-        const usage = {
-          input: finalMessage.usage?.input_tokens ?? 0,
-          output: finalMessage.usage?.output_tokens ?? 0,
-          cacheRead: (finalMessage.usage as Record<string, number>)?.cache_read_input_tokens ?? 0,
-          cacheWrite: (finalMessage.usage as Record<string, number>)?.cache_creation_input_tokens ?? 0,
-          totalTokens: (finalMessage.usage?.input_tokens ?? 0) + (finalMessage.usage?.output_tokens ?? 0),
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        };
-
-        const msg: AssistantMessage = {
-          role: 'assistant',
-          content: contentArr,
-          api: model.api,
-          provider: model.provider,
-          model: model.id,
-          usage,
-          stopReason,
-          timestamp: Date.now(),
-        };
-
-        logger.debug('proxy_stream_done', {
-          stopReason,
-          textLength: fullText.length,
-          toolCallCount: toolCalls.length,
-          toolNames: toolCalls.map(t => t.name),
-          usage,
-        });
-        emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
-      } catch (err: unknown) {
-        logger.debug('proxy_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
-        const errMsg = makeErrorMessage((err as Error).message, 'ax-proxy');
-        stream.push({ type: 'start', partial: errMsg });
-        stream.push({ type: 'error', reason: 'error', error: errMsg });
-      }
-    })();
-
-    return stream;
-  };
+  return makeProxyErrorMessage(errorText, api);
 }
 
 // ── IPC tools as pi-coding-agent ToolDefinitions ────────────────────
@@ -380,9 +261,6 @@ function createIPCToolDefinitions(client: IPCClient, opts?: IPCToolDefsOptions):
   })) as ToolDefinition[];
 }
 
-import { PromptBuilder } from '../prompt/builder.js';
-import { loadIdentityFiles } from '../identity-loader.js';
-
 // ── Main runner ─────────────────────────────────────────────────────
 
 export async function runPiSession(config: AgentConfig): Promise<void> {
@@ -416,7 +294,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Register LLM provider (replaces built-in providers — no network in sandbox)
   clearApiProviders();
   if (useProxy) {
-    const proxyStreamFn = createProxyStreamFunction(config.proxySocket!);
+    const proxyStreamFn = createProxyStreamFn(config.proxySocket!);
     registerApiProvider({
       api: 'ax-proxy',
       stream: proxyStreamFn,
@@ -432,28 +310,8 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   }
   logger.debug('provider_registered', { api: apiName });
 
-  // Build system prompt via modular PromptBuilder
-  const skills = loadSkills(config.skills);
-  const identityFiles = loadIdentityFiles({
-    agentDir: config.agentDir,
-    userId: config.userId,
-  });
-
-  const promptBuilder = new PromptBuilder();
-  const promptResult = promptBuilder.build({
-    agentType: config.agent ?? 'pi-coding-agent',
-    workspace: config.workspace,
-    skills,
-    profile: config.profile ?? 'balanced',
-    sandboxType: config.sandboxType ?? 'subprocess',
-    taintRatio: config.taintRatio ?? 0,
-    taintThreshold: config.taintThreshold ?? 1,
-    identityFiles,
-    contextWindow: 200000,
-    historyTokens: config.history?.length ? JSON.stringify(config.history).length / 4 : 0,
-  });
-  const systemPrompt = promptResult.content;
-  logger.debug('prompt_built', { ...promptResult.metadata });
+  // Build system prompt via shared prompt builder
+  const { systemPrompt } = buildSystemPrompt(config);
 
   // Create coding tools bound to the workspace directory.
   // IMPORTANT: codingTools (the pre-instantiated export) captures process.cwd()
@@ -513,48 +371,8 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     });
   }
 
-  // Subscribe to events — stream text to stdout, log ALL events for debugging
-  let hasOutput = false;
-  let eventCount = 0;
-  let turnCount = 0;
-  session.subscribe((event) => {
-    eventCount++;
-    // Log ALL event types to stderr for diagnostics
-    if (event.type !== 'message_update') {
-      process.stderr.write(`[diag] session_event type=${event.type} ${JSON.stringify(event).slice(0, 300)}\n`);
-    }
-    logger.debug('session_event', { type: event.type, eventCount });
-    if (event.type === 'message_update') {
-      const ame = event.assistantMessageEvent;
-      logger.debug('agent_event', { type: ame.type, eventCount });
-
-      if (ame.type === 'text_start' && hasOutput) {
-        process.stdout.write('\n\n');
-      }
-      if (ame.type === 'text_delta') {
-        process.stdout.write(ame.delta);
-        hasOutput = true;
-      }
-      if (ame.type === 'toolcall_end') {
-        logger.debug('tool_call_event', { toolName: ame.toolCall.name, toolId: ame.toolCall.id });
-        if (config.verbose) {
-          process.stderr.write(`[tool] ${ame.toolCall.name}\n`);
-        }
-      }
-      if (ame.type === 'error') {
-        const errText = ame.error?.errorMessage ?? String(ame.error);
-        logger.debug('agent_error_event', { error: errText });
-        process.stderr.write(`Agent error: ${errText}\n`);
-      }
-      if (ame.type === 'done') {
-        turnCount++;
-        logger.debug('agent_done_event', { reason: ame.reason });
-        if (config.verbose) {
-          process.stderr.write(`[turn ${turnCount}] ${ame.reason}\n`);
-        }
-      }
-    }
-  });
+  // Subscribe to events — stream text to stdout, log tools/errors to stderr
+  const eventState = subscribeAgentEvents(session, config);
 
   // Send message and wait — log tools that are actually on the agent
   const agentTools = (session.agent.state as any).tools ?? [];
@@ -563,11 +381,11 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   process.stderr.write(`[diag] prompt_start\n`);
   logger.debug('prompt_start', { messagePreview: truncate(userMessage, 200), agentToolNames });
   await session.prompt(userMessage);
-  process.stderr.write(`[diag] prompt_returned events=${eventCount} hasOutput=${hasOutput}\n`);
-  logger.debug('prompt_returned', { eventCount, hasOutput });
+  process.stderr.write(`[diag] prompt_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
+  logger.debug('prompt_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
   await session.agent.waitForIdle();
-  process.stderr.write(`[diag] wait_idle_returned events=${eventCount} hasOutput=${hasOutput}\n`);
-  logger.debug('wait_idle_returned', { eventCount, hasOutput });
+  process.stderr.write(`[diag] wait_idle_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
+  logger.debug('wait_idle_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
 
   // Log final agent state for debugging
   const finalMessages = session.agent.state.messages;
@@ -585,7 +403,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     });
   }
 
-  logger.debug('session_complete', { eventCount, hasOutput });
+  logger.debug('session_complete', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
   session.dispose();
   client.disconnect();
 }

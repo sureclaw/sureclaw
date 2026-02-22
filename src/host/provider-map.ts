@@ -9,7 +9,7 @@
  * The values are the import paths relative to this file's location.
  */
 
-export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+const _PROVIDER_MAP = {
   llm: {
     anthropic:  '../providers/llm/anthropic.js',
     openai:     '../providers/llm/openai.js',
@@ -69,6 +69,37 @@ export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, strin
     full: '../providers/scheduler/full.js',
   },
 } as const;
+
+// Re-export with the same name and looser type for backwards compatibility.
+// Callers that use PROVIDER_MAP directly still work; callers that want
+// compile-time checked names can use the typed unions below.
+export const PROVIDER_MAP: Readonly<Record<string, Readonly<Record<string, string>>>> = _PROVIDER_MAP;
+
+// =====================================================
+// Typed unions derived from the allowlist
+// =====================================================
+// These give autocomplete and compile-time errors for invalid provider names.
+
+type ProviderMapType = typeof _PROVIDER_MAP;
+
+/** All valid provider kinds (llm, memory, scanner, ...). */
+export type ProviderKind = keyof ProviderMapType;
+
+/** Valid names for each provider kind. */
+export type LLMProviderName        = keyof ProviderMapType['llm'];
+export type MemoryProviderName     = keyof ProviderMapType['memory'];
+export type ScannerProviderName    = keyof ProviderMapType['scanner'];
+export type ChannelProviderName    = keyof ProviderMapType['channel'];
+export type WebProviderName        = keyof ProviderMapType['web'];
+export type BrowserProviderName    = keyof ProviderMapType['browser'];
+export type CredentialProviderName = keyof ProviderMapType['credentials'];
+export type SkillsProviderName     = keyof ProviderMapType['skills'];
+export type AuditProviderName      = keyof ProviderMapType['audit'];
+export type SandboxProviderName    = keyof ProviderMapType['sandbox'];
+export type SchedulerProviderName  = keyof ProviderMapType['scheduler'];
+
+/** Union of all provider names for a given kind. */
+export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];
 
 /**
  * Returns an absolute file URL for a given provider kind and name.

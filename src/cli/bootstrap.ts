@@ -1,6 +1,7 @@
 import { existsSync, unlinkSync, copyFileSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { agentDir as agentDirPath } from '../paths.js';
+import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
 
 const EVOLVABLE_FILES = ['SOUL.md', 'IDENTITY.md'];
 
@@ -31,7 +32,7 @@ export async function resetAgent(agentDir: string, templatesDir: string): Promis
 export async function runBootstrap(args: string[]): Promise<void> {
   const agentName = args[0] || 'main';
   const agentDir = agentDirPath(agentName);
-  const templatesDir = resolve('templates');
+  const templatesDir = resolveTemplatesDir();
 
   if (!existsSync(templatesDir)) {
     console.error(`Templates directory not found: ${templatesDir}`);

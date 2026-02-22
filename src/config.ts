@@ -5,8 +5,15 @@ import { z } from 'zod';
 import type { Config } from './types.js';
 import { configPath as defaultConfigPath } from './paths.js';
 import { PROFILE_NAMES } from './onboarding/prompts.js';
+import { PROVIDER_MAP } from './host/provider-map.js';
 
 const AGENT_TYPES = ['pi-agent-core', 'pi-coding-agent', 'claude-code'] as const;
+
+// Derive Zod enums from PROVIDER_MAP keys for compile-time + runtime validation.
+const providerEnum = (kind: string) => {
+  const names = Object.keys(PROVIDER_MAP[kind] ?? {}) as [string, ...string[]];
+  return z.enum(names);
+};
 
 const ChannelAccessConfigSchema = z.object({
   dm_policy: z.enum(['open', 'allowlist', 'disabled']).optional(),
@@ -29,16 +36,16 @@ const ConfigSchema = z.strictObject({
   model_fallbacks: z.array(z.string()).optional(),
   profile: z.enum(PROFILE_NAMES),
   providers: z.strictObject({
-    memory: z.string(),
-    scanner: z.string(),
-    channels: z.array(z.string()),
-    web: z.string(),
-    browser: z.string(),
-    credentials: z.string(),
-    skills: z.string(),
-    audit: z.string(),
-    sandbox: z.string(),
-    scheduler: z.string(),
+    memory: providerEnum('memory'),
+    scanner: providerEnum('scanner'),
+    channels: z.array(providerEnum('channel')),
+    web: providerEnum('web'),
+    browser: providerEnum('browser'),
+    credentials: providerEnum('credentials'),
+    skills: providerEnum('skills'),
+    audit: providerEnum('audit'),
+    sandbox: providerEnum('sandbox'),
+    scheduler: providerEnum('scheduler'),
     skillScreener: z.string().optional(),
   }),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
