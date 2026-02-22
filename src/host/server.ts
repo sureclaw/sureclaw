@@ -159,6 +159,7 @@ export async function createServer(
     agentDir: agentDirVal,
     agentName,
     profile: config.profile,
+    configModel: config.model,
   });
 
   // IPC socket server (internal agent-to-host socket)

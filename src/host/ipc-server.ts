@@ -32,6 +32,8 @@ export interface IPCHandlerOptions {
   agentName?: string;
   /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
   profile?: string;
+  /** Configured model ID from ax.yaml (e.g. 'anthropic/claude-sonnet-4-20250514'). */
+  configModel?: string;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -47,8 +49,9 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
 
     llm_call: async (req) => {
+      const configModel = opts?.configModel;
       logger.debug('llm_call_start', {
-        model: req.model,
+        model: configModel ?? req.model,
         maxTokens: req.maxTokens,
         toolCount: req.tools?.length ?? 0,
         toolNames: req.tools?.map((t: { name: string }) => t.name),
