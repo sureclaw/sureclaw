@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import { MessageQueue } from '../../src/db.js';
 import { createRouter, type Router } from '../../src/host/router.js';
-import { createIPCHandler, type IPCContext } from '../../src/host/ipc-server.js';
+import { createIPCHandler, type IPCContext, type DelegationConfig } from '../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../src/types.js';
 import type { AuditEntry } from '../../src/providers/audit/types.js';
 import type { InboundMessage, SessionAddress, ChannelProvider, OutboundMessage } from '../../src/providers/channel/types.js';
@@ -31,6 +31,7 @@ import type { ChatChunk } from '../../src/providers/llm/types.js';
 import type { CronJobDef } from '../../src/providers/scheduler/types.js';
 import type { BrowserSession, PageSnapshot } from '../../src/providers/browser/types.js';
 import type { SkillProposal, ProposalResult, SkillMeta, SkillLogEntry } from '../../src/providers/skills/types.js';
+import { AgentRegistry, type AgentRegistryEntry } from '../../src/host/agent-registry.js';
 
 import { ScriptedLLM, textTurn, type LLMTurn } from './scripted-llm.js';
 
@@ -77,6 +78,12 @@ export interface HarnessOptions {
   scannerInputVerdict?: 'PASS' | 'FLAG' | 'BLOCK';
   /** Scanner output verdict override. */
   scannerOutputVerdict?: 'PASS' | 'FLAG' | 'BLOCK';
+  /** Delegation config (maxConcurrent, maxDepth). */
+  delegation?: DelegationConfig;
+  /** Delegation handler callback. */
+  onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
+  /** Seed agent registry entries. */
+  seedAgents?: Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt'>[];
 }
 
 // ─── TestHarness ─────────────────────────────────────
@@ -89,6 +96,7 @@ export class TestHarness {
   readonly handleIPC: (raw: string, ctx: IPCContext) => Promise<string>;
   readonly llm: ScriptedLLM;
   readonly providers: ProviderRegistry;
+  readonly agentRegistry: AgentRegistry;
 
   // Recording stores
   readonly auditLog: Partial<AuditEntry>[] = [];
@@ -147,6 +155,14 @@ export class TestHarness {
       }
     }
 
+    // Agent registry — uses temp dir since AX_HOME is set
+    this.agentRegistry = new AgentRegistry(join(this.tmpDir, 'registry.json'));
+    if (opts.seedAgents) {
+      for (const agent of opts.seedAgents) {
+        this.agentRegistry.register(agent);
+      }
+    }
+
     // Build providers
     this.llm = new ScriptedLLM(opts.llmTurns ?? [textTurn('Hello!')], opts.llmFallback);
     this.mockChannel = this.buildMockChannel();
@@ -159,6 +175,9 @@ export class TestHarness {
       agentDir: this.agentDir,
       agentName: 'main',
       profile: opts.profile ?? 'balanced',
+      delegation: opts.delegation,
+      onDelegate: opts.onDelegate,
+      agentRegistry: this.agentRegistry,
     });
   }
 

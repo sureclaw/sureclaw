@@ -72,3 +72,15 @@
 **Lesson:** `scratchDir()` validates session IDs: must be either a lowercase UUID (`/^[0-9a-f]{8}-[0-9a-f]{4}-...$/`) or 3+ colon-separated segments matching `SEGMENT_RE`. Simple strings like `test-session` are rejected. Use `randomUUID()` for test session IDs when touching scratch tier.
 **Tags:** testing, scratch, session-id, validation
 
+### IPC schema enums must use exact values — check ipc-schemas.ts
+**Date:** 2026-02-22
+**Context:** `identity_propose` tests failed with "Validation failed" because `origin: 'agent'` doesn't match the Zod enum `['user_request', 'agent_initiated']`
+**Lesson:** Always check the Zod schema in `src/ipc-schemas.ts` before writing IPC test assertions. Schema fields like `origin`, `decision`, `status`, and `file` use strict enums. Common gotcha: `IDENTITY_ORIGINS = ['user_request', 'agent_initiated']`, not `'agent'` or `'user'`. Similarly, `proposalId` and `memory_read.id` must be valid UUIDs.
+**Tags:** ipc, schemas, zod, testing, validation, governance
+
+### Multiple TestHarness instances need careful dispose ordering
+**Date:** 2026-02-22
+**Context:** "database is not open" error when afterEach tried to dispose a harness that was already disposed
+**Lesson:** If a test creates local TestHarness instances instead of using the module-level `harness`, either: (a) assign one to the module-level `harness` so afterEach handles it, or (b) dispose all local instances at the end of the test and ensure the module-level `harness` isn't stale from a prior test. The afterEach guard `harness?.dispose()` will re-dispose an already-disposed instance and crash on the closed SQLite db.
+**Tags:** testing, e2e, harness, dispose, isolation
+
