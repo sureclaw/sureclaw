@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { proposalsDir } from '../../paths.js';
+import { isAgentBootstrapMode } from '../server.js';
 import { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {
@@ -129,9 +130,10 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
         mkdirSync(agentDir, { recursive: true });
         writeFileSync(join(agentDir, proposal.file), proposal.content, 'utf-8');
 
-        // Bootstrap completion
-        if (proposal.file === 'SOUL.md') {
+        // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
+        if ((proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentDir)) {
           try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+          try { unlinkSync(join(agentDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
         }
       }
 

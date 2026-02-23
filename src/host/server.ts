@@ -151,7 +151,11 @@ export async function createServer(
 
   // First-run: copy default templates into agent dir if files don't already exist
   const templatesDir = resolveTemplatesDir();
+  const bootstrapAlreadyComplete =
+    existsSync(join(agentDirVal, 'SOUL.md')) && existsSync(join(agentDirVal, 'IDENTITY.md'));
   for (const file of ['AGENTS.md', 'BOOTSTRAP.md', 'USER_BOOTSTRAP.md', 'HEARTBEAT.md', 'capabilities.yaml']) {
+    // Don't re-create BOOTSTRAP.md if bootstrap already completed (both SOUL.md + IDENTITY.md exist)
+    if (file === 'BOOTSTRAP.md' && bootstrapAlreadyComplete) continue;
     const dest = join(agentDirVal, file);
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) {

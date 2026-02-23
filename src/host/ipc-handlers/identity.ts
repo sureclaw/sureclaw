@@ -8,6 +8,7 @@ import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
 import { agentUserDir } from '../../paths.js';
+import { isAgentBootstrapMode } from '../server.js';
 
 export interface IdentityHandlerOptions {
   agentDir?: string;
@@ -67,10 +68,10 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       const filePath = join(agentDir, req.file);
       writeFileSync(filePath, req.content, 'utf-8');
 
-      // Bootstrap completion: delete BOOTSTRAP.md from agentDir when SOUL.md is written
-      if (req.file === 'SOUL.md') {
-        const bootstrapPath = join(agentDir, 'BOOTSTRAP.md');
-        try { unlinkSync(bootstrapPath); } catch { /* may not exist */ }
+      // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
+      if ((req.file === 'SOUL.md' || req.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentDir)) {
+        try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+        try { unlinkSync(join(agentDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
       }
 
       await providers.audit.log({

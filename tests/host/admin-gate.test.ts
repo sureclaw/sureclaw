@@ -26,9 +26,22 @@ describe('isAgentBootstrapMode', () => {
     expect(isAgentBootstrapMode(agentDir)).toBe(true);
   });
 
-  test('returns false when SOUL.md exists (bootstrap complete)', () => {
+  test('returns true when only SOUL.md exists (still missing IDENTITY.md)', () => {
     writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
     writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
+    expect(isAgentBootstrapMode(agentDir)).toBe(true);
+  });
+
+  test('returns true when only IDENTITY.md exists (still missing SOUL.md)', () => {
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    writeFileSync(join(agentDir, 'IDENTITY.md'), '# Identity');
+    expect(isAgentBootstrapMode(agentDir)).toBe(true);
+  });
+
+  test('returns false when both SOUL.md and IDENTITY.md exist (bootstrap complete)', () => {
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
+    writeFileSync(join(agentDir, 'IDENTITY.md'), '# Identity');
     expect(isAgentBootstrapMode(agentDir)).toBe(false);
   });
 
@@ -36,7 +49,7 @@ describe('isAgentBootstrapMode', () => {
     expect(isAgentBootstrapMode(agentDir)).toBe(false);
   });
 
-  test('returns false when only SOUL.md exists', () => {
+  test('returns false when only SOUL.md exists (no BOOTSTRAP.md)', () => {
     writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
     expect(isAgentBootstrapMode(agentDir)).toBe(false);
   });
@@ -135,6 +148,19 @@ describe('claimBootstrapAdmin', () => {
     claimBootstrapAdmin(agentDir, 'U12345');
     expect(existsSync(join(agentDir, '.bootstrap-admin-claimed'))).toBe(true);
     expect(claimBootstrapAdmin(agentDir, 'U99999')).toBe(false);
+  });
+
+  test('re-claims when admins file is empty but claim file exists (stale claim)', () => {
+    // Simulate stale state: previous claim succeeded, then admins was reset
+    claimBootstrapAdmin(agentDir, 'U12345');
+    expect(existsSync(join(agentDir, '.bootstrap-admin-claimed'))).toBe(true);
+
+    // Reset admins file (user cleared it to re-bootstrap)
+    writeFileSync(join(agentDir, 'admins'), '', 'utf-8');
+
+    // New user should be able to claim since admins is empty
+    expect(claimBootstrapAdmin(agentDir, 'U99999')).toBe(true);
+    expect(isAdmin(agentDir, 'U99999')).toBe(true);
   });
 });
 
@@ -261,7 +287,7 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    // The admin is process.env.USER (or 'default')
+    // First channel user is auto-promoted to admin via claimBootstrapAdmin
     const adminId = process.env.USER ?? 'default';
     const msg: InboundMessage = {
       id: 'gate-test-2',
@@ -277,6 +303,92 @@ describe('bootstrap gate (channel integration)', () => {
     // Admin should get a real response, not the bootstrap gate message
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].content.content).not.toContain('still being set up');
+  });
+
+  test('bootstrap completion cleans up BOOTSTRAP.md and .bootstrap-admin-claimed', async () => {
+    const sentMessages: { session: SessionAddress; content: OutboundMessage }[] = [];
+    let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
+
+    const mockChannel: ChannelProvider = {
+      name: 'test',
+      async connect() {},
+      onMessage(handler) { messageHandler = handler; },
+      shouldRespond() { return true; },
+      async send(session, content) { sentMessages.push({ session, content }); },
+      async disconnect() {},
+    };
+
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath, channels: [mockChannel] });
+    await server.start();
+
+    const agentDirPath = join(axHome, 'agents', 'main');
+
+    // Verify bootstrap mode is active (BOOTSTRAP.md was copied from templates)
+    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(true);
+    expect(isAgentBootstrapMode(agentDirPath)).toBe(true);
+
+    // First user claims admin
+    const msg: InboundMessage = {
+      id: 'lifecycle-1',
+      session: { provider: 'test', scope: 'channel', identifiers: { channel: 'C123', peer: 'admin-user' } },
+      sender: 'admin-user',
+      content: 'hello',
+      attachments: [],
+      timestamp: new Date(),
+    };
+    await messageHandler!(msg);
+    expect(existsSync(join(agentDirPath, '.bootstrap-admin-claimed'))).toBe(true);
+
+    // Simulate bootstrap completion: write both SOUL.md and IDENTITY.md
+    writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
+
+    // Bootstrap mode is now complete
+    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+  });
+
+  test('server restart does not recreate BOOTSTRAP.md after bootstrap completes', async () => {
+    const sentMessages: { session: SessionAddress; content: OutboundMessage }[] = [];
+    let messageHandler: ((msg: InboundMessage) => Promise<void>) | null = null;
+
+    const mockChannel: ChannelProvider = {
+      name: 'test',
+      async connect() {},
+      onMessage(handler) { messageHandler = handler; },
+      shouldRespond() { return true; },
+      async send(session, content) { sentMessages.push({ session, content }); },
+      async disconnect() {},
+    };
+
+    const config = loadConfig('tests/integration/ax-test.yaml');
+
+    // First server: start, complete bootstrap, stop
+    server = await createServer(config, { socketPath, channels: [mockChannel] });
+    await server.start();
+
+    const agentDirPath = join(axHome, 'agents', 'main');
+
+    // Complete bootstrap: write SOUL.md + IDENTITY.md, delete BOOTSTRAP.md
+    writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
+    try { unlinkSync(join(agentDirPath, 'BOOTSTRAP.md')); } catch { /* ignore */ }
+
+    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(false);
+    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+
+    await server.stop();
+
+    // Second server: restart with same AX_HOME — BOOTSTRAP.md must NOT come back
+    const socketPath2 = join(tmpdir(), `ax-gate-test-${randomUUID()}.sock`);
+    server = await createServer(config, { socketPath: socketPath2, channels: [mockChannel] });
+    await server.start();
+
+    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(false);
+    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+
+    // Clean up extra socket
+    try { unlinkSync(socketPath2); } catch { /* ignore */ }
   });
 
   test('allows non-admin after bootstrap completes', async () => {
@@ -296,9 +408,10 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    // Simulate bootstrap completion: write SOUL.md into agent dir
+    // Simulate bootstrap completion: write SOUL.md and IDENTITY.md into agent dir
     const agentDirPath = join(axHome, 'agents', 'main');
     writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
 
     const msg: InboundMessage = {
       id: 'gate-test-3',

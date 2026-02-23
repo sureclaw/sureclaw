@@ -399,7 +399,7 @@ describe('unified identity_write', () => {
     rmSync(agentDir, { recursive: true });
   });
 
-  test('deletes BOOTSTRAP.md when SOUL.md is written', async () => {
+  test('does not delete BOOTSTRAP.md when only SOUL.md is written (IDENTITY.md still missing)', async () => {
     const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
@@ -413,17 +413,18 @@ describe('unified identity_write', () => {
       action: 'identity_write',
       file: 'SOUL.md',
       content: '# Soul\nI am helpful.',
-      reason: 'Bootstrap complete',
+      reason: 'Bootstrap in progress',
       origin: 'agent_initiated',
     }), ctx);
 
-    expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(false);
+    // Bootstrap not yet complete — IDENTITY.md still missing
+    expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(true);
     expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(true);
 
     rmSync(agentDir, { recursive: true });
   });
 
-  test('does not delete BOOTSTRAP.md for non-SOUL files', async () => {
+  test('does not delete BOOTSTRAP.md when only IDENTITY.md is written (SOUL.md still missing)', async () => {
     const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
     mkdirSync(agentDir, { recursive: true });
     writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
@@ -441,7 +442,38 @@ describe('unified identity_write', () => {
       origin: 'agent_initiated',
     }), ctx);
 
+    // Bootstrap not yet complete — SOUL.md still missing
     expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(true);
+
+    rmSync(agentDir, { recursive: true });
+  });
+
+  test('deletes BOOTSTRAP.md and .bootstrap-admin-claimed when both SOUL.md and IDENTITY.md exist', async () => {
+    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
+    writeFileSync(join(agentDir, '.bootstrap-admin-claimed'), 'U12345');
+    // SOUL.md already exists from a previous write
+    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul\nI am helpful.');
+
+    const handle = createIPCHandler(mockRegistry(), {
+      agentDir,
+      profile: 'balanced',
+    });
+
+    // Writing IDENTITY.md completes bootstrap (both SOUL.md + IDENTITY.md now exist)
+    await handle(JSON.stringify({
+      action: 'identity_write',
+      file: 'IDENTITY.md',
+      content: '# Identity\nName: Crabby',
+      reason: 'Bootstrap complete',
+      origin: 'agent_initiated',
+    }), ctx);
+
+    expect(existsSync(join(agentDir, 'BOOTSTRAP.md'))).toBe(false);
+    expect(existsSync(join(agentDir, '.bootstrap-admin-claimed'))).toBe(false);
+    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(true);
+    expect(existsSync(join(agentDir, 'IDENTITY.md'))).toBe(true);
 
     rmSync(agentDir, { recursive: true });
   });
