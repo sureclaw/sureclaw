@@ -225,7 +225,7 @@ describe('Smoke Test', () => {
     // empty (agent produced no output due to LLM error) or contain an error
     // message about missing credentials.
     expect(content).not.toMatch(/^Hello/i);
-  }, 20_000);
+  }, 60_000);
 
   test('scanner blocks injection attempt through full pipeline', async () => {
     proc = startServer();

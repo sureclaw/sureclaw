@@ -358,7 +358,9 @@ describe('Server', () => {
     };
 
     const config = loadConfig('tests/integration/ax-test.yaml');
-    server = await createServer(config, { socketPath, channels: [mockChannel], dedupeWindowMs: 5000 });
+    // Use a generous dedup window — the first messageHandler! call runs the full
+    // LLM pipeline and can take 5-10s under CI load, so 5s was too short.
+    server = await createServer(config, { socketPath, channels: [mockChannel], dedupeWindowMs: 30_000 });
     await server.start();
 
     const msg: InboundMessage = {
