@@ -35,6 +35,7 @@ import type { OpenAIChatRequest, OpenAIChatResponse, OpenAIStreamChunk } from '.
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
+import { initTracing } from '../utils/tracing.js';
 
 // =====================================================
 // Types
@@ -58,9 +59,10 @@ export interface AxServer {
 // Helpers
 // =====================================================
 
-/** Returns true when the agent is still in bootstrap mode (no SOUL.md yet, BOOTSTRAP.md present). */
+/** Returns true when the agent is still in bootstrap mode (missing SOUL.md or IDENTITY.md while BOOTSTRAP.md present). */
 export function isAgentBootstrapMode(agentDirPath: string): boolean {
-  return !existsSync(join(agentDirPath, 'SOUL.md')) && existsSync(join(agentDirPath, 'BOOTSTRAP.md'));
+  if (!existsSync(join(agentDirPath, 'BOOTSTRAP.md'))) return false;
+  return !existsSync(join(agentDirPath, 'SOUL.md')) || !existsSync(join(agentDirPath, 'IDENTITY.md'));
 }
 
 /** Returns true when the given userId appears in the agent's admins file. */
@@ -85,6 +87,16 @@ export function addAdmin(agentDirPath: string, userId: string): void {
  */
 export function claimBootstrapAdmin(agentDirPath: string, userId: string): boolean {
   const claimPath = join(agentDirPath, '.bootstrap-admin-claimed');
+
+  // If the claim file exists but the claimed user is no longer in admins
+  // (e.g. admins was reset to re-bootstrap), remove the stale claim.
+  if (existsSync(claimPath)) {
+    const claimedUser = readFileSync(claimPath, 'utf-8').trim();
+    if (!isAdmin(agentDirPath, claimedUser)) {
+      unlinkSync(claimPath);
+    }
+  }
+
   try {
     writeFileSync(claimPath, userId, { flag: 'wx' });
   } catch (err: unknown) {
@@ -107,6 +119,9 @@ export async function createServer(
 
   // Use the singleton logger
   const logger = getLogger();
+
+  // Initialize OpenTelemetry tracing (no-op when OTEL_EXPORTER_OTLP_ENDPOINT is unset)
+  await initTracing();
 
   // Load providers
   logger.info('loading_providers');
@@ -144,13 +159,14 @@ export async function createServer(
     }
   }
 
-  // Default user ID for the creating user (used for admin seeding and IPC context)
+  // Default user ID for IPC context (not used for admin seeding)
   const defaultUserId = process.env.USER ?? 'default';
 
-  // Seed admins file on first run so the creating user can bootstrap the agent.
+  // Create empty admins file on first run; the first user to connect via a
+  // channel (CLI, Slack, etc.) will be auto-promoted via claimBootstrapAdmin.
   const adminsPath = join(agentDirVal, 'admins');
   if (!existsSync(adminsPath)) {
-    writeFileSync(adminsPath, `${defaultUserId}\n`, 'utf-8');
+    writeFileSync(adminsPath, '', 'utf-8');
   }
 
   const handleIPC = createIPCHandler(providers, {

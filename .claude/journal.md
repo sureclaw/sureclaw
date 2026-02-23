@@ -1,5 +1,34 @@
 # Journal
 
+## [2026-02-22 19:20] — Fix bootstrap: include tool guidance and user context
+
+**Task:** Bootstrap only creates IDENTITY.md (not SOUL.md), and agent doesn't remember user's name
+**What I did:** Root cause: during bootstrap mode, the identity module returned ONLY the BOOTSTRAP.md content — no evolution guidance (tool usage instructions) and no user context (USER.md / USER_BOOTSTRAP.md). The agent didn't know HOW to use identity_write vs user_write, and couldn't see previously written user observations. Fixed by including evolution guidance and user context sections during bootstrap mode.
+**Files touched:** src/agent/prompt/modules/identity.ts, tests/agent/prompt/modules/identity.test.ts
+**Outcome:** Success — 84/84 prompt tests pass, 15/15 identity module tests pass
+**Notes:** The BOOTSTRAP.md template mentions "use your identity tools to write SOUL.md, IDENTITY.md, USER.md" but doesn't explain the tool API. The evolution guidance section explains identity_write (for SOUL.md/IDENTITY.md) vs user_write (for per-user USER.md). Without this, the agent was guessing from tool schemas alone and often only wrote one file.
+
+## [2026-02-22 19:02] — Fix stale .bootstrap-admin-claimed blocking re-bootstrap
+
+**Task:** Bug: even when admins file is empty, DMs get "This agent is still being set up" instead of auto-promoting the first user
+**What I did:** Root cause was `.bootstrap-admin-claimed` persisting across server restarts. When admins file is emptied (to re-bootstrap), the stale claim file caused `claimBootstrapAdmin()` to always return false. Fixed by adding a stale-claim check: if the claim file exists but the claimed user is not in the admins file, remove it before attempting the new claim.
+**Files touched:** src/host/server.ts (modified claimBootstrapAdmin), tests/host/admin-gate.test.ts (added regression test)
+**Outcome:** Success — 21/21 admin-gate tests pass, 41/41 host tests pass
+**Notes:** The fix is in `claimBootstrapAdmin()` itself rather than at server startup, so it self-heals whenever the function is called. The `wx` flag still provides atomicity for concurrent callers after the stale check.
+
+## [2026-02-22 23:30] — Fix bootstrap: no pre-seeded admin, require both SOUL.md and IDENTITY.md
+
+**Task:** Two bootstrap fixes: (1) `bun serve` was adding `process.env.USER` to admins on first run — should wait for channel connection; (2) BOOTSTRAP.md should only be deleted when both SOUL.md and IDENTITY.md exist
+**What I did:**
+- Changed `createServer()` to create an empty admins file instead of seeding with `process.env.USER`
+- Updated `isAgentBootstrapMode()` to require both SOUL.md and IDENTITY.md (not just SOUL.md) before exiting bootstrap
+- Updated bootstrap completion in `identity.ts` and `governance.ts` handlers to check `isAgentBootstrapMode()` instead of just checking for SOUL.md
+- Updated `isBootstrapMode()` in prompt types to match (agent-side check)
+- Updated tests to reflect new behavior
+**Files touched:** src/host/server.ts, src/host/ipc-handlers/identity.ts, src/host/ipc-handlers/governance.ts, src/agent/prompt/types.ts, tests/host/server.test.ts, tests/host/admin-gate.test.ts
+**Outcome:** Success — all 144 tests pass
+**Notes:** The `isAgentBootstrapMode` function is now the single source of truth for bootstrap state — both the server-side gate and the identity/governance handlers use it. No circular imports since server.ts doesn't import from ipc-handlers. Also fixed ReplyGateModule — it was telling the agent it could stay silent during bootstrap (DMs have `isMention: false` → `replyOptional: true`), causing the agent to ignore "hello" instead of starting the bootstrap conversation.
+
 ## [2026-02-22 22:40] — Fix onboarding config: model selection & conditional API key
 
 **Task:** Fix two bugs in `bun configure`: (1) API key asked even when not using claude-code or when using OAuth, (2) no model selection causing LLM router crash on `bun serve`
@@ -207,6 +236,20 @@
 - Modified: src/host/server.ts, tests/e2e/harness.ts, ~15 test files
 **Outcome:** Success — 143 test files, 1424 tests pass
 **Notes:** Tests using `:memory:` had to switch to temp files because createKyselyDb opens its own better-sqlite3 connection (separate from openDatabase), and two :memory: connections are independent databases.
+
+## [2026-02-22 20:50] — OpenTelemetry LLM tracing
+
+**Task:** Add OpenTelemetry instrumentation for LLM calls with Langfuse-compatible OTLP export
+**What I did:**
+- Installed `@opentelemetry/api`, `@opentelemetry/sdk-node`, `@opentelemetry/exporter-trace-otlp-http`
+- Created `src/utils/tracing.ts` — lazy-loaded OTel SDK init, `getTracer()`, `isTracingEnabled()`
+- Created `src/providers/llm/traced.ts` — `TracedLLMProvider` wrapper creating `gen_ai.chat` spans with message events, tool call events, usage attributes, error handling
+- Created `tests/providers/llm/traced.test.ts` — 11 tests covering passthrough, span creation, message events, tool calls, usage, errors, no-op tracer, models delegation, name exposure, content block serialization
+- Modified `src/host/registry.ts` to conditionally wrap LLM provider with `TracedLLMProvider` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
+- Modified `src/host/server.ts` to call `initTracing()` before `loadProviders()`
+**Files touched:** src/utils/tracing.ts (new), src/providers/llm/traced.ts (new), tests/providers/llm/traced.test.ts (new), src/host/registry.ts (modified), src/host/server.ts (modified), package.json (modified)
+**Outcome:** Success — 11/11 traced tests pass, clean tsc build, all directly affected test suites (server, router, traced) pass
+**Notes:** Zero-overhead design: when `OTEL_EXPORTER_OTLP_ENDPOINT` is unset, no heavy OTel SDK packages are imported (lazy `await import()`), and the no-op tracer from `@opentelemetry/api` produces stub spans that discard all data. The wrapper uses `gen_ai.*` semantic conventions for compatibility with Langfuse and other OTel backends.
 
 ## [2026-02-22 18:13] — Add upgrade-path tests and guard memory migration
 

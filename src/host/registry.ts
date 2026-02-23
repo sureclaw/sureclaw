@@ -1,5 +1,7 @@
 import { resolveProviderPath } from './provider-map.js';
 import type { Config, ProviderRegistry } from '../types.js';
+import { isTracingEnabled, getTracer } from '../utils/tracing.js';
+import { TracedLLMProvider } from '../providers/llm/traced.js';
 
 export async function loadProviders(config: Config): Promise<ProviderRegistry> {
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.
@@ -17,8 +19,13 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
     ? 'anthropic'
     : 'router';
 
+  const llm = await loadProvider('llm', llmProviderName, config);
+  const tracedLlm = isTracingEnabled()
+    ? new TracedLLMProvider(llm, getTracer())
+    : llm;
+
   return {
-    llm:         await loadProvider('llm', llmProviderName, config),
+    llm:         tracedLlm,
     memory:      await loadProvider('memory', config.providers.memory, config),
     scanner:     await loadProvider('scanner', config.providers.scanner, config),
     channels,
