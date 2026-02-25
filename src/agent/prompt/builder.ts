@@ -7,6 +7,7 @@ import { SecurityModule } from './modules/security.js';
 import { ToolStyleModule } from './modules/tool-style.js';
 import { MemoryRecallModule } from './modules/memory-recall.js';
 import { SkillsModule } from './modules/skills.js';
+import { DelegationModule } from './modules/delegation.js';
 import { HeartbeatModule } from './modules/heartbeat.js';
 import { RuntimeModule } from './modules/runtime.js';
 import { ReplyGateModule } from './modules/reply-gate.js';
@@ -39,6 +40,7 @@ export class PromptBuilder {
       new ToolStyleModule(),          // 12
       new MemoryRecallModule(),       // 60
       new SkillsModule(),             // 70
+      new DelegationModule(),         // 75
       new HeartbeatModule(),          // 80
       new RuntimeModule(),            // 90
       new ReplyGateModule(),          // 95

@@ -346,3 +346,17 @@
 - Modified tests: tests/host/ipc-delegation.test.ts, tests/e2e/harness.ts, tests/e2e/scenarios/agent-delegation.test.ts, tests/integration/phase2.test.ts, tests/agent/tool-catalog-sync.test.ts, tests/agent/tool-catalog.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts, tests/sandbox-isolation.test.ts
 **Outcome:** Success — 150/151 test files pass, 1515/1518 tests pass (2 pre-existing smoke test timeouts)
 **Notes:** The key design decision was making delegation go through IPC to the host (not in-process within the agent). This means a pi-coding-agent parent can delegate to a claude-code child, or vice versa. The host controls spawning, sandbox isolation is preserved, and depth/concurrency limits are enforced server-side. The half-built infrastructure (handler + schema existed, but no tool catalog entry and no wired callback) was completed with minimal new code.
+
+## [2026-02-25 16:28] — Add DelegationModule system prompt for agent_delegate
+
+**Task:** Add system prompt guidance so the LLM knows when/how to use agent_delegate, and recommend claude-code for coding tasks
+**What I did:**
+1. Created `DelegationModule` prompt module (priority 75, optional) with runner selection table recommending claude-code for coding tasks
+2. Registered it in builder.ts between SkillsModule (70) and HeartbeatModule (80)
+3. Added sync test verifying agent_delegate and claude-code are mentioned in the module output
+4. Updated integration test: module count 7→8, ordering check includes delegation, token breakdown check includes delegation
+**Files touched:**
+- New: src/agent/prompt/modules/delegation.ts
+- Modified: src/agent/prompt/builder.ts, tests/agent/tool-catalog-sync.test.ts, tests/agent/prompt/integration.test.ts
+**Outcome:** Success — 151/151 test files pass, 1518/1518 tests pass
+**Notes:** Module includes a runner selection table, parameter reference, and graceful error handling guidance. renderMinimal() provides a compact 3-line version for tight budgets.

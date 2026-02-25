@@ -13,6 +13,7 @@ import { createIPCMcpServer } from '../../src/agent/mcp-server.js';
 import { HeartbeatModule } from '../../src/agent/prompt/modules/heartbeat.js';
 import { IdentityModule } from '../../src/agent/prompt/modules/identity.js';
 import { SkillsModule } from '../../src/agent/prompt/modules/skills.js';
+import { DelegationModule } from '../../src/agent/prompt/modules/delegation.js';
 import { IPC_SCHEMAS } from '../../src/ipc-schemas.js';
 import type { PromptContext } from '../../src/agent/prompt/types.js';
 import type { IPCClient } from '../../src/agent/ipc-client.js';
@@ -104,6 +105,15 @@ describe('tool-catalog ↔ system prompt sync', () => {
     const ctx = makePromptContext({ skills: ['# Dummy'] });
     const rendered = mod.render(ctx).join('\n');
     expect(rendered, 'skill_propose missing from SkillsModule system prompt').toContain('skill_propose');
+  });
+
+  test('agent_delegate tool is documented in DelegationModule', () => {
+    const mod = new DelegationModule();
+    const ctx = makePromptContext();
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered, 'agent_delegate missing from DelegationModule system prompt').toContain('agent_delegate');
+    // Should recommend claude-code for coding tasks
+    expect(rendered, 'DelegationModule should recommend claude-code for coding').toContain('claude-code');
   });
 
   test('every identity/user tool in catalog is documented in IdentityModule', () => {

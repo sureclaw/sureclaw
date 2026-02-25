@@ -35,7 +35,7 @@ describe('PromptBuilder integration', () => {
 
     const result = new PromptBuilder().build(ctx);
 
-    // Verify structure order: identity < injection < security < tool-style < memory-recall < skills < runtime
+    // Verify structure order: identity < injection < security < tool-style < memory-recall < skills < delegation < runtime
     const content = result.content;
     const positions = {
       identity: content.indexOf('Manon'),
@@ -44,6 +44,7 @@ describe('PromptBuilder integration', () => {
       toolStyle: content.indexOf('## Tool Usage'),
       memoryRecall: content.indexOf('## Memory'),
       skills: content.indexOf('Safety Skill'),
+      delegation: content.indexOf('## Task Delegation'),
       runtime: content.indexOf('## Runtime'),
     };
 
@@ -52,26 +53,28 @@ describe('PromptBuilder integration', () => {
     expect(positions.security).toBeLessThan(positions.toolStyle);
     expect(positions.toolStyle).toBeLessThan(positions.memoryRecall);
     expect(positions.memoryRecall).toBeLessThan(positions.skills);
-    expect(positions.skills).toBeLessThan(positions.runtime);
+    expect(positions.skills).toBeLessThan(positions.delegation);
+    expect(positions.delegation).toBeLessThan(positions.runtime);
 
     // Verify taint awareness (elevated because 15% > 10% threshold)
     expect(content).toContain('ELEVATED');
     expect(content).toContain('15.0%');
 
-    // Verify metadata — 7 modules now (identity, injection, security, tool-style, memory-recall, skills, runtime)
-    expect(result.metadata.moduleCount).toBe(7);
+    // Verify metadata — 8 modules now (identity, injection, security, tool-style, memory-recall, skills, delegation, runtime)
+    expect(result.metadata.moduleCount).toBe(8);
     expect(result.metadata.estimatedTokens).toBeGreaterThan(100);
     expect(result.metadata.buildTimeMs).toBeLessThan(100);
 
     // Verify per-module token breakdown (Task 16 observability)
     expect(result.metadata.tokensByModule).toBeDefined();
-    expect(Object.keys(result.metadata.tokensByModule).length).toBe(7);
+    expect(Object.keys(result.metadata.tokensByModule).length).toBe(8);
     expect(result.metadata.tokensByModule['identity']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['injection-defense']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['security']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['tool-style']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['memory-recall']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['skills']).toBeGreaterThan(0);
+    expect(result.metadata.tokensByModule['delegation']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['runtime']).toBeGreaterThan(0);
   });
 
