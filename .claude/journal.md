@@ -359,4 +359,12 @@
 - New: src/agent/prompt/modules/delegation.ts
 - Modified: src/agent/prompt/builder.ts, tests/agent/tool-catalog-sync.test.ts, tests/agent/prompt/integration.test.ts
 **Outcome:** Success — 151/151 test files pass, 1518/1518 tests pass
-**Notes:** Module includes a runner selection table, parameter reference, and graceful error handling guidance. renderMinimal() provides a compact 3-line version for tight budgets.
+**Notes:** Module includes a runner selection table, parameter reference, and graceful error handling guidance. renderMinimal() provides a compact 4-line version for tight budgets.
+
+## [2026-02-25 16:33] — Add minimal-context guidance to DelegationModule
+
+**Task:** Tell the LLM to keep delegation context lean — no dumping SOUL.md or full conversation history
+**What I did:** Added "Writing good delegation calls" section to DelegationModule explaining that sub-agents only see task+context, with explicit "Do NOT paste your entire SOUL.md, IDENTITY.md, or conversation history" guidance and good/bad examples. Added sync test assertion.
+**Files touched:** src/agent/prompt/modules/delegation.ts, tests/agent/tool-catalog-sync.test.ts
+**Outcome:** Success — all tests pass
+**Notes:** Key insight: sub-agents go through processCompletion which rebuilds the full prompt (identity, security, etc.) from the child config. The parent doesn't need to re-inject any of that — just the task-specific context.

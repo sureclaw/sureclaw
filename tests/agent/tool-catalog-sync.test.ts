@@ -114,6 +114,8 @@ describe('tool-catalog ↔ system prompt sync', () => {
     expect(rendered, 'agent_delegate missing from DelegationModule system prompt').toContain('agent_delegate');
     // Should recommend claude-code for coding tasks
     expect(rendered, 'DelegationModule should recommend claude-code for coding').toContain('claude-code');
+    // Should tell the LLM to keep context minimal
+    expect(rendered, 'DelegationModule should warn against dumping full identity').toContain('Do NOT paste');
   });
 
   test('every identity/user tool in catalog is documented in IdentityModule', () => {
