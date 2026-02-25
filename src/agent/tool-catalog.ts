@@ -205,6 +205,25 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     }),
   },
 
+  // ── Delegation tools ──
+  {
+    name: 'agent_delegate',
+    label: 'Delegate Task',
+    description:
+      'Delegate a task to a sub-agent. The sub-agent runs in its own sandbox ' +
+      'and returns a text response. Optionally specify a runner (pi-agent-core, ' +
+      'pi-coding-agent, claude-code) and/or model to use for the sub-agent. ' +
+      'Subject to depth and concurrency limits enforced by the host.',
+    parameters: Type.Object({
+      task: Type.String({ description: 'The task description for the sub-agent' }),
+      context: Type.Optional(Type.String({ description: 'Background context the sub-agent should know' })),
+      runner: Type.Optional(Type.String({ description: '"pi-agent-core", "pi-coding-agent", or "claude-code"' })),
+      model: Type.Optional(Type.String({ description: 'Model ID override for the sub-agent (e.g. "claude-sonnet-4-5-20250929")' })),
+      maxTokens: Type.Optional(Type.Number({ description: 'Max tokens for the sub-agent response' })),
+      timeoutSec: Type.Optional(Type.Number({ description: 'Timeout in seconds (5-600)' })),
+    }),
+  },
+
   // ── Enterprise: Workspace tools ──
   {
     name: 'workspace_write',

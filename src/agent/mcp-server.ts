@@ -188,6 +188,24 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
         },
         (args) => ipcCall('skill_propose', args)),
 
+      // ── Delegation tools ──
+      tool(
+        'agent_delegate',
+        'Delegate a task to a sub-agent. The sub-agent runs in its own sandbox ' +
+        'and returns a text response. Optionally specify a runner and/or model. ' +
+        'Subject to depth and concurrency limits.',
+        {
+          task: z.string().describe('The task description for the sub-agent'),
+          context: z.string().optional().describe('Background context the sub-agent should know'),
+          runner: z.enum(['pi-agent-core', 'pi-coding-agent', 'claude-code']).optional()
+            .describe('Runner type for the sub-agent'),
+          model: z.string().optional().describe('Model ID override for the sub-agent'),
+          maxTokens: z.number().optional().describe('Max tokens for the sub-agent response'),
+          timeoutSec: z.number().optional().describe('Timeout in seconds (5-600)'),
+        },
+        (args) => ipcCall('agent_delegate', args),
+      ),
+
       // ── Enterprise: Workspace tools ──
 
       tool('workspace_write', 'Write a file to a workspace tier (agent, user, or scratch).', {

@@ -166,3 +166,9 @@
 **Context:** Storing ContentBlock[] in SQLite TEXT columns alongside plain string content
 **Lesson:** For backward-compatible structured content in SQLite TEXT columns: serialize arrays with JSON.stringify, leave strings as-is. On load, detect JSON arrays by checking if the string starts with `[` and parse accordingly. This avoids schema migrations and handles both old (plain text) and new (structured) data transparently.
 **Tags:** sqlite, content-blocks, serialization, conversation-store, backward-compatibility
+
+### onDelegate callback signature changes require updating all test files + harness
+**Date:** 2026-02-25
+**Context:** Changed onDelegate from `(task, context, ctx)` to `(req: DelegateRequest, ctx)` — tests broke in 4 locations
+**Lesson:** When changing an IPC handler callback signature, update: (1) ipc-server.ts (type definition), (2) delegation.ts (handler implementation), (3) harness.ts (HarnessOptions type), (4) all test files that pass the callback: unit tests, e2e tests, and integration tests. Grep for the old function name across all test directories.
+**Tags:** ipc, delegation, testing, callback-signatures, refactoring

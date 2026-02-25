@@ -328,3 +328,21 @@
 - Modified tests: tests/sandbox-isolation.test.ts, tests/agent/tool-catalog.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts
 **Outcome:** Success — 150 test files, 1491 tests pass (1 pre-existing skip)
 **Notes:** Key design decisions: (1) No base64 in chat messages — file references only, resolved at LLM call time. (2) Session-scoped file storage via existing workspaceDir(). (3) HTTP API uses raw binary body (not multipart) for simplicity. (4) Structured content backward-compatible — plain strings still work everywhere. (5) Agent-side binary writes use base64 encoding through IPC. (6) Slack integration reuses existing channel attachment infrastructure.
+
+## [2026-02-25 15:30] — Implement runner-configurable agent delegation
+
+**Task:** Make agent_delegate a first-class agent tool with configurable runner and model, wire the onDelegate callback in server.ts
+**What I did:**
+1. Extended `AgentDelegateSchema` in ipc-schemas.ts with `runner` (enum) and `model` fields
+2. Added `agent_delegate` to the tool catalog (TypeBox) and MCP server (Zod) — moved it from host-internal to agent-facing
+3. Created `DelegateRequest` interface in ipc-server.ts, refactored `onDelegate` callback from `(task, context, ctx)` to `(req: DelegateRequest, ctx)`
+4. Updated delegation handler to pass runner/model/maxTokens/timeoutSec through to onDelegate, and audit-log runner/model
+5. Wired `handleDelegate` callback in server.ts using processCompletion with config overrides for runner and model
+6. Added `delegation` config section to Config type and config schema (max_concurrent, max_depth)
+7. Updated all test files: unit tests (ipc-delegation), e2e tests (agent-delegation), integration tests (phase2), sync tests (tool-catalog-sync), count tests (5 files)
+8. Added 4 new tests: runner/model passing in unit and e2e, audit logging of runner/model, defaults-without-runner
+**Files touched:**
+- Modified: src/ipc-schemas.ts, src/types.ts, src/config.ts, src/host/ipc-server.ts, src/host/ipc-handlers/delegation.ts, src/host/server.ts, src/agent/tool-catalog.ts, src/agent/mcp-server.ts
+- Modified tests: tests/host/ipc-delegation.test.ts, tests/e2e/harness.ts, tests/e2e/scenarios/agent-delegation.test.ts, tests/integration/phase2.test.ts, tests/agent/tool-catalog-sync.test.ts, tests/agent/tool-catalog.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts, tests/sandbox-isolation.test.ts
+**Outcome:** Success — 150/151 test files pass, 1515/1518 tests pass (2 pre-existing smoke test timeouts)
+**Notes:** The key design decision was making delegation go through IPC to the host (not in-process within the agent). This means a pi-coding-agent parent can delegate to a claude-code child, or vice versa. The host controls spawning, sandbox isolation is preserved, and depth/concurrency limits are enforced server-side. The half-built infrastructure (handler + schema existed, but no tool catalog entry and no wired callback) was completed with minimal new code.

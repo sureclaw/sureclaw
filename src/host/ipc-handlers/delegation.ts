@@ -1,8 +1,8 @@
 /**
  * IPC handler: agent delegation with depth/concurrency limits.
  */
-import type { ProviderRegistry } from '../../types.js';
-import type { IPCContext, DelegationConfig, IPCHandlerOptions } from '../ipc-server.js';
+import type { ProviderRegistry, AgentType } from '../../types.js';
+import type { IPCContext, DelegationConfig, IPCHandlerOptions, DelegateRequest } from '../ipc-server.js';
 
 export function createDelegationHandlers(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
   const maxConcurrent = opts?.delegation?.maxConcurrent ?? 3;
@@ -41,14 +41,27 @@ export function createDelegationHandlers(providers: ProviderRegistry, opts?: IPC
         await providers.audit.log({
           action: 'agent_delegate',
           sessionId: ctx.sessionId,
-          args: { task: req.task.slice(0, 500), depth: currentDepth + 1 },
+          args: {
+            task: req.task.slice(0, 500),
+            depth: currentDepth + 1,
+            ...(req.runner ? { runner: req.runner } : {}),
+            ...(req.model ? { model: req.model } : {}),
+          },
         });
 
         const childCtx: IPCContext = {
           sessionId: ctx.sessionId,
           agentId: `delegate-${ctx.agentId}:depth=${currentDepth + 1}`,
         };
-        const response = await opts.onDelegate(req.task, req.context, childCtx);
+        const delegateReq: DelegateRequest = {
+          task: req.task,
+          context: req.context,
+          runner: req.runner as AgentType | undefined,
+          model: req.model,
+          maxTokens: req.maxTokens,
+          timeoutSec: req.timeoutSec,
+        };
+        const response = await opts.onDelegate(delegateReq, childCtx);
         return { response };
       } finally {
         activeDelegations--;

@@ -1,5 +1,5 @@
 import { createServer, type Server, type Socket } from 'node:net';
-import type { ProviderRegistry } from '../types.js';
+import type { ProviderRegistry, AgentType } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import { getLogger, truncate } from '../logger.js';
@@ -34,11 +34,21 @@ export interface DelegationConfig {
   maxDepth?: number;           // max delegation chain depth (default 2)
 }
 
+/** Structured delegation request passed to the onDelegate callback. */
+export interface DelegateRequest {
+  task: string;
+  context?: string;
+  runner?: AgentType;
+  model?: string;
+  maxTokens?: number;
+  timeoutSec?: number;
+}
+
 export interface IPCHandlerOptions {
   taintBudget?: TaintBudget;
   delegation?: DelegationConfig;
   /** Called when an agent_delegate request is received. Returns agent response. */
-  onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
+  onDelegate?: (req: DelegateRequest, ctx: IPCContext) => Promise<string>;
   /** Path to ~/.ax/agents/{name}/ for all identity files. */
   agentDir?: string;
   /** Agent name (e.g. 'main') for resolving per-user directories. */

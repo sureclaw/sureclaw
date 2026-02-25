@@ -310,9 +310,9 @@ describe('Multi-Agent Delegation Integration', () => {
 
     const handler = createIPCHandler(providers, {
       delegation: { maxConcurrent: 3, maxDepth: 2 },
-      onDelegate: async (task) => {
-        delegatedTasks.push(task);
-        return `Completed: ${task}`;
+      onDelegate: async (req) => {
+        delegatedTasks.push(req.task);
+        return `Completed: ${req.task}`;
       },
     });
 

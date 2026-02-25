@@ -24,8 +24,8 @@ describe('E2E Scenario: Agent Delegation', () => {
 
   test('agent_delegate succeeds with configured handler', async () => {
     harness = await TestHarness.create({
-      onDelegate: async (task, context) => {
-        return `Completed task: ${task}`;
+      onDelegate: async (req) => {
+        return `Completed task: ${req.task}`;
       },
     });
 
@@ -51,7 +51,7 @@ describe('E2E Scenario: Agent Delegation', () => {
 
   test('agent_delegate is audited', async () => {
     harness = await TestHarness.create({
-      onDelegate: async (task) => `Done: ${task}`,
+      onDelegate: async (req) => `Done: ${req.task}`,
     });
 
     await harness.ipcCall('agent_delegate', {
@@ -65,8 +65,8 @@ describe('E2E Scenario: Agent Delegation', () => {
     let receivedContext: string | undefined;
 
     harness = await TestHarness.create({
-      onDelegate: async (task, context) => {
-        receivedContext = context;
+      onDelegate: async (req) => {
+        receivedContext = req.context;
         return 'Done';
       },
     });
@@ -82,7 +82,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   test('agent_delegate respects max depth limit', async () => {
     harness = await TestHarness.create({
       delegation: { maxDepth: 2 },
-      onDelegate: async (task) => `Done: ${task}`,
+      onDelegate: async (req) => `Done: ${req.task}`,
     });
 
     // Simulate a call at depth=2 (already at max)
@@ -99,7 +99,7 @@ describe('E2E Scenario: Agent Delegation', () => {
   test('agent_delegate within depth limit succeeds', async () => {
     harness = await TestHarness.create({
       delegation: { maxDepth: 3 },
-      onDelegate: async (task) => `Done: ${task}`,
+      onDelegate: async (req) => `Done: ${req.task}`,
     });
 
     // Simulate a call at depth=1 (within limit of 3)
@@ -119,11 +119,11 @@ describe('E2E Scenario: Agent Delegation', () => {
 
     harness = await TestHarness.create({
       delegation: { maxConcurrent: 1 },
-      onDelegate: async (task) => {
-        if (task === 'blocking') {
+      onDelegate: async (req) => {
+        if (req.task === 'blocking') {
           await firstDelegation;
         }
-        return `Done: ${task}`;
+        return `Done: ${req.task}`;
       },
     });
 
@@ -146,7 +146,7 @@ describe('E2E Scenario: Agent Delegation', () => {
 
   test('multi-turn: LLM delegates a task via tool_use', async () => {
     harness = await TestHarness.create({
-      onDelegate: async (task) => {
+      onDelegate: async () => {
         return 'The document discusses three main patterns: Factory, Observer, and Strategy.';
       },
       llmTurns: [
@@ -172,7 +172,7 @@ describe('E2E Scenario: Agent Delegation', () => {
     let receivedCtx: any;
 
     harness = await TestHarness.create({
-      onDelegate: async (task, context, ctx) => {
+      onDelegate: async (_req, ctx) => {
         receivedCtx = ctx;
         return 'Done';
       },
@@ -188,5 +188,50 @@ describe('E2E Scenario: Agent Delegation', () => {
     expect(receivedCtx.agentId).toContain('delegate-');
     expect(receivedCtx.agentId).toContain('depth=1');
     expect(receivedCtx.sessionId).toBe('session-abc');
+  });
+
+  test('agent_delegate passes runner and model to handler', async () => {
+    let receivedReq: any;
+
+    harness = await TestHarness.create({
+      onDelegate: async (req) => {
+        receivedReq = req;
+        return 'Done';
+      },
+    });
+
+    await harness.ipcCall('agent_delegate', {
+      task: 'Code review',
+      runner: 'claude-code',
+      model: 'claude-sonnet-4-5-20250929',
+      maxTokens: 4096,
+      timeoutSec: 120,
+    });
+
+    expect(receivedReq.task).toBe('Code review');
+    expect(receivedReq.runner).toBe('claude-code');
+    expect(receivedReq.model).toBe('claude-sonnet-4-5-20250929');
+    expect(receivedReq.maxTokens).toBe(4096);
+    expect(receivedReq.timeoutSec).toBe(120);
+  });
+
+  test('agent_delegate works without runner/model (uses defaults)', async () => {
+    let receivedReq: any;
+
+    harness = await TestHarness.create({
+      onDelegate: async (req) => {
+        receivedReq = req;
+        return 'Done with defaults';
+      },
+    });
+
+    const result = await harness.ipcCall('agent_delegate', {
+      task: 'Simple task',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.response).toBe('Done with defaults');
+    expect(receivedReq.runner).toBeUndefined();
+    expect(receivedReq.model).toBeUndefined();
   });
 });

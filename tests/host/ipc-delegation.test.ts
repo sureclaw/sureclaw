@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { createIPCHandler, type IPCContext } from '../../src/host/ipc-server.js';
+import { createIPCHandler, type IPCContext, type DelegateRequest } from '../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../src/types.js';
 
 function mockProviders(): ProviderRegistry {
@@ -84,8 +84,7 @@ describe('agent_delegate IPC action', () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.response).toBe('delegation result');
     expect(onDelegate).toHaveBeenCalledWith(
-      'Summarize this document',
-      undefined,
+      expect.objectContaining({ task: 'Summarize this document' }),
       expect.objectContaining({ sessionId: 'test-session' }),
     );
   });
@@ -166,7 +165,7 @@ describe('agent_delegate IPC action', () => {
     expect(parsed.error).toContain('not configured');
   });
 
-  test('passes context to delegate handler', async () => {
+  test('passes context and fields to delegate handler', async () => {
     const providers = mockProviders();
     const onDelegate = vi.fn(async () => 'result');
 
@@ -185,10 +184,72 @@ describe('agent_delegate IPC action', () => {
     );
 
     expect(onDelegate).toHaveBeenCalledWith(
-      'Do something',
-      'Some background context',
+      expect.objectContaining({
+        task: 'Do something',
+        context: 'Some background context',
+      }),
       expect.objectContaining({
         agentId: expect.stringContaining('depth=1'),
+      }),
+    );
+  });
+
+  test('passes runner and model to delegate handler', async () => {
+    const providers = mockProviders();
+    const onDelegate = vi.fn(async () => 'result');
+
+    const handler = createIPCHandler(providers, {
+      delegation: { maxConcurrent: 3, maxDepth: 2 },
+      onDelegate,
+    });
+
+    await handler(
+      JSON.stringify({
+        action: 'agent_delegate',
+        task: 'Code review',
+        runner: 'claude-code',
+        model: 'claude-sonnet-4-5-20250929',
+      }),
+      defaultCtx,
+    );
+
+    expect(onDelegate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: 'Code review',
+        runner: 'claude-code',
+        model: 'claude-sonnet-4-5-20250929',
+      }),
+      expect.objectContaining({ sessionId: 'test-session' }),
+    );
+  });
+
+  test('audit logs runner and model when provided', async () => {
+    const providers = mockProviders();
+    const onDelegate = vi.fn(async () => 'result');
+
+    const handler = createIPCHandler(providers, {
+      delegation: { maxConcurrent: 3, maxDepth: 2 },
+      onDelegate,
+    });
+
+    await handler(
+      JSON.stringify({
+        action: 'agent_delegate',
+        task: 'Research task',
+        runner: 'pi-coding-agent',
+        model: 'claude-sonnet-4-5-20250929',
+      }),
+      defaultCtx,
+    );
+
+    expect(providers.audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'agent_delegate',
+        args: expect.objectContaining({
+          depth: 1,
+          runner: 'pi-coding-agent',
+          model: 'claude-sonnet-4-5-20250929',
+        }),
       }),
     );
   });

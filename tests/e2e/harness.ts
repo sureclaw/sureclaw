@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 
 import { MessageQueue } from '../../src/db.js';
 import { createRouter, type Router } from '../../src/host/router.js';
-import { createIPCHandler, type IPCContext, type DelegationConfig } from '../../src/host/ipc-server.js';
+import { createIPCHandler, type IPCContext, type DelegationConfig, type DelegateRequest } from '../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../src/types.js';
 import type { AuditEntry } from '../../src/providers/audit/types.js';
 import type { InboundMessage, SessionAddress, ChannelProvider, OutboundMessage } from '../../src/providers/channel/types.js';
@@ -81,7 +81,7 @@ export interface HarnessOptions {
   /** Delegation config (maxConcurrent, maxDepth). */
   delegation?: DelegationConfig;
   /** Delegation handler callback. */
-  onDelegate?: (task: string, context: string | undefined, ctx: IPCContext) => Promise<string>;
+  onDelegate?: (req: DelegateRequest, ctx: IPCContext) => Promise<string>;
   /** Seed agent registry entries. */
   seedAgents?: Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt'>[];
 }

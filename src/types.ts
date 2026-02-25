@@ -84,6 +84,10 @@ export interface Config {
     max_turns: number;
     thread_context_turns: number;
   };
+  delegation?: {
+    max_concurrent?: number;
+    max_depth?: number;
+  };
 }
 
 export interface ProviderRegistry {

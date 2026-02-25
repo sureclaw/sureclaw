@@ -133,7 +133,7 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
 
   test('every IPC_SCHEMAS action has a corresponding tool in TOOL_CATALOG or is an internal-only action', () => {
     // Some IPC actions exist only in IPC_SCHEMAS without a tool catalog entry
-    // because they're host-internal (e.g. browser_*, skill_*, agent_delegate, llm_call).
+    // because they're host-internal (e.g. browser_*, llm_call).
     // The catalog contains agent-facing tools; IPC schemas cover all actions.
     // This test verifies that every CATALOG tool has a schema (no gaps in the other direction).
     const schemaActions = new Set(Object.keys(IPC_SCHEMAS));
@@ -145,12 +145,11 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
     }
 
     // Every schema action should either be in the catalog OR be a known internal action
-    // (browser_*, skill_*, agent_delegate, llm_call are not agent-exposed tools)
+    // (browser_*, llm_call are not agent-exposed tools)
     const knownInternalActions = new Set([
       'llm_call',
       'browser_launch', 'browser_navigate', 'browser_snapshot',
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
-      'agent_delegate',
       // Enterprise admin-only actions (not in tool catalog, used via direct IPC)
       'proposal_review', 'agent_registry_get',
     ]);

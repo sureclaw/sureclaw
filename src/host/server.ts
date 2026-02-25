@@ -22,7 +22,7 @@ import { ConversationStore } from '../conversation-store.js';
 import { loadProviders } from './registry.js';
 import { MessageQueue } from '../db.js';
 import { createRouter } from './router.js';
-import { createIPCHandler, createIPCServer } from './ipc-server.js';
+import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { getLogger } from '../logger.js';
 import { SessionStore } from '../session-store.js';
@@ -192,20 +192,9 @@ export async function createServer(
     writeFileSync(adminsPath, '', 'utf-8');
   }
 
-  const handleIPC = createIPCHandler(providers, {
-    taintBudget,
-    agentDir: agentDirVal,
-    agentName,
-    profile: config.profile,
-    configModel: config.model,
-  });
-
   // IPC socket server (internal agent-to-host socket)
   const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
-  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
-  const ipcServer: NetServer = createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
-  logger.info('ipc_server_started', { socket: ipcSocketPath });
 
   // Session tracking for canary tokens
   const sessionCanaries = new Map<string, string>();
@@ -233,6 +222,59 @@ export async function createServer(
     logger,
     verbose: opts.verbose,
   };
+
+  // Delegation callback: spawn a child agent via processCompletion with
+  // optional runner/model overrides. The child agent gets its own sandbox,
+  // IPC socket, and taint budget — full isolation.
+  async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
+    // Build a temporary config override for the child agent
+    const childConfig: Config = {
+      ...config,
+      ...(req.runner ? { agent: req.runner } : {}),
+      ...(req.model ? { model: req.model } : {}),
+      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...(req.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: req.timeoutSec } } : {}),
+    };
+
+    const childDeps: CompletionDeps = {
+      ...completionDeps,
+      config: childConfig,
+    };
+
+    const taskPrompt = req.context
+      ? `${req.context}\n\n---\n\nTask: ${req.task}`
+      : req.task;
+
+    const requestId = `delegate-${randomUUID().slice(0, 8)}`;
+    const result = await processCompletion(
+      childDeps,
+      taskPrompt,
+      requestId,
+      [],           // no client message history for delegated tasks
+      undefined,    // no persistent session
+      undefined,    // no pre-processed message (will go through router)
+      ctx.userId,
+    );
+
+    return result.responseContent;
+  }
+
+  const handleIPC = createIPCHandler(providers, {
+    taintBudget,
+    agentDir: agentDirVal,
+    agentName,
+    profile: config.profile,
+    configModel: config.model,
+    onDelegate: handleDelegate,
+    delegation: config.delegation ? {
+      maxConcurrent: config.delegation.max_concurrent,
+      maxDepth: config.delegation.max_depth,
+    } : undefined,
+  });
+
+  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
+  const ipcServer: NetServer = createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
+  logger.info('ipc_server_started', { socket: ipcSocketPath });
 
   let httpServer: HttpServer | null = null;
   let listening = false;
