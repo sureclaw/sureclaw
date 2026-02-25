@@ -183,7 +183,7 @@ describe('IdentityModule', () => {
     expect(text).not.toContain('meeting a new user');
   });
 
-  test('does not include evolution guidance in bootstrap mode', () => {
+  test('includes evolution guidance in bootstrap mode', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
@@ -192,7 +192,38 @@ describe('IdentityModule', () => {
       },
     });
     const text = mod.render(ctx).join('\n');
-    expect(text).not.toContain('Identity Evolution');
-    expect(text).not.toContain('identity_write');
+    expect(text).toContain('Identity Evolution');
+    expect(text).toContain('identity_write');
+    expect(text).toContain('user_write');
+  });
+
+  test('bootstrap mode: includes USER.md when it exists', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: '', soul: '', identity: '',
+        user: 'Name: Alice. Prefers concise answers.',
+        bootstrap: 'Discover your identity.', userBootstrap: '', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('Discover your identity.');
+    expect(text).toContain('## User');
+    expect(text).toContain('Alice');
+  });
+
+  test('bootstrap mode: includes USER_BOOTSTRAP.md when USER.md absent', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: '', soul: '', identity: '', user: '',
+        bootstrap: 'Discover your identity.',
+        userBootstrap: 'Learn their preferences.', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('Discover your identity.');
+    expect(text).toContain('## User Discovery');
+    expect(text).toContain('Learn their preferences');
   });
 });

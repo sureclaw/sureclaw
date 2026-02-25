@@ -57,9 +57,10 @@ export interface IdentityFiles {
   heartbeat: string;      // HEARTBEAT.md
 }
 
-/** Bootstrap mode: soul is absent but bootstrap instructions exist. */
+/** Bootstrap mode: soul or identity is absent while bootstrap instructions exist. */
 export function isBootstrapMode(ctx: PromptContext): boolean {
-  return !ctx.identityFiles.soul && !!ctx.identityFiles.bootstrap;
+  if (!ctx.identityFiles.bootstrap) return false;
+  return !ctx.identityFiles.soul || !ctx.identityFiles.identity;
 }
 
 /**

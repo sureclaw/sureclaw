@@ -19,9 +19,20 @@ export class IdentityModule extends BasePromptModule {
   render(ctx: PromptContext): string[] {
     const { identityFiles } = ctx;
 
-    // Bootstrap mode: no soul but bootstrap exists
+    // Bootstrap mode: soul or identity absent while bootstrap instructions exist.
+    // Include bootstrap instructions + user context + evolution guidance so the
+    // agent knows HOW to use tools and remembers what it learned about the user.
     if (isBootstrapMode(ctx)) {
-      return [identityFiles.bootstrap];
+      const lines = [identityFiles.bootstrap];
+
+      if (identityFiles.user) {
+        lines.push('', '## User', '', identityFiles.user);
+      } else if (identityFiles.userBootstrap) {
+        lines.push('', '## User Discovery', '', identityFiles.userBootstrap);
+      }
+
+      lines.push(...this.renderEvolutionGuidance(ctx));
+      return lines;
     }
 
     const lines: string[] = [];

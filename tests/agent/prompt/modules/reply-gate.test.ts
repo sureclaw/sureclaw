@@ -31,6 +31,14 @@ describe('ReplyGateModule', () => {
     expect(mod.shouldInclude(makeCtx({ replyOptional: true }))).toBe(true);
   });
 
+  test('not included during bootstrap mode even when replyOptional is true', () => {
+    const ctx = makeCtx({
+      replyOptional: true,
+      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '# Bootstrap', userBootstrap: '', heartbeat: '' },
+    });
+    expect(mod.shouldInclude(ctx)).toBe(false);
+  });
+
   test('render produces guidance text', () => {
     const lines = mod.render(makeCtx({ replyOptional: true }));
     expect(lines.length).toBeGreaterThan(0);

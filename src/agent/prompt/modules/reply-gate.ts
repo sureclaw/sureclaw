@@ -1,10 +1,14 @@
 // src/agent/prompt/modules/reply-gate.ts
+import { isBootstrapMode } from '../types.js';
 import type { PromptContext, PromptModule } from '../types.js';
 
 /**
  * When the host signals that a reply is optional (non-mention messages in DMs,
  * groups, or threads the bot is participating in), this module instructs the
  * agent that it may choose to stay silent.
+ *
+ * Disabled during bootstrap — the agent should always respond while discovering
+ * its identity.
  */
 export class ReplyGateModule implements PromptModule {
   readonly name = 'reply-gate';
@@ -12,6 +16,7 @@ export class ReplyGateModule implements PromptModule {
   readonly optional = true;
 
   shouldInclude(ctx: PromptContext): boolean {
+    if (isBootstrapMode(ctx)) return false;
     return ctx.replyOptional === true;
   }
 

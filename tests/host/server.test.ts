@@ -436,10 +436,9 @@ describe('Server', () => {
   });
 
   // --- Eyes Emoji & Thread Gating ---
-  // Note: the server seeds an admins file with process.env.USER on first run.
-  // Channel messages from non-admin users are blocked by the bootstrap gate
-  // (BOOTSTRAP.md exists but SOUL.md doesn't). Use the admin user for tests
-  // that need to reach processCompletion.
+  // The admins file starts empty on first run. The first channel user to send
+  // a message is auto-promoted via claimBootstrapAdmin. Use a consistent user
+  // for tests that need to pass the bootstrap gate.
   const adminUser = process.env.USER ?? 'default';
 
   it('should add and remove eyes emoji around channel message processing', async () => {
