@@ -12,7 +12,7 @@ const logger = getLogger().child({ component: 'anthropic' });
  * If resolveFile is not provided or resolution fails, image blocks become
  * a text placeholder so the LLM still sees something useful.
  */
-async function toAnthropicContent(
+export async function toAnthropicContent(
   content: string | ContentBlock[],
   resolveFile?: ResolveImageFile,
 ): Promise<string | Anthropic.ContentBlockParam[]> {
@@ -25,6 +25,16 @@ async function toAnthropicContent(
       result.push({ type: 'tool_use', id: block.id, name: block.name, input: block.input });
     } else if (block.type === 'tool_result') {
       result.push({ type: 'tool_result', tool_use_id: block.tool_use_id, content: block.content });
+    } else if (block.type === 'image_data') {
+      // Inline image data — send directly as base64 source (no disk round-trip)
+      result.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: block.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+          data: block.data,
+        },
+      });
     } else if (block.type === 'image') {
       if (resolveFile) {
         try {

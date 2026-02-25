@@ -319,18 +319,49 @@ export async function create(config: Config): Promise<ChannelProvider> {
 
       const threadTs = session.identifiers.thread ?? content.replyTo;
 
-      // Upload attachments first
+      // Upload attachments first via the modern external upload flow:
+      // 1. files.getUploadURLExternal — get a pre-signed URL
+      // 2. HTTP PUT the file data to that URL
+      // 3. files.completeUploadExternal — finalize and share to channel/thread
       if (content.attachments?.length) {
         for (const att of content.attachments) {
-          if (att.content) {
-            const uploadArgs: Record<string, unknown> = {
+          if (!att.content) continue;
+          try {
+            // Step 1: Request an upload URL
+            const urlResp = await app.client.files.getUploadURLExternal({
               token: botToken,
-              channel_id: channel,
-              file: att.content,
               filename: att.filename,
-            };
-            if (threadTs) uploadArgs.thread_ts = threadTs;
-            await app.client.files.uploadV2(uploadArgs as any);
+              length: att.content.length,
+            }) as { ok: boolean; upload_url?: string; file_id?: string };
+
+            if (!urlResp.ok || !urlResp.upload_url || !urlResp.file_id) {
+              slackLogger.warn('slack_upload_url_failed', { filename: att.filename });
+              continue;
+            }
+
+            // Step 2: PUT the file data to the pre-signed URL
+            const putResp = await fetch(urlResp.upload_url, {
+              method: 'PUT',
+              body: new Uint8Array(att.content),
+              headers: { 'Content-Type': att.mimeType || 'application/octet-stream' },
+            });
+            if (!putResp.ok) {
+              slackLogger.warn('slack_upload_put_failed', { filename: att.filename, status: putResp.status });
+              continue;
+            }
+
+            // Step 3: Complete the upload and share to channel/thread
+            await app.client.files.completeUploadExternal({
+              token: botToken,
+              files: [{ id: urlResp.file_id, title: att.filename }],
+              channel_id: channel,
+              ...(threadTs ? { thread_ts: threadTs } : {}),
+            } as any);
+          } catch (err) {
+            slackLogger.warn('slack_file_upload_failed', {
+              filename: att.filename,
+              error: (err as Error).message,
+            });
           }
         }
       }

@@ -4,12 +4,13 @@
  * agent spawning, outbound scanning, and memory persistence.
  */
 
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { isValidSessionId, workspaceDir, agentWorkspaceDir, agentSkillsDir, userWorkspaceDir, scratchDir } from '../paths.js';
-import type { Config, ProviderRegistry, ContentBlock } from '../types.js';
+import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
+import { safePath } from '../utils/safe-path.js';
 import type { InboundMessage } from '../providers/channel/types.js';
 import { deserializeContent } from '../conversation-store.js';
 import type { ConversationStore } from '../conversation-store.js';
@@ -42,12 +43,28 @@ export interface CompletionDeps {
   verbose?: boolean;
 }
 
+export interface ExtractedFile {
+  fileId: string;
+  mimeType: string;
+  data: Buffer;
+}
+
 export interface CompletionResult {
   responseContent: string;
-  /** Structured content blocks (present when response includes images). */
+  /** Structured content blocks with file refs (present when response includes images). */
   contentBlocks?: ContentBlock[];
+  /** Raw file buffers extracted from image_data blocks, keyed by fileId. */
+  extractedFiles?: ExtractedFile[];
   finishReason: 'stop' | 'content_filter';
 }
+
+/** MIME type to file extension mapping. */
+const MIME_TO_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+};
 
 /**
  * Try to parse structured agent output.
@@ -72,6 +89,59 @@ function parseAgentResponse(raw: string): { text: string; blocks?: ContentBlock[
     }
   }
   return { text: raw };
+}
+
+/**
+ * Extract image_data blocks from content: decode base64, save to workspace,
+ * replace with image file-ref blocks. Returns converted blocks and the
+ * extracted file Buffers (for direct use by channels without re-reading disk).
+ *
+ * image_data blocks are transient — they must never be stored in the
+ * conversation store or sent to clients. This function is the single
+ * conversion point from inline data to file references.
+ */
+export function extractImageDataBlocks(
+  blocks: ContentBlock[],
+  wsDir: string,
+  logger: Logger,
+): { blocks: ContentBlock[]; extractedFiles: ExtractedFile[] } {
+  const hasImageData = blocks.some(b => b.type === 'image_data');
+  if (!hasImageData) return { blocks, extractedFiles: [] };
+
+  const filesDir = safePath(wsDir, 'files');
+  mkdirSync(filesDir, { recursive: true });
+
+  const converted: ContentBlock[] = [];
+  const extractedFiles: ExtractedFile[] = [];
+
+  for (const block of blocks) {
+    if (block.type === 'image_data') {
+      try {
+        const buf = Buffer.from(block.data, 'base64');
+        const ext = MIME_TO_EXT[block.mimeType] ?? '.bin';
+        const filename = `${randomUUID()}${ext}`;
+        const filePath = safePath(filesDir, filename);
+        writeFileSync(filePath, buf);
+
+        const fileId = `files/${filename}`;
+        converted.push({
+          type: 'image',
+          fileId,
+          mimeType: block.mimeType as ImageMimeType,
+        });
+        extractedFiles.push({ fileId, mimeType: block.mimeType, data: buf });
+      } catch (err) {
+        logger.warn('image_data_extract_failed', {
+          mimeType: block.mimeType,
+          error: (err as Error).message,
+        });
+      }
+    } else {
+      converted.push(block);
+    }
+  }
+
+  return { blocks: converted, extractedFiles };
 }
 
 export async function processCompletion(
@@ -442,13 +512,20 @@ export async function processCompletion(
       reqLogger.warn('canary_leaked', { sessionId: queued.session_id });
     }
 
-    // Build structured content blocks for the response (if agent included images)
+    // Build structured content blocks for the response (if agent included images).
+    // Extract image_data blocks: decode base64 → save to workspace → replace with file refs.
     let responseBlocks: ContentBlock[] | undefined;
+    let extractedFiles: ExtractedFile[] | undefined;
     if (parsed.blocks) {
-      responseBlocks = parsed.blocks.map(b => {
+      const withScannedText = parsed.blocks.map(b => {
         if (b.type === 'text') return { ...b, text: outbound.content };
         return b;
       });
+      const extracted = extractImageDataBlocks(withScannedText, workspace, reqLogger);
+      responseBlocks = extracted.blocks;
+      if (extracted.extractedFiles.length > 0) {
+        extractedFiles = extracted.extractedFiles;
+      }
     }
 
     // Memorize if provider supports it (text only for memory)
@@ -493,7 +570,7 @@ export async function processCompletion(
       scanVerdict: outbound.scanResult.verdict,
       hasContentBlocks: !!responseBlocks,
     });
-    return { responseContent: outbound.content, contentBlocks: responseBlocks, finishReason };
+    return { responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, finishReason };
 
   } catch (err) {
     reqLogger.error('completion_error', {

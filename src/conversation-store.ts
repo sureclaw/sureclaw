@@ -22,7 +22,11 @@ export interface StoredTurn {
  */
 export function serializeContent(content: string | ContentBlock[]): string {
   if (typeof content === 'string') return content;
-  return JSON.stringify(content);
+  // Defense-in-depth: strip image_data blocks (transient, large base64) before
+  // persisting. These should already be converted to image file-ref blocks
+  // upstream, but guard against accidental leakage.
+  const safe = content.filter(b => b.type !== 'image_data');
+  return JSON.stringify(safe);
 }
 
 /**

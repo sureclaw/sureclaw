@@ -16,7 +16,7 @@ import type { ConversationStore } from '../conversation-store.js';
 import type { SessionStore } from '../session-store.js';
 import type { Router } from './router.js';
 import type { Logger } from '../logger.js';
-import type { CompletionDeps, CompletionResult } from './server-completions.js';
+import type { CompletionDeps, CompletionResult, ExtractedFile } from './server-completions.js';
 import { processCompletion } from './server-completions.js';
 import { withRetry } from '../utils/retry.js';
 
@@ -251,7 +251,7 @@ export function registerChannelHandler(
       // Determine if reply is optional (LLM can choose not to respond)
       const replyOptional = !msg.isMention;
 
-      const { responseContent, contentBlocks } = await processCompletion(
+      const { responseContent, contentBlocks, extractedFiles } = await processCompletion(
         completionDeps, messageContent, `ch-${randomUUID().slice(0, 8)}`, [], sessionId,
         { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
         msg.sender,
@@ -260,27 +260,46 @@ export function registerChannelHandler(
 
       // If LLM chose not to reply, skip sending
       if (responseContent.trim()) {
-        // Build outbound attachments from image content blocks
+        // Build outbound attachments from extracted files (already in memory)
+        // or fall back to reading from disk for pre-existing image file refs.
         const outboundAttachments: Attachment[] = [];
         if (contentBlocks) {
-          const wsDir = workspaceDir(sessionId);
+          // Index extracted files by fileId for O(1) lookup
+          const extractedMap = new Map<string, ExtractedFile>();
+          if (extractedFiles) {
+            for (const ef of extractedFiles) extractedMap.set(ef.fileId, ef);
+          }
+
           for (const block of contentBlocks) {
             if (block.type === 'image') {
-              try {
-                const segments = block.fileId.split('/').filter(Boolean);
-                const filePath = safePath(wsDir, ...segments);
-                const data = readFileSync(filePath);
+              const extracted = extractedMap.get(block.fileId);
+              if (extracted) {
+                // Use in-memory Buffer directly — no disk read needed
                 outboundAttachments.push({
-                  filename: segments[segments.length - 1] ?? block.fileId,
+                  filename: block.fileId.split('/').pop() ?? block.fileId,
                   mimeType: block.mimeType,
-                  size: data.length,
-                  content: data,
+                  size: extracted.data.length,
+                  content: extracted.data,
                 });
-              } catch (err) {
-                logger.warn('outbound_attachment_failed', {
-                  fileId: block.fileId,
-                  error: (err as Error).message,
-                });
+              } else {
+                // Fallback: read from disk (e.g. agent wrote file via workspace_write_file)
+                try {
+                  const wsDir = workspaceDir(sessionId);
+                  const segments = block.fileId.split('/').filter(Boolean);
+                  const filePath = safePath(wsDir, ...segments);
+                  const data = readFileSync(filePath);
+                  outboundAttachments.push({
+                    filename: segments[segments.length - 1] ?? block.fileId,
+                    mimeType: block.mimeType,
+                    size: data.length,
+                    content: data,
+                  });
+                } catch (err) {
+                  logger.warn('outbound_attachment_failed', {
+                    fileId: block.fileId,
+                    error: (err as Error).message,
+                  });
+                }
               }
             }
           }

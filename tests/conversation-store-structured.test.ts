@@ -25,6 +25,27 @@ describe('conversation store structured content', () => {
       const result = serializeContent(blocks);
       expect(result).toBe(JSON.stringify(blocks));
     });
+
+    test('strips image_data blocks before serializing', () => {
+      const blocks: ContentBlock[] = [
+        { type: 'text', text: 'Here is the chart:' },
+        { type: 'image_data', data: 'iVBORw0KGgoAAAA==', mimeType: 'image/png' },
+        { type: 'image', fileId: 'files/abc.png', mimeType: 'image/png' },
+      ];
+      const result = serializeContent(blocks);
+      const parsed = JSON.parse(result);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0]).toEqual({ type: 'text', text: 'Here is the chart:' });
+      expect(parsed[1]).toEqual({ type: 'image', fileId: 'files/abc.png', mimeType: 'image/png' });
+    });
+
+    test('strips all image_data blocks when array is entirely image_data', () => {
+      const blocks: ContentBlock[] = [
+        { type: 'image_data', data: 'AAAA', mimeType: 'image/jpeg' },
+      ];
+      const result = serializeContent(blocks);
+      expect(result).toBe('[]');
+    });
   });
 
   describe('deserializeContent', () => {

@@ -1,5 +1,11 @@
 # Lessons Learned
 
+### Node.js fetch body does not accept Buffer in strict TypeScript
+**Date:** 2026-02-25
+**Context:** Passing `att.content` (a Buffer) as `body` to `fetch()` in the Slack provider caused TS2769 — `Buffer` is not assignable to `BodyInit`.
+**Lesson:** Wrap Buffer with `new Uint8Array(buffer)` when passing to `fetch()` body. Uint8Array is accepted by BodyInit; Buffer (which extends Uint8Array) is not in strict mode because of extra properties.
+**Tags:** typescript, fetch, buffer, slack
+
 ### Configure wizard must set config.model for non-claude-code agents
 **Date:** 2026-02-22
 **Context:** Users running `bun serve` after configure got "config.model is required for LLM router" because the wizard never prompted for a model

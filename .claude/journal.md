@@ -368,3 +368,31 @@
 **Files touched:** src/agent/prompt/modules/delegation.ts, tests/agent/tool-catalog-sync.test.ts
 **Outcome:** Success — all tests pass
 **Notes:** Key insight: sub-agents go through processCompletion which rebuilds the full prompt (identity, security, etc.) from the child config. The parent doesn't need to re-inject any of that — just the task-specific context.
+
+## [2026-02-25 17:00] — Add image_data transient block type and in-memory image pipeline (WIP)
+
+**Task:** Enable agents to generate images (via tool_result image_data blocks) and have them flow through the pipeline to Slack as file uploads, without persisting raw base64 in conversation history or on disk unnecessarily.
+**What I did:**
+1. Added `image_data` content block type to `src/types.ts` and its Zod schema to `src/ipc-schemas.ts`
+2. Updated `src/host/server-completions.ts`: `extractImageDataBlocks()` pulls image_data blocks out of agent response, decodes base64 to Buffer, writes to workspace, and returns both workspace-relative file refs (for persistence) and in-memory ExtractedFile buffers (for outbound). New `ExtractedFile` type and `CompletionResult.extractedFiles` field.
+3. Updated `src/host/server-channels.ts`: outbound attachment path now uses in-memory `extractedFiles` Map for O(1) lookup, falling back to disk read for file refs not in the map.
+4. Updated `src/providers/channel/slack.ts`: replaced deprecated `files.uploadV2` with modern 3-step external upload flow (`files.getUploadURLExternal` → PUT → `files.completeUploadExternal`).
+**Files touched:** src/types.ts, src/ipc-schemas.ts, src/host/server-completions.ts, src/host/server-channels.ts, src/providers/channel/slack.ts
+**Outcome:** Partial — core pipeline is wired up. Still need: Anthropic provider image_data handling, conversation store persistence guard, tests.
+**Notes:** The `image_data` block type is transient — it should never be serialized into conversation history. The extraction step in server-completions replaces image_data blocks with persistent `image` (file ref) blocks before storing.
+
+## [2026-02-25 18:06] — Complete image_data pipeline: Anthropic, persistence guard, tests
+
+**Task:** Finish the image_data pipeline — Anthropic provider support, defense-in-depth persistence guard, and comprehensive tests.
+**What I did:**
+1. Added `image_data` block handling to Anthropic provider's `toAnthropicContent()` — converts directly to Anthropic `base64` image source without disk round-trip. Exported the function for testability.
+2. Added defense-in-depth guard to `serializeContent()` in conversation-store.ts — filters out any `image_data` blocks before JSON serialization, preventing accidental base64 leakage into SQLite.
+3. Added tests:
+   - `conversation-store-structured.test.ts`: 2 tests verifying image_data blocks are stripped during serialization
+   - `server-completions-images.test.ts`: 3 tests for `extractImageDataBlocks()` — pass-through, single extraction with disk write, multiple interspersed blocks
+   - `anthropic.test.ts`: 4 tests for `toAnthropicContent()` — string passthrough, image_data conversion, image fallback, image with resolver
+   - `slack.test.ts`: 1 test for external upload flow (getUploadURLExternal → PUT → completeUploadExternal), updated mock to include new API methods
+4. Fixed TypeScript build error: `Buffer` → `new Uint8Array(buffer)` for `fetch` body compatibility.
+**Files touched:** src/providers/llm/anthropic.ts, src/conversation-store.ts, src/providers/channel/slack.ts, tests/conversation-store-structured.test.ts, tests/host/server-completions-images.test.ts, tests/providers/llm/anthropic.test.ts, tests/providers/channel/slack.test.ts
+**Outcome:** Success — 76/76 tests pass across all 6 affected test files. TypeScript build clean (only pre-existing @opentelemetry missing package errors).
+**Notes:** The `toAnthropicContent` function was unexported — had to export it for direct testing. The Buffer-to-Uint8Array conversion was needed because Node.js fetch's BodyInit doesn't accept Buffer directly in strict TypeScript mode.

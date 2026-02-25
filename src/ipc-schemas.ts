@@ -49,6 +49,7 @@ const contentBlock = z.union([
   z.strictObject({ type: z.literal('tool_use'), id: safeString(200), name: safeString(200), input: z.any() }),
   z.strictObject({ type: z.literal('tool_result'), tool_use_id: safeString(200), content: safeString(200_000) }),
   z.strictObject({ type: z.literal('image'), fileId: safeString(1024), mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']) }),
+  z.strictObject({ type: z.literal('image_data'), data: safeString(20_000_000), mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']) }),
 ]);
 
 export const LlmCallSchema = ipcAction('llm_call', {
