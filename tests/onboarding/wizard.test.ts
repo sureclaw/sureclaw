@@ -586,10 +586,10 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.model).toBe('anthropic/claude-sonnet-4-20250514');
+    expect(config.models).toEqual(['anthropic/claude-sonnet-4-20250514']);
   });
 
-  test('omits model from ax.yaml for claude-code agent', async () => {
+  test('omits models from ax.yaml for claude-code agent', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -603,7 +603,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.model).toBeUndefined();
+    expect(config.models).toBeUndefined();
   });
 
   test('writes provider-specific API key env var for non-anthropic provider', async () => {
@@ -727,7 +727,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = loadConfig(join(dir, 'ax.yaml'));
-    expect(config.model).toBe('anthropic/claude-sonnet-4-20250514');
+    expect(config.models).toEqual(['anthropic/claude-sonnet-4-20250514']);
     expect(config.agent).toBe('pi-agent-core');
   });
 });

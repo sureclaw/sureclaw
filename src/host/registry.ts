@@ -14,7 +14,7 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
   // For claude-code agents, LLM calls go through the credential-injecting proxy,
   // not through IPC. Load 'anthropic' as a stub so the server can report a model
   // name. For all other agents, always use the LLM router — it parses compound
-  // provider/model IDs from config.model.
+  // provider/model IDs from config.models.
   const llmProviderName = config.agent === 'claude-code'
     ? 'anthropic'
     : 'router';
@@ -23,6 +23,11 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
   const tracedLlm = isTracingEnabled()
     ? new TracedLLMProvider(llm, getTracer())
     : llm;
+
+  // Load image router only when image_models is configured.
+  const image = config.image_models?.length
+    ? await loadProvider('image', 'router', config)
+    : undefined;
 
   // Load screener first so it can be injected into the skills provider
   const skillScreener = config.providers.skillScreener
@@ -36,6 +41,7 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
 
   return {
     llm:         tracedLlm,
+    image,
     memory:      await loadProvider('memory', config.providers.memory, config),
     scanner:     await loadProvider('scanner', config.providers.scanner, config),
     channels,

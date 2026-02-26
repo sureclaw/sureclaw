@@ -7,11 +7,10 @@ import type { Config } from '../../../src/types.js';
 // Helpers
 // ───────────────────────────────────────────────────────
 
-/** Build a minimal Config with model and optional fallbacks. */
+/** Build a minimal Config with models array (first is primary, rest are fallbacks). */
 function routerConfig(model: string, fallbacks?: string[]): Config {
   return {
-    model,
-    model_fallbacks: fallbacks,
+    models: [model, ...(fallbacks ?? [])],
     profile: 'balanced',
     providers: {
       memory: 'file', scanner: 'basic',
@@ -97,14 +96,14 @@ describe('LLM router', () => {
 
   // For integration-level testing, we use the mock provider through loadProviders.
 
-  test('create() requires config.model', async () => {
+  test('create() requires config.models', async () => {
     // Mock the resolveProviderPath import so we don't need real providers
     const config = routerConfig('mock/default');
-    delete (config as any).model;
+    delete (config as any).models;
 
     // Import create and test directly
     const { create } = await import('../../../src/providers/llm/router.js');
-    await expect(create(config)).rejects.toThrow('config.model is required');
+    await expect(create(config)).rejects.toThrow('config.models is required');
   });
 
   test('create() rejects bare model name', async () => {
@@ -157,9 +156,8 @@ describe('LLM router', () => {
     expect(router.name).toContain('mock/fallback2');
   });
 
-  test('empty model_fallbacks works like single candidate', async () => {
+  test('single model in array works like single candidate', async () => {
     const config = routerConfig('mock/only');
-    config.model_fallbacks = [];
     const { create } = await import('../../../src/providers/llm/router.js');
     const router = await create(config);
 

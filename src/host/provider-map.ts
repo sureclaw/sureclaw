@@ -18,6 +18,14 @@ const _PROVIDER_MAP = {
     router:     '../providers/llm/router.js',
     mock:       '../providers/llm/mock.js',
   },
+  image: {
+    openai:     '../providers/image/openai-images.js',
+    openrouter: '../providers/image/openai-images.js',
+    groq:       '../providers/image/openai-images.js',
+    gemini:     '../providers/image/gemini.js',
+    router:     '../providers/image/router.js',
+    mock:       '../providers/image/mock.js',
+  },
   memory: {
     file:   '../providers/memory/file.js',
     sqlite: '../providers/memory/sqlite.js',
@@ -91,6 +99,7 @@ export type ProviderKind = keyof ProviderMapType;
 
 /** Valid names for each provider kind. */
 export type LLMProviderName        = keyof ProviderMapType['llm'];
+export type ImageProviderName      = keyof ProviderMapType['image'];
 export type MemoryProviderName     = keyof ProviderMapType['memory'];
 export type ScannerProviderName    = keyof ProviderMapType['scanner'];
 export type ChannelProviderName    = keyof ProviderMapType['channel'];

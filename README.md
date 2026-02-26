@@ -67,16 +67,20 @@ We default to Paranoid not because we think you need it, but because we think de
 
 ### Multi-Provider LLM Support
 
-AX isn't locked to one AI provider. Configure any combination of Anthropic, OpenAI, Groq, OpenRouter, or any OpenAI-compatible API using compound model IDs:
+AX isn't locked to one AI provider. Configure any combination of Anthropic, OpenAI, Groq, OpenRouter, or any OpenAI-compatible API using compound model IDs. First model is primary, rest are fallbacks:
 
 ```yaml
-model: anthropic/claude-sonnet-4-20250514
-model_fallbacks:
+models:
+  - anthropic/claude-sonnet-4-20250514
   - groq/llama-3.3-70b-versatile
   - openrouter/google/gemini-2.0-flash-001
+
+image_models:
+  - openai/gpt-image-1.5
+  - openrouter/seedream-5-0
 ```
 
-The **LLM router** handles failover automatically — if your primary model hits a rate limit or goes down, AX falls back to the next candidate with exponential backoff. You set the preference order; we handle the rest.
+The **LLM router** handles failover automatically — if your primary model hits a rate limit or goes down, AX falls back to the next candidate with exponential backoff. The **image router** works the same way for image generation. You set the preference order; we handle the rest.
 
 ### Conversation History
 

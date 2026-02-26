@@ -15,6 +15,7 @@ import { createDelegationHandlers } from './ipc-handlers/delegation.js';
 import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
 import { createWorkspaceHandlers } from './ipc-handlers/workspace.js';
 import { createGovernanceHandlers } from './ipc-handlers/governance.js';
+import { createImageHandlers } from './ipc-handlers/image.js';
 import { AgentRegistry } from './agent-registry.js';
 
 const logger = getLogger().child({ component: 'ipc' });
@@ -80,6 +81,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       profile,
       taintBudget,
     }),
+    ...createImageHandlers(providers),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentName),
     ...createWorkspaceHandlers(providers, { agentName, profile }),

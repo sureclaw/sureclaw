@@ -1,6 +1,7 @@
 // src/types.ts — Shared cross-cutting types
 import type { ProfileName } from './onboarding/prompts.js';
 import type { LLMProvider } from './providers/llm/types.js';
+import type { ImageProvider } from './providers/image/types.js';
 import type { MemoryProvider } from './providers/memory/types.js';
 import type { ScannerProvider } from './providers/scanner/types.js';
 import type { ChannelProvider, ChannelAccessConfig } from './providers/channel/types.js';
@@ -46,8 +47,8 @@ export interface Config {
   agent?: AgentType;
   /** Enterprise agent name — used for registry and workspace paths. Defaults to 'main'. */
   agent_name?: string;
-  model?: string;
-  model_fallbacks?: string[];
+  models?: string[];
+  image_models?: string[];
   max_tokens?: number;
   profile: ProfileName;
   providers: {
@@ -93,6 +94,7 @@ export interface Config {
 
 export interface ProviderRegistry {
   llm: LLMProvider;
+  image?: ImageProvider;
   memory: MemoryProvider;
   scanner: ScannerProvider;
   channels: ChannelProvider[];
