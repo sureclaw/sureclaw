@@ -54,6 +54,7 @@ const contentBlock = z.union([
 
 export const LlmCallSchema = ipcAction('llm_call', {
   model: safeString(128).optional(),
+  taskType: z.enum(['default', 'fast', 'thinking', 'coding']).optional(),
   messages: z.array(z.strictObject({
     role: z.enum(['user', 'assistant', 'system']),
     content: z.union([safeString(200_000), z.array(contentBlock)]),

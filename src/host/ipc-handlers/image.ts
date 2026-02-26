@@ -24,8 +24,8 @@ export function createImageHandlers(providers: ProviderRegistry) {
     image_generate: async (req: any, ctx: IPCContext) => {
       if (!providers.image) {
         throw new Error(
-          'No image provider configured. Add image_models to ax.yaml ' +
-          '(e.g. image_models: ["openai/gpt-image-1.5"])',
+          'No image provider configured. Add models.image to ax.yaml ' +
+          '(e.g. models: { default: [...], image: ["openai/gpt-image-1.5"] })',
         );
       }
 

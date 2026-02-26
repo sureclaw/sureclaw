@@ -81,7 +81,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   // Build full config
   const config: Record<string, unknown> = {
     agent: answers.agent ?? defaults.agent,
-    ...(answers.model ? { models: [answers.model] } : {}),
+    ...(answers.model ? { models: { default: [answers.model] } } : {}),
     profile: answers.profile,
     providers,
     ...(Object.keys(channelConfig).length > 0 ? { channel_config: channelConfig } : {}),
@@ -151,8 +151,8 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const parsed = parseYaml(raw);
 
     // Derive LLM provider from compound model ID (e.g. "openrouter/gpt-4.1" → "openrouter")
-    const models: string[] | undefined = parsed.models;
-    const model: string | undefined = models?.[0];
+    const defaultModels: string[] | undefined = parsed.models?.default;
+    const model: string | undefined = defaultModels?.[0];
     const llmProvider: string | undefined = model ? model.split('/')[0] : undefined;
 
     // Read secrets from .env if it exists

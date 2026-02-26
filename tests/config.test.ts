@@ -94,13 +94,14 @@ scheduler:
     }
   });
 
-  test('accepts config with models array', async () => {
+  test('accepts config with models map (default + fallbacks)', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-model.yaml');
     writeFileSync(tmpPath, `
 models:
-  - groq/moonshotai/kimi-k2-instruct-0905
-  - openrouter/anthropic/claude-sonnet-4
+  default:
+    - groq/moonshotai/kimi-k2-instruct-0905
+    - openrouter/anthropic/claude-sonnet-4
 profile: balanced
 providers:
   memory: file
@@ -123,7 +124,7 @@ scheduler:
 `);
     try {
       const config = loadConfig(tmpPath);
-      expect(config.models).toEqual([
+      expect(config.models!.default).toEqual([
         'groq/moonshotai/kimi-k2-instruct-0905',
         'openrouter/anthropic/claude-sonnet-4',
       ]);
@@ -132,15 +133,16 @@ scheduler:
     }
   });
 
-  test('accepts config with image_models array', async () => {
+  test('accepts config with models.image array', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-image-models.yaml');
     writeFileSync(tmpPath, `
 models:
-  - anthropic/claude-sonnet-4-20250514
-image_models:
-  - openai/gpt-image-1.5
-  - openrouter/seedream-5-0
+  default:
+    - anthropic/claude-sonnet-4-20250514
+  image:
+    - openai/gpt-image-1.5
+    - openrouter/seedream-5-0
 profile: balanced
 providers:
   memory: file
@@ -163,10 +165,57 @@ scheduler:
 `);
     try {
       const config = loadConfig(tmpPath);
-      expect(config.image_models).toEqual([
+      expect(config.models!.image).toEqual([
         'openai/gpt-image-1.5',
         'openrouter/seedream-5-0',
       ]);
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('accepts config with all task-type model chains', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-task-models.yaml');
+    writeFileSync(tmpPath, `
+models:
+  default:
+    - anthropic/claude-sonnet-4-20250514
+  fast:
+    - anthropic/claude-haiku-4-5-20251001
+  thinking:
+    - anthropic/claude-opus-4-20250514
+  coding:
+    - anthropic/claude-sonnet-4-20250514
+  image:
+    - openai/gpt-image-1.5
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.models!.default).toEqual(['anthropic/claude-sonnet-4-20250514']);
+      expect(config.models!.fast).toEqual(['anthropic/claude-haiku-4-5-20251001']);
+      expect(config.models!.thinking).toEqual(['anthropic/claude-opus-4-20250514']);
+      expect(config.models!.coding).toEqual(['anthropic/claude-sonnet-4-20250514']);
+      expect(config.models!.image).toEqual(['openai/gpt-image-1.5']);
     } finally {
       rmSync(tmpPath);
     }

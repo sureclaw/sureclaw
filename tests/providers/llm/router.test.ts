@@ -1,16 +1,19 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { parseCompoundId } from '../../../src/providers/llm/router.js';
 import type { LLMProvider, ChatRequest, ChatChunk } from '../../../src/providers/llm/types.js';
-import type { Config } from '../../../src/types.js';
+import type { Config, ModelMap } from '../../../src/types.js';
 
 // ───────────────────────────────────────────────────────
 // Helpers
 // ───────────────────────────────────────────────────────
 
-/** Build a minimal Config with models array (first is primary, rest are fallbacks). */
-function routerConfig(model: string, fallbacks?: string[]): Config {
+/** Build a minimal Config with models map. */
+function routerConfig(model: string, fallbacks?: string[], extras?: Partial<ModelMap>): Config {
   return {
-    models: [model, ...(fallbacks ?? [])],
+    models: {
+      default: [model, ...(fallbacks ?? [])],
+      ...extras,
+    },
     profile: 'balanced',
     providers: {
       memory: 'file', scanner: 'basic',
@@ -96,14 +99,14 @@ describe('LLM router', () => {
 
   // For integration-level testing, we use the mock provider through loadProviders.
 
-  test('create() requires config.models', async () => {
+  test('create() requires config.models.default', async () => {
     // Mock the resolveProviderPath import so we don't need real providers
     const config = routerConfig('mock/default');
     delete (config as any).models;
 
     // Import create and test directly
     const { create } = await import('../../../src/providers/llm/router.js');
-    await expect(create(config)).rejects.toThrow('config.models is required');
+    await expect(create(config)).rejects.toThrow('config.models.default is required');
   });
 
   test('create() rejects bare model name', async () => {
@@ -146,7 +149,7 @@ describe('LLM router', () => {
     expect(models.some(m => m.startsWith('mock/'))).toBe(true);
   });
 
-  test('router name includes all candidates', async () => {
+  test('router name includes default candidates', async () => {
     const config = routerConfig('mock/primary', ['mock/fallback1', 'mock/fallback2']);
     const { create } = await import('../../../src/providers/llm/router.js');
     const router = await create(config);
@@ -165,6 +168,45 @@ describe('LLM router', () => {
       router.chat({ model: 'x', messages: [{ role: 'user', content: 'test' }] }),
     );
     expect(chunks.some(c => c.type === 'done')).toBe(true);
+  });
+
+  test('taskType falls back to default when not configured', async () => {
+    // Config only has default — requesting 'fast' should use default chain
+    const config = routerConfig('mock/default-model');
+    const { create } = await import('../../../src/providers/llm/router.js');
+    const router = await create(config);
+
+    const chunks = await collectChunks(
+      router.chat({ model: 'x', taskType: 'fast', messages: [{ role: 'user', content: 'test' }] }),
+    );
+    expect(chunks.some(c => c.type === 'text')).toBe(true);
+  });
+
+  test('taskType routes to dedicated fast chain when configured', async () => {
+    // Default uses a provider with no API key (will throw), fast uses mock (will succeed).
+    // If taskType='fast' correctly routes to the fast chain, the call succeeds.
+    const savedKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+
+    try {
+      const config = routerConfig('openai/gpt-4', [], { fast: ['mock/fast-model'] });
+      const { create } = await import('../../../src/providers/llm/router.js');
+      const router = await create(config);
+
+      // taskType='fast' → routes to mock → succeeds
+      const chunks = await collectChunks(
+        router.chat({ model: 'x', taskType: 'fast', messages: [{ role: 'user', content: 'test' }] }),
+      );
+      expect(chunks.some(c => c.type === 'text')).toBe(true);
+      expect(chunks.some(c => c.type === 'done')).toBe(true);
+
+      // No taskType → routes to default (openai without key) → throws
+      const iter = router.chat({ model: 'x', messages: [{ role: 'user', content: 'test' }] });
+      await expect(collectChunks(iter)).rejects.toThrow();
+    } finally {
+      if (savedKey !== undefined) process.env.OPENAI_API_KEY = savedKey;
+      else delete process.env.OPENAI_API_KEY;
+    }
   });
 });
 

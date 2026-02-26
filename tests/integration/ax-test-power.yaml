@@ -3,7 +3,8 @@
 # LLM is still mock for testing (no API key needed)
 profile: yolo
 models:
-  - mock/default
+  default:
+    - mock/default
 providers:
   memory: file
   scanner: patterns

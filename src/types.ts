@@ -43,12 +43,28 @@ export interface TaintTag {
 
 export type AgentType = 'pi-agent-core' | 'pi-coding-agent' | 'claude-code';
 
+/** Task types for model routing. All except 'default' are optional and fall back to 'default'. */
+export const MODEL_TASK_TYPES = ['default', 'fast', 'thinking', 'coding', 'image'] as const;
+export type ModelTaskType = typeof MODEL_TASK_TYPES[number];
+
+/** LLM-only task types (everything except 'image', which goes to the image router). */
+export const LLM_TASK_TYPES = ['default', 'fast', 'thinking', 'coding'] as const;
+export type LLMTaskType = typeof LLM_TASK_TYPES[number];
+
+/** Per-task-type model map. 'default' is required; all others fall back to it when missing. */
+export interface ModelMap {
+  default: string[];
+  fast?: string[];
+  thinking?: string[];
+  coding?: string[];
+  image?: string[];
+}
+
 export interface Config {
   agent?: AgentType;
   /** Enterprise agent name — used for registry and workspace paths. Defaults to 'main'. */
   agent_name?: string;
-  models?: string[];
-  image_models?: string[];
+  models?: ModelMap;
   max_tokens?: number;
   profile: ProfileName;
   providers: {

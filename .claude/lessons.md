@@ -220,3 +220,9 @@
 **Context:** When renaming `Config.model` to `Config.models`, initially thought ALL `config.model` references needed updating. But `AgentConfig` in runner.ts has its own `model` field (agent-side model from CLI args) that is a completely different type.
 **Lesson:** Before bulk-renaming a field across the codebase, verify which TYPE each `config.model` reference belongs to. `Config` (from ax.yaml, host-side) and `AgentConfig` (from CLI args, agent-side) are different types with different `model` fields. Use TypeScript's type system or grep for the import to disambiguate.
 **Tags:** config, types, rename, agent-config, disambiguation
+
+### Mock LLM provider doesn't echo model names — use provider failures to verify routing
+**Date:** 2026-02-26
+**Context:** Writing tests for task-type model routing in the LLM router. Tried to verify which model chain was used by checking the mock provider's response text, but it returns static "Hello from mock LLM." regardless of model name.
+**Lesson:** To test that the router selects the correct model chain for a task type, set the "wrong" chain to a provider that will fail (e.g., `openai/gpt-4` without API key) and the "right" chain to mock. If routing is correct, the call succeeds; if wrong, it throws. This is more robust than trying to inspect response content.
+**Tags:** testing, llm-router, mock-provider, task-type-routing

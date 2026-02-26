@@ -1,8 +1,14 @@
 /**
- * LLM Router — dispatches chat() calls across primary + fallback models.
+ * LLM Router — dispatches chat() calls across task-type model chains.
  *
- * Parses compound `provider/model` IDs, loads one child LLMProvider per
- * unique provider name, and runs a fallback loop with per-provider cooldowns.
+ * Reads the `models` map from config (keyed by task type: default, fast,
+ * thinking, coding). Each task type has its own fallback chain of compound
+ * `provider/model` IDs. On each chat() call, the router resolves the
+ * request's `taskType` to the appropriate chain, falling back to 'default'
+ * when the requested type has no models configured.
+ *
+ * Loads one child LLMProvider per unique provider name across all task types,
+ * and runs a fallback loop with per-provider cooldowns.
  *
  * Active for all IPC-based agents. The `claude-code` agent is excluded —
  * it uses Anthropic directly via the credential-injecting proxy.
@@ -10,7 +16,8 @@
 
 import { resolveProviderPath } from '../../host/provider-map.js';
 import type { LLMProvider, ChatRequest, ChatChunk } from './types.js';
-import type { Config } from '../../types.js';
+import type { Config, LLMTaskType } from '../../types.js';
+import { LLM_TASK_TYPES } from '../../types.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'llm-router' });
@@ -72,20 +79,31 @@ function isRetryable(err: unknown): boolean {
 // ───────────────────────────────────────────────────────
 
 export async function create(config: Config): Promise<LLMProvider> {
-  // Parse candidates from config.models array (first is primary, rest are fallbacks)
-  if (!config.models || config.models.length === 0) {
-    throw new Error('config.models is required for LLM router (array of compound provider/model IDs)');
+  if (!config.models || !config.models.default || config.models.default.length === 0) {
+    throw new Error('config.models.default is required for LLM router (array of compound provider/model IDs)');
   }
 
-  const candidates = config.models.map(parseCompoundId);
+  // Build per-task-type candidate chains (LLM types only, excluding 'image')
+  const taskChains = new Map<LLMTaskType, ModelCandidate[]>();
+  for (const taskType of LLM_TASK_TYPES) {
+    const ids = config.models[taskType];
+    if (ids && ids.length > 0) {
+      taskChains.set(taskType, ids.map(parseCompoundId));
+    }
+  }
+
+  // 'default' is guaranteed to exist by the check above
+  const defaultCandidates = taskChains.get('default')!;
 
   logger.info('init', {
-    models: config.models,
-    candidateCount: candidates.length,
+    taskTypes: [...taskChains.keys()],
+    defaultModels: config.models.default,
+    totalChains: taskChains.size,
   });
 
-  // Deduplicate provider names and load one child LLMProvider per unique name.
-  const uniqueProviders = [...new Set(candidates.map(c => c.provider))];
+  // Deduplicate provider names across ALL task types and load one child LLMProvider per unique name.
+  const allCandidates = [...taskChains.values()].flat();
+  const uniqueProviders = [...new Set(allCandidates.map(c => c.provider))];
   const childProviders = new Map<string, LLMProvider>();
 
   for (const providerName of uniqueProviders) {
@@ -122,17 +140,31 @@ export async function create(config: Config): Promise<LLMProvider> {
     }
   }
 
+  /** Resolve a task type to its candidate chain, falling back to 'default'. */
+  function resolveCandidates(taskType?: LLMTaskType): ModelCandidate[] {
+    if (taskType && taskChains.has(taskType)) {
+      return taskChains.get(taskType)!;
+    }
+    return defaultCandidates;
+  }
+
   // Compose a display name for the router
-  const routerName = `router(${candidates.map(c => `${c.provider}/${c.model}`).join(', ')})`;
+  const routerName = `router(${defaultCandidates.map(c => `${c.provider}/${c.model}`).join(', ')})`;
 
   return {
     name: routerName,
 
     async *chat(req: ChatRequest): AsyncIterable<ChatChunk> {
+      const candidates = resolveCandidates(req.taskType);
       let lastError: Error | undefined;
 
+      logger.debug('chat_dispatch', {
+        taskType: req.taskType ?? 'default',
+        candidateCount: candidates.length,
+        candidates: candidates.map(c => `${c.provider}/${c.model}`),
+      });
+
       for (const candidate of candidates) {
-        const compoundId = `${candidate.provider}/${candidate.model}`;
         const now = Date.now();
 
         // Skip cooled-down providers

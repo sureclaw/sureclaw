@@ -6,10 +6,13 @@ import type { Config } from '../../../src/types.js';
 // Helpers
 // ───────────────────────────────────────────────────────
 
-/** Build a minimal Config with image_models array. */
+/** Build a minimal Config with models.image array. */
 function imageRouterConfig(imageModels: string[]): Config {
   return {
-    image_models: imageModels,
+    models: {
+      default: ['mock/default'],
+      image: imageModels,
+    },
     profile: 'balanced',
     providers: {
       memory: 'file', scanner: 'basic',
@@ -32,12 +35,12 @@ function imageRouterConfig(imageModels: string[]): Config {
 // ───────────────────────────────────────────────────────
 
 describe('Image router', () => {
-  test('create() requires config.image_models', async () => {
+  test('create() requires config.models.image', async () => {
     const config = imageRouterConfig(['mock/default']);
-    delete (config as any).image_models;
+    delete (config as any).models.image;
 
     const { create } = await import('../../../src/providers/image/router.js');
-    await expect(create(config)).rejects.toThrow('config.image_models is required');
+    await expect(create(config)).rejects.toThrow('config.models.image is required');
   });
 
   test('create() loads router with mock provider successfully', async () => {

@@ -169,10 +169,11 @@ export async function compactHistory(
     '---\n' + transcript + '\n---\n\n' +
     'Provide a clear, structured summary.';
 
-  // Use IPC to call the LLM for summarization
+  // Use IPC to call the LLM for summarization — request the 'fast' task type
+  // so the host-side router picks a cheap/fast model if one is configured.
   const response = await client.call({
     action: 'llm_call',
-    model: DEFAULT_MODEL_ID,
+    taskType: 'fast',
     messages: [
       { role: 'system', content: 'You are a conversation summarizer. Be concise and preserve important details.' },
       { role: 'user', content: summaryPrompt },

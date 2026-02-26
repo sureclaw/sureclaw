@@ -24,8 +24,8 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
     ? new TracedLLMProvider(llm, getTracer())
     : llm;
 
-  // Load image router only when image_models is configured.
-  const image = config.image_models?.length
+  // Load image router only when models.image is configured.
+  const image = config.models?.image?.length
     ? await loadProvider('image', 'router', config)
     : undefined;
 

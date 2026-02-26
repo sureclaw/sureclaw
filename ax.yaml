@@ -1,6 +1,7 @@
 profile: paranoid
 models:
-  - anthropic/claude-sonnet-4-20250514
+  default:
+    - anthropic/claude-sonnet-4-20250514
 providers:
   memory: file
   scanner: basic

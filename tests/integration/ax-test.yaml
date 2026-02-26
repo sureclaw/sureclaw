@@ -1,6 +1,7 @@
 profile: paranoid
 models:
-  - mock/default
+  default:
+    - mock/default
 providers:
   memory: file
   scanner: basic

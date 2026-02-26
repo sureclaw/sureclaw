@@ -2,7 +2,7 @@
  * Image Router — dispatches generate() calls across primary + fallback image models.
  *
  * Mirrors the LLM router pattern: parses compound `provider/model` IDs from
- * config.image_models, loads one child ImageProvider per unique provider name,
+ * config.models.image, loads one child ImageProvider per unique provider name,
  * and runs a fallback loop with per-provider cooldowns.
  */
 
@@ -36,14 +36,14 @@ function isRetryable(err: unknown): boolean {
 }
 
 export async function create(config: Config): Promise<ImageProvider> {
-  if (!config.image_models || config.image_models.length === 0) {
-    throw new Error('config.image_models is required for image router (array of compound provider/model IDs)');
+  if (!config.models?.image || config.models.image.length === 0) {
+    throw new Error('config.models.image is required for image router (array of compound provider/model IDs)');
   }
 
-  const candidates = config.image_models.map(parseCompoundId);
+  const candidates = config.models.image.map(parseCompoundId);
 
   logger.info('init', {
-    image_models: config.image_models,
+    image_models: config.models.image,
     candidateCount: candidates.length,
   });
 

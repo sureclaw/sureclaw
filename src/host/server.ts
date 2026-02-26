@@ -231,7 +231,7 @@ export async function createServer(
     const childConfig: Config = {
       ...config,
       ...(req.runner ? { agent: req.runner } : {}),
-      ...(req.model ? { models: [req.model] } : {}),
+      ...(req.model ? { models: { default: [req.model] } } : {}),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...(req.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: req.timeoutSec } } : {}),
     };
@@ -264,7 +264,7 @@ export async function createServer(
     agentDir: agentDirVal,
     agentName,
     profile: config.profile,
-    configModel: config.models?.[0],
+    configModel: config.models?.default?.[0],
     onDelegate: handleDelegate,
     delegation: config.delegation ? {
       maxConcurrent: config.delegation.max_concurrent,

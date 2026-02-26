@@ -1,5 +1,5 @@
 // src/providers/llm/types.ts — LLM provider types
-import type { ContentBlock, Message } from '../../types.js';
+import type { ContentBlock, Message, LLMTaskType } from '../../types.js';
 
 export interface ToolDef {
   name: string;
@@ -16,6 +16,8 @@ export interface ChatRequest {
   tools?: ToolDef[];
   maxTokens?: number;
   stream?: boolean;
+  /** Task type hint for the router — selects the model chain (falls back to 'default'). */
+  taskType?: LLMTaskType;
   /** Session ID for tracing backends (e.g. Langfuse session grouping). */
   sessionId?: string;
   /** Resolves image fileId references to binary data for LLM vision. */

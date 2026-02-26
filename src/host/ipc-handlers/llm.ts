@@ -39,6 +39,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
     llm_call: async (req: any, ctx: IPCContext) => {
       logger.debug('llm_call_start', {
         model: configModel ?? req.model,
+        taskType: req.taskType,
         maxTokens: req.maxTokens,
         toolCount: req.tools?.length ?? 0,
         toolNames: req.tools?.map((t: { name: string }) => t.name),
@@ -50,6 +51,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
         model: req.model ?? 'claude-sonnet-4-20250514',
         messages: req.messages,
         tools: req.tools,
+        taskType: req.taskType,
         maxTokens: req.maxTokens,
         sessionId: ctx.sessionId,
         resolveImageFile,

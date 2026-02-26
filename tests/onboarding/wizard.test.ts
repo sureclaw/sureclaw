@@ -586,7 +586,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
-    expect(config.models).toEqual(['anthropic/claude-sonnet-4-20250514']);
+    expect(config.models).toEqual({ default: ['anthropic/claude-sonnet-4-20250514'] });
   });
 
   test('omits models from ax.yaml for claude-code agent', async () => {
@@ -727,7 +727,7 @@ describe('Onboarding Wizard', () => {
     });
 
     const config = loadConfig(join(dir, 'ax.yaml'));
-    expect(config.models).toEqual(['anthropic/claude-sonnet-4-20250514']);
+    expect(config.models).toEqual({ default: ['anthropic/claude-sonnet-4-20250514'] });
     expect(config.agent).toBe('pi-agent-core');
   });
 });

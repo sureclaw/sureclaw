@@ -3,7 +3,8 @@
 # LLM is still mock for testing (no API key needed)
 profile: balanced
 models:
-  - mock/default
+  default:
+    - mock/default
 providers:
   memory: sqlite
   scanner: patterns

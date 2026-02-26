@@ -457,3 +457,24 @@
 **Files touched:** .claude/journal.md (this entry)
 **Outcome:** Success — comprehensive summary produced covering all 7 requested research areas
 **Notes:** Key finding for AX: Claude Code's skill system is purely prompt-based (no code execution in the skill itself — scripts are run via Bash tool), while OpenClaw's ClawHub had catastrophic supply chain issues (341-1,184 malicious skills, 12-20% of registry). The Agent Skills open standard (agentskills.io) is cross-platform and worth tracking for AX compatibility. Claude Code's plugin system (.claude-plugin/plugin.json) handles distribution — something AX doesn't have yet.
+
+## [2026-02-26 02:15] — Organize models by task type
+
+**Task:** Restructure the flat `models` array and separate `image_models` array into a task-type-keyed model map: `models: { default, fast, thinking, coding, image }`. All non-default task types are optional and fall back to `default`.
+**What I did:**
+- Added `ModelTaskType`, `LLMTaskType`, `ModelMap` types to `src/types.ts`, removed `image_models` field
+- Updated `src/config.ts` Zod schema: `models` is now a `strictObject` with required `default` and optional `fast`/`thinking`/`coding`/`image`
+- Rewrote `src/providers/llm/router.ts` to build per-task-type candidate chains, resolve `taskType` from `ChatRequest`, fall back to `default`
+- Added `taskType` field to `ChatRequest` in LLM types and to `LlmCallSchema` in IPC schemas
+- Updated IPC handler (`src/host/ipc-handlers/llm.ts`) to pass `taskType` through
+- Updated image router to read from `config.models.image` instead of `config.image_models`
+- Updated `src/host/registry.ts` to check `config.models?.image?.length`
+- Updated `src/host/server.ts` delegation config and `configModel` references
+- Updated `src/agent/runner.ts` compaction call to use `taskType: 'fast'` instead of hardcoded `DEFAULT_MODEL_ID`
+- Updated onboarding wizard to generate `models: { default: [...] }` format
+- Updated `ax.yaml`, `README.md`, all 6 test YAML fixtures
+- Updated all test files: `config.test.ts`, `router.test.ts` (LLM + image), `wizard.test.ts`, `phase1.test.ts`
+- Added 3 new router tests for task-type routing behavior
+**Files touched:** src/types.ts, src/config.ts, src/providers/llm/types.ts, src/providers/llm/router.ts, src/ipc-schemas.ts, src/host/ipc-handlers/llm.ts, src/host/ipc-handlers/image.ts, src/providers/image/router.ts, src/host/registry.ts, src/host/server.ts, src/agent/runner.ts, src/onboarding/wizard.ts, ax.yaml, README.md, tests/integration/ax-test*.yaml (6 files), tests/config.test.ts, tests/providers/llm/router.test.ts, tests/providers/image/router.test.ts, tests/onboarding/wizard.test.ts, tests/integration/phase1.test.ts
+**Outcome:** Success — build clean, all 1600 tests pass
+**Notes:** The `DEFAULT_MODEL_ID` in runner.ts is still used as a fallback for the pi-session Model object constructor — that's separate from the config-driven routing. The mock LLM provider doesn't echo back model names, so the task-type routing test verifies by setting default to a failing provider and fast to mock — if routing is wrong, the test fails.
