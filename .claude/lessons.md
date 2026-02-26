@@ -1,5 +1,16 @@
 # Lessons Learned
 
+### Provider contract pattern IS the plugin framework — packaging is the missing piece
+**Date:** 2026-02-26
+**Context:** Evaluating whether AX needs a plugin framework for extensibility
+**Lesson:** AX's provider contract pattern (TypeScript interface + `create(config)` factory + static allowlist in provider-map.ts) is already 90% of a plugin framework. The gap is packaging and distribution, not architecture. A monorepo split into scoped npm packages (@ax/provider-{kind}-{name}) can shrink core to ~3K LOC while preserving the static allowlist security invariant. The allowlist entries just change from relative paths to package names. No new trust boundary needed for first-party packages.
+**Tags:** architecture, plugins, providers, provider-map, monorepo, packaging
+
+### Static allowlist (SC-SEC-002) can point to package names, not just relative paths
+**Date:** 2026-02-26
+**Context:** Designing how provider-map.ts would work after a monorepo split
+**Lesson:** `resolveProviderPath()` currently resolves relative paths via `new URL(relativePath, import.meta.url)`. For npm packages, it can use `import('@ax/provider-llm-anthropic')` instead — this is still a static allowlist (hardcoded package names, not config-derived), so SC-SEC-002 is preserved. The key invariant is "no dynamic path construction from config values," not "paths must be relative."
+**Tags:** security, SC-SEC-002, provider-map, npm-packages, static-allowlist
 ### pi-agent-core only supports text — image blocks must bypass it
 **Date:** 2026-02-26
 **Context:** Debugging why Slack image attachments weren't visible to the LLM despite being downloaded and stored correctly.

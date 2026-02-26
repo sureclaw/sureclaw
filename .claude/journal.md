@@ -1,5 +1,12 @@
 # Journal
 
+## [2026-02-26 12:00] — Plugin framework design analysis
+
+**Task:** Evaluate whether AX should adopt an npm-based plugin framework for extensibility
+**What I did:** Analyzed the full codebase architecture (~18.5K LOC), security invariants (SC-SEC-002 static allowlist, credential isolation, no marketplace), provider contract pattern (13 categories, 30+ implementations), and design philosophy. Produced a design document with three options: (A) monorepo split into scoped @ax/ packages, (B) sandboxed PluginHost for vetted third-party providers, (C) provider SDK for compile-time integration. Recommended phased approach: SDK first, monorepo split second, plugin host only if demand warrants.
+**Files touched:** Created: docs/plans/2026-02-26-plugin-framework-design.md
+**Outcome:** Success — design document ready for review
+**Notes:** The codebase has grown 4.5x past the original LOC target. The provider pattern is already a plugin framework — the gap is packaging, not architecture. Key tension: SC-SEC-002 prevents dynamic loading, but a static allowlist pointing to npm packages instead of relative paths preserves the invariant while enabling the split.
 ## [2026-02-26 02:14] — Fix Slack image attachments not reaching the LLM
 
 **Task:** Users attaching images to Slack messages got "I don't see any image" — images were downloaded and stored but never sent to Claude.
