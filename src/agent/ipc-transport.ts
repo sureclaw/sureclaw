@@ -77,6 +77,7 @@ export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[
 
     // Inject image blocks into the last plain-text user message (the current
     // prompt). Tool-result messages have array content, so we skip those.
+    // Supports both image (fileId ref) and image_data (inline base64) blocks.
     if (imageBlocks?.length) {
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
@@ -86,6 +87,9 @@ export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[
             ...imageBlocks.map(b => {
               if (b.type === 'image') {
                 return { type: 'image' as const, fileId: b.fileId, mimeType: b.mimeType };
+              }
+              if (b.type === 'image_data') {
+                return { type: 'image_data' as const, data: b.data, mimeType: b.mimeType };
               }
               return b;
             }),

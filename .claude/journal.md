@@ -8,6 +8,14 @@
 **Outcome:** Success — all 1601 tests pass, build clean, 4 new tests for image injection
 **Notes:** The proxy stream path (createProxyStreamFn) doesn't support images yet — it goes directly to the Anthropic SDK without file resolution. A separate enhancement could add that.
 
+## [2026-02-26 02:33] — Simplify image pipeline: inline image_data instead of disk round-trip
+
+**Task:** Eliminate unnecessary disk round-trip for inbound Slack image attachments.
+**What I did:** Changed `buildContentWithAttachments()` in server-channels.ts to create `image_data` blocks (inline base64) instead of `image` blocks (fileId disk refs). This skips the write-to-disk → reference-by-fileId → resolve-from-disk pipeline. The Anthropic provider already handles `image_data` natively. Updated runner.ts and ipc-transport.ts to handle `image_data` alongside `image` blocks. Removed unused imports from server-channels.ts.
+**Files touched:** src/host/server-channels.ts, src/agent/ipc-transport.ts, src/agent/runner.ts, tests/agent/ipc-transport.test.ts
+**Outcome:** Success — all 1602 tests pass, build clean
+**Notes:** The `image` block type + `createImageResolver` are still needed for outbound direction (agent-generated images read from workspace disk).
+
 ## [2026-02-26 01:02] — Implement AgentSkills import, screener, manifest generator, and ClawHub client
 
 **Task:** Implement Phase 3 Wave 1 (static screener) and Wave 2 (ClawHub compatibility): parse SKILL.md format, auto-generate MANIFEST.yaml, screen imported skills, wire into IPC

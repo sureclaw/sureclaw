@@ -255,12 +255,12 @@ async function readStdin(): Promise<string> {
 export async function runPiCore(config: AgentConfig): Promise<void> {
   process.stderr.write(`[diag] runPiCore start\n`);
   // Extract text for the agent prompt — pi-agent-core only supports text input.
-  // Image blocks are preserved separately and injected into IPC LLM calls so
-  // the host-side resolver can download them from the workspace and send to Claude.
+  // Image blocks (image or image_data) are preserved separately and injected
+  // into IPC LLM calls so the host-side Anthropic provider can send them to Claude.
   const rawMessage = config.userMessage ?? '';
   const userMessage = typeof rawMessage === 'string' ? rawMessage : extractText(rawMessage);
   const imageBlocks: ContentBlock[] = Array.isArray(rawMessage)
-    ? rawMessage.filter((b): b is ContentBlock => b.type === 'image')
+    ? rawMessage.filter((b): b is ContentBlock => b.type === 'image' || b.type === 'image_data')
     : [];
   if (!userMessage.trim() && imageBlocks.length === 0) {
     logger.debug('pi_core_skip_empty');
