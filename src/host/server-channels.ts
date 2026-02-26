@@ -268,10 +268,12 @@ export function registerChannelHandler(
                   size: extracted.data.length,
                   content: extracted.data,
                 });
-              } else if (resultAgent && resultUser) {
+              } else {
                 // Fallback: read from disk (e.g. agent wrote file via workspace_write_file)
+                const agent = resultAgent ?? agentName;
+                const user = resultUser ?? msg.sender ?? 'default';
                 try {
-                  const wsDir = userWorkspaceDir(resultAgent, resultUser);
+                  const wsDir = userWorkspaceDir(agent, user);
                   const segments = block.fileId.split('/').filter(Boolean);
                   const filePath = safePath(wsDir, ...segments);
                   const data = readFileSync(filePath);

@@ -70,7 +70,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
   // Compose handlers from domain modules
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
-    ...createLLMHandlers(providers, opts?.configModel),
+    ...createLLMHandlers(providers, opts?.configModel, agentName),
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
     ...createBrowserHandlers(providers),

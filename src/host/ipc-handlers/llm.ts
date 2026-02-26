@@ -22,13 +22,13 @@ const EXT_TO_MIME: Record<string, string> = {
 };
 
 /** Create a file resolver that reads images from user workspace (primary) or session workspace (fallback). */
-function createImageResolver(ctx: IPCContext): ResolveImageFile {
+function createImageResolver(ctx: IPCContext, agentName: string): ResolveImageFile {
   return async (fileId: string) => {
     const segments = fileId.split('/').filter(Boolean);
 
-    // Primary: check enterprise user workspace
-    if (ctx.agentId && ctx.userId) {
-      const userWsDir = userWorkspaceDir(ctx.agentId, ctx.userId);
+    // Primary: check enterprise user workspace using configured agent name
+    if (ctx.userId) {
+      const userWsDir = userWorkspaceDir(agentName, ctx.userId);
       const userPath = safePath(userWsDir, ...segments);
       if (existsSync(userPath)) {
         const ext = extname(userPath).toLowerCase();
@@ -47,7 +47,8 @@ function createImageResolver(ctx: IPCContext): ResolveImageFile {
   };
 }
 
-export function createLLMHandlers(providers: ProviderRegistry, configModel?: string) {
+export function createLLMHandlers(providers: ProviderRegistry, configModel?: string, agentName?: string) {
+  const resolvedAgentName = agentName ?? 'main';
   return {
     llm_call: async (req: any, ctx: IPCContext) => {
       logger.debug('llm_call_start', {
@@ -58,7 +59,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
         toolNames: req.tools?.map((t: { name: string }) => t.name),
         messageCount: req.messages?.length ?? 0,
       });
-      const resolveImageFile = createImageResolver(ctx);
+      const resolveImageFile = createImageResolver(ctx, resolvedAgentName);
       const chunks: unknown[] = [];
       for await (const chunk of providers.llm.chat({
         model: req.model ?? 'claude-sonnet-4-20250514',

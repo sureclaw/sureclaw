@@ -637,3 +637,15 @@ Updated provider-map to point `openrouter` to the new provider instead of `opena
 **Files touched:** src/host/server-completions.ts (logging), src/host/server-files.ts (logging), tests/host/server-completions-images.test.ts (2 new tests), tests/host/server-multimodal.test.ts (rewritten)
 **Outcome:** Success — all tests pass (17 image tests, 22 path tests, 4 multimodal tests), TypeScript build clean
 **Notes:** Two separate workspace directories exist in AX: session workspace (`workspaceDir()`) and enterprise user workspace (`agentUserDir()`). Images are persisted to session workspace. The code is correct — the user was checking the wrong directory.
+
+## [2026-02-26 11:30] — Fix image resolver using wrong agentId and add defensive fallbacks
+
+**Task:** HTTP client not receiving image information after enterprise workspace migration
+**What I did:** Found and fixed three issues:
+1. Image resolver `agentId` mismatch: `createImageResolver` used `ctx.agentId` ('system' from defaultCtx) but images are persisted under configured `agentName` ('main'). Fixed by threading `agentName` from `createIPCHandler` → `createLLMHandlers` → `createImageResolver`.
+2. Removed overly strict guard `&& resultAgent && resultUser` in server.ts rewrite condition; added fallback defaults (`config.agent_name ?? 'main'`, `userId ?? process.env.USER ?? 'default'`).
+3. Same fix in server-channels.ts fallback disk read — removed strict guard, added `agentName` (from deps) and `msg.sender` defaults.
+Also fixed stale URL comments in server.ts routes.
+**Files touched:** src/host/ipc-handlers/llm.ts, src/host/ipc-server.ts, src/host/server.ts, src/host/server-channels.ts
+**Outcome:** Success — 1653 tests pass, TypeScript build clean
+**Notes:** The key bug was the agentId mismatch: defaultCtx.agentId='system' but images live under agentName='main'. The _sessionId injection mechanism only overrides sessionId, not agentId, so the resolver was always looking in the wrong directory for inbound images.

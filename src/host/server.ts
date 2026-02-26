@@ -360,7 +360,7 @@ export async function createServer(
       return;
     }
 
-    // File upload: POST /v1/files?session_id=<id>
+    // File upload: POST /v1/files?agent=<name>&user=<id>
     if (url.startsWith('/v1/files') && req.method === 'POST') {
       try {
         await handleFileUpload(req, res);
@@ -371,7 +371,7 @@ export async function createServer(
       return;
     }
 
-    // File download: GET /v1/files/<fileId>?session_id=<id>
+    // File download: GET /v1/files/<fileId>?agent=<name>&user=<id>
     if (url.startsWith('/v1/files/') && req.method === 'GET') {
       try {
         await handleFileDownload(req, res);
@@ -461,8 +461,10 @@ export async function createServer(
       completionDeps, content, requestId, chatReq.messages, sessionId,
       undefined, userId,
     );
-    if (contentBlocks?.some(b => b.type === 'image') && resultAgent && resultUser) {
-      responseContent = rewriteImageUrls(responseContent, contentBlocks, resultAgent, resultUser);
+    if (contentBlocks?.some(b => b.type === 'image')) {
+      const agent = resultAgent ?? config.agent_name ?? 'main';
+      const user = resultUser ?? userId ?? process.env.USER ?? 'default';
+      responseContent = rewriteImageUrls(responseContent, contentBlocks, agent, user);
     }
 
     if (chatReq.stream) {

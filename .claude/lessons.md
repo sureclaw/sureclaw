@@ -286,11 +286,17 @@
 **Lesson:** Slack's upload URL expects HTTP POST, not PUT. Using PUT causes the file to be created but not properly processed — no mimetype detection, no channel sharing. This is a known issue (bolt-js #2326). Always use the Slack SDK's `files.uploadV2()` method instead of implementing the 3-step flow manually. It handles POST correctly and wraps the entire flow. Use `initial_comment` to combine text + file as a single message.
 **Tags:** slack, file-upload, uploadV2, http-method, put-vs-post
 
-### AX has two separate workspace directories — session vs enterprise user
+### AX has two workspace directories — session sandbox vs enterprise user
 **Date:** 2026-02-26
-**Context:** User reported generated image not found in workspace at `~/.ax/agents/main/users/vinay@canopyworks.com/workspace/`, but the `/v1/files/` URL was correct.
+**Context:** After migrating file storage from session workspace to enterprise user workspace
 **Lesson:** AX has TWO distinct workspace directories:
-1. **Session workspace** (`~/.ax/data/workspaces/<session-id-path>/`) — used by `workspaceDir(sessionId)` for file API, image persistence, and file download. Colon-separated IDs are split into nested dirs (e.g., `main:http:vinay@canopyworks.com:conv-001` → `main/http/vinay@canopyworks.com/conv-001/`).
-2. **Enterprise user workspace** (`~/.ax/agents/<name>/users/<userId>/workspace/`) — used by `agentUserDir()` for per-user agent state.
-Generated images from `image_generate` are persisted to the **session workspace**, NOT the enterprise user workspace. When debugging missing files, always check which workspace directory is being examined.
-**Tags:** workspaces, paths, session-id, images, debugging, file-api
+1. **Session workspace** (`~/.ax/data/workspaces/<session-id-path>/`) — agent sandbox CWD, where agents can write files directly during execution. Ephemeral, tied to session ID.
+2. **Enterprise user workspace** (`~/.ax/agents/<name>/users/<userId>/workspace/`) — durable per-user storage. Used for file uploads/downloads, generated image persistence, and `/v1/files/` API. Keyed by agent name + user ID.
+After the migration, images are persisted to the **enterprise user workspace** and served via `?agent=<name>&user=<id>` query params. The session workspace remains as the sandbox CWD for agent execution.
+**Tags:** workspaces, paths, session-id, images, file-api, enterprise
+
+### IPC defaultCtx.agentId is 'system', not the configured agent name
+**Date:** 2026-02-26
+**Context:** Image resolver in ipc-handlers/llm.ts used `ctx.agentId` to look up images in user workspace, but images were persisted under `agentName` (typically 'main'). The resolver was looking in `~/.ax/agents/system/users/{user}/workspace/` instead of `~/.ax/agents/main/users/{user}/workspace/`.
+**Lesson:** The IPC server's `defaultCtx` has `agentId: 'system'` — this is a fixed global context, not per-request. Any IPC handler that needs the configured agent name (from `config.agent_name`) must receive it as a separate parameter, NOT from `ctx.agentId`. The `agentName` is available in `createIPCHandler` scope and should be threaded through to any handler that needs it. The `_sessionId` injection mechanism only overrides `sessionId`, not `agentId`.
+**Tags:** ipc, defaultCtx, agentId, image-resolver, workspace, enterprise
