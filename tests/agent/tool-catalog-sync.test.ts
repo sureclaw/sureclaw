@@ -162,6 +162,8 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       'llm_call',
       'browser_launch', 'browser_navigate', 'browser_snapshot',
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
+      // Image generation (host-side only for now, agent tool planned)
+      'image_generate',
       // Enterprise admin-only actions (not in tool catalog, used via direct IPC)
       'proposal_review', 'agent_registry_get',
     ]);

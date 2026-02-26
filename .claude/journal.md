@@ -381,6 +381,27 @@
 **Outcome:** Partial — core pipeline is wired up. Still need: Anthropic provider image_data handling, conversation store persistence guard, tests.
 **Notes:** The `image_data` block type is transient — it should never be serialized into conversation history. The extraction step in server-completions replaces image_data blocks with persistent `image` (file ref) blocks before storing.
 
+## [2026-02-26 00:00] — Unified image generation: config simplification + image provider category
+
+**Task:** Simplify YAML config (model+model_fallbacks → models array, add image_models array) and implement full image generation provider category
+**What I did:**
+1. **Config simplification**: Replaced `model: string` + `model_fallbacks: string[]` with single `models: string[]` array (first=primary, rest=fallbacks). Added `image_models: string[]` for image generation. Updated Zod schema, Config type, LLM router, wizard, server, and all YAML configs.
+2. **Image provider category**: Created complete image generation subsystem:
+   - `src/providers/image/types.ts`: ImageProvider interface (generate, models)
+   - `src/providers/image/openai-images.ts`: OpenAI-compatible provider (covers OpenAI, OpenRouter, Groq, Fireworks, Seedream)
+   - `src/providers/image/gemini.ts`: Gemini image generation via generateContent with responseModalities
+   - `src/providers/image/mock.ts`: Test mock returning 1x1 transparent PNG
+   - `src/providers/image/router.ts`: Multi-provider fallback router (mirrors LLM router pattern)
+3. **IPC integration**: Added `image_generate` action schema, handler (writes to workspace, returns fileId), wired into ipc-server
+4. **Registry**: Conditional image router loading when `config.image_models` is configured
+5. **Tests**: New image router test file (8 tests), updated router/config/wizard/tool-catalog-sync/phase1/phase2 tests, updated all 6 YAML test fixtures
+**Files touched:**
+- New: src/providers/image/types.ts, openai-images.ts, gemini.ts, mock.ts, router.ts, src/host/ipc-handlers/image.ts, tests/providers/image/router.test.ts
+- Modified: src/types.ts, src/config.ts, src/providers/llm/router.ts, src/host/provider-map.ts, src/host/registry.ts, src/ipc-schemas.ts, src/host/ipc-server.ts, src/host/server.ts, src/onboarding/wizard.ts, ax.yaml, README.md
+- Modified tests: tests/providers/llm/router.test.ts, tests/config.test.ts, tests/onboarding/wizard.test.ts, tests/agent/tool-catalog-sync.test.ts, tests/integration/phase1.test.ts, tests/integration/phase2.test.ts, + 6 YAML fixtures
+**Outcome:** Success — 152 test files, 1537 tests pass, 0 failures
+**Notes:** Key design: two implementation patterns cover all backends — OpenAI-compatible (same /v1/images/generations endpoint) for most providers, and Gemini (generateContent with image modalities) for Google. Aggregators like OpenRouter just need a different base URL. The compound model ID pattern (`provider/model`) and static provider allowlist work identically to the LLM layer.
+
 ## [2026-02-25 18:06] — Complete image_data pipeline: Anthropic, persistence guard, tests
 
 **Task:** Finish the image_data pipeline — Anthropic provider support, defense-in-depth persistence guard, and comprehensive tests.

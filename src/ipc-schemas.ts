@@ -67,6 +67,15 @@ export const LlmCallSchema = ipcAction('llm_call', {
   maxTokens: z.number().int().min(1).max(200_000).optional(),
 });
 
+// ── Image Generation ────────────────────────────────
+
+export const ImageGenerateSchema = ipcAction('image_generate', {
+  prompt: safeString(10_000),
+  model: safeString(128).optional(),
+  size: safeString(32).optional(),
+  quality: safeString(32).optional(),
+});
+
 // ── Memory ───────────────────────────────────────────
 
 export const MemoryWriteSchema = ipcAction('memory_write', {

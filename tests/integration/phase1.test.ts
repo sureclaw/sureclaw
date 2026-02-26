@@ -34,7 +34,7 @@ let testDataDir: string;
 function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Config {
   return {
     profile,
-    model: 'mock/default',
+    models: ['mock/default'],
     providers: {
       memory: 'sqlite', scanner: 'patterns',
       channels: [], web: 'none', browser: 'none',

@@ -94,11 +94,13 @@ scheduler:
     }
   });
 
-  test('accepts config with model field', async () => {
+  test('accepts config with models array', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-model.yaml');
     writeFileSync(tmpPath, `
-model: groq/moonshotai/kimi-k2-instruct-0905
+models:
+  - groq/moonshotai/kimi-k2-instruct-0905
+  - openrouter/anthropic/claude-sonnet-4
 profile: balanced
 providers:
   memory: file
@@ -121,17 +123,58 @@ scheduler:
 `);
     try {
       const config = loadConfig(tmpPath);
-      expect(config.model).toBe('groq/moonshotai/kimi-k2-instruct-0905');
+      expect(config.models).toEqual([
+        'groq/moonshotai/kimi-k2-instruct-0905',
+        'openrouter/anthropic/claude-sonnet-4',
+      ]);
     } finally {
       rmSync(tmpPath);
     }
   });
 
-  test('config without model field still parses (backward compat)', () => {
-    // model is optional in the schema — configs without it should parse fine.
-    // Use the real ax.yaml to verify the schema accepts whatever is there.
+  test('accepts config with image_models array', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-image-models.yaml');
+    writeFileSync(tmpPath, `
+models:
+  - anthropic/claude-sonnet-4-20250514
+image_models:
+  - openai/gpt-image-1.5
+  - openrouter/seedream-5-0
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.image_models).toEqual([
+        'openai/gpt-image-1.5',
+        'openrouter/seedream-5-0',
+      ]);
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('config without models field still parses', () => {
+    // models is optional in the schema — configs without it should parse fine.
     const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
-    // model may or may not be set — just verify parsing succeeded
     expect(config.profile).toBeDefined();
   });
 

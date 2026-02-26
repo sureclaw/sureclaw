@@ -72,18 +72,15 @@ function isRetryable(err: unknown): boolean {
 // ───────────────────────────────────────────────────────
 
 export async function create(config: Config): Promise<LLMProvider> {
-  // Parse candidates from config.model + config.model_fallbacks
-  if (!config.model) {
-    throw new Error('config.model is required for LLM router (compound provider/model ID)');
+  // Parse candidates from config.models array (first is primary, rest are fallbacks)
+  if (!config.models || config.models.length === 0) {
+    throw new Error('config.models is required for LLM router (array of compound provider/model IDs)');
   }
 
-  const primary = parseCompoundId(config.model);
-  const fallbacks = (config.model_fallbacks ?? []).map(parseCompoundId);
-  const candidates: ModelCandidate[] = [primary, ...fallbacks];
+  const candidates = config.models.map(parseCompoundId);
 
   logger.info('init', {
-    primary: config.model,
-    fallbacks: config.model_fallbacks ?? [],
+    models: config.models,
     candidateCount: candidates.length,
   });
 
