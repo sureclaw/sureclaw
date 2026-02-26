@@ -3,8 +3,7 @@
  * backfill, bootstrap gate, emoji reactions, and reconnection.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { extname } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { ChannelProvider, InboundMessage, Attachment } from '../providers/channel/types.js';
 import { canonicalize } from '../providers/channel/types.js';
@@ -25,17 +24,10 @@ const CHANNEL_RECONNECT_MAX_RETRIES = 5;
 const CHANNEL_RECONNECT_INITIAL_DELAY_MS = 2_000;
 const CHANNEL_RECONNECT_MAX_DELAY_MS = 60_000;
 
-/** MIME type to file extension mapping for downloaded attachments. */
-const MIME_TO_EXT: Record<string, string> = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-};
-
 /**
- * Download channel attachments that are images, store them in the session
- * workspace, and return structured ContentBlock[] with text + image refs.
+ * Download channel attachments that are images and embed them as inline
+ * image_data content blocks (base64). No disk round-trip — the Anthropic
+ * provider handles image_data blocks natively.
  *
  * Non-image attachments are ignored (for now).
  * If all downloads fail, returns the text content as-is.
@@ -43,7 +35,6 @@ const MIME_TO_EXT: Record<string, string> = {
 async function buildContentWithAttachments(
   textContent: string,
   attachments: Attachment[],
-  sessionId: string,
   logger: Logger,
 ): Promise<string | ContentBlock[]> {
   const imageAttachments = attachments.filter(
@@ -55,10 +46,6 @@ async function buildContentWithAttachments(
   if (textContent.trim()) {
     blocks.push({ type: 'text', text: textContent });
   }
-
-  const wsDir = workspaceDir(sessionId);
-  const filesDir = safePath(wsDir, 'files');
-  mkdirSync(filesDir, { recursive: true });
 
   for (const att of imageAttachments) {
     try {
@@ -74,25 +61,20 @@ async function buildContentWithAttachments(
       }
       if (!data || data.length === 0) continue;
 
-      const ext = MIME_TO_EXT[att.mimeType] ?? extname(att.filename) ?? '.bin';
-      const filename = `${randomUUID()}${ext}`;
-      const filePath = safePath(filesDir, filename);
-      writeFileSync(filePath, data);
-
       blocks.push({
-        type: 'image',
-        fileId: `files/${filename}`,
+        type: 'image_data',
+        data: data.toString('base64'),
         mimeType: att.mimeType as ImageMimeType,
       });
     } catch (err) {
-      logger.warn('attachment_store_failed', {
+      logger.warn('attachment_download_failed', {
         filename: att.filename,
         error: (err as Error).message,
       });
     }
   }
 
-  // If no images were stored, return plain text
+  // If no images were downloaded, return plain text
   if (blocks.length <= 1 && blocks[0]?.type === 'text') return textContent;
   if (blocks.length === 0) return textContent;
   return blocks;
@@ -243,9 +225,9 @@ export function registerChannelHandler(
       }
       sessionCanaries.set(result.sessionId, result.canaryToken);
 
-      // Download attachments (images) and build structured content
+      // Download attachments (images) and embed as inline image_data blocks
       const messageContent = msg.attachments.length > 0
-        ? await buildContentWithAttachments(msg.content, msg.attachments, sessionId, logger)
+        ? await buildContentWithAttachments(msg.content, msg.attachments, logger)
         : msg.content;
 
       // Determine if reply is optional (LLM can choose not to respond)

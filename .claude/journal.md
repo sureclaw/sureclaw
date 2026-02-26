@@ -1,5 +1,21 @@
 # Journal
 
+## [2026-02-26 02:14] — Fix Slack image attachments not reaching the LLM
+
+**Task:** Users attaching images to Slack messages got "I don't see any image" — images were downloaded and stored but never sent to Claude.
+**What I did:** Traced the full image flow: Slack → server-channels → agent stdin → pi-agent-core → convertPiMessages → IPC → host LLM handler. Found that `runPiCore()` in runner.ts stripped image blocks via `extractText()` (line 260), and `convertPiMessages()` in stream-utils.ts only kept text blocks from user messages. Since pi-agent-core only supports text, image blocks were lost before reaching the IPC transport. Fixed by extracting image blocks in `runPiCore()`, passing them to `createIPCStreamFn()`, and injecting them into the last plain-text user message after `convertPiMessages()` runs. The host-side LLM handler's existing image resolver then picks them up.
+**Files touched:** src/agent/ipc-transport.ts, src/agent/runner.ts, tests/agent/ipc-transport.test.ts
+**Outcome:** Success — all 1601 tests pass, build clean, 4 new tests for image injection
+**Notes:** The proxy stream path (createProxyStreamFn) doesn't support images yet — it goes directly to the Anthropic SDK without file resolution. A separate enhancement could add that.
+
+## [2026-02-26 02:33] — Simplify image pipeline: inline image_data instead of disk round-trip
+
+**Task:** Eliminate unnecessary disk round-trip for inbound Slack image attachments.
+**What I did:** Changed `buildContentWithAttachments()` in server-channels.ts to create `image_data` blocks (inline base64) instead of `image` blocks (fileId disk refs). This skips the write-to-disk → reference-by-fileId → resolve-from-disk pipeline. The Anthropic provider already handles `image_data` natively. Updated runner.ts and ipc-transport.ts to handle `image_data` alongside `image` blocks. Removed unused imports from server-channels.ts.
+**Files touched:** src/host/server-channels.ts, src/agent/ipc-transport.ts, src/agent/runner.ts, tests/agent/ipc-transport.test.ts
+**Outcome:** Success — all 1602 tests pass, build clean
+**Notes:** The `image` block type + `createImageResolver` are still needed for outbound direction (agent-generated images read from workspace disk).
+
 ## [2026-02-26 01:02] — Implement AgentSkills import, screener, manifest generator, and ClawHub client
 
 **Task:** Implement Phase 3 Wave 1 (static screener) and Wave 2 (ClawHub compatibility): parse SKILL.md format, auto-generate MANIFEST.yaml, screen imported skills, wire into IPC

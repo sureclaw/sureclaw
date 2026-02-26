@@ -312,6 +312,185 @@ describe('ipc-transport', () => {
     }
   });
 
+  test('injects image blocks into last user text message when provided', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [
+          { type: 'text', content: 'I can see the image.' },
+          { type: 'done', usage: { inputTokens: 100, outputTokens: 20 } },
+        ],
+      }),
+    } as unknown as IPCClient;
+
+    const imageBlocks = [
+      { type: 'image' as const, fileId: 'files/abc-123.png', mimeType: 'image/png' as const },
+    ];
+    const streamFn = createIPCStreamFn(client, imageBlocks);
+    const context: Context = {
+      systemPrompt: 'You are helpful.',
+      messages: [{ role: 'user', content: 'What is in this image?', timestamp: Date.now() }],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    // System prompt is first message
+    expect(callArg.messages[0]).toEqual({ role: 'system', content: 'You are helpful.' });
+    // User message should now be structured with text + image blocks
+    const userMsg = callArg.messages[1];
+    expect(userMsg.role).toBe('user');
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content).toHaveLength(2);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'What is in this image?' });
+    expect(userMsg.content[1]).toEqual({ type: 'image', fileId: 'files/abc-123.png', mimeType: 'image/png' });
+  });
+
+  test('injects image blocks into correct user message when tool results are present', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [{ type: 'done', usage: { inputTokens: 0, outputTokens: 0 } }],
+      }),
+    } as unknown as IPCClient;
+
+    const imageBlocks = [
+      { type: 'image' as const, fileId: 'files/photo.jpg', mimeType: 'image/jpeg' as const },
+    ];
+    const streamFn = createIPCStreamFn(client, imageBlocks);
+    const context: Context = {
+      messages: [
+        { role: 'user', content: 'Describe this image', timestamp: Date.now() },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Let me look.' },
+            { type: 'toolCall', id: 'tc_1', name: 'read_file', arguments: { path: '/tmp/a.txt' } },
+          ],
+          api: 'anthropic-messages',
+          provider: 'anthropic',
+          model: 'test',
+          usage: { inputTokens: 0, outputTokens: 0, inputCachedTokens: 0, reasoningTokens: 0, totalCost: 0 },
+          stopReason: 'toolUse',
+          timestamp: Date.now(),
+        },
+        {
+          role: 'toolResult',
+          toolCallId: 'tc_1',
+          toolName: 'read_file',
+          content: [{ type: 'text', text: 'file contents' }],
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    // The first user message (the prompt) should have image blocks injected
+    const userMsg = callArg.messages[0];
+    expect(userMsg.role).toBe('user');
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'Describe this image' });
+    expect(userMsg.content[1]).toEqual({ type: 'image', fileId: 'files/photo.jpg', mimeType: 'image/jpeg' });
+
+    // The tool result message should NOT have image blocks injected
+    const toolResultMsg = callArg.messages.find((m: any) =>
+      m.role === 'user' && Array.isArray(m.content) && m.content.some((b: any) => b.type === 'tool_result'),
+    );
+    expect(toolResultMsg).toBeDefined();
+    expect(toolResultMsg.content).toHaveLength(1);
+    expect(toolResultMsg.content[0].type).toBe('tool_result');
+  });
+
+  test('supports multiple image blocks in a single message', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [{ type: 'done', usage: { inputTokens: 0, outputTokens: 0 } }],
+      }),
+    } as unknown as IPCClient;
+
+    const imageBlocks = [
+      { type: 'image' as const, fileId: 'files/img1.png', mimeType: 'image/png' as const },
+      { type: 'image' as const, fileId: 'files/img2.jpg', mimeType: 'image/jpeg' as const },
+    ];
+    const streamFn = createIPCStreamFn(client, imageBlocks);
+    const context: Context = {
+      messages: [{ role: 'user', content: 'Compare these two images', timestamp: Date.now() }],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    const userMsg = callArg.messages[0];
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content).toHaveLength(3);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'Compare these two images' });
+    expect(userMsg.content[1]).toEqual({ type: 'image', fileId: 'files/img1.png', mimeType: 'image/png' });
+    expect(userMsg.content[2]).toEqual({ type: 'image', fileId: 'files/img2.jpg', mimeType: 'image/jpeg' });
+  });
+
+  test('injects inline image_data blocks (base64) into user message', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [
+          { type: 'text', content: 'I see a cat.' },
+          { type: 'done', usage: { inputTokens: 50, outputTokens: 10 } },
+        ],
+      }),
+    } as unknown as IPCClient;
+
+    const imageBlocks = [
+      { type: 'image_data' as const, data: 'iVBORw0KGgoAAAANS', mimeType: 'image/png' as const },
+    ];
+    const streamFn = createIPCStreamFn(client, imageBlocks);
+    const context: Context = {
+      messages: [{ role: 'user', content: 'What animal is this?', timestamp: Date.now() }],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    const userMsg = callArg.messages[0];
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content).toHaveLength(2);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'What animal is this?' });
+    expect(userMsg.content[1]).toEqual({
+      type: 'image_data',
+      data: 'iVBORw0KGgoAAAANS',
+      mimeType: 'image/png',
+    });
+  });
+
+  test('does not modify messages when no image blocks provided', async () => {
+    const client = {
+      call: vi.fn().mockResolvedValue({
+        ok: true,
+        chunks: [{ type: 'done', usage: { inputTokens: 0, outputTokens: 0 } }],
+      }),
+    } as unknown as IPCClient;
+
+    const streamFn = createIPCStreamFn(client);
+    const context: Context = {
+      messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+    };
+
+    const stream = await streamFn(mockModel, context);
+    for await (const _ of stream) { /* drain */ }
+
+    const callArg = client.call.mock.calls[0][0];
+    const userMsg = callArg.messages[0];
+    // Without image blocks, content should remain a plain string
+    expect(typeof userMsg.content).toBe('string');
+    expect(userMsg.content).toBe('Hello');
+  });
+
   test('emits tool_use events from IPC response with tool calls', async () => {
     const client = {
       call: vi.fn().mockResolvedValue({

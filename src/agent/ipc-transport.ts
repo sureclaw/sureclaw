@@ -10,6 +10,7 @@ import type {
 } from '@mariozechner/pi-ai';
 import type { StreamFn } from '@mariozechner/pi-agent-core';
 import type { IPCClient } from './ipc-client.js';
+import type { ContentBlock } from '../types.js';
 import { convertPiMessages, emitStreamEvents } from './stream-utils.js';
 import { getLogger } from '../logger.js';
 
@@ -52,8 +53,13 @@ function makeErrorMessage(errorText: string): AssistantMessage {
  * The container holds NO API keys. The host's `llm_call` IPC handler calls the
  * actual LLM provider. This function converts the batch IPC response into
  * pi-ai's AssistantMessageEventStream that the Agent class expects.
+ *
+ * @param imageBlocks - Optional image content blocks from the current user
+ *   message. pi-agent-core only supports text input, so image blocks must be
+ *   injected into the converted IPC messages so the host-side LLM handler can
+ *   resolve them (download from workspace, base64-encode, send to Claude).
  */
-export function createIPCStreamFn(client: IPCClient): StreamFn {
+export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[]): StreamFn {
   return async (model: Model<any>, context: Context, options?: SimpleStreamOptions): Promise<AssistantMessageEventStream> => {
     const stream = createAssistantMessageEventStream();
 
@@ -68,6 +74,30 @@ export function createIPCStreamFn(client: IPCClient): StreamFn {
     });
 
     const messages = convertPiMessages(context.messages);
+
+    // Inject image blocks into the last plain-text user message (the current
+    // prompt). Tool-result messages have array content, so we skip those.
+    // Supports both image (fileId ref) and image_data (inline base64) blocks.
+    if (imageBlocks?.length) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role === 'user' && typeof msg.content === 'string') {
+          msg.content = [
+            { type: 'text', text: msg.content },
+            ...imageBlocks.map(b => {
+              if (b.type === 'image') {
+                return { type: 'image' as const, fileId: b.fileId, mimeType: b.mimeType };
+              }
+              if (b.type === 'image_data') {
+                return { type: 'image_data' as const, data: b.data, mimeType: b.mimeType };
+              }
+              return b;
+            }),
+          ];
+          break;
+        }
+      }
+    }
 
     // Convert tools
     const tools = context.tools?.map((t) => ({
