@@ -167,7 +167,7 @@ describe('IPC MCP Server', () => {
     expect(result.content[0].text).toContain('"ok":true');
   });
 
-  test('all 24 IPC tools are registered', () => {
+  test('all 27 IPC tools are registered', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -185,6 +185,8 @@ describe('IPC MCP Server', () => {
       'skill_list',
       'skill_read',
       'skill_propose',
+      'skill_import',
+      'skill_search',
       // Enterprise tools
       'workspace_write', 'workspace_read', 'workspace_list', 'workspace_write_file',
       'identity_propose', 'proposal_list', 'agent_registry_list',
@@ -195,7 +197,7 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(25);
+    expect(registeredNames.length).toBe(27);
   });
 
   test('includes scheduler_add_cron tool', () => {

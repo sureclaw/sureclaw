@@ -1,5 +1,29 @@
 # Lessons Learned
 
+### Popular OpenClaw skills use clawdbot alias, not openclaw
+**Date:** 2026-02-26
+**Context:** Implementing AgentSkills SKILL.md parser for gog, nano-banana-pro, and mcporter
+**Lesson:** Real-world SKILL.md files use `metadata.clawdbot` (not `metadata.openclaw`) for their requirements blocks. Always check all three aliases (openclaw, clawdbot, clawdis) when resolving metadata. The parser must handle all of them or it will miss requirements from the most popular skills.
+**Tags:** skills, parser, openclaw, clawdbot, compatibility
+
+### Many skills have no metadata block — static analysis is essential
+**Date:** 2026-02-26
+**Context:** Parsing nano-banana-pro SKILL.md which only has name+description in frontmatter
+**Lesson:** A significant fraction of real-world skills declare ZERO requirements in their YAML frontmatter. Their dependencies (binaries like `uv`, env vars like `GEMINI_API_KEY`, scripts like `scripts/generate_image.py`) are only mentioned in the markdown body or code blocks. The manifest generator's static analysis (regex scanning of body text and code blocks) is not optional — without it, these skills get empty manifests and are useless.
+**Tags:** skills, manifest-generator, static-analysis, nano-banana-pro
+
+### Tool count tests are scattered across many test files
+**Date:** 2026-02-26
+**Context:** Adding skill_import and skill_search tools caused failures in 5 different test files
+**Lesson:** When adding new IPC tools, expect to update hardcoded tool counts in: tests/agent/tool-catalog.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts, tests/sandbox-isolation.test.ts, and tests/agent/tool-catalog-sync.test.ts. Search for the old count (e.g. "25") across all test files before committing.
+**Tags:** tools, testing, ipc, tool-catalog
+
+### OpenClaw's security failures validate AX's zero-trust architecture
+**Date:** 2026-02-25
+**Context:** Researching OpenClaw's ClawHavoc supply chain attack for skills architecture comparison
+**Lesson:** The ClawHavoc attack (824+ malicious skills on ClawHub) succeeded because: 1) no sandbox (skills run on host with full privileges), 2) no screening at upload time, 3) skills can bundle binaries added to PATH with no integrity verification, 4) no capability narrowing. AX's existing sandbox + IPC proxy + capabilities.yaml already prevents all of these attack vectors. When designing executable skills for AX, the sandbox is the runtime — binaries run inside it, not on the host. Untrusted skills must never be allowed to execute.
+**Tags:** skills, security, openclaw, sandbox, supply-chain, architecture
+
 ### Node.js fetch body does not accept Buffer in strict TypeScript
 **Date:** 2026-02-25
 **Context:** Passing `att.content` (a Buffer) as `body` to `fetch()` in the Slack provider caused TS2769 — `Buffer` is not assignable to `BodyInit`.

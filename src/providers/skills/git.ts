@@ -17,6 +17,7 @@ import { safePath } from '../../utils/safe-path.js';
 import { agentSkillsDir } from '../../paths.js';
 import type {
   SkillStoreProvider,
+  SkillScreenerProvider,
   SkillMeta,
   SkillProposal,
   ProposalResult,
@@ -85,7 +86,8 @@ interface PendingProposal {
 // Provider
 // ═══════════════════════════════════════════════════════
 
-export async function create(config: Config): Promise<SkillStoreProvider> {
+export async function create(config: Config, _name?: string, opts?: { screener?: SkillScreenerProvider }): Promise<SkillStoreProvider> {
+  const screener = opts?.screener;
   const skillsDir = agentSkillsDir('main');
   const gitDir = skillsDir;
 
@@ -129,12 +131,25 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
     return id;
   }
 
-  function validateContent(content: string): {
+  async function validateContent(content: string): Promise<{
     verdict: 'AUTO_APPROVE' | 'NEEDS_REVIEW' | 'REJECT';
     reason?: string;
     capabilities: string[];
-  } {
-    // Check hard-reject patterns first
+  }> {
+    // Delegate to screener provider when available
+    if (screener?.screenExtended) {
+      const ext = await screener.screenExtended(content);
+      const verdict = ext.verdict === 'APPROVE' ? 'AUTO_APPROVE'
+        : ext.verdict === 'REVIEW' ? 'NEEDS_REVIEW'
+        : 'REJECT';
+      return {
+        verdict,
+        reason: ext.reasons.length > 0 ? ext.reasons.map(r => r.detail).join('; ') : undefined,
+        capabilities: ext.permissions,
+      };
+    }
+
+    // Inline fallback: hard-reject patterns
     for (const pattern of HARD_REJECT_PATTERNS) {
       if (pattern.regex.test(content)) {
         return {
@@ -145,7 +160,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       }
     }
 
-    // Check capability patterns
+    // Inline fallback: capability patterns
     const capabilities: string[] = [];
     for (const pattern of CAPABILITY_PATTERNS) {
       if (pattern.regex.test(content)) {
@@ -153,7 +168,6 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       }
     }
 
-    // If capabilities detected, needs review
     if (capabilities.length > 0) {
       return {
         verdict: 'NEEDS_REVIEW',
@@ -162,7 +176,6 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       };
     }
 
-    // Safe content can be auto-approved
     return { verdict: 'AUTO_APPROVE', capabilities: [] };
   }
 
@@ -208,7 +221,7 @@ export async function create(config: Config): Promise<SkillStoreProvider> {
       const safeFilename = basename(safeFilePath); // e.g. "my-skill.md"
 
       // Validate content
-      const validation = validateContent(content);
+      const validation = await validateContent(content);
 
       const id = randomUUID();
       const pending: PendingProposal = {

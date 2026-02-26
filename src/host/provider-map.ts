@@ -76,6 +76,10 @@ const _PROVIDER_MAP = {
     cron: '../providers/scheduler/cron.js',
     full: '../providers/scheduler/full.js',
   },
+  screener: {
+    static: '../providers/screener/static.js',
+    none:   '../providers/screener/none.js',
+  },
 } as const;
 
 // Re-export with the same name and looser type for backwards compatibility.
@@ -106,6 +110,7 @@ export type SkillsProviderName     = keyof ProviderMapType['skills'];
 export type AuditProviderName      = keyof ProviderMapType['audit'];
 export type SandboxProviderName    = keyof ProviderMapType['sandbox'];
 export type SchedulerProviderName  = keyof ProviderMapType['scheduler'];
+export type ScreenerProviderName   = keyof ProviderMapType['screener'];
 
 /** Union of all provider names for a given kind. */
 export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];

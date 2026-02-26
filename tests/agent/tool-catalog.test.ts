@@ -2,8 +2,8 @@ import { describe, test, expect } from 'vitest';
 import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, normalizeOrigin, normalizeIdentityFile } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 25 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(25);
+  test('exports exactly 27 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(27);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -56,7 +56,7 @@ describe('tool-catalog', () => {
       'audit_query',
       'identity_write', 'user_write',
       'scheduler_add_cron', 'scheduler_run_at', 'scheduler_remove_cron', 'scheduler_list_jobs',
-      'skill_list', 'skill_read', 'skill_propose',
+      'skill_list', 'skill_read', 'skill_propose', 'skill_import', 'skill_search',
       'agent_delegate',
       // Enterprise tools
       'workspace_write', 'workspace_read', 'workspace_list', 'workspace_write_file',
@@ -68,7 +68,7 @@ describe('tool-catalog', () => {
   test('skill tools exist in catalog', () => {
     const skillTools = TOOL_CATALOG.filter(t => t.name.startsWith('skill_'));
     expect(skillTools.map(t => t.name).sort()).toEqual([
-      'skill_list', 'skill_propose', 'skill_read',
+      'skill_import', 'skill_list', 'skill_propose', 'skill_read', 'skill_search',
     ]);
   });
 

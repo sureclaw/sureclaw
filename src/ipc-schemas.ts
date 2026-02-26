@@ -159,6 +159,16 @@ export const SkillProposeSchema = ipcAction('skill_propose', {
   reason: safeString(2000).optional(),
 });
 
+export const SkillImportSchema = ipcAction('skill_import', {
+  source: safeString(2048),
+  autoApprove: z.boolean().optional(),
+});
+
+export const SkillSearchSchema = ipcAction('skill_search', {
+  query: safeString(500),
+  limit: z.number().int().min(1).max(50).optional(),
+});
+
 // ── Audit ────────────────────────────────────────────
 
 export const AuditQuerySchema = ipcAction('audit_query', {

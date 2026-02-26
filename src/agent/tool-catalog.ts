@@ -205,6 +205,31 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     }),
   },
 
+  {
+    name: 'skill_import',
+    label: 'Import Skill',
+    description:
+      'Import an external skill from ClawHub or local SKILL.md content. The skill is ' +
+      'parsed (AgentSkills format), screened for safety (5-layer static analysis), and ' +
+      'a security manifest is auto-generated. Source can be "clawhub:<name>" to fetch from ' +
+      'ClawHub registry, or raw SKILL.md content. Rejected skills are never installed.',
+    parameters: Type.Object({
+      source: Type.String({ description: 'Skill source: "clawhub:<name>" or raw SKILL.md content' }),
+      autoApprove: Type.Optional(Type.Boolean({ description: 'Auto-approve if screener passes (default: false)' })),
+    }),
+  },
+  {
+    name: 'skill_search',
+    label: 'Search Skills',
+    description:
+      'Search the ClawHub registry for available skills. Returns skill names, descriptions, ' +
+      'and download counts.',
+    parameters: Type.Object({
+      query: Type.String({ description: 'Search query' }),
+      limit: Type.Optional(Type.Number({ description: 'Max results (1-50, default 20)' })),
+    }),
+  },
+
   // ── Delegation tools ──
   {
     name: 'agent_delegate',

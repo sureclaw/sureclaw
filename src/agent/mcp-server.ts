@@ -188,6 +188,23 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
         },
         (args) => ipcCall('skill_propose', args)),
 
+      tool('skill_import',
+        'Import an external skill from ClawHub or local SKILL.md content. ' +
+        'Source can be "clawhub:<name>" or raw SKILL.md content.',
+        {
+          source: z.string().describe('Skill source: "clawhub:<name>" or raw SKILL.md content'),
+          autoApprove: z.boolean().optional().describe('Auto-approve if screener passes'),
+        },
+        (args) => ipcCall('skill_import', args)),
+
+      tool('skill_search',
+        'Search the ClawHub registry for available skills.',
+        {
+          query: z.string().describe('Search query'),
+          limit: z.number().optional().describe('Max results (1-50, default 20)'),
+        },
+        (args) => ipcCall('skill_search', args)),
+
       // ── Delegation tools ──
       tool(
         'agent_delegate',
