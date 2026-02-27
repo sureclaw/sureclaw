@@ -1,5 +1,13 @@
 # Journal
 
+## [2026-02-27 15:30] — Write Phase 2 monorepo split implementation plan
+
+**Task:** Create a detailed implementation plan for extracting providers into separate packages (Phase 2 of plugin framework design)
+**What I did:** Analyzed the full codebase: 5,840 LOC across 13 provider categories (36 implementations), mapped all cross-provider dependencies (6 categories of cross-imports), catalogued every provider's external npm deps and core utility imports. Wrote step-by-step implementation plan with 8 steps: prep (pnpm setup), create @ax/core, fix cross-provider deps, pilot extraction, batch extraction (27 packages in 3 batches), meta-package creation, provider-map update, CI/build update. Identified which 13 providers stay in core (~683 LOC) vs which 27 get extracted.
+**Files touched:** Created: docs/plans/2026-02-27-monorepo-split-implementation.md
+**Outcome:** Success — implementation plan ready for review
+**Notes:** Key findings: (1) image/router imports parseCompoundId from llm/router — needs extraction to shared util. (2) scheduler imports types from channel/memory/audit — all type-only, redirect to provider-sdk. (3) sandbox/utils (75 LOC) and scheduler/utils (82 LOC) are small enough to inline. (4) whatsapp/telegram/discord are in provider-map but have no source files — remove stubs. (5) provider-sdk already exists from Phase 1 with all interface re-exports — cross-provider type deps are pre-solved.
+
 ## [2026-02-27 14:30] — Create exploring-reference-repos skill
 
 **Task:** Create a new skill for exploring other git repositories to get architectural inspiration
