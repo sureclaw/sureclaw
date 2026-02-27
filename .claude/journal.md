@@ -715,6 +715,14 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Outcome:** Success — all 147 targeted tests pass, 1717/1722 total (4 flaky integration smoke timeouts unrelated to changes)
 **Notes:** Initial test run only covered new + host test files. CI runs all 167 test files including agent/ and integration/ sync tests. Lesson: always run `npm test -- --run` (full suite) before committing.
 
+## [2026-02-27 02:47] — Fix minimatch ReDoS vulnerability
+
+**Task:** Resolve npm audit high-severity vulnerability in minimatch 10.0.0-10.2.2 (ReDoS via GLOBSTAR and nested extglobs)
+**What I did:** Ran `npm audit fix` which updated minimatch and 76 related packages. Remaining 19 low-severity vulns are in fast-xml-parser deep inside @aws-sdk → @mariozechner/pi-ai transitive chain — fixing those requires a breaking dep downgrade.
+**Files touched:** package-lock.json
+**Outcome:** Success — high-severity minimatch vuln resolved, all 1721 tests pass
+**Notes:** The 19 remaining low-severity vulns need upstream @mariozechner/pi-ai to update their @aws-sdk dependency. Not actionable on our end without a breaking change.
+
 ## [2026-02-27 02:35] — Fix flaky integration smoke tests
 
 **Task:** Make the 4 flaky smoke tests more robust — they timed out under parallel CI load with "Server did not become ready in time" (stdout/stderr both empty).
