@@ -665,3 +665,38 @@ Also fixed stale URL comments in server.ts routes.
 **Files touched:** src/host/ipc-handlers/llm.ts, src/host/ipc-server.ts, src/host/server.ts, src/host/server-channels.ts
 **Outcome:** Success — 1653 tests pass, TypeScript build clean
 **Notes:** The key bug was the agentId mismatch: defaultCtx.agentId='system' but images live under agentName='main'. The _sessionId injection mechanism only overrides sessionId, not agentId, so the resolver was always looking in the wrong directory for inbound images.
+
+## [2026-02-27 01:35] — Implement plugin framework (all 3 phases)
+
+**Task:** Implement the plugin framework design from docs/plans/2026-02-26-plugin-framework-design.md. Three-phase approach: Provider SDK, monorepo prep, and PluginHost infrastructure.
+**What I did:**
+Phase 1 — Provider SDK:
+- Created `src/provider-sdk/` with re-exported interfaces from all 13 provider categories
+- Built `ProviderTestHarness` contract test runner with tests for all provider kinds
+- Added test fixtures for memory and scanner providers
+- Re-exported `safePath` utility for file-based providers
+
+Phase 2 — Monorepo preparation:
+- Updated `provider-map.ts` to support both relative paths AND package names (for future monorepo split)
+- Added runtime plugin provider registration (`registerPluginProvider`/`unregisterPluginProvider`)
+- Updated `registry.ts` to accept optional `PluginHost` for Phase 3 integration
+
+Phase 3 — Plugin Host infrastructure:
+- Created `plugin-manifest.ts` with Zod schema for MANIFEST.json validation
+- Created `plugin-lock.ts` for plugins.lock integrity-pinned registry
+- Built `PluginHost` process manager (~300 LOC) that spawns plugin workers, verifies integrity hashes, proxies provider calls via IPC, and injects credentials server-side
+- Added `createPluginWorker` helper for plugin authors
+- Created `src/cli/plugin.ts` with add/remove/list/verify subcommands
+- Added `plugin` command to CLI router
+- Added `plugin_list` and `plugin_status` IPC schemas
+
+Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 existing tests.
+**Files touched:**
+- NEW: src/provider-sdk/index.ts, interfaces/index.ts, testing/harness.ts, testing/index.ts, testing/fixtures/{memory,scanner,index}.ts, utils/safe-path.ts
+- NEW: src/host/plugin-manifest.ts, src/host/plugin-lock.ts, src/host/plugin-host.ts
+- NEW: src/cli/plugin.ts
+- NEW: tests/provider-sdk/{harness,interfaces}.test.ts
+- NEW: tests/host/{plugin-manifest,plugin-lock,plugin-host,plugin-provider-map}.test.ts
+- MODIFIED: src/host/provider-map.ts, src/host/registry.ts, src/cli/index.ts, src/ipc-schemas.ts
+**Outcome:** Success — all 383+ tests pass, TypeScript build clean, zero regressions
+**Notes:** The design doc recommended "start with Option A, design for Option B, ship Option C immediately." All three phases are implemented. The PluginHost uses child_process.fork for worker isolation, same IPC pattern as agent↔host communication. Security invariants preserved: static allowlist (SC-SEC-002), credential isolation, integrity verification, no dynamic imports from user input.

@@ -14,6 +14,7 @@ export interface CommandHandlers {
   send?: (args: string[]) => Promise<void>;
   configure?: () => Promise<void>;
   bootstrap?: (args: string[]) => Promise<void>;
+  plugin?: (args: string[]) => Promise<void>;
   help?: () => Promise<void>;
 }
 
@@ -39,6 +40,9 @@ export async function routeCommand(
     case 'bootstrap':
       if (handlers.bootstrap) await handlers.bootstrap(args.slice(1));
       break;
+    case 'plugin':
+      if (handlers.plugin) await handlers.plugin(args.slice(1));
+      break;
     default:
       if (handlers.help) await handlers.help();
       break;
@@ -55,6 +59,7 @@ Usage:
   ax send <message>      Send a single message
   ax configure           Run configuration wizard
   ax bootstrap [agent]   Reset agent identity and re-run bootstrap
+  ax plugin <command>    Manage third-party provider plugins
 
 Server Options:
   --daemon               Run server in background
@@ -106,7 +111,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'bootstrap', 'help']);
+  const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'bootstrap', 'plugin', 'help']);
   let command: string;
   let restArgs: string[];
 
@@ -138,6 +143,10 @@ export async function main(): Promise<void> {
     bootstrap: async (bootstrapArgs) => {
       const { runBootstrap } = await import('./bootstrap.js');
       await runBootstrap(bootstrapArgs);
+    },
+    plugin: async (pluginArgs) => {
+      const { runPlugin } = await import('./plugin.js');
+      await runPlugin(pluginArgs);
     },
     help: async () => {
       showHelp();

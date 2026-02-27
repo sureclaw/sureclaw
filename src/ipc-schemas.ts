@@ -328,6 +328,14 @@ export const AgentRegistryGetSchema = ipcAction('agent_registry_get', {
   agentId: safeString(100),
 });
 
+// ── Plugin Management ────────────────────────────────
+
+export const PluginListSchema = ipcAction('plugin_list', {});
+
+export const PluginStatusSchema = ipcAction('plugin_status', {
+  packageName: safeString(214),
+});
+
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry
 // ═══════════════════════════════════════════════════════

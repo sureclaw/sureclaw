@@ -1,9 +1,21 @@
-import { resolveProviderPath } from './provider-map.js';
+import { resolveProviderPath, listPluginProviders } from './provider-map.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import { isTracingEnabled, getTracer } from '../utils/tracing.js';
 import { TracedLLMProvider } from '../providers/llm/traced.js';
+import type { PluginHost } from './plugin-host.js';
 
-export async function loadProviders(config: Config): Promise<ProviderRegistry> {
+export interface LoadProvidersOptions {
+  /** Optional PluginHost for loading third-party plugin providers (Phase 3). */
+  pluginHost?: PluginHost;
+}
+
+export async function loadProviders(config: Config, opts?: LoadProvidersOptions): Promise<ProviderRegistry> {
+  // Phase 3: If a PluginHost is provided, start it so plugin-provided
+  // providers are registered in the provider map before we load them.
+  if (opts?.pluginHost) {
+    await opts.pluginHost.startAll();
+  }
+
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.
   // Old configs may still list it; silently skip for backward compatibility.
   const channelNames = config.providers.channels.filter(name => (name as string) !== 'cli');

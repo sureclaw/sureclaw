@@ -6,7 +6,11 @@
  * path construction from config values is permitted anywhere in the codebase.
  *
  * The keys are the (kind, name) pairs from ax.yaml.
- * The values are the import paths relative to this file's location.
+ * The values are either:
+ *   - Relative paths (current): '../providers/llm/anthropic.js'
+ *   - Package names (Phase 2):  '@ax/provider-llm-anthropic'
+ *
+ * resolveProviderPath() handles both transparently.
  */
 
 const _PROVIDER_MAP = {
@@ -118,27 +122,105 @@ export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];
 /**
  * Returns an absolute file URL for a given provider kind and name.
  * Resolves the relative path from the PROVIDER_MAP against this module's
- * location so the result can be used from any file in the project.
- * Throws if the combination is not in the allowlist.
+ * location so the result can be used from any import() call site.
+ *
+ * Supports two path formats:
+ *   - Relative paths: '../providers/llm/anthropic.js' → file:// URL
+ *   - Package names:  '@ax/provider-llm-anthropic'    → returned as-is for import()
+ *
+ * Throws if the (kind, name) combination is not in the allowlist.
  */
 export function resolveProviderPath(kind: string, name: string): string {
+  // First check the built-in allowlist
   const kindMap = PROVIDER_MAP[kind];
   if (!kindMap) {
+    // Also check the plugin registry for Phase 3 plugin-hosted providers
+    const pluginPath = _pluginProviderMap.get(`${kind}/${name}`);
+    if (pluginPath) return pluginPath;
+
     throw new Error(
       `Unknown provider kind: "${kind}". ` +
       `Valid kinds: ${Object.keys(PROVIDER_MAP).join(', ')}`
     );
   }
 
-  const relativePath = kindMap[name];
-  if (!relativePath) {
+  const modulePath = kindMap[name];
+  if (!modulePath) {
+    // Also check the plugin registry for Phase 3 plugin-hosted providers
+    const pluginPath = _pluginProviderMap.get(`${kind}/${name}`);
+    if (pluginPath) return pluginPath;
+
     throw new Error(
       `Unknown ${kind} provider: "${name}". ` +
       `Valid ${kind} providers: ${Object.keys(kindMap).join(', ')}`
     );
   }
 
+  // Package names (starting with @ or not starting with . or /)
+  // are returned as-is — import() handles them via node_modules resolution.
+  if (modulePath.startsWith('@') || (!modulePath.startsWith('.') && !modulePath.startsWith('/'))) {
+    return modulePath;
+  }
+
   // Resolve the relative path against this module's location to produce
   // an absolute file:// URL usable from any import() call site.
-  return new URL(relativePath, import.meta.url).href;
+  return new URL(modulePath, import.meta.url).href;
+}
+
+// =====================================================
+// Plugin provider registration (Phase 3)
+// =====================================================
+
+/**
+ * Runtime-registered plugin providers. Entries are added by the PluginHost
+ * when loading vetted third-party plugins from plugins.lock.
+ *
+ * SECURITY: This map is populated ONLY by the trusted PluginHost during
+ * startup — never from user input or config values directly.
+ * Each entry is a (kind/name) → module-path mapping verified against
+ * the plugin's integrity hash.
+ *
+ * The map key format is "kind/name" (e.g., "memory/postgres").
+ */
+const _pluginProviderMap = new Map<string, string>();
+
+/**
+ * Register a plugin-provided provider in the runtime allowlist.
+ * Called by PluginHost after verifying the plugin manifest and integrity.
+ *
+ * SECURITY: Only the PluginHost should call this. The caller is responsible
+ * for verifying the plugin's integrity hash before registration.
+ */
+export function registerPluginProvider(kind: string, name: string, modulePath: string): void {
+  const key = `${kind}/${name}`;
+
+  // Prevent overwriting built-in providers
+  if (PROVIDER_MAP[kind]?.[name]) {
+    throw new Error(
+      `Cannot register plugin provider "${key}": conflicts with built-in provider`
+    );
+  }
+
+  _pluginProviderMap.set(key, modulePath);
+}
+
+/**
+ * Remove a plugin-provided provider from the runtime allowlist.
+ * Called during plugin removal.
+ */
+export function unregisterPluginProvider(kind: string, name: string): boolean {
+  return _pluginProviderMap.delete(`${kind}/${name}`);
+}
+
+/** Returns all registered plugin providers (for diagnostics). */
+export function listPluginProviders(): Array<{ kind: string; name: string; modulePath: string }> {
+  return [..._pluginProviderMap.entries()].map(([key, modulePath]) => {
+    const [kind, name] = key.split('/');
+    return { kind, name, modulePath };
+  });
+}
+
+/** Clear all plugin providers (for testing). */
+export function clearPluginProviders(): void {
+  _pluginProviderMap.clear();
 }
