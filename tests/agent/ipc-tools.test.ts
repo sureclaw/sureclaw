@@ -214,12 +214,13 @@ describe('ipc-tools', () => {
       filter: { hasHeartbeat: false, hasSkills: false, hasWorkspaceTiers: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    // Memory(5) + web(2) + audit(1) + identity(2) + delegation(1) = 11 tools
+    // Memory(5) + web(2) + audit(1) + identity(2) + delegation(1) + image(1) = 12 tools
     expect(names).toContain('memory_write');
     expect(names).toContain('web_fetch');
     expect(names).toContain('audit_query');
     expect(names).toContain('identity_write');
     expect(names).toContain('agent_delegate');
-    expect(tools.length).toBe(11);
+    expect(names).toContain('image_generate');
+    expect(tools.length).toBe(12);
   });
 });

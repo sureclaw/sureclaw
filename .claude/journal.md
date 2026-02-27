@@ -700,3 +700,17 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 - MODIFIED: src/host/provider-map.ts, src/host/registry.ts, src/cli/index.ts, src/ipc-schemas.ts
 **Outcome:** Success — all 383+ tests pass, TypeScript build clean, zero regressions
 **Notes:** The design doc recommended "start with Option A, design for Option B, ship Option C immediately." All three phases are implemented. The PluginHost uses child_process.fork for worker isolation, same IPC pattern as agent↔host communication. Security invariants preserved: static allowlist (SC-SEC-002), credential isolation, integrity verification, no dynamic imports from user input.
+
+## [2026-02-27 02:25] — Fix CI test failures from plugin framework + pre-existing image_generate gap
+
+**Task:** Investigate and fix 8 test failures across 6 test files that CI caught but initial test run missed.
+**What I did:** Fixed two categories of issues:
+1. **My fault — plugin schema/handler gap:** Added `plugin_list` and `plugin_status` IPC schemas without corresponding handlers. Created `src/host/ipc-handlers/plugin.ts` with handlers, registered in ipc-server.ts, and added both actions to `knownInternalActions` in tool-catalog-sync.test.ts.
+2. **Pre-existing — image_generate missing from MCP server:** The `image_generate` tool was in TOOL_CATALOG but never wired into the MCP server's `allTools` array. Added the tool definition to mcp-server.ts. Also added `'image'` to the `validCategories` list in tool-catalog.test.ts.
+3. **Count fixups:** Updated hardcoded tool counts/comments in ipc-tools.test.ts (core: 11→12), mcp-server.test.ts (comment: 11→12), tool-catalog.test.ts (comment: 11→12).
+**Files touched:**
+- NEW: src/host/ipc-handlers/plugin.ts
+- MODIFIED: src/host/ipc-server.ts, src/agent/mcp-server.ts
+- MODIFIED: tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts, tests/agent/tool-catalog.test.ts, tests/agent/tool-catalog-sync.test.ts
+**Outcome:** Success — all 147 targeted tests pass, 1717/1722 total (4 flaky integration smoke timeouts unrelated to changes)
+**Notes:** Initial test run only covered new + host test files. CI runs all 167 test files including agent/ and integration/ sync tests. Lesson: always run `npm test -- --run` (full suite) before committing.

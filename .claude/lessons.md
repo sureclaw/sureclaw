@@ -312,3 +312,15 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Choosing between worker_threads and child_process for plugin isolation in PluginHost.
 **Lesson:** Use `child_process.fork()` for plugin isolation, not `worker_threads`. Fork gives proper process isolation (separate V8 heap, can be sandboxed with nsjail), while workers share memory. The IPC protocol is simple: JSON messages over the built-in Node IPC channel (process.send/process.on('message')). Plugin sends `plugin_ready` on startup, host sends `plugin_call` with credentials injected server-side, plugin responds with `plugin_response`. This mirrors the agent↔host IPC pattern already used in AX.
 **Tags:** plugins, plugin-host, isolation, child-process, ipc
+
+### Adding IPC schemas without handlers causes ipc-server tests to fail
+**Date:** 2026-02-27
+**Context:** Added `plugin_list` and `plugin_status` IPC schemas in ipc-schemas.ts but forgot to create corresponding handlers. The ipc-server.test.ts has a sync test that verifies every schema has a handler.
+**Lesson:** Every call to `ipcAction()` in ipc-schemas.ts MUST have a corresponding handler registered in ipc-server.ts. The sync test `every IPC_SCHEMAS action has a handler` catches this. Additionally, new internal-only IPC actions (not in tool catalog) must be added to `knownInternalActions` in tool-catalog-sync.test.ts. Checklist when adding new IPC schemas: (1) create handler in src/host/ipc-handlers/, (2) register in ipc-server.ts, (3) add to knownInternalActions if not agent-facing.
+**Tags:** ipc, schemas, handlers, testing, sync-tests, plugins
+
+### Always run full test suite before committing — targeted runs miss sync tests
+**Date:** 2026-02-27
+**Context:** Initial commit passed 53 new + 383 targeted tests, but CI caught 8 failures in agent/sync test files that weren't included in the targeted run.
+**Lesson:** Always run `npm test -- --run` (full suite) before committing, not just the test files you touched. The tool-catalog-sync, sandbox-isolation, and ipc-server tests verify cross-module consistency (tool catalog ↔ MCP server ↔ IPC schemas ↔ handlers). These sync tests catch issues that per-module tests miss. Running only host/ tests after adding IPC schemas will miss the agent/ sync tests that verify those schemas have handlers.
+**Tags:** testing, ci, sync-tests, full-suite, workflow

@@ -164,6 +164,8 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
       // Enterprise admin-only actions (not in tool catalog, used via direct IPC)
       'proposal_review', 'agent_registry_get',
+      // Plugin management (host-internal, not agent-facing)
+      'plugin_list', 'plugin_status',
     ]);
 
     for (const action of schemaActions) {

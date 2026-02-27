@@ -226,6 +226,20 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
       (args) => ipcCall('agent_delegate', args),
     ),
 
+    // ── Image generation ──
+    tool('image_generate',
+      'Generate an image from a text prompt using a configured image model. ' +
+      'Returns a JSON object with a `url` field. Display the image in your response ' +
+      'using markdown: ![description](url)',
+      {
+        prompt: z.string().describe('Text description of the image to generate'),
+        model: z.string().optional().describe('Model ID override (defaults to first configured image model)'),
+        size: z.string().optional().describe('Image size, e.g. "1024x1024"'),
+        quality: z.string().optional().describe('Quality level, e.g. "standard" or "hd"'),
+      },
+      (args) => ipcCall('image_generate', args),
+    ),
+
     // ── Enterprise: Workspace tools ──
 
     tool('workspace_write', 'Write a file to a workspace tier (agent, user, or scratch).', {

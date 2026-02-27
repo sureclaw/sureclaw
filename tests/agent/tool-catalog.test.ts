@@ -111,7 +111,7 @@ describe('tool-catalog', () => {
   test('every tool has a valid category', () => {
     const validCategories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skills', 'delegation',
+      'scheduler', 'skills', 'delegation', 'image',
       'workspace', 'governance',
     ];
     for (const spec of TOOL_CATALOG) {
@@ -122,7 +122,7 @@ describe('tool-catalog', () => {
   test('every category has at least one tool', () => {
     const categories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skills', 'delegation',
+      'scheduler', 'skills', 'delegation', 'image',
       'workspace', 'governance',
     ];
     for (const cat of categories) {
@@ -210,7 +210,7 @@ describe('filterTools', () => {
   test('all flags false returns only always-on categories', () => {
     const result = filterTools(NO_FLAGS);
     const names = result.map(s => s.name);
-    // memory(5) + web(2) + audit(1) + identity(2) + delegation(1) = 11
+    // memory(5) + web(2) + audit(1) + identity(2) + delegation(1) + image(1) = 12
     const alwaysOn = TOOL_CATALOG.filter(s =>
       !['scheduler', 'skills', 'workspace', 'governance'].includes(s.category)
     );

@@ -167,7 +167,7 @@ describe('IPC MCP Server', () => {
     expect(result.content[0].text).toContain('"ok":true');
   });
 
-  test('all 27 IPC tools are registered without filter', () => {
+  test('all 28 IPC tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -187,10 +187,11 @@ describe('IPC MCP Server', () => {
       'skill_propose',
       'skill_import',
       'skill_search',
+      'agent_delegate',
+      'image_generate',
       // Enterprise tools
       'workspace_write', 'workspace_read', 'workspace_list', 'workspace_write_file',
       'identity_propose', 'proposal_list', 'agent_registry_list',
-      'agent_delegate',
     ];
 
     const registeredNames = Object.keys(tools);
@@ -228,7 +229,7 @@ describe('IPC MCP Server', () => {
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    // Core: memory(5) + web(2) + audit(1) + identity(2) + delegation(1) = 11
+    // Core: memory(5) + web(2) + audit(1) + identity(2) + delegation(1) + image(1) = 12
     expect(names).toContain('memory_write');
     expect(names).toContain('web_fetch');
     expect(names).toContain('audit_query');

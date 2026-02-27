@@ -16,6 +16,7 @@ import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
 import { createWorkspaceHandlers } from './ipc-handlers/workspace.js';
 import { createGovernanceHandlers } from './ipc-handlers/governance.js';
 import { createImageHandlers } from './ipc-handlers/image.js';
+import { createPluginHandlers } from './ipc-handlers/plugin.js';
 import { AgentRegistry } from './agent-registry.js';
 
 const logger = getLogger().child({ component: 'ipc' });
@@ -91,6 +92,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       profile,
       registry: opts?.agentRegistry ?? new AgentRegistry(),
     }),
+    ...createPluginHandlers(providers),
   };
 
   return async function handleIPC(raw: string, ctx: IPCContext): Promise<string> {
