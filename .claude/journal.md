@@ -894,3 +894,14 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/host/server-completions.ts`, `src/host/ipc-handlers/llm.ts`, `src/host/server.ts`, `src/host/event-bus.ts`, `tests/host/ipc-handlers/llm-events.test.ts`, `tests/host/streaming-completions.test.ts` (new)
 **Outcome:** Success — all 1808 tests pass across 176 test files
 **Notes:** Initially tried threading a separate `_requestId` through the full pipeline (stdin → IPC client → IPC server → IPCContext), but simplified to just passing the HTTP requestId as the agent's sessionId. The key insight: `ctx.sessionId` is already threaded end-to-end, so reusing it avoids new plumbing. The old `queued.session_id` (`http:dm:client`) was shared across all HTTP requests, making correlation impossible.
+
+## [2026-02-28 14:30] — Update README.md and docs/web to reflect all recent changes
+
+**Task:** Comprehensively update README.md and docs/web/index.html to reflect all features added since they were last updated, and use the ax-logo.svg file as the logo.
+**What I did:**
+- Updated README.md: fixed logo path (`docs/ax-logo.svg` → `docs/web/ax-logo.svg`), updated line count (~13,500 → ~10,700), added 12 new feature sections (streaming event bus, plugin framework, image generation, OpenTelemetry tracing, extended thinking, Kysely migrations, skill import, subagent delegation, active hours scheduling, CLI commands, OpenAI-compatible API enhancements), updated provider table (13 categories, 43 implementations), added CLI section, updated config example with task-type model routing
+- Updated docs/web/index.html: replaced inline SVG logos with `<img src="ax-logo.svg">`, expanded feature grid from 6 to 9 cards (added plugin ecosystem, image generation, streaming & observability), updated code showcase with current config format showing models by task type, updated deep-dive sections (added extended thinking, OTel, plugin SDK references, task-type model routing), added "Get Started" section with CLI commands, updated stats (13 categories, 43 implementations, 170 test files, 10,700 LoC), updated provider grid blocks, added `#capabilities` nav link
+- Updated docs/web/styles.css: added `img` selectors alongside SVG for navbar and footer logo, added `max-width: 100%` to img reset
+**Files touched:** `README.md`, `docs/web/index.html`, `docs/web/styles.css`
+**Outcome:** Success — both files now accurately reflect the current state of all 13 provider categories, 43 provider implementations, plugin framework, streaming event bus, image generation, OTel tracing, and other recent additions
+**Notes:** The ax-logo.svg uses a gold gradient (#eab308 → #facc15) while the website's CSS accent is cyan. The `<img>` tag approach means the logo renders in its native gold color rather than inheriting CSS accent colors — this is a deliberate branding distinction.
