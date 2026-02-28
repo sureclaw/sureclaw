@@ -9,6 +9,7 @@ import type { ResolveImageFile } from '../../providers/llm/types.js';
 import { userWorkspaceDir, workspaceDir } from '../../paths.js';
 import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
+import type { EventBus } from '../event-bus.js';
 
 const logger = getLogger().child({ component: 'ipc' });
 
@@ -47,17 +48,29 @@ function createImageResolver(ctx: IPCContext, agentName: string): ResolveImageFi
   };
 }
 
-export function createLLMHandlers(providers: ProviderRegistry, configModel?: string, agentName?: string) {
+export function createLLMHandlers(providers: ProviderRegistry, configModel?: string, agentName?: string, eventBus?: EventBus) {
   const resolvedAgentName = agentName ?? 'main';
   return {
     llm_call: async (req: any, ctx: IPCContext) => {
+      const effectiveModel = configModel ?? req.model;
       logger.debug('llm_call_start', {
-        model: configModel ?? req.model,
+        model: effectiveModel,
         taskType: req.taskType,
         maxTokens: req.maxTokens,
         toolCount: req.tools?.length ?? 0,
         toolNames: req.tools?.map((t: { name: string }) => t.name),
         messageCount: req.messages?.length ?? 0,
+      });
+      eventBus?.emit({
+        type: 'llm.start',
+        requestId: ctx.sessionId,
+        timestamp: Date.now(),
+        data: {
+          model: effectiveModel,
+          taskType: req.taskType,
+          messageCount: req.messages?.length ?? 0,
+          toolCount: req.tools?.length ?? 0,
+        },
       });
       const resolveImageFile = createImageResolver(ctx, resolvedAgentName);
       const chunks: unknown[] = [];
@@ -71,6 +84,23 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
         resolveImageFile,
       })) {
         chunks.push(chunk);
+        // Emit per-chunk event for real-time streaming observers
+        const chunkType = (chunk as any).type;
+        if (chunkType === 'tool_use') {
+          eventBus?.emit({
+            type: 'tool.call',
+            requestId: ctx.sessionId,
+            timestamp: Date.now(),
+            data: { toolName: (chunk as any).toolCall?.name },
+          });
+        } else if (chunkType === 'text') {
+          eventBus?.emit({
+            type: 'llm.chunk',
+            requestId: ctx.sessionId,
+            timestamp: Date.now(),
+            data: { chunkType: 'text', contentLength: ((chunk as any).content ?? '').length },
+          });
+        }
       }
       const typeCounts: Record<string, number> = {};
       for (const c of chunks) {
@@ -89,6 +119,19 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
         toolUseCount: toolUseChunks.length,
         toolNames: toolUseChunks.map((c: any) => c.toolCall?.name),
         textPreview,
+      });
+      // Emit usage stats from the 'done' chunk if present
+      const doneChunk = chunks.find((c: any) => c.type === 'done') as any;
+      eventBus?.emit({
+        type: 'llm.done',
+        requestId: ctx.sessionId,
+        timestamp: Date.now(),
+        data: {
+          chunkCount: chunks.length,
+          toolUseCount: toolUseChunks.length,
+          inputTokens: doneChunk?.usage?.inputTokens,
+          outputTokens: doneChunk?.usage?.outputTokens,
+        },
       });
       return { chunks };
     },

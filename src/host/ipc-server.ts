@@ -3,6 +3,7 @@ import type { ProviderRegistry, AgentType } from '../types.js';
 import type { TaintBudget } from './taint-budget.js';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import { getLogger, truncate } from '../logger.js';
+import type { EventBus } from './event-bus.js';
 
 // Domain handler factories
 import { createLLMHandlers } from './ipc-handlers/llm.js';
@@ -64,6 +65,8 @@ export interface IPCHandlerOptions {
   configModel?: string;
   /** Enterprise agent registry instance. */
   agentRegistry?: AgentRegistry;
+  /** Streaming event bus for real-time observability. */
+  eventBus?: EventBus;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -74,7 +77,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
   // Compose handlers from domain modules
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
-    ...createLLMHandlers(providers, opts?.configModel, agentName),
+    ...createLLMHandlers(providers, opts?.configModel, agentName, opts?.eventBus),
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
     ...createBrowserHandlers(providers),
