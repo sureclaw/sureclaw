@@ -1,5 +1,13 @@
 # Journal
 
+## [2026-02-28 18:00] — Move warning banner below navbar
+
+**Task:** Reposition the dev warning banner to appear below the main navigation header instead of above it
+**What I did:** Swapped the visual stacking order of the navbar and dev-banner. Updated CSS so navbar is `top: 0; z-index: 60` and dev-banner is `top: 4rem; z-index: 50`. Removed the now-unnecessary mobile `navbar { top: 3.5rem }` override. Updated HTML comment to clarify placement.
+**Files touched:** `docs/web/index.html`, `docs/web/styles.css`
+**Outcome:** Success — banner now renders directly beneath the navbar on both desktop and mobile
+**Notes:** Total fixed header height unchanged (navbar 4rem + banner ~2.5rem), so hero padding didn't need adjustment.
+
 ## [2026-02-28 10:00] — Harden resolveProviderPath against CWD module hijacking
 
 **Task:** Add import.meta.resolve() mitigation for package-name entries in provider-map.ts

@@ -127,8 +127,8 @@ img, svg { display: block; max-width: 100%; }
    ══════════════════════════════ */
 .dev-banner {
   position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 60;
+  top: 4rem; left: 0; right: 0;
+  z-index: 50;
   background: linear-gradient(135deg, var(--ds-orange-dim) 0%, rgba(120, 53, 15, 0.85) 100%);
   border-bottom: 1px solid var(--ds-orange);
   backdrop-filter: blur(12px);
@@ -160,12 +160,11 @@ img, svg { display: block; max-width: 100%; }
   color: var(--ds-orange);
 }
 
-/* Push navbar below the banner */
+/* Mobile adjustments for banner below navbar */
 
 @media (max-width: 768px) {
   .dev-banner-inner { padding: 0.5rem 1rem; }
   .dev-banner p { font-size: 0.75rem; }
-  .navbar { top: 3.5rem; }
   .hero { padding-top: 11.5rem; }
 }
 
@@ -174,8 +173,8 @@ img, svg { display: block; max-width: 100%; }
    ══════════════════════════════ */
 .navbar {
   position: fixed;
-  top: 2.5rem; left: 0; right: 0;
-  z-index: 50;
+  top: 0; left: 0; right: 0;
+  z-index: 60;
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
   backdrop-filter: blur(20px);
