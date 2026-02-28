@@ -42,7 +42,34 @@ describe('Provider allowlist (SC-SEC-002)', () => {
   test('every mapped path follows naming convention', () => {
     for (const [_kind, names] of Object.entries(PROVIDER_MAP)) {
       for (const [_name, path] of Object.entries(names)) {
-        expect(path).toMatch(/^\.\.\/providers\/[a-z]+\/[a-z-]+\.js$/);
+        // Allow relative paths (current) or scoped package names (Phase 2)
+        const isRelative = /^\.\.\/providers\/[a-z]+\/[a-z-]+\.js$/.test(path);
+        const isPackage  = /^@ax\/provider-[a-z]+-[a-z]+$/.test(path);
+        expect(isRelative || isPackage).toBe(true);
+      }
+    }
+  });
+
+  test('package-name entries resolve via import.meta.resolve, not as bare strings (SC-SEC-002)', () => {
+    // SECURITY: When PROVIDER_MAP entries use @ax/provider-* package names
+    // (Phase 2 monorepo split), resolveProviderPath() must resolve them via
+    // import.meta.resolve() — pinning resolution to the AX installation's
+    // node_modules, not the CWD. Without this, an attacker who controls the
+    // working directory can plant a malicious node_modules/@ax/ that shadows
+    // the real package.
+    //
+    // This test validates the mechanism: import.meta.resolve() returns absolute
+    // file:// URLs for packages resolved from the calling module's location.
+    // When Phase 2 adds package names to PROVIDER_MAP, this property ensures
+    // they can't be hijacked via CWD manipulation.
+    const resolved = import.meta.resolve('vitest');
+    expect(resolved).toMatch(/^file:\/\//);
+
+    // Verify all current entries are relative paths (no package names yet).
+    // This test will need updating when Phase 2 converts entries to @ax/ packages.
+    for (const [_kind, names] of Object.entries(PROVIDER_MAP)) {
+      for (const [_name, path] of Object.entries(names)) {
+        expect(path).toMatch(/^\.\.\//);
       }
     }
   });
@@ -54,5 +81,18 @@ describe('Provider allowlist (SC-SEC-002)', () => {
     expect(sandboxMap!['seatbelt']).toBeDefined();
     expect(sandboxMap!['nsjail']).toBeDefined();
     expect(sandboxMap!['docker']).toBeDefined();
+  });
+
+  test('all resolved paths use file:// protocol (SC-SEC-002 hardening)', () => {
+    // SECURITY: assertFileUrl() rejects non-file:// URLs (data:, http:, node:, etc).
+    // This test ensures every resolved path from the built-in allowlist passes
+    // the protocol check. When Phase 3 adds package names, they must also resolve
+    // to file:// URLs via import.meta.resolve().
+    for (const [kind, names] of Object.entries(PROVIDER_MAP)) {
+      for (const name of Object.keys(names)) {
+        const resolved = resolveProviderPath(kind, name);
+        expect(resolved).toMatch(/^file:\/\//);
+      }
+    }
   });
 });

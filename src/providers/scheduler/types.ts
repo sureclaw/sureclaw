@@ -1,6 +1,6 @@
 // src/providers/scheduler/types.ts — Scheduler provider types
-import type { InboundMessage, SessionAddress } from '../channel/types.js';
-import type { ProactiveHint } from '../memory/types.js';
+import type { InboundMessage, SessionAddress } from '../shared-types.js';
+import type { ProactiveHint } from '../shared-types.js';
 
 export interface CronDelivery {
   mode: 'channel' | 'none';

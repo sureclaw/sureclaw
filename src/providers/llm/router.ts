@@ -15,21 +15,21 @@
  */
 
 import { resolveProviderPath } from '../../host/provider-map.js';
+import { parseCompoundId } from '../router-utils.js';
+import type { ModelCandidate } from '../router-utils.js';
 import type { LLMProvider, ChatRequest, ChatChunk } from './types.js';
 import type { Config, LLMTaskType } from '../../types.js';
 import { LLM_TASK_TYPES } from '../../types.js';
 import { getLogger } from '../../logger.js';
+
+// Re-export for any existing callers (will be removed in Phase 3).
+export { parseCompoundId } from '../router-utils.js';
 
 const logger = getLogger().child({ component: 'llm-router' });
 
 // ───────────────────────────────────────────────────────
 // Types
 // ───────────────────────────────────────────────────────
-
-interface ModelCandidate {
-  provider: string;
-  model: string;
-}
 
 interface CooldownState {
   until: number;
@@ -42,20 +42,6 @@ interface CooldownState {
 
 const INITIAL_COOLDOWN_MS = 30_000;
 const MAX_COOLDOWN_MS = 5 * 60 * 1000;
-
-/** Split a compound `provider/model` ID on the first `/`. */
-export function parseCompoundId(id: string): ModelCandidate {
-  const slashIdx = id.indexOf('/');
-  if (slashIdx < 0) {
-    throw new Error(
-      `Invalid model ID "${id}": must be a compound provider/model ID (e.g. "openrouter/gpt-4.1")`,
-    );
-  }
-  return {
-    provider: id.slice(0, slashIdx),
-    model: id.slice(slashIdx + 1),
-  };
-}
 
 /** Classify an error as retryable or permanent. */
 function isRetryable(err: unknown): boolean {

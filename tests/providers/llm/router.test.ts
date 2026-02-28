@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { parseCompoundId } from '../../../src/providers/llm/router.js';
+import { parseCompoundId } from '../../../src/providers/router-utils.js';
 import type { LLMProvider, ChatRequest, ChatChunk } from '../../../src/providers/llm/types.js';
 import type { Config, ModelMap } from '../../../src/types.js';
 

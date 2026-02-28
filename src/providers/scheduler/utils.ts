@@ -2,7 +2,7 @@
  * Shared scheduler utilities — cron matching, active hours, session helpers.
  */
 
-import type { SessionAddress } from '../channel/types.js';
+import type { SessionAddress } from '../shared-types.js';
 
 export interface ActiveHours {
   start: number; // minutes from midnight

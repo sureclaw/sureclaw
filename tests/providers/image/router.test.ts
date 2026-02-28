@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { parseCompoundId } from '../../../src/providers/llm/router.js';
+import { parseCompoundId } from '../../../src/providers/router-utils.js';
 import type { Config } from '../../../src/types.js';
 
 // ───────────────────────────────────────────────────────

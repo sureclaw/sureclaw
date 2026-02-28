@@ -1,7 +1,7 @@
 # Plugin Framework Design: Provider Packages & Third-Party Trust Boundary
 
 **Date:** 2026-02-26
-**Status:** Draft / RFC
+**Status:** Approved — open questions resolved 2026-02-27
 **Author:** Architecture review session
 
 ## Problem Statement
@@ -317,16 +317,98 @@ To be painfully clear:
 - **No hot-reloading of plugins.** Restart required. This is a feature, not a limitation —
   it prevents runtime code injection.
 
-## Open Questions
+## Resolved Decisions
 
-1. **Monorepo tooling:** pnpm workspaces vs. Nx vs. Turborepo? pnpm is simplest but
-   Nx has better caching for CI.
-2. **Versioning strategy:** All packages on the same version (simpler) or independent
-   versions (more flexible)?
-3. **Plugin worker sandboxing:** Worker threads (lighter, weaker isolation) or child
-   processes with nsjail (heavier, stronger isolation)?
-4. **Which providers are "core" vs. "extra"?** Should `@ax/core` ship with any default
-   providers, or is everything an explicit dependency?
+### 1. Monorepo tooling: **pnpm workspaces**
+
+pnpm workspaces is the right fit. Nx and Turborepo solve problems we don't have yet
+(remote build caching, complex dependency graphs across dozens of teams). At ~35
+packages under one team with one CI pipeline, pnpm's native workspace support is
+sufficient. Key advantages:
+
+- **Strict dependency isolation by default.** No phantom dependencies — a provider
+  package can't accidentally import something only `@ax/core` declares. This catches
+  real bugs that npm/yarn workspaces silently allow.
+- **Minimal tooling surface.** Less tooling = less to audit. We're a security project;
+  every dev dependency is attack surface.
+- **Turborepo is additive.** If CI gets slow, Turborepo layers on top of pnpm
+  workspaces without restructuring. We can add it later; we can't easily remove Nx.
+
+### 2. Versioning strategy: **Lockstep**
+
+All packages share one version number. Bump once, publish everything.
+
+- All packages are first-party, same repo, same CI, same reviewers. Independent
+  versioning buys nothing except a compatibility matrix nobody wants to maintain.
+- Users never wonder "does `@ax/provider-llm-anthropic@3.2.1` work with
+  `@ax/core@3.1.0`?" — same version = compatible, always.
+- Release process stays trivial: one version bump, one publish command.
+- Independent versioning only makes sense when external maintainers own packages on
+  different cadences — that's a Phase 3 concern at the earliest.
+- Migration path: lockstep → independent is straightforward if we outgrow it.
+  Independent → lockstep is painful. Start simple.
+
+### 3. Plugin worker sandboxing: **Child processes with existing sandbox providers**
+
+(Phase 3 decision, not blocking Phase 2, but the direction is set.)
+
+- **Worker threads don't provide meaningful isolation.** They share the V8 heap and
+  process memory. Running untrusted code in a worker thread is security theater.
+- **We already have battle-tested sandbox infrastructure.** The sandbox providers
+  (nsjail on Linux, seatbelt on macOS, bwrap as fallback) exist and work. Reuse them.
+- **The IPC pattern already exists.** Host ↔ agent communication uses length-prefixed
+  JSON over Unix sockets. Plugin ↔ host is the same shape. No new protocol needed.
+- **Performance overhead is irrelevant.** Plugin provider calls are already async IPC.
+  Adding a process boundary doesn't meaningfully change the latency profile — we're
+  talking about LLM calls and database queries, not tight loops.
+
+### 4. Core vs. extra: **Noop/mock in core, standard bundle for batteries-included**
+
+Two-tier packaging:
+
+**`@ax/core` (~3K LOC)** ships with one noop or mock implementation per provider
+category, inline. These are minimal stubs that satisfy the interface:
+
+| Category | Core Provider | Notes |
+|----------|--------------|-------|
+| llm | `mock` | Returns canned responses |
+| image | `mock` | Returns placeholder image |
+| memory | `file` | Simplest possible, already tiny |
+| scanner | `basic` | Regex patterns, no external deps |
+| channel | *(none)* | No default channel makes sense |
+| web | `none` | Disabled by default |
+| browser | `none` | Disabled by default |
+| credentials | `env` | Just reads env vars, ~30 LOC |
+| skills | `readonly` | File-based, no git deps |
+| audit | `file` | JSONL append, tiny |
+| sandbox | `subprocess` | No container deps |
+| scheduler | `none` | Disabled by default |
+| screener | `static` | Static rules, no external deps |
+
+This means `@ax/core` is fully functional for development and testing with **zero
+heavy dependencies** (no SQLite native module, no Anthropic SDK, no Slack SDK, etc.).
+
+**`ax` (the main installable package)** is a meta-package that depends on `@ax/core`
+plus the standard provider set:
+
+```
+ax
+├── @ax/core
+├── @ax/provider-llm-anthropic
+├── @ax/provider-llm-openai
+├── @ax/provider-memory-sqlite
+├── @ax/provider-sandbox-nsjail
+├── @ax/provider-audit-sqlite
+├── @ax/provider-scanner-patterns
+├── @ax/provider-credentials-encrypted
+└── ... (the "batteries included" set)
+```
+
+- `npm install ax` gives users a fully working system, same as today.
+- `npm install @ax/core @ax/provider-llm-anthropic` lets advanced users pick exactly
+  what they need.
+- The noop/mock providers double as **reference implementations** for the SDK — each
+  one shows the minimum viable provider in ~20-50 LOC.
 
 ## Appendix: Current Provider Inventory
 

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SchedulerProvider, CronJobDef, JobStore } from './types.js';
 import { MemoryJobStore } from './types.js';
-import type { InboundMessage } from '../channel/types.js';
+import type { InboundMessage } from '../shared-types.js';
 import type { Config } from '../../types.js';
 import {
   type ActiveHours,

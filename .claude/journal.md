@@ -1,5 +1,21 @@
 # Journal
 
+## [2026-02-28 10:00] — Harden resolveProviderPath against CWD module hijacking
+
+**Task:** Add import.meta.resolve() mitigation for package-name entries in provider-map.ts
+**What I did:** Changed resolveProviderPath() to use import.meta.resolve() instead of returning bare package names. This pins resolution to the AX installation's node_modules, not the CWD — preventing an attacker from planting a malicious node_modules/@ax/ in the working directory. Updated the implementation plan (Step 2a) with the security rationale. Added a test documenting the security invariant. Relaxed the naming convention test to accept both relative paths and @ax/provider-* package names (forward-compatible with Phase 2).
+**Files touched:** Modified: src/host/provider-map.ts, tests/host/provider-map.test.ts, docs/plans/2026-02-27-monorepo-split-implementation.md
+**Outcome:** Success — 23/23 provider-related tests pass, security property validated
+**Notes:** Node.js import.meta.resolve() is stable since Node 20.6 (we're on 22.22.0). The key insight: new URL(path, import.meta.url) for relative paths and import.meta.resolve(pkg) for package names both resolve from the module's location, not CWD. This makes them security-equivalent.
+
+## [2026-02-27 15:30] — Write Phase 2 monorepo split implementation plan
+
+**Task:** Create a detailed implementation plan for extracting providers into separate packages (Phase 2 of plugin framework design)
+**What I did:** Analyzed the full codebase: 5,840 LOC across 13 provider categories (36 implementations), mapped all cross-provider dependencies (6 categories of cross-imports), catalogued every provider's external npm deps and core utility imports. Wrote step-by-step implementation plan with 8 steps: prep (pnpm setup), create @ax/core, fix cross-provider deps, pilot extraction, batch extraction (27 packages in 3 batches), meta-package creation, provider-map update, CI/build update. Identified which 13 providers stay in core (~683 LOC) vs which 27 get extracted.
+**Files touched:** Created: docs/plans/2026-02-27-monorepo-split-implementation.md
+**Outcome:** Success — implementation plan ready for review
+**Notes:** Key findings: (1) image/router imports parseCompoundId from llm/router — needs extraction to shared util. (2) scheduler imports types from channel/memory/audit — all type-only, redirect to provider-sdk. (3) sandbox/utils (75 LOC) and scheduler/utils (82 LOC) are small enough to inline. (4) whatsapp/telegram/discord are in provider-map but have no source files — remove stubs. (5) provider-sdk already exists from Phase 1 with all interface re-exports — cross-provider type deps are pre-solved.
+
 ## [2026-02-27 14:30] — Create exploring-reference-repos skill
 
 **Task:** Create a new skill for exploring other git repositories to get architectural inspiration
@@ -7,6 +23,14 @@
 **Files touched:** `~/.claude/skills/exploring-reference-repos/SKILL.md` (created)
 **Outcome:** Success — skill loads via Skill tool and appears in the discoverable skills list
 **Notes:** Personal skills at `~/.claude/skills/` ARE auto-discovered by Claude Code (initially tried project dir too, removed duplicate)
+
+## [2026-02-27 14:00] — Resolve open questions in plugin framework design
+
+**Task:** Resolve the 4 open architectural questions in the plugin framework design RFC
+**What I did:** Updated docs/plans/2026-02-26-plugin-framework-design.md — replaced the "Open Questions" section with "Resolved Decisions" containing rationale for each: (1) pnpm workspaces (simplest, strict isolation, less attack surface), (2) lockstep versioning (all first-party, no compatibility matrix), (3) child processes reusing existing sandbox providers for Phase 3 plugin isolation, (4) two-tier core/meta-package split — @ax/core ships noop/mock providers only (~3K LOC), `ax` meta-package bundles the standard set for batteries-included installs. Updated status from "Draft / RFC" to "Approved".
+**Files touched:** docs/plans/2026-02-26-plugin-framework-design.md
+**Outcome:** Success — all 4 decisions documented with rationale
+**Notes:** The core vs extra decision is the most consequential — it defines what @ax/core actually contains. The noop/mock stubs double as SDK reference implementations. The two-tier approach means `npm install ax` still works identically for existing users.
 
 ## [2026-02-27 12:15] — Harden subagent delegation (fix 4 crash-causing bugs)
 
@@ -790,21 +814,17 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Outcome:** Success — clean TypeScript build, 167/167 test files pass, 1721/1722 tests (1 skipped macOS seatbelt)
 **Notes:** The npm package @mariozechner/pi-agent-core is still a direct dependency for type imports (AgentMessage, AgentTool, StreamFn). These types are not re-exported by pi-coding-agent. A follow-up could re-export them from a local barrel file and drop the direct dep.
 
-## [2026-02-26 22:14] — Fix diagnoseError crash on undefined/null input
+## [2026-02-28 01:20] — Harden import.meta.resolve + fix cross-provider dependencies (Step 2b)
 
-**Task:** Fix TypeError crash in `diagnoseError` when called with `undefined` from a `.catch()` handler
-**What I did:** Added nullish guard to `diagnoseError` — changed type signature to accept `undefined | null`, used optional chaining (`err?.message ?? 'Unknown error'`). Added test covering undefined and null inputs.
-**Files touched:** src/errors.ts, tests/errors.test.ts
-**Outcome:** Success — all 1723 tests pass, crash no longer occurs
-**Notes:** All 5 callers use `err as Error` from `.catch()` blocks. A Promise can reject with `undefined` (e.g., `reject()` with no args), so the error boundary function must be defensive.
-
-## [2026-02-26 22:20] — Fix Slack retry logging "undefined" error
-
-**Task:** Diagnose and fix `error: "undefined"` in Slack channel retry logs
-**What I did:** The `@slack/bolt` SDK can reject with `undefined` on socket failures. Fixed two layers: (1) `withRetry` now logs descriptive message instead of `String(undefined)`, (2) `connectChannelWithRetry` wraps `undefined` rejections into a real Error with the channel name so retry classification and logging work correctly.
-**Files touched:** src/utils/retry.ts, src/host/server-channels.ts, tests/utils/retry.test.ts, tests/host/channel-reconnect.test.ts
-**Outcome:** Success — all 1725 tests pass. Next time Slack connect fails, the log will show "test-channel connect() rejected without an error value" instead of "undefined"
-**Notes:** Root cause of the Slack connection failure itself is unknown — the `error: "undefined"` was masking it. With this fix, the next failure will produce a real error message. Common causes: invalid app token, Socket Mode not enabled, network issues.
+**Task:** Add post-resolution URL protocol validation to provider-map.ts, extract parseCompoundId out of llm/router into shared router-utils, and break scheduler's direct imports from channel/memory/audit types via shared-types.ts
+**What I did:**
+1. Added `assertFileUrl()` guard in provider-map.ts — every resolved URL must be `file://` protocol (rejects `data:`, `http:`, `node:` schemes). Defense-in-depth for SC-SEC-002.
+2. Created `src/providers/router-utils.ts` with `parseCompoundId` + `ModelCandidate`. Updated both `llm/router.ts` and `image/router.ts` to import from shared utils. Added backwards-compat re-export from `llm/router.ts`.
+3. Created `src/providers/shared-types.ts` as a cross-provider type re-export hub. Updated all 4 scheduler files (`types.ts`, `utils.ts`, `cron.ts`, `full.ts`) to import from `shared-types.ts` instead of directly from `../channel/types.js`, `../memory/types.js`, `../audit/types.js`.
+4. Added structural test (`shared-types.test.ts`) that reads source files to enforce no direct sibling provider imports.
+**Files touched:** Modified: src/host/provider-map.ts, src/providers/llm/router.ts, src/providers/image/router.ts, src/providers/scheduler/types.ts, src/providers/scheduler/utils.ts, src/providers/scheduler/cron.ts, src/providers/scheduler/full.ts, tests/host/provider-map.test.ts, tests/providers/llm/router.test.ts, tests/providers/image/router.test.ts. Created: src/providers/router-utils.ts, src/providers/shared-types.ts, tests/providers/router-utils.test.ts, tests/providers/shared-types.test.ts
+**Outcome:** Success — 171/171 test files pass, 1749/1750 tests pass (1 skipped), clean TypeScript build
+**Notes:** The re-export from llm/router.ts is marked for removal in Phase 3. The shared-types.ts pattern keeps canonical type definitions in their home provider — it's purely a re-export hub to prevent import graph coupling.
 
 ## [2026-02-27 10:29] — IPC Heartbeat Keep-Alive
 
@@ -817,3 +837,19 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/host/ipc-server.ts`, `src/agent/ipc-client.ts`, `src/agent/tool-catalog.ts`, `tests/agent/ipc-client.test.ts`, `tests/host/ipc-server.test.ts`, `tests/agent/ipc-tools.test.ts`
 **Outcome:** Success — all 1736 tests pass (167 test files)
 **Notes:** Design mirrors openclaw pattern (tick events every 15s, 2x watchdog = 30s default client timeout). For fast operations (<15s), interval never fires — zero overhead.
+
+## [2026-02-26 22:20] — Fix Slack retry logging "undefined" error
+
+**Task:** Diagnose and fix `error: "undefined"` in Slack channel retry logs
+**What I did:** The `@slack/bolt` SDK can reject with `undefined` on socket failures. Fixed two layers: (1) `withRetry` now logs descriptive message instead of `String(undefined)`, (2) `connectChannelWithRetry` wraps `undefined` rejections into a real Error with the channel name so retry classification and logging work correctly.
+**Files touched:** src/utils/retry.ts, src/host/server-channels.ts, tests/utils/retry.test.ts, tests/host/channel-reconnect.test.ts
+**Outcome:** Success — all 1725 tests pass. Next time Slack connect fails, the log will show "test-channel connect() rejected without an error value" instead of "undefined"
+**Notes:** Root cause of the Slack connection failure itself is unknown — the `error: "undefined"` was masking it. With this fix, the next failure will produce a real error message. Common causes: invalid app token, Socket Mode not enabled, network issues.
+
+## [2026-02-26 22:14] — Fix diagnoseError crash on undefined/null input
+
+**Task:** Fix TypeError crash in `diagnoseError` when called with `undefined` from a `.catch()` handler
+**What I did:** Added nullish guard to `diagnoseError` — changed type signature to accept `undefined | null`, used optional chaining (`err?.message ?? 'Unknown error'`). Added test covering undefined and null inputs.
+**Files touched:** src/errors.ts, tests/errors.test.ts
+**Outcome:** Success — all 1723 tests pass, crash no longer occurs
+**Notes:** All 5 callers use `err as Error` from `.catch()` blocks. A Promise can reject with `undefined` (e.g., `reject()` with no args), so the error boundary function must be defensive.

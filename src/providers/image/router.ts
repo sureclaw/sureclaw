@@ -7,7 +7,7 @@
  */
 
 import { resolveProviderPath } from '../../host/provider-map.js';
-import { parseCompoundId } from '../llm/router.js';
+import { parseCompoundId } from '../router-utils.js';
 import type { ImageProvider, ImageGenerateRequest, ImageGenerateResult } from './types.js';
 import type { Config } from '../../types.js';
 import { getLogger } from '../../logger.js';
