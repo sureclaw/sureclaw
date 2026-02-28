@@ -6,6 +6,7 @@ import {
   exchangeCodeForTokens,
   refreshOAuthTokens,
   startCallbackServer,
+  runOAuthFlow,
 } from '../../src/host/oauth.js';
 
 describe('OAuth PKCE Flow', () => {
@@ -188,6 +189,49 @@ describe('OAuth PKCE Flow', () => {
       const err = await rejection;
       expect(err).toBeInstanceOf(Error);
       expect(err.message).toContain('OAuth error: access_denied');
+    });
+  });
+
+  // ── TTY Hang Prevention ──
+
+  describe('non-TTY hang prevention', () => {
+    const originalIsTTY = process.stdin.isTTY;
+    const originalDisplay = process.env.DISPLAY;
+    const originalWayland = process.env.WAYLAND_DISPLAY;
+    const originalPlatform = process.platform;
+
+    afterEach(() => {
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, writable: true, configurable: true });
+      if (originalDisplay !== undefined) {
+        process.env.DISPLAY = originalDisplay;
+      } else {
+        delete process.env.DISPLAY;
+      }
+      if (originalWayland !== undefined) {
+        process.env.WAYLAND_DISPLAY = originalWayland;
+      } else {
+        delete process.env.WAYLAND_DISPLAY;
+      }
+      Object.defineProperty(process, 'platform', { value: originalPlatform, writable: true, configurable: true });
+    });
+
+    test('runOAuthFlow throws immediately in headless non-TTY context', async () => {
+      // Simulate headless Linux without TTY — this would hang forever before the fix
+      Object.defineProperty(process, 'platform', { value: 'linux', writable: true, configurable: true });
+      delete process.env.DISPLAY;
+      delete process.env.WAYLAND_DISPLAY;
+      Object.defineProperty(process.stdin, 'isTTY', { value: undefined, writable: true, configurable: true });
+
+      await expect(runOAuthFlow()).rejects.toThrow('no browser available');
+    });
+
+    test('error message suggests ANTHROPIC_API_KEY as alternative', async () => {
+      Object.defineProperty(process, 'platform', { value: 'linux', writable: true, configurable: true });
+      delete process.env.DISPLAY;
+      delete process.env.WAYLAND_DISPLAY;
+      Object.defineProperty(process.stdin, 'isTTY', { value: undefined, writable: true, configurable: true });
+
+      await expect(runOAuthFlow()).rejects.toThrow('ANTHROPIC_API_KEY');
     });
   });
 });

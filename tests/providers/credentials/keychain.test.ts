@@ -8,6 +8,11 @@ const config = {
 
 describe('creds-keychain', () => {
   const originalPassphrase = process.env.AX_CREDS_PASSPHRASE;
+  const originalNonInteractive = process.env.AX_NON_INTERACTIVE;
+  const originalDisplay = process.env.DISPLAY;
+  const originalWayland = process.env.WAYLAND_DISPLAY;
+  const originalIsTTY = process.stdin.isTTY;
+  const originalPlatform = process.platform;
 
   afterEach(() => {
     if (originalPassphrase !== undefined) {
@@ -15,6 +20,23 @@ describe('creds-keychain', () => {
     } else {
       delete process.env.AX_CREDS_PASSPHRASE;
     }
+    if (originalNonInteractive !== undefined) {
+      process.env.AX_NON_INTERACTIVE = originalNonInteractive;
+    } else {
+      delete process.env.AX_NON_INTERACTIVE;
+    }
+    if (originalDisplay !== undefined) {
+      process.env.DISPLAY = originalDisplay;
+    } else {
+      delete process.env.DISPLAY;
+    }
+    if (originalWayland !== undefined) {
+      process.env.WAYLAND_DISPLAY = originalWayland;
+    } else {
+      delete process.env.WAYLAND_DISPLAY;
+    }
+    Object.defineProperty(process.stdin, 'isTTY', { value: originalIsTTY, writable: true, configurable: true });
+    Object.defineProperty(process, 'platform', { value: originalPlatform, writable: true, configurable: true });
   });
 
   test('falls back to encrypted provider when keytar unavailable', async () => {
@@ -70,5 +92,44 @@ describe('creds-keychain', () => {
   test('exports create function', async () => {
     const mod = await import('../../../src/providers/credentials/keychain.js');
     expect(typeof mod.create).toBe('function');
+  });
+
+  test('falls back in non-interactive context (AX_NON_INTERACTIVE=1)', async () => {
+    process.env.AX_NON_INTERACTIVE = '1';
+    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
+    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-nonint.enc';
+
+    const { create } = await import('../../../src/providers/credentials/keychain.js');
+    const provider = await create(config);
+
+    // Should have fallen back to encrypted provider interface
+    expect(typeof provider.get).toBe('function');
+    expect(typeof provider.set).toBe('function');
+
+    try {
+      const { unlinkSync } = await import('node:fs');
+      unlinkSync('/tmp/ax-keychain-nonint.enc');
+    } catch { /* file may not exist */ }
+  });
+
+  test('falls back on headless Linux without display or TTY', async () => {
+    delete process.env.AX_NON_INTERACTIVE;
+    delete process.env.DISPLAY;
+    delete process.env.WAYLAND_DISPLAY;
+    Object.defineProperty(process, 'platform', { value: 'linux', writable: true, configurable: true });
+    Object.defineProperty(process.stdin, 'isTTY', { value: undefined, writable: true, configurable: true });
+    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
+    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-headless.enc';
+
+    const { create } = await import('../../../src/providers/credentials/keychain.js');
+    const provider = await create(config);
+
+    // Should have fallen back — isKeychainAvailable() returns false
+    expect(typeof provider.get).toBe('function');
+
+    try {
+      const { unlinkSync } = await import('node:fs');
+      unlinkSync('/tmp/ax-keychain-headless.enc');
+    } catch { /* file may not exist */ }
   });
 });

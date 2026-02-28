@@ -168,6 +168,16 @@ export async function refreshOAuthTokens(refreshToken: string): Promise<OAuthTok
  * which won't load. The user copies the URL from the address bar and pastes it here.
  */
 function waitForPastedCode(expectedState: string): Promise<string> {
+  // If stdin is not a TTY, rl.question() will hang forever waiting for
+  // input that will never come. Fail fast with a clear message instead.
+  if (!process.stdin.isTTY) {
+    return Promise.reject(new Error(
+      'OAuth paste flow requires an interactive terminal (TTY). ' +
+      'In non-interactive environments (cron, systemd, CI), use an API key instead: ' +
+      'export ANTHROPIC_API_KEY=sk-ant-...',
+    ));
+  }
+
   return new Promise((resolve, reject) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
 
@@ -277,7 +287,14 @@ export async function runOAuthFlow(): Promise<OAuthTokens> {
     ]);
     code = result;
   } else {
-    // Headless: paste-only flow
+    // Headless: paste-only flow. If stdin is not a TTY either, there is
+    // no way to complete the OAuth flow — fail fast with a clear message.
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        'OAuth flow cannot proceed: no browser available (headless) and no terminal (non-TTY). ' +
+        'Set ANTHROPIC_API_KEY instead, or run `ax configure` from an interactive terminal first.',
+      );
+    }
     console.log('  After authorizing, your browser will redirect to a localhost URL.');
     console.log('  The page won\'t load — that\'s expected.');
     console.log('  Copy the full URL from your browser\'s address bar and paste it here.\n');

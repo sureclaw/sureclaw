@@ -905,3 +905,16 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `README.md`, `docs/web/index.html`, `docs/web/styles.css`
 **Outcome:** Success — both files now accurately reflect the current state of all 13 provider categories, 43 provider implementations, plugin framework, streaming event bus, image generation, OTel tracing, and other recent additions
 **Notes:** The ax-logo.svg uses a gold gradient (#eab308 → #facc15) while the website's CSS accent is cyan. The `<img>` tag approach means the logo renders in its native gold color rather than inheriting CSS accent colors — this is a deliberate branding distinction.
+
+## [2026-02-28 21:00] — Prevent keyring/credential TTY hangs in non-interactive contexts
+
+**Task:** Prevent gogcli-style keyring hang bugs in AX — keytar operations and OAuth paste flow could hang indefinitely in non-TTY contexts (cron, systemd, LaunchAgent, CI)
+**What I did:**
+- Created `src/utils/timeout.ts` — reusable `withTimeout()` helper that races a promise against a deadline, with a named `TimeoutError` class
+- Created `src/utils/interactive.ts` — centralized `isInteractive()`, `isKeychainAvailable()`, and `hasDisplayServer()` detection utilities
+- Hardened `src/providers/credentials/keychain.ts` — added non-interactive pre-flight check via `isKeychainAvailable()`, wrapped all keytar operations (init `findCredentials`, runtime `getPassword`/`setPassword`/`deletePassword`/`findCredentials`) with 5-second timeouts, added distinct log messages for timeout vs import failure
+- Fixed `src/host/oauth.ts` — added TTY guard in `waitForPastedCode()` to reject immediately if `!process.stdin.isTTY`, added guard in `runOAuthFlow()` headless branch to throw descriptive error instead of hanging
+- Created comprehensive tests: `tests/utils/timeout.test.ts` (9 tests), `tests/utils/interactive.test.ts` (15 tests), updated `tests/providers/credentials/keychain.test.ts` (+2 tests for non-interactive fallback), updated `tests/host/oauth.test.ts` (+2 tests for headless non-TTY rejection)
+**Files touched:** `src/utils/timeout.ts` (new), `src/utils/interactive.ts` (new), `src/providers/credentials/keychain.ts`, `src/host/oauth.ts`, `tests/utils/timeout.test.ts` (new), `tests/utils/interactive.test.ts` (new), `tests/providers/credentials/keychain.test.ts`, `tests/host/oauth.test.ts`
+**Outcome:** Success — build passes, all 1837 tests pass (178 test files). Keychain provider now fails fast in non-interactive contexts instead of hanging, OAuth flow throws clear error in headless non-TTY instead of blocking on stdin.
+**Notes:** Inspired by a real-world incident with gogcli (openclaw) where an encrypted keyring prompt hung in a LaunchAgent context, causing a health check timeout and DEGRADED state. AX's agent sandbox already prevented this on the agent side (stdin closed after payload write), but the host-side credential and OAuth code had the same class of vulnerability.

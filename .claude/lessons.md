@@ -402,3 +402,15 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Adding thinking/reasoning chunk support to the Anthropic LLM provider
 **Lesson:** When processing Anthropic streaming events for extended thinking, the `content_block_delta` event's delta has a `thinking` key (not `text`). Cast delta to `Record<string, unknown>` to check for it since the SDK types may not include it yet. For OpenAI-compatible providers, reasoning content appears as `reasoning_content` or `reasoning` on the delta — also non-standard fields that need a cast to access.
 **Tags:** anthropic, openai, thinking, reasoning, streaming, types
+
+### Wrap all native OS keychain operations with timeouts — they can hang forever
+**Date:** 2026-02-28
+**Context:** Preventing gogcli-style keyring hang in AX's keychain credential provider
+**Lesson:** OS keychain libraries (keytar, libsecret, GNOME Keyring) can hang indefinitely in non-interactive contexts when the keyring is locked and there's no GUI/TTY to prompt for unlock. Every keychain operation MUST be wrapped with `withTimeout()` (5 seconds is generous). Additionally, check `isKeychainAvailable()` before even attempting keychain operations — on headless Linux without DISPLAY/WAYLAND_DISPLAY and no TTY, skip straight to the fallback provider. A 5-second timeout is 1000x slower than a healthy keychain response, so false positives are extremely unlikely.
+**Tags:** keychain, keytar, timeout, non-interactive, credentials, hang-prevention
+
+### stdin prompts in non-TTY contexts cause silent hangs — always guard with isTTY check
+**Date:** 2026-02-28
+**Context:** OAuth paste flow in oauth.ts used `rl.question()` on stdin without checking if stdin was a TTY
+**Lesson:** Any code that reads from `process.stdin` (readline, createInterface, etc.) MUST check `process.stdin.isTTY` first. In non-interactive contexts (cron, systemd, LaunchAgent, CI), stdin is not a TTY and `rl.question()` will hang forever waiting for input that will never come. Guard with an early return/throw that includes a clear error message suggesting the non-interactive alternative (e.g., "Set ANTHROPIC_API_KEY instead").
+**Tags:** stdin, tty, non-interactive, oauth, hang-prevention, readline
