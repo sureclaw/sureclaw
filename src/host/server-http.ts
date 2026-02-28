@@ -21,6 +21,14 @@ export interface OpenAIChatRequest {
   user?: string;
 }
 
+/** File/image metadata returned separately from message text for UI rendering. */
+export interface ChatAttachment {
+  fileId: string;
+  filename: string;
+  url: string;
+  mimeType?: string;
+}
+
 export interface OpenAIChatResponse {
   id: string;
   object: 'chat.completion';
@@ -28,7 +36,7 @@ export interface OpenAIChatResponse {
   model: string;
   choices: {
     index: number;
-    message: { role: 'assistant'; content: string };
+    message: { role: 'assistant'; content: string; attachments?: ChatAttachment[] };
     finish_reason: 'stop' | 'length' | 'content_filter';
   }[];
   usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
@@ -46,11 +54,25 @@ export interface OpenAIStreamChunk {
   object: 'chat.completion.chunk';
   created: number;
   model: string;
+  attachments?: ChatAttachment[];
   choices: {
     index: number;
     delta: { role?: string; content?: string; tool_calls?: OpenAIToolCall[] };
     finish_reason: 'stop' | 'length' | 'content_filter' | 'tool_calls' | null;
   }[];
+}
+
+export interface ChatHistoryTurn {
+  role: 'user' | 'assistant';
+  content: string;
+  sender?: string;
+  created_at: number;
+  attachments?: ChatAttachment[];
+}
+
+export interface ChatHistoryResponse {
+  session_id: string;
+  turns: ChatHistoryTurn[];
 }
 
 // =====================================================

@@ -15,10 +15,10 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readd
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { axHome, dataDir, dataFile, isValidSessionId, agentDir as agentDirPath, agentSkillsDir } from '../paths.js';
-import type { Config, ProviderRegistry } from '../types.js';
+import { axHome, dataDir, dataFile, isValidSessionId, parseSessionId, agentDir as agentDirPath, agentSkillsDir } from '../paths.js';
+import type { Config, ContentBlock } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
-import { ConversationStore } from '../conversation-store.js';
+import { ConversationStore, deserializeContent } from '../conversation-store.js';
 import { loadProviders } from './registry.js';
 import { MessageQueue } from '../db.js';
 import { createRouter } from './router.js';
@@ -32,7 +32,13 @@ import { createEventBus, type EventBus } from './event-bus.js';
 
 // Extracted modules
 import { sendError, sendSSEChunk, readBody } from './server-http.js';
-import type { OpenAIChatRequest, OpenAIChatResponse, OpenAIStreamChunk } from './server-http.js';
+import type {
+  OpenAIChatRequest,
+  OpenAIChatResponse,
+  OpenAIStreamChunk,
+  ChatAttachment,
+  ChatHistoryResponse,
+} from './server-http.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
@@ -64,6 +70,111 @@ export interface AxServer {
 // =====================================================
 // Helpers
 // =====================================================
+
+const SAFE_NAME_RE = /^[a-zA-Z0-9_.@-]+$/;
+
+interface SessionArtifactContext {
+  agentName?: string;
+  userId?: string;
+}
+
+function parseSessionArtifactContext(
+  sessionId: string,
+  overrides?: { agentName?: string; userId?: string },
+): SessionArtifactContext {
+  if (overrides?.agentName && overrides?.userId) {
+    return { agentName: overrides.agentName, userId: overrides.userId };
+  }
+  const parts = parseSessionId(sessionId);
+  if (parts && parts.length >= 4 && parts[1] === 'http') {
+    return { agentName: parts[0], userId: parts[2] };
+  }
+  return {};
+}
+
+function fileUrl(fileId: string, sessionCtx?: SessionArtifactContext): string {
+  const base = `/v1/files/${encodeURIComponent(fileId)}`;
+  if (sessionCtx?.agentName && sessionCtx.userId) {
+    const query = new URLSearchParams({
+      agent: sessionCtx.agentName,
+      user: sessionCtx.userId,
+    });
+    return `${base}?${query.toString()}`;
+  }
+  return base;
+}
+
+function markdownSrcToFileId(src: string): string | undefined {
+  const normalized = src.trim().split('#')[0].split('?')[0];
+  if (!normalized) return undefined;
+  if (normalized.startsWith('/v1/files/')) {
+    return decodeURIComponent(normalized.slice('/v1/files/'.length));
+  }
+  if (normalized.startsWith('v1/files/')) {
+    return decodeURIComponent(normalized.slice('v1/files/'.length));
+  }
+  if (normalized.startsWith('files/') || normalized.startsWith('generated-')) {
+    return decodeURIComponent(normalized);
+  }
+  return undefined;
+}
+
+function textFromBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+    .map(b => b.text)
+    .join('');
+}
+
+function normalizeForWebClient(
+  text: string,
+  blocks?: ContentBlock[],
+  sessionCtx?: SessionArtifactContext,
+): { content: string; attachments: ChatAttachment[] } {
+  const markdownImageRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+  const attachments = new Map<string, ChatAttachment>();
+
+  for (const block of blocks ?? []) {
+    if (block.type !== 'image') continue;
+    const fileId = block.fileId;
+    if (attachments.has(fileId)) continue;
+    attachments.set(fileId, {
+      fileId,
+      filename: fileId.split('/').pop() ?? fileId,
+      mimeType: block.mimeType,
+      url: fileUrl(fileId, sessionCtx),
+    });
+  }
+
+  for (const match of text.matchAll(markdownImageRe)) {
+    const src = match[1] ?? '';
+    const fileId = markdownSrcToFileId(src);
+    if (!fileId || attachments.has(fileId)) continue;
+    attachments.set(fileId, {
+      fileId,
+      filename: fileId.split('/').pop() ?? fileId,
+      url: fileUrl(fileId, sessionCtx),
+    });
+  }
+
+  let content = text;
+  if (attachments.size > 0) {
+    const fileIds = new Set(attachments.keys());
+    const filenames = new Set(Array.from(attachments.values()).map(a => a.filename));
+    content = content.replace(
+      markdownImageRe,
+      (full, src: string) => {
+        const fileId = markdownSrcToFileId(src);
+        const basename = src.trim().split('#')[0].split('?')[0].split('/').pop() ?? src;
+        if ((fileId && fileIds.has(fileId)) || filenames.has(basename)) return '';
+        return full;
+      },
+    );
+    content = content.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  return { content, attachments: Array.from(attachments.values()) };
+}
 
 /** Returns true when the agent is still in bootstrap mode (missing SOUL.md or IDENTITY.md while BOOTSTRAP.md present). */
 export function isAgentBootstrapMode(agentDirPath: string): boolean {
@@ -367,6 +478,21 @@ export async function createServer(
       return;
     }
 
+    if (url.startsWith('/v1/chat/history') && req.method === 'GET') {
+      trackRequestStart();
+      try {
+        handleChatHistory(req, res);
+      } catch (err) {
+        logger.error('history_request_failed', { error: (err as Error).message });
+        if (!res.headersSent) {
+          sendError(res, 500, 'Internal server error');
+        }
+      } finally {
+        trackRequestEnd();
+      }
+      return;
+    }
+
     // File upload: POST /v1/files?agent=<name>&user=<id>
     if (url.startsWith('/v1/files') && req.method === 'POST') {
       try {
@@ -405,6 +531,76 @@ export async function createServer(
     });
     res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
     res.end(body);
+  }
+
+  function handleChatHistory(req: IncomingMessage, res: ServerResponse): void {
+    const parsedUrl = new URL(req.url ?? '/', 'http://localhost');
+    const sessionId = parsedUrl.searchParams.get('session_id') ?? undefined;
+    const limitParam = parsedUrl.searchParams.get('limit') ?? undefined;
+    const queryAgent = parsedUrl.searchParams.get('agent') ?? undefined;
+    const queryUser = parsedUrl.searchParams.get('user') ?? undefined;
+
+    if (!sessionId || !isValidSessionId(sessionId)) {
+      sendError(res, 400, 'Missing or invalid session_id');
+      return;
+    }
+
+    if ((queryAgent && !SAFE_NAME_RE.test(queryAgent)) || (queryUser && !SAFE_NAME_RE.test(queryUser))) {
+      sendError(res, 400, 'Invalid agent/user query parameters');
+      return;
+    }
+
+    let limit: number | undefined;
+    if (limitParam !== undefined) {
+      limit = Number.parseInt(limitParam, 10);
+      if (!Number.isFinite(limit) || limit <= 0) {
+        sendError(res, 400, 'Invalid limit parameter');
+        return;
+      }
+    }
+
+    const sessionCtx = parseSessionArtifactContext(sessionId, {
+      agentName: queryAgent,
+      userId: queryUser,
+    });
+
+    const turns = conversationStore.load(sessionId, limit).map(turn => {
+      const content = deserializeContent(turn.content);
+      const blocks = Array.isArray(content) ? content : undefined;
+      const normalized = normalizeForWebClient(
+        typeof content === 'string' ? content : textFromBlocks(content),
+        blocks,
+        sessionCtx,
+      );
+
+      // Backfill file mappings so old history attachments remain resolvable by fileId.
+      if (sessionCtx.agentName && sessionCtx.userId) {
+        for (const block of blocks ?? []) {
+          if (block.type === 'image') {
+            fileStore.register(block.fileId, sessionCtx.agentName, sessionCtx.userId, block.mimeType);
+          }
+        }
+      }
+
+      return {
+        role: turn.role,
+        sender: turn.sender ?? undefined,
+        content: normalized.content,
+        created_at: turn.created_at,
+        ...(normalized.attachments.length > 0 ? { attachments: normalized.attachments } : {}),
+      };
+    });
+
+    const response: ChatHistoryResponse = {
+      session_id: sessionId,
+      turns,
+    };
+    const responseBody = JSON.stringify(response);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(responseBody),
+    });
+    res.end(responseBody);
   }
 
   /** SSE keepalive interval (ms). */
@@ -522,8 +718,20 @@ export async function createServer(
     // Extract userId from user field (first segment before /)
     const userId = chatReq.user?.split('/')[0] || undefined;
 
+    const registerImageRefs = (
+      blocks: ContentBlock[] | undefined,
+      sessionCtx: SessionArtifactContext,
+    ): void => {
+      if (!blocks || !sessionCtx.agentName || !sessionCtx.userId) return;
+      for (const block of blocks) {
+        if (block.type === 'image') {
+          fileStore.register(block.fileId, sessionCtx.agentName, sessionCtx.userId, block.mimeType);
+        }
+      }
+    };
+
     if (chatReq.stream) {
-      // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
+      // ── Streaming mode: stream tool events, then emit final cleaned content + attachments ──
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -538,25 +746,15 @@ export async function createServer(
         choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
       });
 
-      // Track whether we streamed any content via event bus
-      let streamedContent = false;
-
       // Track tool call index for OpenAI-compatible incremental indexing
       let toolCallIndex = 0;
       let hasToolCalls = false;
 
-      // Subscribe to event bus for this request's llm events.
-      // Events are emitted synchronously during processCompletion, so the
-      // listener fires inline and we can res.write() in real-time.
+      // Subscribe to event bus for this request's tool.call events.
+      // We defer text emission until completion so web clients receive
+      // attachment refs out-of-band, not markdown embeds in content.
       const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
-        if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
-          streamedContent = true;
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
-          });
-        } else if (event.type === 'tool.call' && event.data.toolName) {
-          streamedContent = true;
+        if (event.type === 'tool.call' && event.data.toolName) {
           hasToolCalls = true;
           sendSSEChunk(res, {
             id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
@@ -576,43 +774,62 @@ export async function createServer(
       });
 
       // Run completion — blocks while agent processes, but event callbacks fire during execution
-      const { responseContent, finishReason } = await processCompletion(
+      const { responseContent, contentBlocks, finishReason, agentName: resultAgent, userId: resultUser } = await processCompletion(
         completionDeps, content, requestId, chatReq.messages, sessionId,
         undefined, userId,
       );
 
       unsubscribe();
 
-      // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
-      // bypasses the IPC LLM handler), send the full response as a single chunk.
-      if (!streamedContent && responseContent) {
+      const sessionCtx = parseSessionArtifactContext(sessionId, {
+        agentName: resultAgent,
+        userId: resultUser,
+      });
+      registerImageRefs(contentBlocks, sessionCtx);
+
+      const normalized = normalizeForWebClient(responseContent, contentBlocks, sessionCtx);
+      if (normalized.content) {
         sendSSEChunk(res, {
           id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-          choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
+          choices: [{ index: 0, delta: { content: normalized.content }, finish_reason: null }],
         });
       }
 
       // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
       const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
-      sendSSEChunk(res, {
+      const finishChunk: OpenAIStreamChunk = {
         id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
         choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
-      });
+        ...(normalized.attachments.length > 0 ? { attachments: normalized.attachments } : {}),
+      };
+      sendSSEChunk(res, finishChunk);
 
       res.write('data: [DONE]\n\n');
       res.end();
     } else {
       // ── Non-streaming mode ──
-      const { responseContent, finishReason } = await processCompletion(
+      const { responseContent, contentBlocks, finishReason, agentName: resultAgent, userId: resultUser } = await processCompletion(
         completionDeps, content, requestId, chatReq.messages, sessionId,
         undefined, userId,
       );
+
+      const sessionCtx = parseSessionArtifactContext(sessionId, {
+        agentName: resultAgent,
+        userId: resultUser,
+      });
+      registerImageRefs(contentBlocks, sessionCtx);
+
+      const normalized = normalizeForWebClient(responseContent, contentBlocks, sessionCtx);
 
       const response: OpenAIChatResponse = {
         id: requestId, object: 'chat.completion', created, model: requestModel,
         choices: [{
           index: 0,
-          message: { role: 'assistant', content: responseContent },
+          message: {
+            role: 'assistant',
+            content: normalized.content,
+            ...(normalized.attachments.length > 0 ? { attachments: normalized.attachments } : {}),
+          },
           finish_reason: finishReason,
         }],
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },

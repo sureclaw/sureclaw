@@ -85,7 +85,7 @@ describe('Server multimodal responses', () => {
   });
 
   describe('non-streaming', () => {
-    it('returns markdown image refs as plain text content', async () => {
+    it('returns cleaned content with separate attachments', async () => {
       const config = loadConfig('tests/integration/ax-test.yaml');
       server = await createServer(config, { socketPath });
       await server.start();
@@ -100,10 +100,14 @@ describe('Server multimodal responses', () => {
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
 
-      // Content is plain text with markdown image refs — no separate files array
+      // Content strips markdown image refs and returns attachments separately.
       expect(typeof data.choices[0].message.content).toBe('string');
-      expect(data.choices[0].message.content).toContain('![A cow sailing]');
-      expect(data.choices[0].message.files).toBeUndefined();
+      expect(data.choices[0].message.content).toBe('Here is the image:\n\nEnjoy!');
+      expect(data.choices[0].message.attachments).toEqual([{
+        fileId: 'generated-abc123.png',
+        filename: 'generated-abc123.png',
+        url: '/v1/files/generated-abc123.png',
+      }]);
     });
 
     it('returns plain string content for text-only responses', async () => {
@@ -125,12 +129,12 @@ describe('Server multimodal responses', () => {
 
       expect(typeof data.choices[0].message.content).toBe('string');
       expect(data.choices[0].message.content).toBe('Just a text reply.');
-      expect(data.choices[0].message.files).toBeUndefined();
+      expect(data.choices[0].message.attachments).toBeUndefined();
     });
   });
 
   describe('streaming', () => {
-    it('streams markdown image refs as plain text content', async () => {
+    it('streams cleaned content and exposes attachments on finish chunk', async () => {
       const config = loadConfig('tests/integration/ax-test.yaml');
       server = await createServer(config, { socketPath });
       await server.start();
@@ -147,18 +151,22 @@ describe('Server multimodal responses', () => {
       const lines = res.body.split('\n').filter((l: string) => l.startsWith('data: '));
       expect(lines.length).toBeGreaterThanOrEqual(4);
 
-      // Content chunk is plain text with markdown image refs
+      // Content chunk strips markdown image refs.
       const contentChunk = JSON.parse(lines[1].replace('data: ', ''));
       expect(typeof contentChunk.choices[0].delta.content).toBe('string');
-      expect(contentChunk.choices[0].delta.content).toContain('![A cow sailing]');
+      expect(contentChunk.choices[0].delta.content).toBe('Here is the image:\n\nEnjoy!');
 
-      // Finish chunk has no files field
+      // Finish chunk carries attachments for UI rendering.
       const finishChunk = JSON.parse(lines[2].replace('data: ', ''));
       expect(finishChunk.choices[0].finish_reason).toBe('stop');
-      expect(finishChunk.files).toBeUndefined();
+      expect(finishChunk.attachments).toEqual([{
+        fileId: 'generated-abc123.png',
+        filename: 'generated-abc123.png',
+        url: '/v1/files/generated-abc123.png',
+      }]);
     });
 
-    it('no files field on finish chunk for text-only responses', async () => {
+    it('has no attachments field on finish chunk for text-only responses', async () => {
       mockedProcessCompletion.mockResolvedValueOnce({
         responseContent: 'Just text.',
         finishReason: 'stop',
@@ -179,7 +187,7 @@ describe('Server multimodal responses', () => {
       expect(contentChunk.choices[0].delta.content).toBe('Just text.');
 
       const finishChunk = JSON.parse(lines[2].replace('data: ', ''));
-      expect(finishChunk.files).toBeUndefined();
+      expect(finishChunk.attachments).toBeUndefined();
     });
   });
 });

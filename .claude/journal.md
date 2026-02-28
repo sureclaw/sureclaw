@@ -894,3 +894,40 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/host/server-completions.ts`, `src/host/ipc-handlers/llm.ts`, `src/host/server.ts`, `src/host/event-bus.ts`, `tests/host/ipc-handlers/llm-events.test.ts`, `tests/host/streaming-completions.test.ts` (new)
 **Outcome:** Success — all 1808 tests pass across 176 test files
 **Notes:** Initially tried threading a separate `_requestId` through the full pipeline (stdin → IPC client → IPC server → IPCContext), but simplified to just passing the HTTP requestId as the agent's sessionId. The key insight: `ctx.sessionId` is already threaded end-to-end, so reusing it avoids new plumbing. The old `queued.session_id` (`http:dm:client`) was shared across all HTTP requests, making correlation impossible.
+## [$TS] — OpenClaw artifact delivery investigation
+
+**Task:** Analyze how OpenClaw handles generated images/files and how they become Slack/web UI attachments, then map takeaways to AX.
+**What I did:** Reviewed OpenClaw outbound payload normalization, MEDIA directive parsing, trusted tool-result media extraction, Slack upload flow, and media-loading security guards; compared these patterns against AX host/channel/image pipelines.
+**Files touched:** .claude/journal.md
+**Outcome:** Success — identified OpenClaw’s core artifact-delivery mechanisms and concrete AX gaps/opportunities for adaptation.
+**Notes:** AX already supports channel-side image attachments via structured blocks, but lacks OpenClaw-style media directive/tool-result fallback extraction and unified API/UI attachment payloads.
+## [2026-02-28 04:47] — OpenClaw artifact delivery investigation (corrected timestamp)
+
+**Task:** Analyze how OpenClaw handles generated images/files and how they become Slack/web UI attachments, then map takeaways to AX.
+**What I did:** Reviewed OpenClaw outbound payload normalization, MEDIA directive parsing, trusted tool-result media extraction, Slack upload flow, and media-loading security guards; compared these patterns against AX host/channel/image pipelines.
+**Files touched:** .claude/journal.md
+**Outcome:** Success — identified OpenClaw’s core artifact-delivery mechanisms and concrete AX gaps/opportunities for adaptation.
+**Notes:** AX already supports channel-side image attachments via structured blocks, but lacks OpenClaw-style media directive/tool-result fallback extraction and unified API/UI attachment payloads.
+
+## [2026-02-28 04:49] — Compare OpenClaw memory stack with AX MemU proposal
+
+**Task:** Evaluate how OpenClaw implements memory with QMD/openclaw-engram and compare it to using MemU as AX's memory layer.
+**What I did:** Reviewed AX memory provider and Sureclaw MemU plan docs; cloned and inspected OpenClaw and QMD code/docs; traced OpenClaw memory-core + QMD manager behavior; validated that current OpenClaw repo uses memory-lancedb plugin (and no visible openclaw-engram package); compared that design to MemU's architecture and AX provider contracts.
+**Files touched:** .claude/journal.md
+**Outcome:** Success — produced a concrete architecture comparison with integration risks and recommended adoption path for AX.
+**Notes:** AX's current memu provider is an in-memory heuristic stub; OpenClaw's QMD integration is retrieval-oriented and operationally hardened; MemU offers richer memory modeling but requires adapter work to preserve AX security invariants.
+
+## [2026-02-28 05:01] — MemU integration execution plan for AX
+
+**Task:** Produce a concrete implementation plan to adopt MemU as AX's memory layer, with interface changes, threat-model checks, and test cases.
+**What I did:** Compared AX's current memory contract and host call paths against OpenClaw's QMD-oriented memory architecture and MemU docs; then wrote a phased integration plan with exact file targets, contract updates, security controls, and test matrix.
+**Files touched:** docs/plans/2026-02-28-memu-integration-plan.md, .claude/journal.md
+**Outcome:** Success — delivered an implementation-ready plan that preserves AX IPC/tool compatibility while upgrading memu from heuristic stub to real adapter.
+**Notes:** The highest-leverage contract change is adding typed memorize context (scope/session/agent) so semantic memory can stay tenant-safe and taint-aware.
+## [2026-02-28 05:13] — Web artifact attachments + history endpoint
+
+**Task:** Implement OpenClaw-style artifact delivery improvements in AX for web clients: return images/files as attachments (not embedded markdown) and ensure old history artifacts remain viewable.
+**What I did:** Added HTTP attachment metadata types, normalized completion text to strip managed markdown image embeds, returned `attachments` in non-streaming and streaming responses, added `GET /v1/chat/history`, and backfilled file mappings from history image blocks.
+**Files touched:** src/host/server-http.ts, src/host/server.ts, tests/host/server-multimodal.test.ts, tests/host/server.test.ts, .claude/journal.md
+**Outcome:** Success — build passes and targeted host tests pass with coverage for attachment responses and new history endpoint behavior.
+**Notes:** Streaming now emits tool-call deltas live but defers text to a final cleaned content chunk so web clients never receive inline markdown image embeds for managed files.

@@ -402,3 +402,25 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Adding thinking/reasoning chunk support to the Anthropic LLM provider
 **Lesson:** When processing Anthropic streaming events for extended thinking, the `content_block_delta` event's delta has a `thinking` key (not `text`). Cast delta to `Record<string, unknown>` to check for it since the SDK types may not include it yet. For OpenAI-compatible providers, reasoning content appears as `reasoning_content` or `reasoning` on the delta — also non-standard fields that need a cast to access.
 **Tags:** anthropic, openai, thinking, reasoning, streaming, types
+### Expand timestamps in journal heredocs
+**Date:** 2026-02-28
+**Context:** Appending required session entries to .claude/journal.md using shell heredocs.
+**Lesson:** When writing journal entries that include dynamic timestamps, do not use a single-quoted heredoc delimiter; use an unquoted heredoc or pre-rendered string so variables expand correctly.
+**Tags:** journaling, shell, heredoc, process
+
+### Verify current memory plugin names before assuming historical repo names
+**Date:** 2026-02-28
+**Context:** Comparing OpenClaw memory architecture against AX's MemU proposal.
+**Lesson:** When analyzing OpenClaw memory internals, verify current plugin/backends in the live repo (`extensions/`, `src/memory/`) instead of assuming older names like `openclaw-engram`; in current upstream, QMD is wired through `memory-core`/`qmd-manager` and semantic long-term memory appears as `memory-lancedb`.
+**Tags:** reference-repos, openclaw, memory, qmd, architecture-research
+
+### Add explicit memory context to memorize hooks
+**Date:** 2026-02-28
+**Context:** Designing AX's real MemU adapter to replace the heuristic memu provider.
+**Lesson:** Do not call `memorize()` with raw turn arrays alone; include typed context (`scope`, `sessionId`, `agentId`) so extracted memories preserve tenant boundaries, auditing context, and taint propagation.
+**Tags:** memory, memu, interface-design, multi-tenant, taint
+### Seed history through server flows in host tests
+**Date:** 2026-02-28
+**Context:** Adding tests for `/v1/chat/history` with artifact attachments.
+**Lesson:** Avoid writing to `conversations.db` via a separate `ConversationStore` while the server is running in the same test; use API-driven persistence paths or isolated stores to prevent intermittent SQLite disk I/O errors.
+**Tags:** testing, sqlite, conversation-history, host-server

@@ -186,6 +186,45 @@ describe('Server', () => {
     expect(data.usage).toBeDefined();
   });
 
+  it('should return chat history with cleaned attachments metadata', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const sessionId = 'main:http:test-user:conv-1';
+    const chatRes = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        session_id: sessionId,
+      },
+    });
+    expect(chatRes.status).toBe(200);
+
+    const historyRes = await sendRequest(
+      socketPath,
+      `/v1/chat/history?session_id=${encodeURIComponent(sessionId)}`,
+      { method: 'GET' },
+    );
+    expect(historyRes.status).toBe(200);
+    const history = JSON.parse(historyRes.body);
+    expect(history.session_id).toBe(sessionId);
+    expect(Array.isArray(history.turns)).toBe(true);
+    expect(history.turns.length).toBeGreaterThanOrEqual(2);
+    expect(history.turns[0].role).toBe('user');
+    expect(typeof history.turns[0].content).toBe('string');
+  });
+
+  it('should return 400 for missing history session_id', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const res = await sendRequest(socketPath, '/v1/chat/history', { method: 'GET' });
+    expect(res.status).toBe(400);
+    const data = JSON.parse(res.body);
+    expect(data.error.message).toContain('session_id');
+  });
+
   it('should return SSE stream for streaming requests', async () => {
     const config = loadConfig('tests/integration/ax-test.yaml');
     server = await createServer(config, { socketPath });
