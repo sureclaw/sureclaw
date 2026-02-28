@@ -917,3 +917,19 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 - Created: `tests/host/orchestration/agent-supervisor.test.ts`, `agent-directory.test.ts`, `orchestrator.test.ts`
 **Outcome:** Success — 92 new tests pass, existing IPC schema tests unaffected
 **Notes:** Key design decisions: (1) Extend EventBus rather than replace it — auto-state inference bridges existing llm.start/tool.call events to the new state model. (2) Messages always flow through trusted host — preserves sandbox security boundary. (3) A2A-inspired state machine with 10 states and enforced transitions. (4) Both push (listeners) and pull (polling) message delivery — sandboxed agents use pull via IPC, internal components use push.
+
+## [2026-02-28 16:20] — Add Ralph Wiggum Loop (agent-loop.ts)
+
+**Task:** Add support for the Ralph Wiggum pattern — iterative agent execution with fresh context and external validation.
+**What I did:**
+- Implemented `runAgentLoop()` in `src/host/orchestration/agent-loop.ts`
+- Each iteration: spawn agent with fresh context → run → validate externally → retry or pass
+- Key features: fresh context per iteration (no history accumulation), configurable validation function, customizable retry prompt builder, progress callbacks, interrupt-aware, loop events on EventBus
+- Each iteration tracked as a separate AgentHandle with `pattern: 'ralph'` metadata
+- Default retry prompt builder appends validation failure info to original prompt
+- Wrote 13 tests covering: first-pass success, retry until pass, max iterations, fresh handles per iteration, custom retry prompts, progress callbacks, event bus emissions, execute/validate error handling, interrupt support, metadata tagging, duration tracking
+**Files touched:**
+- Created: `src/host/orchestration/agent-loop.ts`
+- Created: `tests/host/orchestration/agent-loop.test.ts`
+**Outcome:** Success — 105 total orchestration tests pass (92 + 13 new)
+**Notes:** The loop is a workflow primitive that sits on top of the Orchestrator, not inside it. The execute/validate functions are injected by the caller, making it agnostic to how agents are actually spawned (processCompletion, delegation, etc.).
