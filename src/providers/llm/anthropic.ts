@@ -141,12 +141,16 @@ export async function create(config: Config): Promise<LLMProvider> {
 
       let chunkCount = 0;
       let toolUseCount = 0;
+      let thinkingChunkCount = 0;
       for await (const event of stream) {
         if (event.type === 'content_block_delta') {
-          const delta = event.delta;
-          if ('text' in delta) {
+          const delta = event.delta as unknown as Record<string, unknown>;
+          if ('text' in delta && typeof delta.text === 'string') {
             chunkCount++;
             yield { type: 'text', content: delta.text };
+          } else if ('thinking' in delta && typeof delta.thinking === 'string') {
+            thinkingChunkCount++;
+            yield { type: 'thinking', content: delta.thinking };
           }
         } else if (event.type === 'content_block_stop') {
           const finalMsg = await stream.finalMessage();
@@ -178,6 +182,7 @@ export async function create(config: Config): Promise<LLMProvider> {
         contentBlockCount: finalMessage.content.length,
         contentBlockTypes: finalMessage.content.map(b => b.type),
         textChunks: chunkCount,
+        thinkingChunks: thinkingChunkCount,
         toolUseChunks: toolUseCount,
         inputTokens: finalMessage.usage.input_tokens,
         outputTokens: finalMessage.usage.output_tokens,

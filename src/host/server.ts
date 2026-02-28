@@ -28,6 +28,7 @@ import { getLogger } from '../logger.js';
 import { SessionStore } from '../session-store.js';
 import { resolveDelivery } from './delivery.js';
 import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
+import { createEventBus, type EventBus } from './event-bus.js';
 
 // Extracted modules
 import { sendError, sendSSEChunk, readBody } from './server-http.js';
@@ -148,6 +149,7 @@ export async function createServer(
     threshold: thresholdForProfile(config.profile),
   });
   const router = createRouter(providers, db, { taintBudget });
+  const eventBus = createEventBus();
   const agentName = 'main';
   const agentDirVal = agentDirPath(agentName);
   mkdirSync(agentDirVal, { recursive: true });
@@ -227,6 +229,7 @@ export async function createServer(
     logger,
     verbose: opts.verbose,
     fileStore,
+    eventBus,
   };
 
   // Delegation callback: spawn a child agent via processCompletion with
@@ -276,6 +279,7 @@ export async function createServer(
       maxConcurrent: config.delegation.max_concurrent,
       maxDepth: config.delegation.max_depth,
     } : undefined,
+    eventBus,
   });
 
   const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
@@ -385,6 +389,12 @@ export async function createServer(
       return;
     }
 
+    // SSE event stream: GET /v1/events?request_id=...&types=...
+    if (url.startsWith('/v1/events') && req.method === 'GET') {
+      handleEvents(req, res);
+      return;
+    }
+
     sendError(res, 404, 'Not found');
   }
 
@@ -395,6 +405,59 @@ export async function createServer(
     });
     res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
     res.end(body);
+  }
+
+  /** SSE keepalive interval (ms). */
+  const SSE_KEEPALIVE_MS = 15_000;
+
+  function handleEvents(req: IncomingMessage, res: ServerResponse): void {
+    // Parse query params from URL
+    const parsedUrl = new URL(req.url ?? '/', 'http://localhost');
+    const requestIdFilter = parsedUrl.searchParams.get('request_id') ?? undefined;
+    const typesParam = parsedUrl.searchParams.get('types') ?? undefined;
+    const typeFilter = typesParam ? new Set(typesParam.split(',').map(t => t.trim()).filter(Boolean)) : undefined;
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Send initial comment so the client knows the connection is alive
+    res.write(':connected\n\n');
+
+    const listener = (event: import('./event-bus.js').StreamEvent) => {
+      // Apply type filter
+      if (typeFilter && !typeFilter.has(event.type)) return;
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Client disconnected — unsubscribe handled below
+      }
+    };
+
+    // Subscribe: use request-scoped if request_id provided, global otherwise
+    const unsubscribe = requestIdFilter
+      ? eventBus.subscribeRequest(requestIdFilter, listener)
+      : eventBus.subscribe(listener);
+
+    // Keepalive comment every 15s to prevent proxy/LB timeouts
+    const keepalive = setInterval(() => {
+      try {
+        res.write(':keepalive\n\n');
+      } catch {
+        // Client gone
+      }
+    }, SSE_KEEPALIVE_MS);
+
+    // Cleanup on client disconnect
+    const cleanup = () => {
+      clearInterval(keepalive);
+      unsubscribe();
+    };
+    req.on('close', cleanup);
+    req.on('error', cleanup);
   }
 
   async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {

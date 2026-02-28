@@ -384,3 +384,21 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** image/router.ts was importing parseCompoundId from llm/router.ts — a cross-provider runtime dependency
 **Lesson:** If multiple provider routers share utility functions (like `parseCompoundId`), extract them to `src/providers/router-utils.ts`. Don't have one router import from another — that creates a dependency between provider categories. When extracting the shared function, add a re-export from the original location for backwards compatibility, and mark it for removal in a future phase.
 **Tags:** architecture, imports, router, shared-utils, parseCompoundId, extraction-prep
+
+### EventBus should be optional and synchronous to avoid blocking the hot path
+**Date:** 2026-02-28
+**Context:** Implementing a streaming event bus for completion observability
+**Lesson:** When adding cross-cutting observability to a request pipeline, make the bus synchronous (fire-and-forget) and optional (`eventBus?.emit()`). This way: (1) it never blocks the completion pipeline even if a listener is slow, (2) existing code paths work unchanged when no bus is wired in, (3) listener errors are isolated per-listener so one bad subscriber can't take down the pipeline. Use try/catch around each listener invocation, not around the emit loop.
+**Tags:** event-bus, observability, architecture, performance, optional-dependency
+
+### Use createHttpServer for isolated SSE endpoint tests instead of full AxServer
+**Date:** 2026-02-28
+**Context:** Needed to test the SSE /v1/events endpoint without the full server stack (providers, sandbox, IPC)
+**Lesson:** For testing SSE endpoints, create a minimal HTTP server that implements just the endpoint logic with the real EventBus. This avoids the 5+ second startup cost of the full AxServer (provider loading, DB init, IPC server, template copying) and makes tests fast and isolated. The SSE endpoint only depends on the EventBus — no providers needed.
+**Tags:** testing, sse, isolation, performance, event-bus
+
+### Anthropic thinking deltas use 'thinking' key, not 'text'
+**Date:** 2026-02-28
+**Context:** Adding thinking/reasoning chunk support to the Anthropic LLM provider
+**Lesson:** When processing Anthropic streaming events for extended thinking, the `content_block_delta` event's delta has a `thinking` key (not `text`). Cast delta to `Record<string, unknown>` to check for it since the SDK types may not include it yet. For OpenAI-compatible providers, reasoning content appears as `reasoning_content` or `reasoning` on the delta — also non-standard fields that need a cast to access.
+**Tags:** anthropic, openai, thinking, reasoning, streaming, types

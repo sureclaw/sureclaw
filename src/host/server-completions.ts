@@ -25,6 +25,7 @@ import { ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
+import type { EventBus } from './event-bus.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -44,6 +45,7 @@ export interface CompletionDeps {
   logger: Logger;
   verbose?: boolean;
   fileStore?: FileStore;
+  eventBus?: EventBus;
 }
 
 export interface ExtractedFile {
@@ -161,7 +163,7 @@ export async function processCompletion(
   userId?: string,
   replyOptional?: boolean,
 ): Promise<CompletionResult> {
-  const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, agentDir, logger } = deps;
+  const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, agentDir, logger, eventBus } = deps;
   const sessionId = preProcessed?.sessionId ?? randomUUID();
   const reqLogger = logger.child({ reqId: requestId.slice(-8) });
 
@@ -175,6 +177,14 @@ export async function processCompletion(
     contentLength: textContent.length,
     contentPreview: truncate(textContent, 200),
     historyTurns: clientMessages.length,
+  });
+
+  // Emit completion.start event
+  eventBus?.emit({
+    type: 'completion.start',
+    requestId,
+    timestamp: Date.now(),
+    data: { sessionId, contentLength: textContent.length, historyTurns: clientMessages.length },
   });
 
   let result: import('./router.js').RouterResult;
@@ -206,6 +216,12 @@ export async function processCompletion(
     if (!result.queued) {
       reqLogger.debug('inbound_blocked', { reason: result.scanResult.reason });
       reqLogger.info('scan_inbound', { status: 'blocked', reason: result.scanResult.reason ?? 'scan failed' });
+      eventBus?.emit({
+        type: 'scan.inbound',
+        requestId,
+        timestamp: Date.now(),
+        data: { verdict: 'BLOCK', reason: result.scanResult.reason },
+      });
       return {
         responseContent: `Request blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
         finishReason: 'content_filter',
@@ -215,6 +231,12 @@ export async function processCompletion(
     reqLogger.info('scan_inbound', { status: 'clean' });
     sessionCanaries.set(result.sessionId, result.canaryToken);
     reqLogger.debug('inbound_clean', { messageId: result.messageId });
+    eventBus?.emit({
+      type: 'scan.inbound',
+      requestId,
+      timestamp: Date.now(),
+      data: { verdict: 'PASS' },
+    });
   }
 
   // Dequeue the specific message we just enqueued (by ID, not FIFO)
@@ -431,6 +453,12 @@ export async function processCompletion(
 
       const proc = await providers.sandbox.spawn(sandboxConfig);
       reqLogger.info('agent_spawn', { sandbox: 'subprocess', attempt });
+      eventBus?.emit({
+        type: 'completion.agent',
+        requestId,
+        timestamp: Date.now(),
+        data: { agentType, attempt, sessionId },
+      });
 
       // Send raw user message to agent (not the taint-tagged queued.content)
       reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
@@ -541,6 +569,13 @@ export async function processCompletion(
     reqLogger.debug('outbound_start', { responseLength: parsed.text.length, hasCanary: canaryToken.length > 0, hasBlocks: !!parsed.blocks });
     const outbound = await router.processOutbound(parsed.text, queued.session_id, canaryToken);
 
+    eventBus?.emit({
+      type: 'scan.outbound',
+      requestId,
+      timestamp: Date.now(),
+      data: { verdict: outbound.scanResult.verdict, canaryLeaked: outbound.canaryLeaked },
+    });
+
     if (outbound.canaryLeaked) {
       reqLogger.warn('canary_leaked', { sessionId: queued.session_id });
     }
@@ -637,12 +672,24 @@ export async function processCompletion(
       scanVerdict: outbound.scanResult.verdict,
       hasContentBlocks: !!responseBlocks,
     });
+    eventBus?.emit({
+      type: 'completion.done',
+      requestId,
+      timestamp: Date.now(),
+      data: { finishReason, responseLength: outbound.content.length, sessionId },
+    });
     return { responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName, userId: currentUserId, finishReason };
 
   } catch (err) {
     reqLogger.error('completion_error', {
       error: (err as Error).message,
       stack: (err as Error).stack,
+    });
+    eventBus?.emit({
+      type: 'completion.error',
+      requestId,
+      timestamp: Date.now(),
+      data: { error: (err as Error).message, sessionId },
     });
     db.fail(queued.id);
     // Clean up canary token on error — without this, every failed completion

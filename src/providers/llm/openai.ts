@@ -184,6 +184,14 @@ export async function create(config: Config, providerName?: string): Promise<LLM
 
         const delta = choice.delta;
 
+        // Reasoning/thinking content (OpenAI o-series, DeepSeek R1, etc.)
+        // Some providers use 'reasoning_content', others embed it differently.
+        const deltaAny = delta as unknown as Record<string, unknown>;
+        const reasoning = deltaAny.reasoning_content ?? deltaAny.reasoning;
+        if (typeof reasoning === 'string' && reasoning) {
+          yield { type: 'thinking' as const, content: reasoning };
+        }
+
         // Text content
         if (delta.content) {
           chunkCount++;

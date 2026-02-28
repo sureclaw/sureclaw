@@ -25,7 +25,7 @@ export interface ChatRequest {
 }
 
 export interface ChatChunk {
-  type: 'text' | 'tool_use' | 'done';
+  type: 'text' | 'thinking' | 'tool_use' | 'done';
   content?: string;
   toolCall?: { id: string; name: string; args: Record<string, unknown> };
   usage?: { inputTokens: number; outputTokens: number };
