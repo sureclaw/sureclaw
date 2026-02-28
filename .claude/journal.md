@@ -905,3 +905,11 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `README.md`, `docs/web/index.html`, `docs/web/styles.css`
 **Outcome:** Success — both files now accurately reflect the current state of all 13 provider categories, 43 provider implementations, plugin framework, streaming event bus, image generation, OTel tracing, and other recent additions
 **Notes:** The ax-logo.svg uses a gold gradient (#eab308 → #facc15) while the website's CSS accent is cyan. The `<img>` tag approach means the logo renders in its native gold color rather than inheriting CSS accent colors — this is a deliberate branding distinction.
+
+## [2026-02-28 14:30] — Add development warning banner to docs/web/index.html
+
+**Task:** Add a friendly/witty warning banner to the website that the project is under heavy development
+**What I did:** Added a fixed-position orange warning banner between the navbar and hero section. Styled it with the existing design tokens (--ds-orange, --ds-orange-dim). Adjusted navbar top offset and hero padding to accommodate the banner. Added responsive styles for mobile. Used the project's voice: self-deprecating but competent ("APIs will change, things will break, and we'll probably rename at least three more modules before lunch").
+**Files touched:** `docs/web/index.html`, `docs/web/styles.css`
+**Outcome:** Success — banner displays above navbar with orange styling, responsive on mobile
+**Notes:** Used z-index: 60 for the banner (above navbar's z-index: 50). The banner is ~2.5rem on desktop, ~3.5rem on mobile due to text wrapping.

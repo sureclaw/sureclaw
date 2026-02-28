@@ -123,11 +123,58 @@ img, svg { display: block; max-width: 100%; }
 .stagger-container.visible > .stagger-item:nth-child(6) { transition-delay: 0.75s; }
 
 /* ══════════════════════════════
+   DEV BANNER
+   ══════════════════════════════ */
+.dev-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 60;
+  background: linear-gradient(135deg, var(--ds-orange-dim) 0%, rgba(120, 53, 15, 0.85) 100%);
+  border-bottom: 1px solid var(--ds-orange);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dev-banner-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0.6rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dev-banner-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.dev-banner p {
+  font-size: 0.825rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.dev-banner strong {
+  color: var(--ds-orange);
+}
+
+/* Push navbar below the banner */
+
+@media (max-width: 768px) {
+  .dev-banner-inner { padding: 0.5rem 1rem; }
+  .dev-banner p { font-size: 0.75rem; }
+  .navbar { top: 3.5rem; }
+  .hero { padding-top: 11.5rem; }
+}
+
+/* ══════════════════════════════
    NAVBAR
    ══════════════════════════════ */
 .navbar {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 2.5rem; left: 0; right: 0;
   z-index: 50;
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -257,7 +304,7 @@ img, svg { display: block; max-width: 100%; }
    HERO
    ══════════════════════════════ */
 .hero {
-  padding: 8rem 0 4rem;
+  padding: 10.5rem 0 4rem;
   text-align: center;
 }
 
