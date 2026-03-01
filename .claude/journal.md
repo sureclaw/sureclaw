@@ -1030,3 +1030,11 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 - Created: `tests/host/ipc-handlers/orchestration.test.ts` (5 handler tests)
 **Outcome:** Success — all 184 test files pass (1972 tests), TypeScript build clean
 **Notes:** The `resolveCallerHandle` bug was subtle — `bySession()` pre-filters by session, making the `||` always true and returning first candidate regardless of agentId. The fix uses `&&` with agentId match + non-terminal state check.
+
+## [2026-03-01 00:00] — Add `wait` parameter to async-parallel-delegation plan
+
+**Task:** Update the async-parallel-delegation plan to support sequential agent execution where one agent's output feeds the next
+**What I did:** Added a `wait: boolean` parameter (default `false`) to `agent_delegate`. When `wait: true`, the handler blocks and returns `{response}` directly (current behavior). When `wait: false` or omitted, it fires-and-forgets with Orchestrator. Updated: Flow diagram (parallel + sequential examples), new IPC schema step, delegation handler branching logic, tool catalog description + param, prompt module with both patterns + decision rule, test cases (4 new sequential tests), Files Modified table.
+**Files touched:** `.claude/plans/async-parallel-delegation.md`
+**Outcome:** Success — plan now covers both parallel (fire-and-forget) and sequential (blocking) delegation patterns
+**Notes:** The original plan only had fire-and-forget mode which would regress sequential workflows from 2 LLM turns to 4-6+ turns due to polling overhead. The `wait` parameter preserves backward-compatible blocking behavior while defaulting to async for parallelism gains.
