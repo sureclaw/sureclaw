@@ -38,6 +38,7 @@ export interface IPCContext {
 export interface DelegationConfig {
   maxConcurrent?: number;      // max secondary agents at once (default 3)
   maxDepth?: number;           // max delegation chain depth (default 2)
+  queueTimeoutMs?: number;     // max ms to wait for a slot (default 0 = immediate reject)
 }
 
 /** Structured delegation request passed to the onDelegate callback. */

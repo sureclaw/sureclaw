@@ -105,6 +105,16 @@ export interface Config {
   delegation?: {
     max_concurrent?: number;
     max_depth?: number;
+    /** Max time (ms) to wait for a delegation slot before giving up. 0 = no queue (immediate reject). */
+    queue_timeout_ms?: number;
+  };
+  orchestration?: {
+    /** Max parallel completion requests (default 5). */
+    max_concurrent?: number;
+    /** Max pending requests before 429 rejection (default 50). */
+    max_queue_depth?: number;
+    /** Max time (ms) for a single request before timeout (default 600000 = 10min). */
+    request_timeout_ms?: number;
   };
 }
 

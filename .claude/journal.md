@@ -1,5 +1,20 @@
 # Journal
 
+## [2026-03-01 00:00] — Orchestration Enhancements
+
+**Task:** Implement orchestration enhancements: completion queue, request tracker, delegation wait queue, and request cancellation.
+**What I did:**
+- Created `src/host/completion-queue.ts` — bounded concurrent execution queue with FIFO ordering, backpressure (429), and event bus integration
+- Created `src/host/request-tracker.ts` — queryable request lifecycle state (queued → processing → done/error/cancelled) with auto-cleanup
+- Enhanced `src/host/ipc-handlers/delegation.ts` — added wait-with-timeout queue (configurable `queue_timeout_ms`) instead of immediate rejection at capacity
+- Added `AbortSignal` propagation through `processCompletion()` — cancels work when HTTP client disconnects
+- Updated `src/types.ts` and `src/config.ts` with new `orchestration` and `delegation.queue_timeout_ms` config fields
+- Wired everything into `src/host/server.ts` — queue gates HTTP completions, abort on client disconnect, new `GET /v1/requests` endpoint
+- Created plan document `docs/plans/2026-02-28-orchestration-enhancements.md`
+**Files touched:** `src/host/completion-queue.ts` (new), `src/host/request-tracker.ts` (new), `src/host/ipc-handlers/delegation.ts`, `src/host/server.ts`, `src/host/server-completions.ts`, `src/host/ipc-server.ts`, `src/types.ts`, `src/config.ts`, `docs/plans/2026-02-28-orchestration-enhancements.md` (new), `tests/host/completion-queue.test.ts` (new), `tests/host/request-tracker.test.ts` (new), `tests/host/delegation-queue.test.ts` (new)
+**Outcome:** Success — 40 new tests pass, all 1849 existing tests pass (0 regressions)
+**Notes:** The delegation wait queue uses slot-transfer semantics (releaseSlot wakes next waiter without decrement/increment race). The completion queue's `drain()` resolves all waiters so they can detect shutdown gracefully.
+
 ## [2026-02-28 10:00] — Harden resolveProviderPath against CWD module hijacking
 
 **Task:** Add import.meta.resolve() mitigation for package-name entries in provider-map.ts

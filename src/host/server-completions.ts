@@ -162,6 +162,7 @@ export async function processCompletion(
   preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
   userId?: string,
   replyOptional?: boolean,
+  abortSignal?: AbortSignal,
 ): Promise<CompletionResult> {
   const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, agentDir, logger, eventBus } = deps;
   const sessionId = preProcessed?.sessionId ?? randomUUID();
@@ -343,6 +344,19 @@ export async function processCompletion(
     // Production: node dist/agent/runner.js
     //   → no tsx dependency, no extra process layers.
     const agentType = config.agent ?? 'pi-coding-agent';
+
+    // Check for abort before spawning (client may have disconnected during setup)
+    if (abortSignal?.aborted) {
+      db.fail(queued.id);
+      sessionCanaries.delete(queued.session_id);
+      eventBus?.emit({
+        type: 'completion.cancelled',
+        requestId,
+        timestamp: Date.now(),
+        data: { sessionId, phase: 'pre-spawn' },
+      });
+      return { responseContent: '', finishReason: 'stop' };
+    }
 
     // Start credential-injecting proxy for claude-code agents only.
     // claude-code talks to Anthropic directly via the proxy; all other agents

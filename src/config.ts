@@ -92,6 +92,12 @@ const ConfigSchema = z.strictObject({
   delegation: z.strictObject({
     max_concurrent: z.number().int().min(1).max(10).default(3),
     max_depth: z.number().int().min(1).max(5).default(2),
+    queue_timeout_ms: z.number().int().min(0).max(300_000).default(0).optional(),
+  }).optional(),
+  orchestration: z.strictObject({
+    max_concurrent: z.number().int().min(1).max(100).default(5),
+    max_queue_depth: z.number().int().min(0).max(1000).default(50),
+    request_timeout_ms: z.number().int().min(10_000).max(3_600_000).default(600_000),
   }).optional(),
 });
 

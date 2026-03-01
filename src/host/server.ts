@@ -39,6 +39,8 @@ import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } 
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import { FileStore } from '../file-store.js';
+import { createCompletionQueue, type CompletionQueue } from './completion-queue.js';
+import { createRequestTracker, type RequestTracker } from './request-tracker.js';
 
 // =====================================================
 // Types
@@ -150,6 +152,11 @@ export async function createServer(
   });
   const router = createRouter(providers, db, { taintBudget });
   const eventBus = createEventBus();
+  const completionQueue = createCompletionQueue({
+    maxConcurrent: config.orchestration?.max_concurrent ?? 5,
+    maxQueueDepth: config.orchestration?.max_queue_depth ?? 50,
+  }, eventBus);
+  const requestTracker = createRequestTracker();
   const agentName = 'main';
   const agentDirVal = agentDirPath(agentName);
   mkdirSync(agentDirVal, { recursive: true });
@@ -278,6 +285,7 @@ export async function createServer(
     delegation: config.delegation ? {
       maxConcurrent: config.delegation.max_concurrent,
       maxDepth: config.delegation.max_depth,
+      queueTimeoutMs: config.delegation.queue_timeout_ms,
     } : undefined,
     eventBus,
   });
@@ -395,6 +403,12 @@ export async function createServer(
       return;
     }
 
+    // Request tracking: GET /v1/requests or GET /v1/requests/:id
+    if (url.startsWith('/v1/requests') && req.method === 'GET') {
+      handleRequestStatus(url, res);
+      return;
+    }
+
     sendError(res, 404, 'Not found');
   }
 
@@ -460,6 +474,36 @@ export async function createServer(
     req.on('error', cleanup);
   }
 
+  function handleRequestStatus(url: string, res: ServerResponse): void {
+    const parsedUrl = new URL(url, 'http://localhost');
+    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    // /v1/requests → stats; /v1/requests/:id → specific request
+    const requestIdParam = pathParts.length >= 3 ? pathParts[2] : undefined;
+
+    if (requestIdParam) {
+      const tracked = requestTracker.get(requestIdParam);
+      if (!tracked) {
+        sendError(res, 404, 'Request not found');
+        return;
+      }
+      const body = JSON.stringify(tracked);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+      res.end(body);
+    } else {
+      const stats = requestTracker.stats();
+      const queueStats = {
+        ...stats,
+        queue: {
+          active: completionQueue.activeCount(),
+          waiting: completionQueue.waitingCount(),
+        },
+      };
+      const body = JSON.stringify(queueStats);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+      res.end(body);
+    }
+  }
+
   async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const requestId = `chatcmpl-${randomUUID()}`;
     const created = Math.floor(Date.now() / 1000);
@@ -522,105 +566,145 @@ export async function createServer(
     // Extract userId from user field (first segment before /)
     const userId = chatReq.user?.split('/')[0] || undefined;
 
-    if (chatReq.stream) {
-      // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Request-Id': requestId,
-        'X-Accel-Buffering': 'no',
-      });
+    // ── Abort signal: cancel the completion if the client disconnects ──
+    const abortController = new AbortController();
+    const onClientClose = () => abortController.abort();
+    req.on('close', onClientClose);
 
-      // Role chunk
-      sendSSEChunk(res, {
-        id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-        choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
-      });
+    // ── Completion queue: wait for a slot before processing ──
+    const ticket = completionQueue.enqueue(requestId, abortController.signal);
+    if (!ticket) {
+      req.removeListener('close', onClientClose);
+      sendError(res, 429, 'Too many requests — server at capacity');
+      return;
+    }
 
-      // Track whether we streamed any content via event bus
-      let streamedContent = false;
+    // Track the request
+    requestTracker.track(requestId, { queuePosition: ticket.position, sessionId });
 
-      // Track tool call index for OpenAI-compatible incremental indexing
-      let toolCallIndex = 0;
-      let hasToolCalls = false;
+    try {
+      // Wait for queue slot (may be immediate if slots available)
+      await ticket.ready;
 
-      // Subscribe to event bus for this request's llm events.
-      // Events are emitted synchronously during processCompletion, so the
-      // listener fires inline and we can res.write() in real-time.
-      const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
-        if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
-          streamedContent = true;
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
-          });
-        } else if (event.type === 'tool.call' && event.data.toolName) {
-          streamedContent = true;
-          hasToolCalls = true;
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: {
-              tool_calls: [{
-                index: toolCallIndex++,
-                id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
-                type: 'function',
-                function: {
-                  name: event.data.toolName as string,
-                  arguments: JSON.stringify(event.data.args ?? {}),
-                },
-              }],
-            }, finish_reason: null }],
-          });
-        }
-      });
-
-      // Run completion — blocks while agent processes, but event callbacks fire during execution
-      const { responseContent, finishReason } = await processCompletion(
-        completionDeps, content, requestId, chatReq.messages, sessionId,
-        undefined, userId,
-      );
-
-      unsubscribe();
-
-      // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
-      // bypasses the IPC LLM handler), send the full response as a single chunk.
-      if (!streamedContent && responseContent) {
-        sendSSEChunk(res, {
-          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-          choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
-        });
+      // Check if client disconnected while waiting in queue
+      if (abortController.signal.aborted) {
+        requestTracker.cancel(requestId);
+        return;
       }
 
-      // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
-      const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
-      sendSSEChunk(res, {
-        id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-        choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
-      });
+      requestTracker.processing(requestId);
 
-      res.write('data: [DONE]\n\n');
-      res.end();
-    } else {
-      // ── Non-streaming mode ──
-      const { responseContent, finishReason } = await processCompletion(
-        completionDeps, content, requestId, chatReq.messages, sessionId,
-        undefined, userId,
-      );
+      if (chatReq.stream) {
+        // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Request-Id': requestId,
+          'X-Accel-Buffering': 'no',
+        });
 
-      const response: OpenAIChatResponse = {
-        id: requestId, object: 'chat.completion', created, model: requestModel,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: responseContent },
-          finish_reason: finishReason,
-        }],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-      };
+        // Role chunk
+        sendSSEChunk(res, {
+          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+          choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
+        });
 
-      const responseBody = JSON.stringify(response);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
-      res.end(responseBody);
+        // Track whether we streamed any content via event bus
+        let streamedContent = false;
+
+        // Track tool call index for OpenAI-compatible incremental indexing
+        let toolCallIndex = 0;
+        let hasToolCalls = false;
+
+        // Subscribe to event bus for this request's llm events.
+        // Events are emitted synchronously during processCompletion, so the
+        // listener fires inline and we can res.write() in real-time.
+        const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
+          if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
+            streamedContent = true;
+            sendSSEChunk(res, {
+              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+              choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
+            });
+          } else if (event.type === 'tool.call' && event.data.toolName) {
+            streamedContent = true;
+            hasToolCalls = true;
+            sendSSEChunk(res, {
+              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+              choices: [{ index: 0, delta: {
+                tool_calls: [{
+                  index: toolCallIndex++,
+                  id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
+                  type: 'function',
+                  function: {
+                    name: event.data.toolName as string,
+                    arguments: JSON.stringify(event.data.args ?? {}),
+                  },
+                }],
+              }, finish_reason: null }],
+            });
+          }
+        });
+
+        // Run completion — blocks while agent processes, but event callbacks fire during execution
+        const { responseContent, finishReason } = await processCompletion(
+          completionDeps, content, requestId, chatReq.messages, sessionId,
+          undefined, userId, undefined, abortController.signal,
+        );
+
+        unsubscribe();
+
+        // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
+        // bypasses the IPC LLM handler), send the full response as a single chunk.
+        if (!streamedContent && responseContent) {
+          sendSSEChunk(res, {
+            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+            choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
+          });
+        }
+
+        // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
+        const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
+        sendSSEChunk(res, {
+          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+          choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
+        });
+
+        res.write('data: [DONE]\n\n');
+        res.end();
+      } else {
+        // ── Non-streaming mode ──
+        const { responseContent, finishReason } = await processCompletion(
+          completionDeps, content, requestId, chatReq.messages, sessionId,
+          undefined, userId, undefined, abortController.signal,
+        );
+
+        const response: OpenAIChatResponse = {
+          id: requestId, object: 'chat.completion', created, model: requestModel,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: responseContent },
+            finish_reason: finishReason,
+          }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        };
+
+        const responseBody = JSON.stringify(response);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
+        res.end(responseBody);
+      }
+      requestTracker.done(requestId);
+    } catch (err) {
+      if (abortController.signal.aborted) {
+        requestTracker.cancel(requestId);
+      } else {
+        requestTracker.fail(requestId, (err as Error).message);
+      }
+      throw err;
+    } finally {
+      ticket.done();
+      req.removeListener('close', onClientClose);
     }
   }
 
@@ -755,6 +839,8 @@ export async function createServer(
 
     // Enter draining mode: reject new requests but let in-flight ones finish
     draining = true;
+    completionQueue.drain();
+    requestTracker.dispose();
     if (inflightCount > 0) {
       logger.info('graceful_drain_start', { inflight: inflightCount });
       await waitForDrain();

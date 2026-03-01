@@ -1,5 +1,17 @@
 # Lessons Learned
 
+### Delegation slot-transfer avoids decrement/increment race
+**Date:** 2026-03-01
+**Context:** Implementing delegation wait queue — needed to hand off a slot from a completing delegation to the next waiter
+**Lesson:** In `releaseSlot()`, transfer the slot directly to the next waiter (call `resolve()` without decrementing) rather than decrement-then-increment. This avoids a window where `activeDelegations` briefly drops below the true count, which could allow an extra concurrent delegation to squeeze through.
+**Tags:** delegation, concurrency, slot-transfer, race-condition
+
+### CompletionQueue done() must be idempotent
+**Date:** 2026-03-01
+**Context:** Wiring completion queue into server.ts error handling — `done()` could be called from both the normal path and the catch/finally blocks
+**Lesson:** Always make resource-release functions idempotent using a `released` boolean guard. This prevents double-decrement bugs when the same cleanup runs from multiple code paths (try/catch/finally).
+**Tags:** queue, idempotent, resource-release, error-handling
+
 ### import.meta.resolve() is the secure way to resolve package names
 **Date:** 2026-02-28
 **Context:** Analyzing security of monorepo split — switching provider-map from relative paths to @ax/provider-* package names
