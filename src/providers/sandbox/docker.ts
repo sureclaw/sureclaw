@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, checkCommand, sandboxProcess } from './utils.js';
+import { CANONICAL, canonicalEnv } from './canonical-paths.js';
 
 const DEFAULT_IMAGE = 'ax/agent:latest';
 const DEFAULT_PID_LIMIT = 256;
@@ -77,30 +78,21 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '--read-only',                             // immutable root fs
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m', // writable /tmp
 
-        // Volume mounts
-        '-v', `${config.workspace}:${config.workspace}:rw`,
-        '-v', `${config.skills}:${config.skills}:ro`,
+        // Volume mounts — canonical paths so the LLM sees simple /workspace
+        '-v', `${config.workspace}:${CANONICAL.workspace}:rw`,
+        '-v', `${config.skills}:${CANONICAL.skills}:ro`,
         '-v', `${socketDir}:${socketDir}:rw`,
-        ...(config.agentDir ? ['-v', `${config.agentDir}:${config.agentDir}:ro`] : []),
-        // Enterprise three-tier mounts
-        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${config.agentWorkspace}:ro`] : []),
-        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${config.userWorkspace}:rw`] : []),
-        ...(config.scratchDir ? ['-v', `${config.scratchDir}:${config.scratchDir}:rw`] : []),
+        ...(config.agentDir ? ['-v', `${config.agentDir}:${CANONICAL.agentIdentity}:ro`] : []),
+        // Enterprise three-tier mounts — canonical paths
+        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${CANONICAL.agentWorkspace}:ro`] : []),
+        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${CANONICAL.userWorkspace}:rw`] : []),
+        ...(config.scratchDir ? ['-v', `${config.scratchDir}:${CANONICAL.scratch}:rw`] : []),
 
-        // Working directory
-        '-w', config.workspace,
+        // Working directory — canonical
+        '-w', CANONICAL.workspace,
 
-        // Environment
-        '-e', `AX_IPC_SOCKET=${config.ipcSocket}`,
-        '-e', `AX_WORKSPACE=${config.workspace}`,
-        '-e', `AX_SKILLS=${config.skills}`,
-        ...(config.agentWorkspace ? ['-e', `AX_AGENT_WORKSPACE=${config.agentWorkspace}`] : []),
-        ...(config.userWorkspace ? ['-e', `AX_USER_WORKSPACE=${config.userWorkspace}`] : []),
-        ...(config.scratchDir ? ['-e', `AX_SCRATCH=${config.scratchDir}`] : []),
-        // Redirect caches and data dirs to /tmp (writable tmpfs) instead of workspace
-        '-e', 'npm_config_cache=/tmp/.ax-npm-cache',
-        '-e', 'XDG_CACHE_HOME=/tmp/.ax-cache',
-        '-e', 'AX_HOME=/tmp/.ax-agent',
+        // Environment — canonical paths
+        ...Object.entries(canonicalEnv(config)).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
       ];
 
       // Optional gVisor runtime for stronger isolation

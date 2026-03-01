@@ -16,6 +16,7 @@ import { homedir } from 'node:os';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, checkCommand, sandboxProcess } from './utils.js';
+import { CANONICAL, canonicalEnv } from './canonical-paths.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   // Project directory — needed so node, tsx loader, agent runner source, and node_modules are accessible
@@ -47,19 +48,19 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '--dev', '/dev',
         '--proc', '/proc',
 
-        // Workspace (read-write)
-        '--bind', config.workspace, config.workspace,
+        // Workspace (read-write) — mounted at canonical /workspace
+        '--bind', config.workspace, CANONICAL.workspace,
 
-        // Skills (read-only)
-        '--ro-bind', config.skills, config.skills,
+        // Skills (read-only) — mounted at canonical /skills
+        '--ro-bind', config.skills, CANONICAL.skills,
 
         // Agent identity directory (read-only) — SOUL.md, BOOTSTRAP.md, etc.
-        ...(config.agentDir ? ['--ro-bind', config.agentDir, config.agentDir] : []),
+        ...(config.agentDir ? ['--ro-bind', config.agentDir, CANONICAL.agentIdentity] : []),
 
-        // Enterprise three-tier mounts
-        ...(config.agentWorkspace ? ['--ro-bind', config.agentWorkspace, config.agentWorkspace] : []),
-        ...(config.userWorkspace ? ['--bind', config.userWorkspace, config.userWorkspace] : []),
-        ...(config.scratchDir ? ['--bind', config.scratchDir, config.scratchDir] : []),
+        // Enterprise three-tier mounts — canonical paths
+        ...(config.agentWorkspace ? ['--ro-bind', config.agentWorkspace, CANONICAL.agentWorkspace] : []),
+        ...(config.userWorkspace ? ['--bind', config.userWorkspace, CANONICAL.userWorkspace] : []),
+        ...(config.scratchDir ? ['--bind', config.scratchDir, CANONICAL.scratch] : []),
 
         // IPC socket directory (read-write)
         '--bind', ipcSocketDir, ipcSocketDir,
@@ -82,22 +83,13 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // ~/.local (read-only) — Claude Code CLI binary + install
         ...(hasDotLocal ? ['--ro-bind', dotLocal, dotLocal] : []),
 
-        // Minimal environment
+        // Minimal environment — canonical paths so the LLM sees simple /workspace
         '--setenv', 'PATH', process.env.PATH ?? '/usr/bin:/usr/local/bin',
-        '--setenv', 'HOME', config.workspace,
-        '--setenv', 'AX_IPC_SOCKET', config.ipcSocket,
-        '--setenv', 'AX_WORKSPACE', config.workspace,
-        '--setenv', 'AX_SKILLS', config.skills,
-        ...(config.agentWorkspace ? ['--setenv', 'AX_AGENT_WORKSPACE', config.agentWorkspace] : []),
-        ...(config.userWorkspace ? ['--setenv', 'AX_USER_WORKSPACE', config.userWorkspace] : []),
-        ...(config.scratchDir ? ['--setenv', 'AX_SCRATCH', config.scratchDir] : []),
-        // Redirect caches and data dirs so they don't pollute the workspace
-        '--setenv', 'npm_config_cache', '/tmp/.ax-npm-cache',
-        '--setenv', 'XDG_CACHE_HOME', '/tmp/.ax-cache',
-        '--setenv', 'AX_HOME', '/tmp/.ax-agent',
+        '--setenv', 'HOME', CANONICAL.workspace,
+        ...Object.entries(canonicalEnv(config)).flatMap(([k, v]) => ['--setenv', k, v]),
 
-        // Working directory
-        '--chdir', config.workspace,
+        // Working directory — canonical
+        '--chdir', CANONICAL.workspace,
 
         // Command to run
         '--', cmd, ...args,

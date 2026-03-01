@@ -1,5 +1,17 @@
 # Lessons Learned
 
+### existsSync follows symlinks — use lstatSync for symlink existence checks
+**Date:** 2026-03-01
+**Context:** Writing tests for createCanonicalSymlinks that creates symlinks pointing to non-existent targets in test environment
+**Lesson:** `existsSync()` follows symlinks and checks if the *target* exists. To check if a symlink *itself* exists (regardless of target), use `lstatSync()` wrapped in try-catch. This matters whenever symlinks point to paths that don't exist in the test environment.
+**Tags:** testing, filesystem, symlinks, existsSync, lstatSync
+
+### Sandbox providers use source-level test assertions (read source, check patterns)
+**Date:** 2026-03-01
+**Context:** Updating sandbox-isolation.test.ts after changing seatbelt/subprocess env construction
+**Lesson:** Many sandbox tests verify behavior by reading the provider's TypeScript source and checking for string patterns (e.g. `expect(source).toContain('...process.env')`). When changing provider implementation patterns, check sandbox-isolation.test.ts for source-level assertions that will break. These tests are in tests/sandbox-isolation.test.ts, not in tests/providers/sandbox/.
+**Tags:** testing, sandbox, source-level-tests, sandbox-isolation
+
 ### import.meta.resolve() is the secure way to resolve package names
 **Date:** 2026-02-28
 **Context:** Analyzing security of monorepo split — switching provider-map from relative paths to @ax/provider-* package names

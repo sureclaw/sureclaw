@@ -3,6 +3,7 @@ import { resolve, dirname } from 'node:path';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, checkCommand, sandboxProcess } from './utils.js';
+import { createCanonicalSymlinks, symlinkEnv } from './canonical-paths.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   const policyPath = resolve('policies/agent.sb');
@@ -16,7 +17,12 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const [cmd, ...args] = config.command;
 
-      // sandbox-exec with -D parameter substitution for dynamic paths
+      // Create symlinks so the agent sees canonical paths (seatbelt can't remap mounts)
+      const { mountRoot, cleanup } = createCanonicalSymlinks(config);
+      const sEnv = symlinkEnv(config, mountRoot);
+
+      // sandbox-exec with -D parameter substitution for dynamic paths.
+      // Seatbelt policy uses REAL host paths for access control (it resolves symlinks).
       // nosemgrep: javascript.lang.security.detect-child-process — sandbox provider: spawning is its purpose
       const child = spawn('sandbox-exec', [
         '-f', policyPath,
@@ -29,29 +35,26 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-D', `AGENT_WORKSPACE=${config.agentWorkspace ?? ''}`,
         '-D', `USER_WORKSPACE=${config.userWorkspace ?? ''}`,
         '-D', `SCRATCH_DIR=${config.scratchDir ?? ''}`,
+        // Also allow access to symlink mount root
+        '-D', `MOUNT_ROOT=${mountRoot}`,
         cmd, ...args,
       ], {
-        cwd: config.workspace,
+        cwd: sEnv.AX_WORKSPACE,
         env: {
-          // Minimal env — no credentials leak into the sandbox
+          // Minimal env — canonical symlink paths so the LLM sees simple /workspace-like paths
           PATH: process.env.PATH ?? '/usr/bin:/usr/local/bin',
-          HOME: config.workspace,
-          AX_IPC_SOCKET: config.ipcSocket,
-          AX_WORKSPACE: config.workspace,
-          AX_SKILLS: config.skills,
-          ...(config.agentWorkspace ? { AX_AGENT_WORKSPACE: config.agentWorkspace } : {}),
-          ...(config.userWorkspace ? { AX_USER_WORKSPACE: config.userWorkspace } : {}),
-          ...(config.scratchDir ? { AX_SCRATCH: config.scratchDir } : {}),
-          // Redirect caches and data dirs so they don't pollute the workspace
-          npm_config_cache: '/tmp/.ax-npm-cache',
-          XDG_CACHE_HOME: '/tmp/.ax-cache',
-          AX_HOME: '/tmp/.ax-agent',
+          HOME: sEnv.AX_WORKSPACE,
+          ...sEnv,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
       const exitCode = exitCodePromise(child);
       enforceTimeout(child, config.timeoutSec);
+
+      // Clean up symlinks when the process exits
+      exitCode.then(() => cleanup(), () => cleanup());
+
       return sandboxProcess(child, exitCode);
     },
 

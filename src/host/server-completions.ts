@@ -375,6 +375,9 @@ export async function processCompletion(
 
     const maxTokens = config.max_tokens ?? 8192;
 
+    // Workspace/skills/agentDir are NOT passed as CLI args — they're set via
+    // canonical env vars by the sandbox provider (e.g. AX_WORKSPACE=/workspace).
+    // This avoids conflicts between host paths (CLI args) and canonical paths (env vars).
     const spawnCommand = [process.execPath,
       // Dev mode: load tsx ESM loader so the .ts runner source is compiled on
       // the fly. Production: run compiled dist/agent/runner.js directly.
@@ -382,10 +385,7 @@ export async function processCompletion(
       resolveRunnerPath(),
       '--agent', agentType,
       '--ipc-socket', ipcSocketPath,
-      '--workspace', workspace,
-      '--skills', wsSkillsDir,
       '--max-tokens', String(maxTokens),
-      '--agent-dir', agentDir,
       ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
       ...(deps.verbose ? ['--verbose'] : []),
     ];

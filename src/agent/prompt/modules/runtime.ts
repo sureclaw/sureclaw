@@ -4,20 +4,19 @@ import { isBootstrapMode } from '../types.js';
 import type { PromptContext } from '../types.js';
 
 /**
- * Sanitize workspace path: strip everything up to and including 'workspaces/'
- * so the agent never sees the host username or home directory.
- * e.g. "/home/user/.ax/data/workspaces/main/cli/default" → "./workspace"
+ * Sanitize workspace path for display in the prompt.
+ *
+ * With canonical sandbox paths, the workspace is already at a clean path
+ * like /workspace (Docker/bwrap/nsjail) or /tmp/.ax-mounts-xxx/workspace
+ * (seatbelt/subprocess). We display it as ./workspace for simplicity.
  */
 function sanitizeWorkspacePath(fullPath: string): string {
-  const marker = '/workspaces/';
-  const idx = fullPath.indexOf(marker);
-  if (idx !== -1) {
-    return './workspace';
-  }
-  // Temp workspaces (e.g. /tmp/ax-ws-xxxxx) — just show generic label
-  if (fullPath.includes('/ax-ws-')) {
-    return './workspace';
-  }
+  // Canonical path from Docker/bwrap/nsjail
+  if (fullPath === '/workspace') return './workspace';
+  // Symlink-based path from seatbelt/subprocess
+  if (fullPath.includes('.ax-mounts-') && fullPath.endsWith('/workspace')) return './workspace';
+  // Legacy host paths (backward compat)
+  if (fullPath.includes('/workspaces/') || fullPath.includes('/ax-ws-')) return './workspace';
   return './workspace';
 }
 

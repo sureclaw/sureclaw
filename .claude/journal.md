@@ -1,5 +1,20 @@
 # Journal
 
+## [2026-03-01 14:50] — Simplify workspace paths for LLM agents in sandboxes
+
+**Task:** Remap sandbox mount destinations from host paths to simple canonical paths so LLMs don't see confusing deeply-nested paths
+**What I did:**
+- Created `src/providers/sandbox/canonical-paths.ts` with CANONICAL constants, `canonicalEnv()`, `createCanonicalSymlinks()`, `symlinkEnv()`
+- Updated all 5 sandbox providers (bwrap, docker, nsjail, seatbelt, subprocess) to use canonical mount destinations
+- Removed --workspace/--skills/--agent-dir CLI args from spawn command (env-vars only now)
+- Updated agent runner to read workspace paths from env vars, enterprise fields prefer env vars over stdin payload
+- Simplified runtime.ts workspace sanitizer
+- Added 16 tests for canonical-paths module
+- Fixed 3 existing tests in sandbox-isolation.test.ts that expected old CLI args and env patterns
+**Files touched:** `src/providers/sandbox/canonical-paths.ts` (NEW), `src/providers/sandbox/{bwrap,docker,nsjail,seatbelt,subprocess}.ts`, `src/host/server-completions.ts`, `src/agent/runner.ts`, `src/agent/prompt/modules/runtime.ts`, `tests/providers/sandbox/canonical-paths.test.ts` (NEW), `tests/sandbox-isolation.test.ts`
+**Outcome:** Success — all 1988 tests pass
+**Notes:** Canonical paths: /workspace, /skills, /agent-identity, /agent-workspace, /user-workspace, /scratch. Docker/bwrap/nsjail use real mounts; seatbelt/subprocess use symlinks under /tmp/.ax-mounts-<uuid>/
+
 ## [2026-03-01 07:00] — Fix spawning→completed invalid state transition in fire-and-forget delegation
 
 **Task:** Fix `invalid_state_transition from=spawning to=completed` warnings when fire-and-forget delegates complete

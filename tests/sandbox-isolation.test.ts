@@ -62,9 +62,9 @@ const HOME_DIR = process.env.HOME ?? '';
 // ── Seatbelt Sandbox Env Isolation ───────────────────────────────────
 
 describe('seatbelt sandbox env isolation', () => {
-  test('seatbelt source constructs minimal env — only 5 vars', async () => {
-    // Verify at the source level that seatbelt constructs a minimal env.
-    // We can't spy on spawn in ESM, so we verify the source code directly.
+  test('seatbelt source constructs minimal env via symlinkEnv', async () => {
+    // Verify at the source level that seatbelt constructs a minimal env
+    // using the canonical symlink approach (not leaking process.env).
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/seatbelt.ts'), 'utf-8');
 
@@ -73,18 +73,20 @@ describe('seatbelt sandbox env isolation', () => {
     expect(envMatch).toBeTruthy();
     const envBlock = envMatch![1];
 
-    // Should only have these 5 env vars
+    // Should have PATH, HOME, and spread symlinkEnv vars
     expect(envBlock).toContain('PATH');
     expect(envBlock).toContain('HOME');
-    expect(envBlock).toContain('AX_IPC_SOCKET');
-    expect(envBlock).toContain('AX_WORKSPACE');
-    expect(envBlock).toContain('AX_SKILLS');
+    expect(envBlock).toContain('...sEnv');
 
     // Must NOT spread process.env
     expect(envBlock).not.toContain('...process.env');
 
-    // HOME should be set to workspace, not host home
-    expect(envBlock).toContain('HOME: config.workspace');
+    // HOME should be set to canonical workspace symlink path, not host path
+    expect(envBlock).toContain('HOME: sEnv.AX_WORKSPACE');
+
+    // Must use createCanonicalSymlinks and symlinkEnv
+    expect(source).toContain('createCanonicalSymlinks');
+    expect(source).toContain('symlinkEnv');
   });
 
   test('seatbelt does not pass ANTHROPIC_API_KEY or credentials in env', async () => {
@@ -168,11 +170,13 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
     expect(source).toContain('dev-only');
   });
 
-  test('subprocess sandbox adds AX_ env vars', async () => {
-    // Verify subprocess actually spawns with the right env by running a real process
+  test('subprocess sandbox adds AX_ env vars with canonical symlink paths', async () => {
+    // Verify subprocess actually spawns with the right env by running a real process.
+    // With canonical paths, AX_WORKSPACE and AX_SKILLS point to symlinks under /tmp/.ax-mounts-*/
     const { mkdirSync, rmSync } = await import('node:fs');
     const ws = '/tmp/test-ws-' + process.pid;
     mkdirSync(ws, { recursive: true });
+    mkdirSync(ws + '/skills', { recursive: true });
     try {
     const provider = await createSubprocess(mockConfig);
     const proc = await provider.spawn({
@@ -191,8 +195,9 @@ describe('subprocess sandbox env leak (dev-only fallback)', () => {
 
     const env = JSON.parse(output.trim());
     expect(env.ipc).toBe('/tmp/test-ipc.sock');
-    expect(env.ws).toBe(ws);
-    expect(env.sk).toBe(ws + '/skills');
+    // Canonical symlink paths: /tmp/.ax-mounts-<uuid>/workspace and /tmp/.ax-mounts-<uuid>/skills
+    expect(env.ws).toMatch(/\/tmp\/\.ax-mounts-[a-f0-9]+\/workspace$/);
+    expect(env.sk).toMatch(/\/tmp\/\.ax-mounts-[a-f0-9]+\/skills$/);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -266,21 +271,22 @@ describe('claude-code env spread', () => {
 // ── Server copies skills into workspace ──────────────────────────────
 
 describe('server workspace isolation', () => {
-  test('spawn command uses workspace-local skills path, not host path', async () => {
+  test('spawn command does not pass workspace/skills paths as CLI args', async () => {
     const { readFileSync } = await import('node:fs');
     // Completion processing (including spawn command construction) is now in server-completions.ts
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
-    // The skills path passed to agent should be wsSkillsDir (in workspace),
-    // not the host-side skillsDir or hostSkillsDir
-    expect(source).toContain("'--skills', wsSkillsDir");
+    // Workspace, skills, and agentDir are NOT passed as CLI args — they're
+    // set via canonical env vars by the sandbox provider.
+    const spawnSection = source.slice(source.indexOf('spawnCommand'));
+    expect(spawnSection).not.toContain("'--workspace'");
+    expect(spawnSection).not.toContain("'--skills'");
+    expect(spawnSection).not.toContain("'--agent-dir'");
 
-    // Skills are copied into workspace
+    // Skills are still copied into workspace (server-side)
     expect(source).toContain("const wsSkillsDir = join(workspace, 'skills')");
 
     // hostSkillsDir should NOT appear in spawn command args
-    // (it should only be used for the copy source)
-    const spawnSection = source.slice(source.indexOf('spawnCommand'));
     expect(spawnSection).not.toContain('hostSkillsDir');
   });
 
