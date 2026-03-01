@@ -420,3 +420,15 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Designing inter-agent messaging for the orchestration system
 **Lesson:** Even though agents need to talk to each other, messages MUST route through the host process. The sandbox security boundary means agents have no network access and cannot reach each other's IPC sockets. The host mediates all communication: validates messages, enforces scope (same-session only), checks sender/recipient status, and logs to audit. This is more latency than direct messaging but preserves the security invariant that sandboxes are isolated.
 **Tags:** security, messaging, orchestration, sandbox, ipc, agent-communication
+
+### z.record() in Zod v4 requires key and value schemas
+**Date:** 2026-03-01
+**Context:** TypeScript build failed on `z.record(z.unknown())` in IPC schemas (from base orchestration branch)
+**Lesson:** In Zod v4 (`zod@^4.x`), `z.record()` requires two arguments: `z.record(keySchema, valueSchema)`. The Zod v3 pattern `z.record(z.unknown())` (single arg) no longer compiles. Use `z.record(z.string(), z.unknown())` instead. Check existing usage patterns in the file (e.g., `z.record(safeString(200), safeString(4096))`) for the correct v4 signature.
+**Tags:** zod, zod-v4, ipc-schemas, typescript, breaking-change
+
+### Orchestration IPC actions need registration in both sync tests
+**Date:** 2026-03-01
+**Context:** Adding orchestration IPC schemas caused two test failures: `tool-catalog-sync.test.ts` and `cross-component.test.ts`
+**Lesson:** When adding new IPC schema actions, update two test files: (1) `tests/agent/tool-catalog-sync.test.ts` — add to `knownInternalActions` if the action is host-internal (not in TOOL_CATALOG), and (2) `tests/integration/cross-component.test.ts` — add to the skip set for "every IPC_SCHEMAS action has a handler" test if the handler is wired outside `createIPCHandler`. These two tests ensure schema/handler/catalog completeness.
+**Tags:** testing, ipc-schemas, tool-catalog, cross-component, orchestration

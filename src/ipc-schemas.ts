@@ -353,11 +353,12 @@ export const AgentOrchTreeSchema = ipcAction('agent_orch_tree', {
 export const AgentOrchMessageSchema = ipcAction('agent_orch_message', {
   to: agentHandleId,
   type: z.enum(['request', 'response', 'notification']),
-  payload: z.record(z.unknown()).refine(
+  payload: z.record(z.string(), z.unknown()).refine(
     obj => JSON.stringify(obj).length <= 50_000,
     'Payload too large (max 50KB)'
   ),
   correlationId: safeString(128).optional(),
+  policyTags: z.array(z.string().max(50)).max(10).optional(),
 });
 
 export const AgentOrchPollSchema = ipcAction('agent_orch_poll', {
@@ -367,6 +368,13 @@ export const AgentOrchPollSchema = ipcAction('agent_orch_poll', {
 export const AgentOrchInterruptSchema = ipcAction('agent_orch_interrupt', {
   handleId: agentHandleId,
   reason: safeString(1000),
+});
+
+export const AgentOrchTimelineSchema = ipcAction('agent_orch_timeline', {
+  handleId: agentHandleId,
+  limit: z.number().int().min(1).max(500).optional(),
+  since: z.number().optional(),
+  eventType: z.string().optional(),
 });
 
 // ── Plugin Management ────────────────────────────────

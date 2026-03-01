@@ -75,12 +75,14 @@ export interface AgentLoopConfig {
   buildRetryPrompt?: (originalPrompt: string, validation: ValidationResult, iteration: number) => string;
   /** Called after each iteration with progress info. */
   onProgress?: (progress: LoopProgress) => void;
+  /** Hard wall-clock deadline for the entire loop (ms). */
+  maxWallClockMs?: number;
 }
 
 export interface LoopProgress {
   iteration: number;
   maxIterations: number;
-  status: 'running' | 'passed' | 'failed' | 'max_iterations' | 'interrupted';
+  status: 'running' | 'passed' | 'failed' | 'max_iterations' | 'interrupted' | 'wall_clock_timeout';
   validation?: ValidationResult;
   handleId: string;
   durationMs: number;
@@ -100,7 +102,7 @@ export interface LoopResult {
   /** Total duration of the loop (ms). */
   totalDurationMs: number;
   /** Why the loop stopped. */
-  reason: 'validation_passed' | 'max_iterations' | 'interrupted' | 'execute_error';
+  reason: 'validation_passed' | 'max_iterations' | 'interrupted' | 'execute_error' | 'wall_clock_timeout';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -145,11 +147,13 @@ export async function runAgentLoop(
     registration,
     buildRetryPrompt = defaultRetryPrompt,
     onProgress,
+    maxWallClockMs,
   } = config;
 
   const loopId = randomUUID().slice(0, 8);
   const handles: string[] = [];
   const loopStart = Date.now();
+  const deadline = maxWallClockMs ? loopStart + maxWallClockMs : null;
   let interrupted = false;
 
   logger.info('agent_loop_start', {
@@ -173,6 +177,28 @@ export async function runAgentLoop(
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     if (interrupted) break;
+
+    // Check wall-clock deadline before starting iteration
+    if (deadline && Date.now() >= deadline) {
+      logger.warn('loop_wall_clock_timeout', { loopId, iteration, maxWallClockMs });
+
+      orchestrator.eventBus.emit({
+        type: 'agent.loop.end',
+        requestId: registration.sessionId,
+        timestamp: Date.now(),
+        data: { loopId, iteration: iteration - 1, maxIterations, reason: 'wall_clock_timeout', passed: false },
+      });
+
+      return {
+        passed: false,
+        iterations: iteration - 1,
+        output: lastOutput,
+        validation: lastValidation,
+        handles,
+        totalDurationMs: Date.now() - loopStart,
+        reason: 'wall_clock_timeout',
+      };
+    }
 
     // Register a new handle for this iteration (fresh context)
     const handle = orchestrator.register({
@@ -239,6 +265,30 @@ export async function runAgentLoop(
         handles,
         totalDurationMs: Date.now() - loopStart,
         reason: 'execute_error',
+      };
+    }
+
+    // Check wall-clock deadline after execute
+    if (deadline && Date.now() >= deadline) {
+      orchestrator.supervisor.complete(handle.id, 'Wall clock timeout');
+
+      logger.warn('loop_wall_clock_timeout', { loopId, iteration, maxWallClockMs });
+
+      orchestrator.eventBus.emit({
+        type: 'agent.loop.end',
+        requestId: registration.sessionId,
+        timestamp: Date.now(),
+        data: { loopId, iteration, maxIterations, reason: 'wall_clock_timeout', passed: false },
+      });
+
+      return {
+        passed: false,
+        iterations: iteration,
+        output: lastOutput,
+        validation: lastValidation,
+        handles,
+        totalDurationMs: Date.now() - loopStart,
+        reason: 'wall_clock_timeout',
       };
     }
 

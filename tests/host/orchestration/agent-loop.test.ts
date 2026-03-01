@@ -283,4 +283,67 @@ describe('Agent Loop (Ralph pattern)', () => {
 
     expect(result.totalDurationMs).toBeGreaterThan(0);
   });
+
+  describe('maxWallClockMs', () => {
+    it('stops loop when wall clock exceeds deadline', async () => {
+      let callCount = 0;
+      const result = await runAgentLoop(orchestrator, {
+        prompt: 'test',
+        maxIterations: 10,
+        maxWallClockMs: 100,
+        validate: async () => ({ passed: false, summary: 'fail' }),
+        execute: async () => {
+          callCount++;
+          // Simulate slow execution
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          return 'output';
+        },
+        registration: makeRegistration(),
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.reason).toBe('wall_clock_timeout');
+      expect(callCount).toBeLessThan(10);
+    });
+
+    it('does not interfere when wall clock is not exceeded', async () => {
+      const result = await runAgentLoop(orchestrator, {
+        prompt: 'test',
+        maxIterations: 3,
+        maxWallClockMs: 60_000,
+        validate: async (_output, iteration) => ({
+          passed: iteration === 2,
+          summary: iteration === 2 ? 'ok' : 'fail',
+        }),
+        execute: async () => 'output',
+        registration: makeRegistration(),
+      });
+
+      expect(result.passed).toBe(true);
+      expect(result.reason).toBe('validation_passed');
+    });
+
+    it('emits wall_clock_timeout reason in loop.end event', async () => {
+      const loopEvents: any[] = [];
+      eventBus.subscribe(e => {
+        if (e.type === 'agent.loop.end') loopEvents.push(e);
+      });
+
+      await runAgentLoop(orchestrator, {
+        prompt: 'test',
+        maxIterations: 10,
+        maxWallClockMs: 50,
+        validate: async () => ({ passed: false, summary: 'fail' }),
+        execute: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          return 'output';
+        },
+        registration: makeRegistration(),
+      });
+
+      const endEvent = loopEvents[loopEvents.length - 1];
+      expect(endEvent).toBeDefined();
+      expect(endEvent.data.reason).toBe('wall_clock_timeout');
+    });
+  });
 });

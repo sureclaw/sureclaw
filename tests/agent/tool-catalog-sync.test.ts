@@ -166,6 +166,10 @@ describe('tool-catalog ↔ IPC schemas sync', () => {
       'proposal_review', 'agent_registry_get',
       // Plugin management (host-internal, not agent-facing)
       'plugin_list', 'plugin_status',
+      // Orchestration (host-internal, agents interact via IPC handlers)
+      'agent_orch_status', 'agent_orch_list', 'agent_orch_tree',
+      'agent_orch_message', 'agent_orch_poll', 'agent_orch_interrupt',
+      'agent_orch_timeline',
     ]);
 
     for (const action of schemaActions) {

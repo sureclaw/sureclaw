@@ -988,3 +988,27 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 - Created: `tests/host/orchestration/agent-loop.test.ts`
 **Outcome:** Success — 105 total orchestration tests pass (92 + 13 new)
 **Notes:** The loop is a workflow primitive that sits on top of the Orchestrator, not inside it. The execute/validate functions are injected by the caller, making it agnostic to how agents are actually spawned (processCompletion, delegation, etc.).
+
+## [2026-03-01 01:00] — Orchestration Enhancements (4 features)
+
+**Task:** Implement four orchestration enhancements from docs/plans/2026-02-28-orchestration-enhancements.md: persistent event store, heartbeat liveness monitor, policy tags on inter-agent messages, and wall-clock timeout for agent loops.
+**What I did:**
+- Merged the `claude/agent-orchestration-architecture-eppZW` base branch (resolved journal conflict)
+- **Persistent Event Store:** Created `src/migrations/orchestration.ts` (Kysely migration for `orchestration_events` table with 5 indexes), `src/host/orchestration/event-store.ts` (SQLite-backed store that subscribes to EventBus and auto-captures agent.* events), and 14 tests covering append/query/filter/capture
+- **Heartbeat Liveness Monitor:** Created `src/host/orchestration/heartbeat-monitor.ts` (subscribes to EventBus for proof-of-life, periodic check interval auto-interrupts stuck agents), and 9 tests covering activity tracking, timeout detection, terminal/interrupted agent skip, reset on activity
+- **Policy Tags:** Added `policyTags?: readonly string[]` to `AgentMessage` type, updated `send()`/`broadcast()` in orchestrator to pass through tags, added `policyTags` field to `AgentOrchMessageSchema` in IPC schemas, updated IPC handler to pass tags, 3 tests for send/broadcast/backward-compat
+- **Wall-Clock Timeout:** Added `maxWallClockMs` to `AgentLoopConfig`, `wall_clock_timeout` to reason/status enums, deadline checks before and after each iteration in `runAgentLoop()`, 3 tests covering timeout, non-interference, and event emission
+- Wired event store + heartbeat into orchestrator (new constructor param, shutdown cleanup)
+- Added types (`OrchestrationEvent`, `EventFilter`, `OrchestrationEventStore`, `HeartbeatMonitorConfig`) to types.ts
+- Added `AgentOrchTimelineSchema` to IPC schemas and timeline handler to IPC handlers
+- Fixed `z.record(z.unknown())` → `z.record(z.string(), z.unknown())` for Zod v4 compat
+- Updated `tool-catalog-sync.test.ts` and `cross-component.test.ts` to register orchestration IPC actions as internal-only
+**Files touched:**
+- Created: `src/migrations/orchestration.ts`, `src/host/orchestration/event-store.ts`, `src/host/orchestration/heartbeat-monitor.ts`
+- Created: `tests/host/orchestration/event-store.test.ts`, `tests/host/orchestration/heartbeat-monitor.test.ts`
+- Modified: `src/host/orchestration/types.ts`, `src/host/orchestration/orchestrator.ts`, `src/host/orchestration/agent-loop.ts`
+- Modified: `src/ipc-schemas.ts`, `src/host/ipc-handlers/orchestration.ts`
+- Modified: `tests/host/orchestration/orchestrator.test.ts`, `tests/host/orchestration/agent-loop.test.ts`
+- Modified: `tests/agent/tool-catalog-sync.test.ts`, `tests/integration/cross-component.test.ts`
+**Outcome:** Success — all 182 test files pass (1943 tests), TypeScript build clean
+**Notes:** The base branch's `z.record(z.unknown())` was broken under Zod v4 (needs key type). Fixed as part of this work. Orchestration IPC actions are host-internal and not exposed in the agent tool catalog.

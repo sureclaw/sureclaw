@@ -7,6 +7,7 @@
  */
 
 import type { AgentType } from '../../types.js';
+import type { EventBus } from '../event-bus.js';
 
 // ═══════════════════════════════════════════════════════
 // Agent Lifecycle States
@@ -121,6 +122,8 @@ export interface AgentMessage {
   readonly timestamp: number;
   /** Correlation ID for request/response pairs. */
   readonly correlationId?: string;
+  /** Policy/taint tags for taint tracking across agent boundaries. */
+  readonly policyTags?: readonly string[];
 }
 
 // ═══════════════════════════════════════════════════════
@@ -185,4 +188,49 @@ export function toSnapshot(handle: AgentHandle): AgentSnapshot {
     durationMs: Date.now() - handle.startedAt,
     metadata: handle.metadata,
   };
+}
+
+// ═══════════════════════════════════════════════════════
+// Persistent Event Store Types
+// ═══════════════════════════════════════════════════════
+
+export interface OrchestrationEvent {
+  readonly id: string;
+  readonly eventType: string;
+  readonly handleId: string;
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly userId: string;
+  readonly parentId: string | null;
+  readonly payload: Record<string, unknown>;
+  readonly createdAt: number; // Unix epoch ms
+}
+
+export interface EventFilter {
+  eventType?: string;
+  handleId?: string;
+  agentId?: string;
+  sessionId?: string;
+  userId?: string;
+  since?: number; // Unix epoch ms
+  until?: number; // Unix epoch ms
+  limit?: number;
+}
+
+export interface OrchestrationEventStore {
+  append(event: OrchestrationEvent): void;
+  query(filter?: EventFilter): OrchestrationEvent[];
+  byAgent(handleId: string, limit?: number): OrchestrationEvent[];
+  bySession(sessionId: string, limit?: number): OrchestrationEvent[];
+  startCapture(eventBus: EventBus): () => void; // returns unsubscribe
+  close(): void;
+}
+
+// ═══════════════════════════════════════════════════════
+// Heartbeat Liveness Monitor Types
+// ═══════════════════════════════════════════════════════
+
+export interface HeartbeatMonitorConfig {
+  timeoutMs?: number;       // Default: 120_000 (2 min)
+  checkIntervalMs?: number; // Default: 10_000 (10s)
 }

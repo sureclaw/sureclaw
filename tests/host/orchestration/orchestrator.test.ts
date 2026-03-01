@@ -490,6 +490,53 @@ describe('Orchestrator', () => {
     });
   });
 
+  describe('policyTags', () => {
+    it('send preserves policyTags on delivered message', () => {
+      const handle1 = orchestrator.register(makeRegistration({ agentId: 'a' }));
+      orchestrator.supervisor.transition(handle1.id, 'running');
+      const handle2 = orchestrator.register(makeRegistration({ agentId: 'b' }));
+
+      orchestrator.send(handle1.id, handle2.id, {
+        type: 'notification',
+        payload: { data: 'test' },
+        policyTags: ['tainted', 'pii'],
+      });
+
+      const messages = orchestrator.pollMessages(handle2.id);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].policyTags).toEqual(['tainted', 'pii']);
+    });
+
+    it('send works without policyTags (backward compatible)', () => {
+      const handle1 = orchestrator.register(makeRegistration({ agentId: 'a' }));
+      orchestrator.supervisor.transition(handle1.id, 'running');
+      const handle2 = orchestrator.register(makeRegistration({ agentId: 'b' }));
+
+      orchestrator.send(handle1.id, handle2.id, {
+        type: 'notification',
+        payload: { data: 'test' },
+      });
+
+      const messages = orchestrator.pollMessages(handle2.id);
+      expect(messages).toHaveLength(1);
+      expect(messages[0].policyTags).toBeUndefined();
+    });
+
+    it('broadcast preserves policyTags', () => {
+      const handle1 = orchestrator.register(makeRegistration({ agentId: 'a' }));
+      orchestrator.supervisor.transition(handle1.id, 'running');
+      orchestrator.register(makeRegistration({ agentId: 'b' }));
+
+      const msgs = orchestrator.broadcast(handle1.id, { type: 'session', sessionId: 'session-1' }, {
+        type: 'notification',
+        payload: {},
+        policyTags: ['external_content'],
+      });
+
+      expect(msgs[0].policyTags).toEqual(['external_content']);
+    });
+  });
+
   describe('shutdown', () => {
     it('cancels all active agents', () => {
       const a = orchestrator.register(makeRegistration({ agentId: 'a' }));
