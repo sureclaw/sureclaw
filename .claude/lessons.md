@@ -504,3 +504,9 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Agent-level and user-level skills needed to appear as a single /skills directory. OverlayFS merges them with user skills shadowing agent skills. Falls back to agent-only when overlayfs is unavailable (macOS, unprivileged).
 **Lesson:** Use overlayfs for merging read-only layers where user content should shadow shared content. Always implement a fallback for environments without overlayfs support (macOS, containers without CAP_SYS_ADMIN). The fallback can be degraded (agent-only) as long as the IPC layer still manages both via host-side operations.
 **Tags:** overlayfs, skills, sandbox, fallback
+
+### Always disable pino file transport in tests that set AX_HOME to a temp dir
+**Date:** 2026-03-01
+**Context:** The phase1 integration test set `AX_HOME` to a temp dir, called `loadProviders()`, then deleted the temp dir. Pino's async worker thread raced with the cleanup and threw an unhandled ENOENT for `data/ax.log`.
+**Lesson:** When a test sets `AX_HOME` to a temp directory and loads providers or any code that triggers `getLogger()`, always call `initLogger({ file: false, level: 'silent' })` before the code under test, and `resetLogger()` in the `finally` block. Module-level `getLogger()` calls in provider modules (e.g. `llm/router.ts`) will create the singleton on first import.
+**Tags:** testing, pino, logger, AX_HOME, race-condition, cleanup

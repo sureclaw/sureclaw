@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Writable } from 'node:stream';
+import { mkdirSync, rmSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 // We'll test via createLogger which returns our Logger interface
 
@@ -160,5 +164,43 @@ describe('prettyFormat', () => {
       msg: 'test',
     }));
     expect(output).toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+});
+
+describe('initLogger file: false', () => {
+  let tmpDir: string;
+  let originalAxHome: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = join(tmpdir(), `ax-logger-test-${randomUUID()}`);
+    mkdirSync(tmpDir, { recursive: true });
+    originalAxHome = process.env.AX_HOME;
+    process.env.AX_HOME = tmpDir;
+  });
+
+  afterEach(() => {
+    if (originalAxHome === undefined) {
+      delete process.env.AX_HOME;
+    } else {
+      process.env.AX_HOME = originalAxHome;
+    }
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does not create ax.log when file transport is disabled', async () => {
+    // Regression: loadProviders triggered getLogger() which created an async
+    // pino file transport. When the temp AX_HOME was deleted before the worker
+    // thread flushed, it threw an unhandled ENOENT. initLogger({ file: false })
+    // must prevent any file transport from being created.
+    const { initLogger, resetLogger } = await import('../src/logger.js');
+    initLogger({ file: false, level: 'silent' });
+
+    // Give pino a tick to open any files it might try
+    await new Promise(r => setTimeout(r, 50));
+
+    const logPath = join(tmpDir, 'data', 'ax.log');
+    expect(existsSync(logPath)).toBe(false);
+
+    resetLogger();
   });
 });

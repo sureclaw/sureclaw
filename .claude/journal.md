@@ -1210,3 +1210,11 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/providers/sandbox/canonical-paths.ts`, `src/providers/sandbox/docker.ts`, `src/providers/sandbox/bwrap.ts`, `src/providers/sandbox/nsjail.ts`, `src/agent/prompt/modules/runtime.ts`, `tests/providers/sandbox/canonical-paths.test.ts`, `tests/agent/prompt/enterprise-runtime.test.ts`
 **Outcome:** Success — build clean, all 2005 tests pass, zero stale `/shared` or `CANONICAL.shared` references remain
 **Notes:** The existing `CANONICAL.agent` was occupied by the identity directory, so we needed a two-step swap: identity `/agent`→`/identity`, then workspace `/shared`→`/agent`.
+
+## [2026-03-01 21:20] — Fix CI unhandled ENOENT in phase1.test.ts
+
+**Task:** Fix failing CI caused by unhandled ENOENT error when pino's async file transport races with temp directory cleanup
+**What I did:** (1) In `tests/integration/phase1.test.ts`, added `initLogger({ file: false, level: 'silent' })` before `loadProviders()` to prevent pino from creating an async file transport to the temp AX_HOME. (2) Added `resetLogger()` in the `finally` block. (3) Added regression test in `tests/logger.test.ts` verifying `initLogger({ file: false })` does not create ax.log.
+**Files touched:** `tests/integration/phase1.test.ts`, `tests/logger.test.ts`
+**Outcome:** Success — build clean, all 2006 tests pass (2005+1 new), zero unhandled errors
+**Notes:** Root cause: `loadProviders()` imports LLM router module which has top-level `getLogger()` call. This created a pino file transport targeting `AX_HOME/data/ax.log`. When the test's `finally` block deleted the temp dir, pino's async worker thread threw ENOENT.

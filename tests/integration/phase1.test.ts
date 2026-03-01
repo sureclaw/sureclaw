@@ -12,6 +12,8 @@ import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 
+import { initLogger, resetLogger } from '../../src/logger.js';
+
 // Direct-integration imports (not subprocess)
 import { createRouter } from '../../src/host/router.js';
 import { MessageQueue } from '../../src/db.js';
@@ -348,6 +350,10 @@ describe('Balanced Profile Config', () => {
     mkdirSync(providerTestDir, { recursive: true });
     process.env.AX_HOME = providerTestDir;
 
+    // Disable file transport so pino doesn't hold an async handle to the temp
+    // dir — otherwise the worker thread races with rmSync and throws ENOENT.
+    initLogger({ file: false, level: 'silent' });
+
     try {
       const providers = await loadProviders(config);
 
@@ -357,6 +363,7 @@ describe('Balanced Profile Config', () => {
       expect(providers.memory).toBeDefined();
       expect(providers.audit).toBeDefined();
     } finally {
+      resetLogger();
       delete process.env.AX_HOME;
       try { rmSync(providerTestDir, { recursive: true, force: true }); } catch {}
     }
