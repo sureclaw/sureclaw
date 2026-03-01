@@ -1176,3 +1176,13 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/host/ipc-server.ts`, `src/host/ipc-handlers/delegation.ts`, `src/host/server.ts`, `tests/host/delegation-hardening.test.ts`
 **Outcome:** Success — build clean, all 1983 tests pass
 **Notes:** The fix ensures child events flow through auto-state → supervisor.transition → agent.state event → heartbeat monitor, keeping the heartbeat alive for the entire delegation.
+
+## [2026-03-01 10:12] — Suppress noisy invalid_state_transition warnings in auto-state
+
+**Task:** Fix `invalid_state_transition from=tool_calling to=tool_calling` warnings flooding logs when LLM makes parallel tool calls
+**What I did:**
+- Added state guards in `enableAutoState()` to skip no-op transitions (same state → same state)
+- For the `tool.call` case when already `tool_calling`, update the activity label and record heartbeat activity directly (so heartbeat stays alive without a redundant state transition)
+**Files touched:** `src/host/orchestration/orchestrator.ts`
+**Outcome:** Success — build clean, all 1983 tests pass
+**Notes:** Multiple tool.call events in one LLM turn are normal (parallel tool use). The first transitions to tool_calling, subsequent ones just update the activity label.

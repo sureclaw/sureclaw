@@ -346,7 +346,9 @@ export function createOrchestrator(
       const handleIds = sessionToHandles.get(event.requestId);
       if (!handleIds) return;
 
-      // Apply state transition to all active (non-terminal) handles in this session
+      // Apply state transition to all active (non-terminal) handles in this session.
+      // Skip no-op transitions (e.g. tool_calling → tool_calling when multiple
+      // tool calls fire in the same LLM turn) to avoid noisy warnings.
       for (const handleId of handleIds) {
         const handle = supervisor.get(handleId);
         if (!handle || TERMINAL_STATES.has(handle.state)) continue;
@@ -354,16 +356,29 @@ export function createOrchestrator(
         try {
           switch (event.type) {
             case 'llm.start':
-              supervisor.transition(handleId, 'waiting_for_llm', `LLM call: ${event.data.model ?? 'default'}`);
+              if (handle.state !== 'waiting_for_llm') {
+                supervisor.transition(handleId, 'waiting_for_llm', `LLM call: ${event.data.model ?? 'default'}`);
+              }
               break;
             case 'llm.thinking':
-              supervisor.transition(handleId, 'thinking', 'Extended thinking');
+              if (handle.state !== 'thinking') {
+                supervisor.transition(handleId, 'thinking', 'Extended thinking');
+              }
               break;
             case 'llm.done':
-              supervisor.transition(handleId, 'running', 'Processing LLM response');
+              if (handle.state !== 'running') {
+                supervisor.transition(handleId, 'running', 'Processing LLM response');
+              }
               break;
             case 'tool.call':
-              supervisor.transition(handleId, 'tool_calling', `Tool: ${event.data.toolName ?? 'unknown'}`);
+              if (handle.state !== 'tool_calling') {
+                supervisor.transition(handleId, 'tool_calling', `Tool: ${event.data.toolName ?? 'unknown'}`);
+              } else {
+                // Already tool_calling — update activity label without a state transition,
+                // and record heartbeat activity so the monitor knows we're still alive.
+                handle.activity = `Tool: ${event.data.toolName ?? 'unknown'}`;
+                heartbeat.recordActivity(handleId);
+              }
               break;
             case 'completion.agent':
               if (handle.state === 'spawning') {
