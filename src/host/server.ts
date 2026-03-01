@@ -272,7 +272,7 @@ export async function createServer(
       ? `${req.context}\n\n---\n\nTask: ${req.task}`
       : req.task;
 
-    const requestId = `delegate-${randomUUID().slice(0, 8)}`;
+    const requestId = req.requestId ?? `delegate-${randomUUID().slice(0, 8)}`;
     const result = await processCompletion(
       childDeps,
       taskPrompt,
@@ -288,6 +288,10 @@ export async function createServer(
 
   // Create orchestrator for agent lifecycle management and async delegation
   const orchestrator = createOrchestrator(eventBus, providers.audit);
+  // Enable auto-state inference: maps llm.start/tool.call/llm.done events
+  // to supervisor state transitions, which emit agent.state events that
+  // the heartbeat monitor uses as proof of life.
+  const disableAutoState = orchestrator.enableAutoState();
 
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
@@ -810,7 +814,8 @@ export async function createServer(
       httpServer = null;
     }
 
-    // Stop orchestrator
+    // Stop orchestrator (disableAutoState first to unsubscribe event listener)
+    disableAutoState();
     orchestrator.shutdown();
 
     // Stop IPC server

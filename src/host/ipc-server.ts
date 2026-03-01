@@ -51,6 +51,10 @@ export interface DelegateRequest {
   maxTokens?: number;
   timeoutSec?: number;
   wait?: boolean;
+  /** Caller-assigned requestId for the child processCompletion call.
+   *  Used to align the child's event stream with the orchestrator handle
+   *  so that auto-state inference and heartbeat monitoring work correctly. */
+  requestId?: string;
 }
 
 export interface IPCHandlerOptions {

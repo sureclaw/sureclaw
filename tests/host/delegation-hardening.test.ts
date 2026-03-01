@@ -13,6 +13,8 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createIPCHandler, type IPCContext, type DelegateRequest } from '../../src/host/ipc-server.js';
 import { createDelegationHandlers } from '../../src/host/ipc-handlers/delegation.js';
+import { createEventBus, type EventBus } from '../../src/host/event-bus.js';
+import { createOrchestrator, type Orchestrator } from '../../src/host/orchestration/orchestrator.js';
 import type { ProviderRegistry } from '../../src/types.js';
 
 function mockProviders(): ProviderRegistry {
@@ -857,5 +859,132 @@ describe('delegation audit trail', () => {
     expect(providers.audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'agent_delegate' }),
     );
+  });
+});
+
+// ── Bug 4: Heartbeat kills active fire-and-forget delegates ──
+//
+// Root cause: the delegation handler registered the orchestrator handle
+// with the parent's sessionId, but the child agent's events use a
+// different requestId (generated in handleDelegate). Auto-state inference
+// maps events by requestId → sessionToHandles, so the child's events
+// never matched the handle → no state transitions → no heartbeat update
+// → heartbeat monitor kills the agent after 120s.
+//
+// Fix: delegation handler generates the child's requestId, passes it to
+// onDelegate via DelegateRequest.requestId, and registers the handle
+// with sessionId = childRequestId.
+
+describe('fire-and-forget delegation heartbeat alignment', () => {
+  test('child requestId is passed via DelegateRequest so events align with handle', async () => {
+    const providers = mockProviders();
+    let capturedReq: DelegateRequest | undefined;
+
+    const eventBus = createEventBus();
+    const orchestrator = createOrchestrator(eventBus);
+    const unsub = orchestrator.enableAutoState();
+
+    const { agent_delegate } = createDelegationHandlers(providers, {
+      delegation: { maxConcurrent: 3, maxDepth: 5 },
+      onDelegate: async (req) => {
+        capturedReq = req;
+        return 'done';
+      },
+      orchestrator: orchestrator as any,
+    });
+
+    const result = await agent_delegate({ task: 'Heartbeat test', wait: false }, defaultCtx);
+    await new Promise(r => setTimeout(r, 50));
+
+    // The request should include a requestId
+    expect(capturedReq).toBeDefined();
+    expect(capturedReq!.requestId).toBeDefined();
+    expect(typeof capturedReq!.requestId).toBe('string');
+    expect(capturedReq!.requestId!.startsWith('delegate-')).toBe(true);
+
+    // The orchestrator handle's sessionId should match the requestId
+    const handle = orchestrator.supervisor.get(result.handleId);
+    expect(handle).toBeDefined();
+    expect(handle!.sessionId).toBe(capturedReq!.requestId);
+
+    unsub();
+  });
+
+  test('auto-state transitions update heartbeat for fire-and-forget delegates', async () => {
+    const providers = mockProviders();
+    let capturedReq: DelegateRequest | undefined;
+    let resolveDelegate: (v: string) => void;
+
+    const eventBus = createEventBus();
+    const orchestrator = createOrchestrator(eventBus);
+    const unsub = orchestrator.enableAutoState();
+
+    const { agent_delegate } = createDelegationHandlers(providers, {
+      delegation: { maxConcurrent: 3, maxDepth: 5 },
+      onDelegate: async (req) => {
+        capturedReq = req;
+        return new Promise<string>(resolve => { resolveDelegate = resolve; });
+      },
+      orchestrator: orchestrator as any,
+    });
+
+    const result = await agent_delegate({ task: 'Heartbeat alive', wait: false }, defaultCtx);
+    await new Promise(r => setTimeout(r, 50));
+
+    const handle = orchestrator.supervisor.get(result.handleId);
+    expect(handle).toBeDefined();
+    expect(handle!.state).toBe('running');
+
+    // Simulate a child agent emitting tool.call with the correct requestId
+    // (the requestId that was passed to onDelegate)
+    const childRequestId = capturedReq!.requestId!;
+    eventBus.emit({
+      type: 'tool.call',
+      requestId: childRequestId,
+      timestamp: Date.now(),
+      data: { toolName: 'web' },
+    });
+
+    // Auto-state should have transitioned the handle to tool_calling
+    expect(handle!.state).toBe('tool_calling');
+
+    // The heartbeat should have been updated (agent.state event was emitted)
+    const lastActivity = orchestrator.heartbeat.getLastActivity(result.handleId);
+    expect(lastActivity).not.toBeNull();
+    expect(Date.now() - lastActivity!).toBeLessThan(1000);
+
+    // Simulate llm.done — should transition back to running
+    eventBus.emit({
+      type: 'llm.done',
+      requestId: childRequestId,
+      timestamp: Date.now(),
+      data: { chunkCount: 5 },
+    });
+    expect(handle!.state).toBe('running');
+
+    // Clean up
+    resolveDelegate!('done');
+    await new Promise(r => setTimeout(r, 50));
+    unsub();
+  });
+
+  test('blocking delegates do NOT pass requestId (backward compat)', async () => {
+    const providers = mockProviders();
+    let capturedReq: DelegateRequest | undefined;
+
+    const { agent_delegate } = createDelegationHandlers(providers, {
+      delegation: { maxConcurrent: 3, maxDepth: 5 },
+      onDelegate: async (req) => {
+        capturedReq = req;
+        return 'done';
+      },
+    });
+
+    // Blocking mode (wait: true or omitted)
+    await agent_delegate({ task: 'Blocking task' }, defaultCtx);
+
+    // requestId should NOT be set for blocking delegates
+    expect(capturedReq).toBeDefined();
+    expect(capturedReq!.requestId).toBeUndefined();
   });
 });

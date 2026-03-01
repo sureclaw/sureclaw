@@ -91,6 +91,10 @@ export function createDelegationHandlers(providers: ProviderRegistry, opts?: IPC
           // Register a handle in the orchestrator (if available) so the
           // caller can check status via agent_orch_status.
           const handleId = randomUUID();
+          // Generate a child requestId that will be used both:
+          // 1. As the handle's sessionId (so sessionToHandles maps correctly)
+          // 2. As the child processCompletion's requestId (so child events match)
+          const childRequestId = `delegate-${randomUUID().slice(0, 8)}`;
           const orchestrator = opts?.orchestrator;
           let handle: AgentHandle | undefined;
           if (orchestrator) {
@@ -98,7 +102,7 @@ export function createDelegationHandlers(providers: ProviderRegistry, opts?: IPC
               agentId: childCtx.agentId,
               agentType: (req.runner as AgentType) ?? 'pi-coding-agent',
               parentId: null,
-              sessionId: ctx.sessionId,
+              sessionId: childRequestId,
               userId: ctx.userId ?? '',
               activity: `Delegated: ${req.task.slice(0, 100)}`,
               metadata: { handleId, task: req.task.slice(0, 500) },
@@ -109,6 +113,12 @@ export function createDelegationHandlers(providers: ProviderRegistry, opts?: IPC
           }
 
           const effectiveHandleId = handle?.id ?? handleId;
+
+          // Pass the child requestId so handleDelegate uses the same ID
+          // that the orchestrator handle is registered with — this ensures
+          // the child agent's events (llm.start, tool.call, etc.) align
+          // with sessionToHandles and auto-state keeps the heartbeat alive.
+          delegateReq.requestId = childRequestId;
 
           // Launch in background — store promise so agent_collect can await it
           const delegatePromise = opts.onDelegate(delegateReq, childCtx)

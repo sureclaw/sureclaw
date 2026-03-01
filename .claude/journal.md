@@ -1162,3 +1162,17 @@ Tests: 53 new tests across 6 test files, all passing. Zero regressions on 383 ex
 **Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/delegation.ts`, `src/agent/tool-catalog.ts`, `src/agent/mcp-server.ts`, `src/agent/prompt/modules/delegation.ts`, `tests/host/delegation-hardening.test.ts`, `tests/sandbox-isolation.test.ts`, `tests/agent/ipc-tools.test.ts`, `tests/agent/mcp-server.test.ts`, `tests/agent/tool-catalog.test.ts`
 **Outcome:** Success — build clean, all 126 affected tests pass
 **Notes:** Key design decision: `delegate_collect` blocks until all handles complete (no polling loop needed). The pending map is cleaned up after collection.
+
+## [2026-03-01 10:10] — Fix heartbeat killing active fire-and-forget delegates
+
+**Task:** Diagnose and fix heartbeat_timeout killing delegated agents that are actively working (tool calls, LLM streaming)
+**What I did:**
+- Diagnosed two root causes: (1) `enableAutoState()` was never called in server.ts, so auto-state inference never ran in production. (2) Fire-and-forget handle was registered with parent's sessionId, but child agent events use a different requestId — sessionToHandles lookup always missed.
+- Added `requestId?: string` to `DelegateRequest` interface in `src/host/ipc-server.ts`
+- Modified `delegation.ts` fire-and-forget path: generates `childRequestId`, sets it on `delegateReq.requestId`, registers handle with `sessionId: childRequestId`
+- Modified `server.ts` `handleDelegate`: uses `req.requestId` if provided
+- Called `orchestrator.enableAutoState()` in `server.ts` after orchestrator creation, with cleanup on shutdown
+- Added 3 regression tests: requestId alignment, auto-state heartbeat update, blocking backward compat
+**Files touched:** `src/host/ipc-server.ts`, `src/host/ipc-handlers/delegation.ts`, `src/host/server.ts`, `tests/host/delegation-hardening.test.ts`
+**Outcome:** Success — build clean, all 1983 tests pass
+**Notes:** The fix ensures child events flow through auto-state → supervisor.transition → agent.state event → heartbeat monitor, keeping the heartbeat alive for the entire delegation.

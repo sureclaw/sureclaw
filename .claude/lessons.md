@@ -456,3 +456,15 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Added `wait: false` to delegate, told the prompt to "poll via agent_orch_status" — but that IPC action wasn't exposed as an agent tool. The agent resorted to `sleep 15 && echo ...`.
 **Lesson:** When adding an async fire-and-forget pattern, always provide a **blocking collect tool** (like `delegate_collect`) that accepts handleIds and awaits all results. Polling is bad UX for LLMs — they improvise with sleep/retry. A collect action that blocks until done is cleaner. Also: verify end-to-end that the agent actually has access to every tool/action referenced in its prompt.
 **Tags:** delegation, async, fire-and-forget, agent-tools, prompt-tool-mismatch
+
+### Orchestrator handle sessionId must match child agent event requestId
+**Date:** 2026-03-01
+**Context:** Heartbeat monitor was killing fire-and-forget delegates after 120s despite active tool/LLM work. The handle was registered with the parent's sessionId, but the child agent's events used a different requestId generated in handleDelegate.
+**Lesson:** When registering an orchestrator handle for a child agent, the handle's `sessionId` must match the `requestId` that the child's `processCompletion` call will use for its events. Otherwise `sessionToHandles` lookup fails, auto-state never fires, and the heartbeat monitor sees no activity. The delegation handler should generate the child's requestId and pass it to onDelegate via `DelegateRequest.requestId`.
+**Tags:** orchestration, heartbeat, delegation, sessionId, auto-state, requestId-alignment
+
+### enableAutoState() must be called in production code
+**Date:** 2026-03-01
+**Context:** Auto-state inference existed in the orchestrator but was never called in server.ts — only in tests. This meant `tool.call` and `llm.done` events were never mapped to supervisor state transitions in production.
+**Lesson:** After adding a feature to the orchestrator (like `enableAutoState()`), always wire it into `server.ts` where the orchestrator is created. Check that production code calls the method, not just tests. Also clean up the subscription in the shutdown path.
+**Tags:** orchestration, auto-state, server, wiring, production-vs-test
