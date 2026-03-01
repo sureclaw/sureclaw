@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, checkCommand, sandboxProcess } from './utils.js';
-import { CANONICAL, canonicalEnv } from './canonical-paths.js';
+import { CANONICAL, canonicalEnv, roOverlaps } from './canonical-paths.js';
 
 const DEFAULT_IMAGE = 'ax/agent:latest';
 const DEFAULT_PID_LIMIT = 256;
@@ -81,6 +81,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // Volume mounts — canonical paths so the LLM sees simple /workspace
         '-v', `${config.workspace}:${CANONICAL.workspace}:rw`,
         '-v', `${config.skills}:${CANONICAL.skills}:ro`,
+        // Mask any RO directories that overlap inside workspace (e.g. skills subdir)
+        // Docker uses last-mount-wins for specificity, so these override the rw workspace mount
+        ...roOverlaps(config).flatMap(({ hostPath, canonicalPath }) =>
+          ['-v', `${hostPath}:${canonicalPath}:ro`]),
         '-v', `${socketDir}:${socketDir}:rw`,
         ...(config.agentDir ? ['-v', `${config.agentDir}:${CANONICAL.agentIdentity}:ro`] : []),
         // Enterprise three-tier mounts — canonical paths

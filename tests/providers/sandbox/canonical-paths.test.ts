@@ -16,6 +16,7 @@ import {
   canonicalEnv,
   createCanonicalSymlinks,
   symlinkEnv,
+  roOverlaps,
 } from '../../../src/providers/sandbox/canonical-paths.js';
 import type { SandboxConfig } from '../../../src/providers/sandbox/types.js';
 
@@ -202,5 +203,115 @@ describe('symlinkEnv', () => {
     expect(env.AX_AGENT_WORKSPACE).toBe(join(mountRoot, 'agent-workspace'));
     expect(env.AX_USER_WORKSPACE).toBe(join(mountRoot, 'user-workspace'));
     expect(env.AX_SCRATCH).toBe(join(mountRoot, 'scratch'));
+  });
+});
+
+describe('roOverlaps', () => {
+  test('detects skills as subdirectory of workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/.ax/data/workspaces/main/cli/default',
+      skills: '/home/alice/.ax/data/workspaces/main/cli/default/skills',
+    });
+    const overlaps = roOverlaps(config);
+
+    expect(overlaps).toHaveLength(1);
+    expect(overlaps[0]).toEqual({
+      hostPath: '/home/alice/.ax/data/workspaces/main/cli/default/skills',
+      canonicalPath: '/workspace/skills',
+    });
+  });
+
+  test('returns empty when skills is outside workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/.ax/data/workspaces/main/cli/default',
+      skills: '/home/alice/.ax/data/skills-global',
+    });
+    const overlaps = roOverlaps(config);
+    expect(overlaps).toHaveLength(0);
+  });
+
+  test('returns empty when skills is a sibling of workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/projects/myapp',
+      skills: '/home/alice/projects/skills',
+    });
+    const overlaps = roOverlaps(config);
+    expect(overlaps).toHaveLength(0);
+  });
+
+  test('returns empty when skills equals workspace (same directory)', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/home/alice/work',
+    });
+    const overlaps = roOverlaps(config);
+    expect(overlaps).toHaveLength(0);
+  });
+
+  test('detects deeply nested skills under workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/home/alice/work/data/agent/skills',
+    });
+    const overlaps = roOverlaps(config);
+
+    expect(overlaps).toHaveLength(1);
+    expect(overlaps[0].canonicalPath).toBe('/workspace/data/agent/skills');
+  });
+
+  test('detects agentDir under workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/opt/global-skills',
+      agentDir: '/home/alice/work/.agent',
+    });
+    const overlaps = roOverlaps(config);
+
+    expect(overlaps).toHaveLength(1);
+    expect(overlaps[0]).toEqual({
+      hostPath: '/home/alice/work/.agent',
+      canonicalPath: '/workspace/.agent',
+    });
+  });
+
+  test('detects agentWorkspace under workspace', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/opt/global-skills',
+      agentWorkspace: '/home/alice/work/shared',
+    });
+    const overlaps = roOverlaps(config);
+
+    expect(overlaps).toHaveLength(1);
+    expect(overlaps[0]).toEqual({
+      hostPath: '/home/alice/work/shared',
+      canonicalPath: '/workspace/shared',
+    });
+  });
+
+  test('detects multiple overlapping RO dirs', () => {
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/home/alice/work/skills',
+      agentDir: '/home/alice/work/.agent',
+      agentWorkspace: '/home/alice/work/shared',
+    });
+    const overlaps = roOverlaps(config);
+
+    expect(overlaps).toHaveLength(3);
+    const paths = overlaps.map(o => o.canonicalPath).sort();
+    expect(paths).toEqual(['/workspace/.agent', '/workspace/shared', '/workspace/skills']);
+  });
+
+  test('ignores rw directories (userWorkspace, scratchDir)', () => {
+    // userWorkspace and scratchDir are mounted rw, so they are not checked
+    const config = mockSandboxConfig({
+      workspace: '/home/alice/work',
+      skills: '/opt/global-skills',
+      userWorkspace: '/home/alice/work/user-data',
+      scratchDir: '/home/alice/work/scratch',
+    });
+    const overlaps = roOverlaps(config);
+    expect(overlaps).toHaveLength(0);
   });
 });

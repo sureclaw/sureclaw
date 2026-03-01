@@ -16,7 +16,7 @@ import { homedir } from 'node:os';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, enforceTimeout, killProcess, checkCommand, sandboxProcess } from './utils.js';
-import { CANONICAL, canonicalEnv } from './canonical-paths.js';
+import { CANONICAL, canonicalEnv, roOverlaps } from './canonical-paths.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   // Project directory — needed so node, tsx loader, agent runner source, and node_modules are accessible
@@ -50,6 +50,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
         // Workspace (read-write) — mounted at canonical /workspace
         '--bind', config.workspace, CANONICAL.workspace,
+
+        // Mask any RO directories that overlap inside workspace (e.g. skills subdir)
+        // bwrap uses most-specific-mount-wins, so these override the rw workspace bind
+        ...roOverlaps(config).flatMap(({ hostPath, canonicalPath }) =>
+          ['--ro-bind', hostPath, canonicalPath]),
 
         // Skills (read-only) — mounted at canonical /skills
         '--ro-bind', config.skills, CANONICAL.skills,

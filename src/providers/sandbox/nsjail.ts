@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { exitCodePromise, killProcess, checkCommand, sandboxProcess } from './utils.js';
-import { CANONICAL, canonicalEnv } from './canonical-paths.js';
+import { CANONICAL, canonicalEnv, roOverlaps } from './canonical-paths.js';
 
 export async function create(_config: Config): Promise<SandboxProvider> {
   const policyPath = resolve('policies/agent.kafel');
@@ -37,6 +37,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
         // Mount workspace (read-write) — canonical /workspace
         '--bindmount', `${config.workspace}:${CANONICAL.workspace}`,
+        // Mask any RO directories that overlap inside workspace (e.g. skills subdir)
+        ...roOverlaps(config).flatMap(({ hostPath, canonicalPath }) =>
+          ['--bindmount_ro', `${hostPath}:${canonicalPath}`]),
         '--cwd', CANONICAL.workspace,
 
         // Mount skills (read-only) — canonical /skills

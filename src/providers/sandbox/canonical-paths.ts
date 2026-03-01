@@ -12,7 +12,7 @@
  */
 
 import { mkdirSync, symlinkSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { SandboxConfig } from './types.js';
 
@@ -114,4 +114,44 @@ export function symlinkEnv(config: SandboxConfig, mountRoot: string): Record<str
     XDG_CACHE_HOME: '/tmp/.ax-cache',
     AX_HOME: '/tmp/.ax-agent',
   };
+}
+
+/**
+ * Detect read-only directories that are subdirectories of the read-write workspace.
+ *
+ * When skills (or agentDir, agentWorkspace) lives *inside* the workspace directory,
+ * mounting workspace as rw at /workspace makes those files writable through the
+ * /workspace/<subpath> route, bypassing the read-only mount at the canonical path.
+ *
+ * Returns an array of { hostPath, canonicalPath } pairs describing where providers
+ * should add an additional read-only mount to mask the overlap inside /workspace.
+ */
+export function roOverlaps(config: SandboxConfig): Array<{ hostPath: string; canonicalPath: string }> {
+  const ws = resolve(config.workspace);
+  const overlaps: Array<{ hostPath: string; canonicalPath: string }> = [];
+
+  const roDirs: Array<{ hostPath: string | undefined }> = [
+    { hostPath: config.skills },
+    { hostPath: config.agentDir },
+    { hostPath: config.agentWorkspace },
+  ];
+
+  for (const { hostPath } of roDirs) {
+    if (!hostPath) continue;
+
+    const abs = resolve(hostPath);
+    // Same directory as workspace — the whole workspace IS the ro dir; skip
+    if (abs === ws) continue;
+
+    const rel = relative(ws, abs);
+    // Starts with '..' or is an absolute path → not under workspace
+    if (rel.startsWith('..') || resolve(rel) === rel) continue;
+
+    overlaps.push({
+      hostPath: abs,
+      canonicalPath: join(CANONICAL.workspace, rel),
+    });
+  }
+
+  return overlaps;
 }

@@ -1,5 +1,11 @@
 # Lessons Learned
 
+### Overlapping mounts can bypass RO protection — always mask RO subdirs inside RW mounts
+**Date:** 2026-03-01
+**Context:** Fixing Codex review comment about skills immutability bypass when skills is a subdirectory of workspace
+**Lesson:** When a read-only directory is a subdirectory of a read-write mount, the RW mount makes those files writable through the parent path. All sandbox providers (Docker, bwrap, nsjail) must add an explicit RO mount at the overlap path within the RW canonical mount (e.g., `/workspace/skills:ro`) to preserve immutability. Use `roOverlaps()` from `canonical-paths.ts` to detect these cases. This applies to any RO dir (skills, agentDir, agentWorkspace) that could be nested under workspace.
+**Tags:** security, sandbox, mounts, skills, immutability, overlap
+
 ### existsSync follows symlinks — use lstatSync for symlink existence checks
 **Date:** 2026-03-01
 **Context:** Writing tests for createCanonicalSymlinks that creates symlinks pointing to non-existent targets in test environment

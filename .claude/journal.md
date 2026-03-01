@@ -1,5 +1,19 @@
 # Journal
 
+## [2026-03-01 15:45] — Fix skills immutability bypass when skills is subdirectory of workspace
+
+**Task:** Resolve Codex review comment on PR #52: when skills dir is a subdirectory of workspace, agents can modify skill files through /workspace/skills path, bypassing the /skills read-only mount
+**What I did:**
+- Added `roOverlaps(config)` function to `canonical-paths.ts` that detects when RO directories (skills, agentDir, agentWorkspace) are subdirectories of the RW workspace
+- Updated Docker provider to add `-v host:overlap:ro` mount for each overlap path
+- Updated bwrap provider to add `--ro-bind host overlap` for each overlap path
+- Updated nsjail provider to add `--bindmount_ro host:overlap` for each overlap path
+- Added 9 tests for `roOverlaps()` covering: subdir detection, outside paths, sibling paths, same dir, deep nesting, multiple overlaps, RW dirs excluded
+- Added 3 source-level tests to `sandbox-isolation.test.ts` verifying each provider uses roOverlaps
+**Files touched:** `src/providers/sandbox/canonical-paths.ts`, `src/providers/sandbox/docker.ts`, `src/providers/sandbox/bwrap.ts`, `src/providers/sandbox/nsjail.ts`, `tests/providers/sandbox/canonical-paths.test.ts`, `tests/sandbox-isolation.test.ts`
+**Outcome:** Success — all 2010 tests pass, TypeScript compiles cleanly
+**Notes:** Mount specificity (most-specific-path-wins) is the mechanism in Docker, bwrap, and nsjail that makes this work. The RO overlap mount at /workspace/skills overrides the RW mount at /workspace for that subtree.
+
 ## [2026-03-01 14:50] — Simplify workspace paths for LLM agents in sandboxes
 
 **Task:** Remap sandbox mount destinations from host paths to simple canonical paths so LLMs don't see confusing deeply-nested paths

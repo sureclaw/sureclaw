@@ -155,6 +155,40 @@ describe('sandbox providers accept agentDir for identity files', () => {
   });
 });
 
+// ── Skills Immutability — RO Overlap Masking ─────────────────────────
+
+describe('skills immutability when skills is a subdirectory of workspace', () => {
+  test('docker provider masks RO overlap paths inside workspace', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/providers/sandbox/docker.ts'), 'utf-8');
+
+    // Must import and use roOverlaps
+    expect(source).toContain('roOverlaps');
+    // The overlap mounts must be read-only inside the workspace
+    expect(source).toMatch(/roOverlaps\(config\).*:ro/s);
+  });
+
+  test('bwrap provider masks RO overlap paths inside workspace', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/providers/sandbox/bwrap.ts'), 'utf-8');
+
+    // Must import and use roOverlaps
+    expect(source).toContain('roOverlaps');
+    // The overlap mounts must use --ro-bind
+    expect(source).toMatch(/roOverlaps\(config\).*--ro-bind/s);
+  });
+
+  test('nsjail provider masks RO overlap paths inside workspace', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/providers/sandbox/nsjail.ts'), 'utf-8');
+
+    // Must import and use roOverlaps
+    expect(source).toContain('roOverlaps');
+    // The overlap mounts must use --bindmount_ro
+    expect(source).toMatch(/roOverlaps\(config\).*bindmount_ro/s);
+  });
+});
+
 // ── Subprocess Sandbox Env Leak (Documented Dev-Only Risk) ──────────
 
 describe('subprocess sandbox env leak (dev-only fallback)', () => {
