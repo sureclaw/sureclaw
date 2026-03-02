@@ -24,7 +24,7 @@ const mockConfig = {
   providers: {
     memory: 'file', scanner: 'basic',
     channels: ['cli'], web: 'none', browser: 'none',
-    credentials: 'env', skills: 'readonly', audit: 'file',
+    credentials: 'keychain', skills: 'readonly', audit: 'file',
     sandbox: 'subprocess', scheduler: 'none',
   },
   sandbox: { timeout_sec: 120, memory_mb: 512 },

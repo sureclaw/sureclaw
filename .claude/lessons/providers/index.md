@@ -21,3 +21,6 @@ Provider-specific lessons covering LLM, skills, sandbox, channel (Slack), and me
 - Node.js Buffer -> fetch body: use standalone ArrayBuffer to avoid detached buffer errors [channel.md](channel.md)
 - Node.js fetch body does not accept Buffer in strict TypeScript [channel.md](channel.md)
 - pi-agent-core only supports text — image blocks must bypass it [memory.md](memory.md)
+- All credential providers must fall back to process.env on get() [credentials.md](credentials.md)
+- Use AX_CREDS_YAML_PATH env var override for testing credential providers [credentials.md](credentials.md)
+- Zod transform for backward-compatible config migration [credentials.md](credentials.md)

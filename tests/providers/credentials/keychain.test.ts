@@ -1,4 +1,8 @@
 import { describe, test, expect, afterEach } from 'vitest';
+import { mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import type { Config } from '../../../src/types.js';
 
 const config = {
@@ -7,41 +11,42 @@ const config = {
 } as unknown as Config;
 
 describe('creds-keychain', () => {
-  const originalPassphrase = process.env.AX_CREDS_PASSPHRASE;
+  let testDir: string;
+  const originalYamlPath = process.env.AX_CREDS_YAML_PATH;
 
   afterEach(() => {
-    if (originalPassphrase !== undefined) {
-      process.env.AX_CREDS_PASSPHRASE = originalPassphrase;
+    if (testDir) {
+      try { rmSync(testDir, { recursive: true }); } catch {}
+    }
+    if (originalYamlPath !== undefined) {
+      process.env.AX_CREDS_YAML_PATH = originalYamlPath;
     } else {
-      delete process.env.AX_CREDS_PASSPHRASE;
+      delete process.env.AX_CREDS_YAML_PATH;
     }
   });
 
-  test('falls back to encrypted provider when keytar unavailable', async () => {
-    // keytar is not installed in test env — should fall back
-    // The fallback requires AX_CREDS_PASSPHRASE
-    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
-    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-test.enc';
+  function setupTestDir(): string {
+    testDir = join(tmpdir(), `ax-keychain-test-${randomUUID()}`);
+    mkdirSync(testDir, { recursive: true });
+    process.env.AX_CREDS_YAML_PATH = join(testDir, 'credentials.yaml');
+    return testDir;
+  }
+
+  test('falls back to plaintext provider when keytar unavailable', async () => {
+    setupTestDir();
 
     const { create } = await import('../../../src/providers/credentials/keychain.js');
     const provider = await create(config);
 
-    // Should have the encrypted provider interface
+    // Should have the plaintext provider interface
     expect(typeof provider.get).toBe('function');
     expect(typeof provider.set).toBe('function');
     expect(typeof provider.delete).toBe('function');
     expect(typeof provider.list).toBe('function');
-
-    // Clean up
-    try {
-      const { unlinkSync } = await import('node:fs');
-      unlinkSync('/tmp/ax-keychain-test.enc');
-    } catch { /* file may not exist */ }
   });
 
   test('fallback provider can get/set/delete', async () => {
-    process.env.AX_CREDS_PASSPHRASE = 'test-passphrase';
-    process.env.AX_CREDS_STORE_PATH = '/tmp/ax-keychain-crud.enc';
+    setupTestDir();
 
     const { create } = await import('../../../src/providers/credentials/keychain.js');
     const provider = await create(config);
@@ -59,12 +64,17 @@ describe('creds-keychain', () => {
     await provider.delete('TEST_SERVICE');
     const afterDelete = await provider.get('TEST_SERVICE');
     expect(afterDelete).toBeNull();
+  });
 
-    // Clean up
-    try {
-      const { unlinkSync } = await import('node:fs');
-      unlinkSync('/tmp/ax-keychain-crud.enc');
-    } catch { /* file may not exist */ }
+  test('fallback provider falls back to process.env on get', async () => {
+    setupTestDir();
+
+    const { create } = await import('../../../src/providers/credentials/keychain.js');
+    const provider = await create(config);
+
+    process.env.KEYCHAIN_FALLBACK_TEST = 'env-value';
+    expect(await provider.get('KEYCHAIN_FALLBACK_TEST')).toBe('env-value');
+    delete process.env.KEYCHAIN_FALLBACK_TEST;
   });
 
   test('exports create function', async () => {

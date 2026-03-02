@@ -17,7 +17,7 @@ function mockConfig(): Config {
     providers: {
       memory: 'file', scanner: 'basic',
       channels: ['cli'], web: 'none', browser: 'none',
-      credentials: 'env', skills: 'git', audit: 'file',
+      credentials: 'keychain', skills: 'git', audit: 'file',
       sandbox: 'subprocess', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },

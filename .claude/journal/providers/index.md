@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-02 14:30 — Refactor credential providers: keychain default, plaintext fallback [credentials.md](credentials.md)
 - 2026-03-01 19:30 — Create MemoryFS implementation plan [memory.md](memory.md)
 - 2026-03-01 15:57 — Rename canonical paths: /agent->/identity, /shared->/agent [sandbox.md](sandbox.md)
 - 2026-02-27 14:30 — Create exploring-reference-repos skill [skills.md](skills.md)

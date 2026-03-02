@@ -84,7 +84,7 @@ describe('Onboarding Wizard', () => {
 
   // ── API key handling ──
 
-  test('saves API key to .env file', async () => {
+  test('saves API key to credentials.yaml', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -96,10 +96,10 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envPath = join(dir, '.env');
-    expect(existsSync(envPath)).toBe(true);
-    const envContent = readFileSync(envPath, 'utf-8');
-    expect(envContent).toContain('ANTHROPIC_API_KEY=sk-ant-api-key-here');
+    const credsPath = join(dir, 'credentials.yaml');
+    expect(existsSync(credsPath)).toBe(true);
+    const creds = parseYaml(readFileSync(credsPath, 'utf-8'));
+    expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-api-key-here');
   });
 
   // ── YAML validity ──
@@ -249,7 +249,7 @@ describe('Onboarding Wizard', () => {
     expect(existing).toBeNull();
   });
 
-  test('loadExistingConfig reads API key from .env', async () => {
+  test('loadExistingConfig reads API key from credentials.yaml', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 
@@ -269,7 +269,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Preserve passphrase and Tavily key on reconfigure ──
 
-  test('loadExistingConfig reads passphrase and Tavily key from .env', async () => {
+  test('loadExistingConfig reads passphrase and Tavily key from credentials.yaml', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 
@@ -364,7 +364,7 @@ describe('Onboarding Wizard', () => {
 
   // ── OAuth tokens ──
 
-  test('writes OAuth tokens to .env when oauthToken is set', async () => {
+  test('writes OAuth tokens to credentials.yaml when oauthToken is set', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -379,12 +379,12 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-test-token');
-    expect(envContent).toContain('AX_OAUTH_REFRESH_TOKEN=sk-ant-ort01-test-refresh');
-    expect(envContent).toContain('AX_OAUTH_EXPIRES_AT=1739184000');
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-oat01-test-token');
+    expect(creds.AX_OAUTH_REFRESH_TOKEN).toBe('sk-ant-ort01-test-refresh');
+    expect(creds.AX_OAUTH_EXPIRES_AT).toBe('1739184000');
     // Should NOT contain ANTHROPIC_API_KEY when OAuth is used
-    expect(envContent).not.toContain('ANTHROPIC_API_KEY');
+    expect(creds.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   test('writes ANTHROPIC_API_KEY when no OAuth token', async () => {
@@ -399,12 +399,12 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('ANTHROPIC_API_KEY=sk-ant-api03-test');
-    expect(envContent).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-api03-test');
+    expect(creds.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 
-  test('loadExistingConfig reads OAuth tokens from .env', async () => {
+  test('loadExistingConfig reads OAuth tokens from credentials.yaml', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 
@@ -450,7 +450,7 @@ describe('Onboarding Wizard', () => {
 
   // ── Slack token handling ──
 
-  test('writes Slack tokens to .env when slack channel selected', async () => {
+  test('writes Slack tokens to credentials.yaml when slack channel selected', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -464,9 +464,9 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('SLACK_BOT_TOKEN=xoxb-test-bot-token');
-    expect(envContent).toContain('SLACK_APP_TOKEN=xapp-test-app-token');
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.SLACK_BOT_TOKEN).toBe('xoxb-test-bot-token');
+    expect(creds.SLACK_APP_TOKEN).toBe('xapp-test-app-token');
   });
 
   test('does not write Slack tokens when no slack channel', async () => {
@@ -481,12 +481,13 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).not.toContain('SLACK_BOT_TOKEN');
-    expect(envContent).not.toContain('SLACK_APP_TOKEN');
+    // credentials.yaml should still exist (has API key) but without Slack tokens
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.SLACK_BOT_TOKEN).toBeUndefined();
+    expect(creds.SLACK_APP_TOKEN).toBeUndefined();
   });
 
-  test('loadExistingConfig reads Slack tokens from .env', async () => {
+  test('loadExistingConfig reads Slack tokens from credentials.yaml', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 
@@ -606,7 +607,7 @@ describe('Onboarding Wizard', () => {
     expect(config.models).toBeUndefined();
   });
 
-  test('writes provider-specific API key env var for non-anthropic provider', async () => {
+  test('writes provider-specific API key for non-anthropic provider', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -621,9 +622,9 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('OPENROUTER_API_KEY=or-key-123456'); // gitleaks:allow
-    expect(envContent).not.toContain('ANTHROPIC_API_KEY');
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.OPENROUTER_API_KEY).toBe('or-key-123456'); // gitleaks:allow
+    expect(creds.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   test('writes ANTHROPIC_API_KEY for anthropic llmProvider', async () => {
@@ -641,11 +642,11 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).toContain('ANTHROPIC_API_KEY=sk-ant-test-key');
+    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
+    expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-test-key');
   });
 
-  test('does not write empty API key line to .env', async () => {
+  test('does not write empty API key to credentials.yaml', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
@@ -660,9 +661,8 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const envContent = readFileSync(join(dir, '.env'), 'utf-8');
-    expect(envContent).not.toContain('GROQ_API_KEY=');
-    expect(envContent).not.toContain('ANTHROPIC_API_KEY=');
+    // No credentials to write → credentials.yaml should not exist
+    expect(existsSync(join(dir, 'credentials.yaml'))).toBe(false);
   });
 
   test('loadExistingConfig reads model and derives llmProvider', async () => {
@@ -688,7 +688,7 @@ describe('Onboarding Wizard', () => {
     expect(existing!.llmProvider).toBe('openrouter');
   });
 
-  test('loadExistingConfig reads non-Anthropic API key from .env', async () => {
+  test('loadExistingConfig reads non-Anthropic API key from credentials.yaml', async () => {
     const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
     const dir = setup();
 

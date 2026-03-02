@@ -40,7 +40,7 @@ function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Con
     providers: {
       memory: 'sqlite', scanner: 'patterns',
       channels: [], web: 'none', browser: 'none',
-      credentials: 'env', skills: 'readonly', audit: 'sqlite',
+      credentials: 'keychain', skills: 'readonly', audit: 'sqlite',
       sandbox: 'subprocess', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
@@ -398,7 +398,7 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.web).toHaveProperty('fetch');
 
     // Credential providers
-    expect(PROVIDER_MAP.credentials).toHaveProperty('env');
+    expect(PROVIDER_MAP.credentials).toHaveProperty('plaintext');
     expect(PROVIDER_MAP.credentials).toHaveProperty('encrypted');
 
     // Skills providers

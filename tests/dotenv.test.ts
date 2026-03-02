@@ -1,5 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -81,42 +81,6 @@ describe('loadDotEnv', () => {
     expect(process.env.ANTHROPIC_API_KEY).toBe('sk-ant-test-key-123');
   });
 
-  test('refreshes expired OAuth token before returning', async () => {
-    // Mock the OAuth refresh module to verify it's awaited (not fire-and-forget)
-    const mockRefresh = vi.fn().mockResolvedValue({
-      access_token: 'fresh-access-token',
-      refresh_token: 'fresh-refresh-token',
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-    });
-
-    vi.doMock('../src/host/oauth.js', () => ({
-      refreshOAuthTokens: mockRefresh,
-    }));
-
-    // Re-import to pick up the mock
-    const { loadDotEnv: loadDotEnvMocked } = await import('../src/dotenv.js');
-
-    // Write .env with an expired token (expires_at in the past)
-    const expiredAt = Math.floor(Date.now() / 1000) - 600; // 10 minutes ago
-    writeFileSync(join(tmpDir, '.env'), [
-      'AX_OAUTH_REFRESH_TOKEN=old-refresh-token',
-      `AX_OAUTH_EXPIRES_AT=${expiredAt}`,
-    ].join('\n'));
-
-    await loadDotEnvMocked();
-
-    // The refresh should have been called and awaited
-    expect(mockRefresh).toHaveBeenCalledWith('old-refresh-token');
-
-    // process.env should have the fresh token — proving the refresh
-    // completed before loadDotEnv() returned
-    expect(process.env.CLAUDE_CODE_OAUTH_TOKEN).toBe('fresh-access-token');
-    expect(process.env.AX_OAUTH_REFRESH_TOKEN).toBe('fresh-refresh-token');
-
-    // The .env file should also be updated
-    const envContent = readFileSync(join(tmpDir, '.env'), 'utf-8');
-    expect(envContent).toContain('CLAUDE_CODE_OAUTH_TOKEN=fresh-access-token');
-
-    vi.doUnmock('../src/host/oauth.js');
-  });
+  // OAuth refresh tests moved to credential provider tests.
+  // loadDotEnv() is now a simple .env → process.env loader.
 });

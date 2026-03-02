@@ -56,7 +56,7 @@ const _PROVIDER_MAP = {
     container: '../providers/browser/container.js',
   },
   credentials: {
-    env:       '../providers/credentials/env.js',
+    plaintext: '../providers/credentials/plaintext.js',
     encrypted: '../providers/credentials/encrypted.js',
     keychain:  '../providers/credentials/keychain.js',
   },

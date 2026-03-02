@@ -10,7 +10,7 @@ const config: Config = {
     channels: ['cli'],
     web: 'none',
     browser: 'none',
-    credentials: 'env',
+    credentials: 'keychain',
     skills: 'readonly',
     audit: 'file',
     sandbox: 'subprocess',

@@ -57,12 +57,11 @@ export async function create(_config: Config): Promise<CredentialProvider> {
   const storePath = process.env.AX_CREDS_STORE_PATH || dataFile('credentials.enc');
   const passphrase = process.env.AX_CREDS_PASSPHRASE;
   if (!passphrase) {
-    const { getLogger } = await import('../../logger.js');
-    getLogger().warn('creds_no_passphrase', {
-      message: 'Encrypted credential store disabled — AX_CREDS_PASSPHRASE not set. Falling back to environment variables.',
-      suggestion: 'Set it with: export AX_CREDS_PASSPHRASE=your-secret-passphrase',
-    });
-    return (await import('./env.js')).create(_config);
+    throw new Error(
+      'Encrypted credential store requires AX_CREDS_PASSPHRASE. ' +
+      'Set it with: export AX_CREDS_PASSPHRASE=your-secret-passphrase — ' +
+      'or switch to credentials: keychain in ax.yaml.'
+    );
   }
 
   // Cache the derived key in memory for the session
@@ -92,7 +91,9 @@ export async function create(_config: Config): Promise<CredentialProvider> {
   return {
     async get(service: string): Promise<string | null> {
       const store = loadStore();
-      return store[service] ?? null;
+      if (store[service] !== undefined) return store[service];
+      // Fall back to process.env so shell-exported vars still work
+      return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
     },
 
     async set(service: string, value: string): Promise<void> {

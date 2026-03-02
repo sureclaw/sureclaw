@@ -22,7 +22,7 @@ import { type Logger, truncate } from '../logger.js';
 import { drainGeneratedImages } from './ipc-handlers/image.js';
 import { startAnthropicProxy } from './proxy.js';
 import { diagnoseError } from '../errors.js';
-import { ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
+import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
@@ -344,7 +344,12 @@ export async function processCompletion(
     if (needsAnthropicProxy) {
       // Refresh OAuth token if expired or expiring (pre-flight check).
       // Handles 99% of cases where token expires between conversation turns.
-      await ensureOAuthTokenFresh();
+      // Use credential-provider-aware refresh when available.
+      if (providers.credentials) {
+        await ensureOAuthTokenFreshViaProvider(providers.credentials);
+      } else {
+        await ensureOAuthTokenFresh();
+      }
 
       // Fail fast if no credentials are available — don't spawn an agent
       // that will just retry 401s with exponential backoff for minutes.

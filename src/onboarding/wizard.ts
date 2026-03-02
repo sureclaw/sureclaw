@@ -110,31 +110,36 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   const yamlContent = yamlStringify(config, { indent: 2, lineWidth: 120 });
   writeFileSync(join(outputDir, 'ax.yaml'), yamlContent, 'utf-8');
 
-  // Write .env — OAuth tokens or API key (they're separate auth methods)
-  let envContent = '# AX Configuration\n';
+  // Write credentials to credentials.yaml via the plaintext provider pattern.
+  // We write the YAML file directly here (same format the plaintext provider uses)
+  // rather than instantiating the provider, since the output dir may differ from AX_HOME.
+  const creds: Record<string, string> = {};
   if (answers.oauthToken) {
-    envContent += `\n# Claude Max OAuth tokens\nCLAUDE_CODE_OAUTH_TOKEN=${answers.oauthToken}\nAX_OAUTH_REFRESH_TOKEN=${answers.oauthRefreshToken || ''}\nAX_OAUTH_EXPIRES_AT=${answers.oauthExpiresAt || ''}\n`;
+    creds.CLAUDE_CODE_OAUTH_TOKEN = answers.oauthToken;
+    if (answers.oauthRefreshToken) creds.AX_OAUTH_REFRESH_TOKEN = answers.oauthRefreshToken;
+    if (answers.oauthExpiresAt) creds.AX_OAUTH_EXPIRES_AT = String(answers.oauthExpiresAt);
   } else if (answers.apiKey.trim()) {
-    // Use provider-specific env var name (e.g. OPENROUTER_API_KEY) when llmProvider
-    // is set and isn't anthropic. Falls back to ANTHROPIC_API_KEY for backward compat.
     const apiKeyEnvVar = answers.llmProvider && answers.llmProvider !== 'anthropic'
       ? `${answers.llmProvider.toUpperCase()}_API_KEY`
       : 'ANTHROPIC_API_KEY';
-    envContent += `${apiKeyEnvVar}=${answers.apiKey.trim()}\n`;
+    creds[apiKeyEnvVar] = answers.apiKey.trim();
   }
   if (answers.credsPassphrase) {
-    envContent += `\n# Encrypted credential store passphrase\nAX_CREDS_PASSPHRASE=${answers.credsPassphrase.trim()}\n`;
+    creds.AX_CREDS_PASSPHRASE = answers.credsPassphrase.trim();
   }
   if (answers.webSearchApiKey) {
-    envContent += `\n# Web search API key\nTAVILY_API_KEY=${answers.webSearchApiKey.trim()}\n`;
+    creds.TAVILY_API_KEY = answers.webSearchApiKey.trim();
   }
   if (answers.slackBotToken) {
-    envContent += `\n# Slack tokens\nSLACK_BOT_TOKEN=${answers.slackBotToken.trim()}\n`;
+    creds.SLACK_BOT_TOKEN = answers.slackBotToken.trim();
     if (answers.slackAppToken) {
-      envContent += `SLACK_APP_TOKEN=${answers.slackAppToken.trim()}\n`;
+      creds.SLACK_APP_TOKEN = answers.slackAppToken.trim();
     }
   }
-  writeFileSync(join(outputDir, '.env'), envContent, 'utf-8');
+  if (Object.keys(creds).length > 0) {
+    const credsYaml = yamlStringify(creds, { indent: 2, lineWidth: 120 });
+    writeFileSync(join(outputDir, 'credentials.yaml'), credsYaml, 'utf-8');
+  }
 
   // Write ClawHub skill install queue if requested
   if (answers.installSkills && answers.installSkills.length > 0 && !answers.skipSkills) {
@@ -164,7 +169,7 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     // Read image model (stored as "provider/model-name" in models.image)
     const imageModel: string | undefined = parsed.models?.image?.[0];
 
-    // Read secrets from .env if it exists
+    // Read secrets from credentials.yaml (preferred) or .env (backward compat)
     let apiKey = '';
     let credsPassphrase: string | undefined;
     let webSearchApiKey: string | undefined;
@@ -174,10 +179,49 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     let authMethod: 'api-key' | 'oauth' | undefined;
     let slackBotToken: string | undefined;
     let slackAppToken: string | undefined;
+
+    const credsYamlPath = join(dir, 'credentials.yaml');
     const envFilePath = join(dir, '.env');
-    if (existsSync(envFilePath)) {
+
+    // Helper to read a value from a credentials store
+    const readCred = (store: Record<string, string>, key: string): string | undefined => {
+      const val = store[key];
+      return val !== undefined ? String(val) : undefined;
+    };
+
+    // Try credentials.yaml first, then fall back to .env for backward compat
+    let creds: Record<string, string> = {};
+    if (existsSync(credsYamlPath)) {
+      try {
+        const raw = readFileSync(credsYamlPath, 'utf-8');
+        const parsed = parseYaml(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          creds = parsed as Record<string, string>;
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    if (Object.keys(creds).length > 0) {
+      // Read from credentials.yaml
+      if (llmProvider && llmProvider !== 'anthropic') {
+        const providerKeyName = `${llmProvider.toUpperCase()}_API_KEY`;
+        apiKey = readCred(creds, providerKeyName) ?? '';
+      }
+      if (!apiKey) {
+        apiKey = readCred(creds, 'ANTHROPIC_API_KEY') ?? '';
+      }
+      credsPassphrase = readCred(creds, 'AX_CREDS_PASSPHRASE');
+      webSearchApiKey = readCred(creds, 'TAVILY_API_KEY');
+      oauthToken = readCred(creds, 'CLAUDE_CODE_OAUTH_TOKEN');
+      oauthRefreshToken = readCred(creds, 'AX_OAUTH_REFRESH_TOKEN');
+      const expiresStr = readCred(creds, 'AX_OAUTH_EXPIRES_AT');
+      if (expiresStr) oauthExpiresAt = parseInt(expiresStr, 10);
+      authMethod = oauthToken ? 'oauth' : 'api-key';
+      slackBotToken = readCred(creds, 'SLACK_BOT_TOKEN');
+      slackAppToken = readCred(creds, 'SLACK_APP_TOKEN');
+    } else if (existsSync(envFilePath)) {
+      // Backward compat: read from .env
       const envContent = readFileSync(envFilePath, 'utf-8');
-      // Try provider-specific API key first, fall back to ANTHROPIC_API_KEY
       if (llmProvider && llmProvider !== 'anthropic') {
         const providerKeyName = `${llmProvider.toUpperCase()}_API_KEY`;
         const providerKeyMatch = envContent.match(new RegExp(`^${providerKeyName}=(.+)$`, 'm'));

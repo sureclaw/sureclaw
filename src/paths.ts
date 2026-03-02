@@ -67,6 +67,11 @@ export function envPath(): string {
   return join(axHome(), '.env');
 }
 
+/** Path to credentials.yaml file (plaintext credential store). */
+export function credentialsPath(): string {
+  return join(axHome(), 'credentials.yaml');
+}
+
 /** Path to the data subdirectory. */
 export function dataDir(): string {
   return join(axHome(), 'data');

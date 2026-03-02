@@ -10,7 +10,7 @@ import type { Config } from '../../types.js';
  * - Windows: Credential Locker
  *
  * Backed by `keytar` npm package (optional dependency).
- * Falls back to encrypted file provider if keytar is unavailable.
+ * Falls back to plaintext YAML provider if keytar is unavailable.
  *
  * All credentials stored under "ax" service name.
  */
@@ -33,19 +33,22 @@ export async function create(config: Config): Promise<CredentialProvider> {
     // Verify it actually works by trying a list operation
     await keytar.findCredentials(SERVICE_NAME);
   } catch {
-    // keytar not available — fall back to encrypted provider
+    // keytar not available — fall back to plaintext YAML provider
     const { getLogger } = await import('../../logger.js');
     getLogger().warn('keytar_unavailable', {
-      message: 'keytar not available, falling back to encrypted file provider',
+      message: 'keytar not available, falling back to plaintext credential store (~/.ax/credentials.yaml)',
       suggestion: 'Install keytar for native keychain support: npm install keytar',
     });
-    const { create: createEncrypted } = await import('./encrypted.js');
-    return createEncrypted(config);
+    const { create: createPlaintext } = await import('./plaintext.js');
+    return createPlaintext(config);
   }
 
   return {
     async get(service: string): Promise<string | null> {
-      return keytar!.getPassword(SERVICE_NAME, service);
+      const value = await keytar!.getPassword(SERVICE_NAME, service);
+      if (value !== null) return value;
+      // Fall back to process.env so shell-exported vars still work
+      return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
     },
 
     async set(service: string, value: string): Promise<void> {

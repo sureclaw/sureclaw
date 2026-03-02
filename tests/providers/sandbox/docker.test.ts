@@ -7,7 +7,7 @@ function mockConfig(): Config {
     providers: {
       memory: 'file', scanner: 'basic',
       channels: ['cli'], web: 'none', browser: 'none',
-      credentials: 'env', skills: 'readonly', audit: 'file',
+      credentials: 'keychain', skills: 'readonly', audit: 'file',
       sandbox: 'docker', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },

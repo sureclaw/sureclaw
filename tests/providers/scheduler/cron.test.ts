@@ -5,7 +5,7 @@ import type { InboundMessage } from '../../../src/providers/channel/types.js';
 
 const mockConfig = {
   profile: 'paranoid',
-  providers: { memory: 'file', scanner: 'basic', channels: ['cli'], web: 'none', browser: 'none', credentials: 'env', skills: 'readonly', audit: 'file', sandbox: 'subprocess', scheduler: 'cron' },
+  providers: { memory: 'file', scanner: 'basic', channels: ['cli'], web: 'none', browser: 'none', credentials: 'keychain', skills: 'readonly', audit: 'file', sandbox: 'subprocess', scheduler: 'cron' },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
   scheduler: {
     active_hours: { start: '00:00', end: '23:59', timezone: 'UTC' },

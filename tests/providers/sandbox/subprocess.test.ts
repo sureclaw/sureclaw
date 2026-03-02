@@ -4,7 +4,7 @@ import type { Config } from '../../../src/types.js';
 
 const mockConfig = {
   profile: 'paranoid',
-  providers: { memory: 'file', scanner: 'basic', channels: ['cli'], web: 'none', browser: 'none', credentials: 'env', skills: 'readonly', audit: 'file', sandbox: 'subprocess', scheduler: 'none' },
+  providers: { memory: 'file', scanner: 'basic', channels: ['cli'], web: 'none', browser: 'none', credentials: 'keychain', skills: 'readonly', audit: 'file', sandbox: 'subprocess', scheduler: 'none' },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
   scheduler: { active_hours: { start: '07:00', end: '23:00', timezone: 'America/New_York' }, max_token_budget: 4096, heartbeat_interval_min: 30 },
 } as Config;

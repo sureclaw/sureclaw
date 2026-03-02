@@ -46,7 +46,15 @@ const ConfigSchema = z.strictObject({
     channels: z.array(providerEnum('channel')),
     web: providerEnum('web'),
     browser: providerEnum('browser'),
-    credentials: providerEnum('credentials'),
+    credentials: z.union([providerEnum('credentials'), z.literal('env')])
+      .transform((val) => {
+        if (val === 'env') {
+          // eslint-disable-next-line no-console
+          console.warn('[ax] Deprecation: credentials: "env" is no longer supported. Remapping to "keychain".');
+          return 'keychain' as const;
+        }
+        return val;
+      }),
     skills: providerEnum('skills'),
     audit: providerEnum('audit'),
     sandbox: providerEnum('sandbox'),
