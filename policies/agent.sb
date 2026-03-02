@@ -1,5 +1,6 @@
 ;; policies/agent.sb — Seatbelt sandbox for agent containers
-;; Parameters: WORKSPACE, SKILLS, IPC_SOCKET_DIR, PROJECT_DIR, NODE_DIR, AGENT_DIR
+;; Parameters: WORKSPACE, SKILLS, IPC_SOCKET_DIR, PROJECT_DIR, NODE_DIR, AGENT_DIR,
+;;             AGENT_WORKSPACE, USER_WORKSPACE
 (version 1)
 (deny default)
 
@@ -15,6 +16,10 @@
 (allow file-write* (subpath (param "WORKSPACE")))
 (allow file-read* (subpath (param "SKILLS")))
 (allow file-read* (subpath (param "AGENT_DIR")))
+
+;; ── Enterprise workspace tiers (read-only — writes go through IPC) ──
+(allow file-read* (subpath (param "AGENT_WORKSPACE")))
+(allow file-read* (subpath (param "USER_WORKSPACE")))
 
 ;; ── IPC + proxy sockets (communication channels to host) ──
 (allow file-read* file-write* (subpath (param "IPC_SOCKET_DIR")))

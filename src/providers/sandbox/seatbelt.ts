@@ -32,8 +32,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-D', `PROJECT_DIR=${projectDir}`,
         '-D', `NODE_DIR=${nodeDir}`,
         '-D', `AGENT_DIR=${config.agentDir ?? config.workspace}`,
-        '-D', `AGENT_WORKSPACE=${config.agentWorkspace ?? ''}`,
-        '-D', `USER_WORKSPACE=${config.userWorkspace ?? ''}`,
+        // Use /dev/null as safe no-op path when workspace tiers are absent —
+        // (subpath "/dev/null") matches nothing useful, avoiding (subpath "") which
+        // could match root and blow the sandbox wide open.
+        '-D', `AGENT_WORKSPACE=${config.agentWorkspace ?? '/dev/null'}`,
+        '-D', `USER_WORKSPACE=${config.userWorkspace ?? '/dev/null'}`,
         // Also allow access to symlink mount root
         '-D', `MOUNT_ROOT=${mountRoot}`,
         cmd, ...args,
