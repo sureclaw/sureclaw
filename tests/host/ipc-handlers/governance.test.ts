@@ -10,9 +10,14 @@ import type { ProviderRegistry } from '../../../src/types.js';
 let tmpDir: string;
 let proposalsDirPath: string;
 let agentDirPath: string;
+let agentConfigDirPath: string;
+let agentTopDirPath: string;
 
 vi.mock('../../../src/paths.js', () => ({
   proposalsDir: () => proposalsDirPath,
+  agentDir: () => agentTopDirPath,
+  agentIdentityDir: () => agentConfigDirPath,
+  agentIdentityFilesDir: () => agentDirPath,
 }));
 
 function stubProviders(): ProviderRegistry {
@@ -29,8 +34,12 @@ describe('Governance IPC handlers', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-gov-test-'));
     proposalsDirPath = join(tmpDir, 'proposals');
+    agentTopDirPath = join(tmpDir, 'top');
+    agentConfigDirPath = join(tmpDir, 'config');
     agentDirPath = join(tmpDir, 'agent');
     mkdirSync(agentDirPath, { recursive: true });
+    mkdirSync(agentConfigDirPath, { recursive: true });
+    mkdirSync(agentTopDirPath, { recursive: true });
 
     registry = new AgentRegistry(join(tmpDir, 'registry.json'));
     ctx = { sessionId: 'sess-1', agentId: 'main', userId: 'alice' };

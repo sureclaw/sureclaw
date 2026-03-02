@@ -57,6 +57,12 @@
 After the migration, images are persisted to the **enterprise user workspace** and served via `?agent=<name>&user=<id>` query params. The session workspace remains as the sandbox CWD for agent execution.
 **Tags:** workspaces, paths, session-id, images, file-api, enterprise
 
+### Duplicate bootstrap files in both configDir and identity mount for agent visibility
+**Date:** 2026-03-02
+**Context:** Restructuring agent directory to isolate identity files in a mountable subdirectory. BOOTSTRAP.md and USER_BOOTSTRAP.md need to be readable by the sandboxed agent but also serve as authoritative state for host-side checks.
+**Lesson:** When the host needs a file for server-side state checks AND the agent needs to read it from its sandbox mount, duplicate the file into both locations. The host copy in `agentConfigDir` is authoritative; the agent-readable copy in `identityFilesDir` is a convenience duplicate. On bootstrap completion, delete from both. This is simpler than adding stdin payload fields or symlinks.
+**Tags:** architecture, bootstrap, identity, sandbox, file-layout
+
 ### OverlayFS for merging skill layers with fallback
 **Date:** 2026-03-01
 **Context:** Agent-level and user-level skills needed to appear as a single /skills directory. OverlayFS merges them with user skills shadowing agent skills. Falls back to agent-only when overlayfs is unavailable (macOS, unprivileged).

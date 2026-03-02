@@ -11,47 +11,60 @@ import type { ChannelProvider, InboundMessage, OutboundMessage, SessionAddress }
 // ── Unit tests for helpers ──
 
 describe('isAgentBootstrapMode', () => {
-  let agentDir: string;
+  let axHome: string;
+  let originalAxHome: string | undefined;
+  let configDir: string;   // ~/.ax/agents/main/agent/
+  let identityDir: string; // ~/.ax/agents/main/agent/identity/
 
   beforeEach(() => {
-    agentDir = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
+    originalAxHome = process.env.AX_HOME;
+    axHome = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
+    process.env.AX_HOME = axHome;
+    configDir = join(axHome, 'agents', 'main', 'agent');
+    identityDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    mkdirSync(identityDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(axHome, { recursive: true, force: true });
+    if (originalAxHome !== undefined) {
+      process.env.AX_HOME = originalAxHome;
+    } else {
+      delete process.env.AX_HOME;
+    }
   });
 
   test('returns true when BOOTSTRAP.md exists and SOUL.md does not', () => {
-    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
-    expect(isAgentBootstrapMode(agentDir)).toBe(true);
+    writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    expect(isAgentBootstrapMode('main')).toBe(true);
   });
 
   test('returns true when only SOUL.md exists (still missing IDENTITY.md)', () => {
-    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
-    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
-    expect(isAgentBootstrapMode(agentDir)).toBe(true);
+    writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    writeFileSync(join(identityDir, 'SOUL.md'), '# Soul');
+    expect(isAgentBootstrapMode('main')).toBe(true);
   });
 
   test('returns true when only IDENTITY.md exists (still missing SOUL.md)', () => {
-    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
-    writeFileSync(join(agentDir, 'IDENTITY.md'), '# Identity');
-    expect(isAgentBootstrapMode(agentDir)).toBe(true);
+    writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    writeFileSync(join(identityDir, 'IDENTITY.md'), '# Identity');
+    expect(isAgentBootstrapMode('main')).toBe(true);
   });
 
   test('returns false when both SOUL.md and IDENTITY.md exist (bootstrap complete)', () => {
-    writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');
-    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
-    writeFileSync(join(agentDir, 'IDENTITY.md'), '# Identity');
-    expect(isAgentBootstrapMode(agentDir)).toBe(false);
+    writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
+    writeFileSync(join(identityDir, 'SOUL.md'), '# Soul');
+    writeFileSync(join(identityDir, 'IDENTITY.md'), '# Identity');
+    expect(isAgentBootstrapMode('main')).toBe(false);
   });
 
   test('returns false when neither file exists', () => {
-    expect(isAgentBootstrapMode(agentDir)).toBe(false);
+    expect(isAgentBootstrapMode('main')).toBe(false);
   });
 
   test('returns false when only SOUL.md exists (no BOOTSTRAP.md)', () => {
-    writeFileSync(join(agentDir, 'SOUL.md'), '# Soul');
-    expect(isAgentBootstrapMode(agentDir)).toBe(false);
+    writeFileSync(join(identityDir, 'SOUL.md'), '# Soul');
+    expect(isAgentBootstrapMode('main')).toBe(false);
   });
 });
 
@@ -322,11 +335,13 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    const agentDirPath = join(axHome, 'agents', 'main');
+    const agentTopDir = join(axHome, 'agents', 'main');
+    const agentConfigDir = join(axHome, 'agents', 'main', 'agent');
+    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
 
     // Verify bootstrap mode is active (BOOTSTRAP.md was copied from templates)
-    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(true);
-    expect(isAgentBootstrapMode(agentDirPath)).toBe(true);
+    expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(true);
+    expect(isAgentBootstrapMode('main')).toBe(true);
 
     // First user claims admin
     const msg: InboundMessage = {
@@ -338,14 +353,14 @@ describe('bootstrap gate (channel integration)', () => {
       timestamp: new Date(),
     };
     await messageHandler!(msg);
-    expect(existsSync(join(agentDirPath, '.bootstrap-admin-claimed'))).toBe(true);
+    expect(existsSync(join(agentTopDir, '.bootstrap-admin-claimed'))).toBe(true);
 
-    // Simulate bootstrap completion: write both SOUL.md and IDENTITY.md
-    writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
-    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
+    // Simulate bootstrap completion: write both SOUL.md and IDENTITY.md to identity dir
+    writeFileSync(join(identityFilesDir, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(identityFilesDir, 'IDENTITY.md'), '# Identity\nName: Test Agent');
 
     // Bootstrap mode is now complete
-    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+    expect(isAgentBootstrapMode('main')).toBe(false);
   });
 
   test('server restart does not recreate BOOTSTRAP.md after bootstrap completes', async () => {
@@ -367,15 +382,17 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    const agentDirPath = join(axHome, 'agents', 'main');
+    const agentConfigDir = join(axHome, 'agents', 'main', 'agent');
+    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
 
-    // Complete bootstrap: write SOUL.md + IDENTITY.md, delete BOOTSTRAP.md
-    writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
-    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
-    try { unlinkSync(join(agentDirPath, 'BOOTSTRAP.md')); } catch { /* ignore */ }
+    // Complete bootstrap: write SOUL.md + IDENTITY.md, delete BOOTSTRAP.md from both locations
+    writeFileSync(join(identityFilesDir, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(identityFilesDir, 'IDENTITY.md'), '# Identity\nName: Test Agent');
+    try { unlinkSync(join(agentConfigDir, 'BOOTSTRAP.md')); } catch { /* ignore */ }
+    try { unlinkSync(join(identityFilesDir, 'BOOTSTRAP.md')); } catch { /* ignore */ }
 
-    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(false);
-    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+    expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(false);
+    expect(isAgentBootstrapMode('main')).toBe(false);
 
     await server.stop();
 
@@ -384,8 +401,8 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath: socketPath2, channels: [mockChannel] });
     await server.start();
 
-    expect(existsSync(join(agentDirPath, 'BOOTSTRAP.md'))).toBe(false);
-    expect(isAgentBootstrapMode(agentDirPath)).toBe(false);
+    expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(false);
+    expect(isAgentBootstrapMode('main')).toBe(false);
 
     // Clean up extra socket
     try { unlinkSync(socketPath2); } catch { /* ignore */ }
@@ -408,10 +425,10 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    // Simulate bootstrap completion: write SOUL.md and IDENTITY.md into agent dir
-    const agentDirPath = join(axHome, 'agents', 'main');
-    writeFileSync(join(agentDirPath, 'SOUL.md'), '# Soul\nI am helpful.');
-    writeFileSync(join(agentDirPath, 'IDENTITY.md'), '# Identity\nName: Test Agent');
+    // Simulate bootstrap completion: write SOUL.md and IDENTITY.md into identity files dir
+    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    writeFileSync(join(identityFilesDir, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(identityFilesDir, 'IDENTITY.md'), '# Identity\nName: Test Agent');
 
     const msg: InboundMessage = {
       id: 'gate-test-3',

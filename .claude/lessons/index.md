@@ -53,6 +53,7 @@
 - Canonical path names should match their semantic role, not implementation [architecture/entries.md](architecture/entries.md)
 - Eliminate redundant mount points rather than documenting differences [architecture/entries.md](architecture/entries.md)
 - AX has two workspace directories — session sandbox vs enterprise user [architecture/entries.md](architecture/entries.md)
+- Duplicate bootstrap files in both configDir and identity mount for agent visibility [architecture/entries.md](architecture/entries.md)
 - OverlayFS for merging skill layers with fallback [architecture/entries.md](architecture/entries.md)
 
 ### providers

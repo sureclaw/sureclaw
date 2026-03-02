@@ -25,12 +25,19 @@
  *         main/slack/channel/<chanId>/   — Slack channel
  *     agents/
  *       <agent-id>/
- *         agent/              — agent's own files (the agent's "self")
- *           SOUL.md           — personality, tone, boundaries
- *           IDENTITY.md       — name, role, capabilities
- *           AGENTS.md         — operating instructions
- *           HEARTBEAT.md      — scheduled task checklist
+ *         admins              — admin access control (top-level, NOT in sandbox)
+ *         .bootstrap-admin-claimed — bootstrap state (top-level, NOT in sandbox)
+ *         agent/              — agent config dir (NOT directly mounted)
+ *           BOOTSTRAP.md      — bootstrap detection (server-side checks)
+ *           USER_BOOTSTRAP.md — first-contact prompt
  *           capabilities.yaml — capability declarations
+ *           identity/         — → /workspace/identity (ro mount in sandbox)
+ *             AGENTS.md       — operating instructions
+ *             SOUL.md         — personality, tone, boundaries
+ *             IDENTITY.md     — name, role, capabilities
+ *             HEARTBEAT.md    — scheduled task checklist
+ *             BOOTSTRAP.md    — copy for agent-side reading
+ *             USER_BOOTSTRAP.md — copy for agent-side reading
  *           workspace/        — shared code, docs
  *             repo/
  *             docs/
@@ -153,15 +160,27 @@ export function agentUserDir(agentName: string, userId: string): string {
 // ═══════════════════════════════════════════════════════
 
 /**
- * Path to an agent's identity directory (the "self"):
+ * Path to an agent's config directory:
  * ~/.ax/agents/<agentId>/agent/
  *
- * Contains SOUL.md, IDENTITY.md, AGENTS.md, HEARTBEAT.md,
- * capabilities.yaml, and the shared workspace.
+ * Contains BOOTSTRAP.md, USER_BOOTSTRAP.md, capabilities.yaml,
+ * the identity/ subdirectory, and the shared workspace.
  */
 export function agentIdentityDir(agentId: string): string {
   validatePathSegment(agentId, 'agent ID');
   return join(axHome(), 'agents', agentId, 'agent');
+}
+
+/**
+ * Path to an agent's identity files directory:
+ * ~/.ax/agents/<agentId>/agent/identity/
+ *
+ * Contains only the files mounted into the sandbox as /workspace/identity:
+ * AGENTS.md, SOUL.md, IDENTITY.md, HEARTBEAT.md.
+ * Also includes copies of BOOTSTRAP.md and USER_BOOTSTRAP.md for agent-side reading.
+ */
+export function agentIdentityFilesDir(agentId: string): string {
+  return join(agentIdentityDir(agentId), 'identity');
 }
 
 /**

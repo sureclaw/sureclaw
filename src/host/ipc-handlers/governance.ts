@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
-import { proposalsDir } from '../../paths.js';
+import { agentDir as agentDirPath, agentIdentityDir, proposalsDir } from '../../paths.js';
 import { isAgentBootstrapMode } from '../server.js';
 import { AgentRegistry } from '../agent-registry.js';
 
@@ -131,9 +131,12 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
         writeFileSync(join(agentDir, proposal.file), proposal.content, 'utf-8');
 
         // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
-        if ((proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentDir)) {
-          try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-          try { unlinkSync(join(agentDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+        if ((proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentName)) {
+          const configDir = agentIdentityDir(agentName);
+          const topDir = agentDirPath(agentName);
+          try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+          try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist — agent-readable copy */ }
+          try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
         }
       }
 

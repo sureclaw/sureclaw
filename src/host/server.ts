@@ -11,11 +11,11 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server as NetServer } from 'node:net';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { axHome, dataDir, dataFile, isValidSessionId, agentDir as agentDirPath, agentSkillsDir } from '../paths.js';
+import { axHome, dataDir, dataFile, isValidSessionId, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
 import { ConversationStore } from '../conversation-store.js';
@@ -69,9 +69,11 @@ export interface AxServer {
 // =====================================================
 
 /** Returns true when the agent is still in bootstrap mode (missing SOUL.md or IDENTITY.md while BOOTSTRAP.md present). */
-export function isAgentBootstrapMode(agentDirPath: string): boolean {
-  if (!existsSync(join(agentDirPath, 'BOOTSTRAP.md'))) return false;
-  return !existsSync(join(agentDirPath, 'SOUL.md')) || !existsSync(join(agentDirPath, 'IDENTITY.md'));
+export function isAgentBootstrapMode(agentName: string): boolean {
+  const configDir = agentIdentityDir(agentName);
+  const idFilesDir = agentIdentityFilesDir(agentName);
+  if (!existsSync(join(configDir, 'BOOTSTRAP.md'))) return false;
+  return !existsSync(join(idFilesDir, 'SOUL.md')) || !existsSync(join(idFilesDir, 'IDENTITY.md'));
 }
 
 /** Returns true when the given userId appears in the agent's admins file. */
@@ -170,22 +172,72 @@ export async function createServer(
 
   const agentName = 'main';
   const agentDirVal = agentDirPath(agentName);
+  const agentConfigDir = agentIdentityDir(agentName);
+  const identityFilesDir = agentIdentityFilesDir(agentName);
   mkdirSync(agentDirVal, { recursive: true });
+  mkdirSync(agentConfigDir, { recursive: true });
+  mkdirSync(identityFilesDir, { recursive: true });
 
-  // Let scheduler know where the agent dir is (for HEARTBEAT.md loading)
-  config.scheduler.agent_dir = agentDirVal;
+  // Migration: move identity files from legacy flat layout to new subdirectories.
+  // Before restructure, all files lived directly in agentDirVal (~/.ax/agents/main/).
+  // Now: identity files → agent/identity/, config files → agent/, admin files stay at top.
+  const legacyIdentityFiles = ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'HEARTBEAT.md'];
+  for (const file of legacyIdentityFiles) {
+    const legacySrc = join(agentDirVal, file);
+    const newDest = join(identityFilesDir, file);
+    if (existsSync(legacySrc) && !existsSync(newDest)) {
+      renameSync(legacySrc, newDest);
+    }
+  }
+  const legacyConfigFiles = ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md', 'capabilities.yaml'];
+  for (const file of legacyConfigFiles) {
+    const legacySrc = join(agentDirVal, file);
+    const newDest = join(agentConfigDir, file);
+    if (existsSync(legacySrc) && !existsSync(newDest)) {
+      renameSync(legacySrc, newDest);
+    }
+  }
 
-  // First-run: copy default templates into agent dir if files don't already exist
+  // Let scheduler know where the identity files dir is (for HEARTBEAT.md loading)
+  config.scheduler.agent_dir = identityFilesDir;
+
+  // First-run: copy default templates into the correct directories.
+  // Identity files (AGENTS.md, HEARTBEAT.md) → identityFilesDir (mounted as /workspace/identity)
+  // Config files (capabilities.yaml) → agentConfigDir (not in sandbox)
+  // Bootstrap files (BOOTSTRAP.md, USER_BOOTSTRAP.md) → both agentConfigDir (authoritative)
+  //   AND identityFilesDir (agent-readable copy in sandbox mount)
   const templatesDir = resolveTemplatesDir();
   const bootstrapAlreadyComplete =
-    existsSync(join(agentDirVal, 'SOUL.md')) && existsSync(join(agentDirVal, 'IDENTITY.md'));
-  for (const file of ['AGENTS.md', 'BOOTSTRAP.md', 'USER_BOOTSTRAP.md', 'HEARTBEAT.md', 'capabilities.yaml']) {
-    // Don't re-create BOOTSTRAP.md if bootstrap already completed (both SOUL.md + IDENTITY.md exist)
-    if (file === 'BOOTSTRAP.md' && bootstrapAlreadyComplete) continue;
-    const dest = join(agentDirVal, file);
+    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
+
+  // Identity files → identityFilesDir
+  for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
+    const dest = join(identityFilesDir, file);
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) {
       copyFileSync(src, dest);
+    }
+  }
+
+  // Config files → agentConfigDir
+  for (const file of ['capabilities.yaml']) {
+    const dest = join(agentConfigDir, file);
+    const src = join(templatesDir, file);
+    if (!existsSync(dest) && existsSync(src)) {
+      copyFileSync(src, dest);
+    }
+  }
+
+  // Bootstrap files → both agentConfigDir (authoritative) and identityFilesDir (agent-readable)
+  // Don't re-create BOOTSTRAP.md if bootstrap already completed
+  for (const file of ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md']) {
+    if (file === 'BOOTSTRAP.md' && bootstrapAlreadyComplete) continue;
+    const src = join(templatesDir, file);
+    if (existsSync(src)) {
+      const configDest = join(agentConfigDir, file);
+      const identityDest = join(identityFilesDir, file);
+      if (!existsSync(configDest)) copyFileSync(src, configDest);
+      if (!existsSync(identityDest)) copyFileSync(src, identityDest);
     }
   }
 
@@ -243,7 +295,7 @@ export async function createServer(
     sessionCanaries,
     ipcSocketPath,
     ipcSocketDir,
-    agentDir: agentDirVal,
+    agentDir: identityFilesDir,
     logger,
     verbose: opts.verbose,
     fileStore,
@@ -295,7 +347,7 @@ export async function createServer(
 
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
-    agentDir: agentDirVal,
+    agentDir: identityFilesDir,
     agentName,
     profile: config.profile,
     configModel: config.models?.default?.[0],
@@ -768,7 +820,7 @@ export async function createServer(
         agentDir: agentDirVal,
         deduplicator,
         logger,
-        isAgentBootstrapMode,
+        isAgentBootstrapMode: (name: string) => isAgentBootstrapMode(name),
         isAdmin,
         claimBootstrapAdmin,
       });

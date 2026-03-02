@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
-import { agentUserDir } from '../../paths.js';
+import { agentDir as agentDirPath, agentIdentityDir, agentUserDir } from '../../paths.js';
 import { isAgentBootstrapMode } from '../server.js';
 
 export interface IdentityHandlerOptions {
@@ -69,9 +69,12 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       writeFileSync(filePath, req.content, 'utf-8');
 
       // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
-      if ((req.file === 'SOUL.md' || req.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentDir)) {
-        try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-        try { unlinkSync(join(agentDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+      if ((req.file === 'SOUL.md' || req.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentName)) {
+        const configDir = agentIdentityDir(agentName);
+        const topDir = agentDirPath(agentName);
+        try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+        try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist — agent-readable copy */ }
+        try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
       }
 
       await providers.audit.log({

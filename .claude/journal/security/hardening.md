@@ -2,6 +2,23 @@
 
 Security hardening: provider path resolution, cross-provider dependencies, vulnerability fixes.
 
+## [2026-03-02 12:25] — Isolate identity files from admin config in sandbox mount
+
+**Task:** Restructure agent directory so the sandbox only sees identity files (AGENTS.md, SOUL.md, IDENTITY.md, HEARTBEAT.md) in /workspace/identity, not admin files (admins, capabilities.yaml, BOOTSTRAP.md)
+**What I did:**
+1. Added `agentIdentityFilesDir()` to `src/paths.ts` — `~/.ax/agents/<id>/agent/identity/`
+2. Split server.ts `agentDirVal` into `agentConfigDir` (agent/), `identityFilesDir` (agent/identity/), `agentDirVal` (top-level)
+3. Routed template files to correct locations: identity files → identityFilesDir, config → agentConfigDir, bootstrap → both
+4. Changed `isAgentBootstrapMode(path)` → `isAgentBootstrapMode(agentName)` — derives paths internally
+5. Updated identity.ts and governance.ts handlers to delete BOOTSTRAP.md from both configDir and identityFilesDir, and .bootstrap-admin-claimed from topDir
+6. Updated server-channels.ts interface to match new isAgentBootstrapMode signature
+7. Updated bootstrap.ts `resetAgent(agentName, templatesDir)` — derives all paths from name
+8. Added auto-migration: moves legacy flat files to new subdirectory structure on startup
+9. Updated all affected tests (admin-gate, ipc-server, bootstrap, governance)
+**Files touched:** src/paths.ts, src/host/server.ts, src/host/server-channels.ts, src/host/ipc-server.ts, src/host/ipc-handlers/identity.ts, src/host/ipc-handlers/governance.ts, src/cli/bootstrap.ts, tests/host/admin-gate.test.ts, tests/host/ipc-server.test.ts, tests/cli/bootstrap.test.ts, tests/host/ipc-handlers/governance.test.ts
+**Outcome:** Success — 2007 tests pass, build clean
+**Notes:** Bootstrap files (BOOTSTRAP.md, USER_BOOTSTRAP.md) are duplicated: authoritative copy in agentConfigDir for host-side checks, agent-readable copy in identityFilesDir for sandbox mount. This avoids adding stdin payload fields.
+
 ## [2026-02-28 01:20] — Harden import.meta.resolve + fix cross-provider dependencies (Step 2b)
 
 **Task:** Add post-resolution URL protocol validation to provider-map.ts, extract parseCompoundId out of llm/router into shared router-utils, and break scheduler's direct imports from channel/memory/audit types via shared-types.ts
