@@ -16,7 +16,7 @@ describe('conversations migrations', () => {
     db = createTestDb();
     const result = await runMigrations(db, conversationsMigrations);
     expect(result.error).toBeUndefined();
-    expect(result.applied).toBe(1);
+    expect(result.applied).toBe(2);
 
     // Insert a row and verify table structure
     const rows = await sql`
@@ -32,6 +32,8 @@ describe('conversations migrations', () => {
     expect(row.sender).toBe('alice');
     expect(row.content).toBe('What is the weather?');
     expect(row.created_at).toBeDefined();
+    expect(row.is_summary).toBe(0);
+    expect(row.summarized_up_to).toBeNull();
   });
 
   it('auto-increments turn IDs', async () => {

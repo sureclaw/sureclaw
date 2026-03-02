@@ -101,6 +101,9 @@ export interface Config {
   history: {
     max_turns: number;
     thread_context_turns: number;
+    summarize: boolean;
+    summarize_threshold: number;
+    summarize_keep_recent: number;
   };
   delegation?: {
     max_concurrent?: number;

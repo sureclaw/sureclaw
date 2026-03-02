@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-02 23:40 — Implement persistent chat history summarization for infinite-length conversations [history-summarizer.md](history-summarizer.md)
 - 2026-03-02 12:45 — Add HTTP bootstrap admin claiming to handleCompletions [server.md](server.md)
 - 2026-03-01 16:11 — Add context metrics to event console logs [event-console.md](event-console.md)
 - 2026-03-01 10:23 — Improve agent event console output [event-console.md](event-console.md)

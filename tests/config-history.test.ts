@@ -39,7 +39,7 @@ scheduler:
   heartbeat_interval_min: 30
 `);
     const config = loadConfig(p);
-    expect(config.history).toEqual({ max_turns: 50, thread_context_turns: 5 });
+    expect(config.history).toEqual({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10 });
   });
 
   it('accepts explicit history settings', () => {

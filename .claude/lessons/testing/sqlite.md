@@ -24,6 +24,12 @@
 **Lesson:** `runMigrations()` returns `{ error }` instead of throwing. Always check `result.error` and throw it explicitly. Also wrap the Kysely lifecycle in try/finally to ensure `kyselyDb.destroy()` runs even on failure — otherwise you leak the connection.
 **Tags:** kysely, migrations, error-handling, resource-cleanup
 
+### SQLite autoincrement IDs don't respect logical ordering after delete+insert
+**Date:** 2026-03-02
+**Context:** Implementing replaceTurnsWithSummary — deleted old turns, inserted summary turns, but summary turns got higher IDs than remaining turns, breaking chronological ordering.
+**Lesson:** When replacing a range of rows with new rows in SQLite and ordering matters (ORDER BY id ASC), you can't just delete the old rows and insert new ones — the new rows get higher autoincrement IDs. Instead, snapshot the remaining rows, delete ALL rows for the scope, then re-insert in the correct order: new rows first (get lower IDs), then remaining rows (get higher IDs).
+**Tags:** sqlite, autoincrement, ordering, conversation-store, summarization
+
 ### Structured content serialization — use JSON detection on load
 **Date:** 2026-02-25
 **Context:** Storing ContentBlock[] in SQLite TEXT columns alongside plain string content

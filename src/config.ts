@@ -96,7 +96,10 @@ const ConfigSchema = z.strictObject({
   history: z.strictObject({
     max_turns: z.number().int().min(0).max(10000).default(50),
     thread_context_turns: z.number().int().min(0).max(50).default(5),
-  }).default({ max_turns: 50, thread_context_turns: 5 }),
+    summarize: z.boolean().default(false),
+    summarize_threshold: z.number().int().min(10).max(10000).default(40),
+    summarize_keep_recent: z.number().int().min(4).max(100).default(10),
+  }).default({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10 }),
   delegation: z.strictObject({
     max_concurrent: z.number().int().min(1).max(10).default(3),
     max_depth: z.number().int().min(1).max(5).default(2),

@@ -31,4 +31,17 @@ export const conversationsMigrations: MigrationSet = {
       await db.schema.dropTable('turns').execute();
     },
   },
+
+  conversations_002_add_is_summary: {
+    async up(db: Kysely<any>) {
+      await sql`ALTER TABLE turns ADD COLUMN is_summary INTEGER NOT NULL DEFAULT 0`.execute(db);
+      await sql`ALTER TABLE turns ADD COLUMN summarized_up_to INTEGER`.execute(db);
+    },
+    async down(db: Kysely<any>) {
+      // SQLite doesn't support DROP COLUMN before 3.35.0; recreate table
+      await sql`CREATE TABLE turns_backup AS SELECT id, session_id, role, sender, content, created_at FROM turns`.execute(db);
+      await sql`DROP TABLE turns`.execute(db);
+      await sql`ALTER TABLE turns_backup RENAME TO turns`.execute(db);
+    },
+  },
 };

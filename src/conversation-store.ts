@@ -14,6 +14,10 @@ export interface StoredTurn {
   /** Plain text or JSON-serialized ContentBlock[]. */
   content: string;
   created_at: number;
+  /** 1 if this turn is a summary of older turns, 0 otherwise. */
+  is_summary: number;
+  /** ID of the latest turn that was summarized into this summary. */
+  summarized_up_to: number | null;
 }
 
 /**
@@ -80,13 +84,13 @@ export class ConversationStore {
       if (maxTurns <= 0) return [];
       return this.db.prepare(`
         SELECT * FROM (
-          SELECT id, session_id, role, sender, content, created_at
+          SELECT id, session_id, role, sender, content, created_at, is_summary, summarized_up_to
           FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?
         ) ORDER BY id ASC
       `).all(sessionId, maxTurns) as StoredTurn[];
     }
     return this.db.prepare(
-      'SELECT id, session_id, role, sender, content, created_at FROM turns WHERE session_id = ? ORDER BY id ASC'
+      'SELECT id, session_id, role, sender, content, created_at, is_summary, summarized_up_to FROM turns WHERE session_id = ? ORDER BY id ASC'
     ).all(sessionId) as StoredTurn[];
   }
 
@@ -110,6 +114,68 @@ export class ConversationStore {
   /** Clear all turns for a session. */
   clear(sessionId: string): void {
     this.db.prepare('DELETE FROM turns WHERE session_id = ?').run(sessionId);
+  }
+
+  /**
+   * Load turns eligible for summarization: all non-recent turns (i.e., turns
+   * older than the last `keepRecent`). Returns oldest-first.
+   */
+  loadOlderTurns(sessionId: string, keepRecent: number): StoredTurn[] {
+    return this.db.prepare(`
+      SELECT id, session_id, role, sender, content, created_at, is_summary, summarized_up_to
+      FROM turns
+      WHERE session_id = ? AND id NOT IN (
+        SELECT id FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?
+      )
+      ORDER BY id ASC
+    `).all(sessionId, sessionId, keepRecent) as StoredTurn[];
+  }
+
+  /**
+   * Replace a range of turns with a summary pair (user summary + assistant ack).
+   * Deletes all turns for the session, re-inserts summary first then remaining
+   * turns so id ordering is preserved. Uses BEGIN/COMMIT for atomicity.
+   */
+  replaceTurnsWithSummary(
+    sessionId: string,
+    maxIdToReplace: number,
+    summaryContent: string,
+  ): void {
+    this.db.exec('BEGIN');
+    try {
+      // Snapshot remaining (newer) turns before deleting
+      const remaining = this.db.prepare(
+        'SELECT role, sender, content, created_at, is_summary, summarized_up_to FROM turns WHERE session_id = ? AND id > ? ORDER BY id ASC'
+      ).all(sessionId, maxIdToReplace) as Array<{
+        role: string; sender: string | null; content: string;
+        created_at: number; is_summary: number; summarized_up_to: number | null;
+      }>;
+
+      // Delete ALL turns for this session (we re-insert in correct order)
+      this.db.prepare('DELETE FROM turns WHERE session_id = ?').run(sessionId);
+
+      // Insert summary pair first (gets lowest new IDs)
+      this.db.prepare(
+        'INSERT INTO turns (session_id, role, sender, content, is_summary, summarized_up_to) VALUES (?, ?, ?, ?, 1, ?)'
+      ).run(sessionId, 'user', null, summaryContent, maxIdToReplace);
+
+      this.db.prepare(
+        'INSERT INTO turns (session_id, role, sender, content, is_summary, summarized_up_to) VALUES (?, ?, ?, ?, 1, ?)'
+      ).run(sessionId, 'assistant', null, 'Understood. I have the conversation context from the summary above.', maxIdToReplace);
+
+      // Re-insert remaining turns in their original order (gets higher IDs)
+      const insertStmt = this.db.prepare(
+        'INSERT INTO turns (session_id, role, sender, content, is_summary, summarized_up_to) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      for (const t of remaining) {
+        insertStmt.run(sessionId, t.role, t.sender, t.content, t.is_summary, t.summarized_up_to);
+      }
+
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
   }
 
   close(): void {
