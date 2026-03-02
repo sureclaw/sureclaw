@@ -138,4 +138,60 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
     // Should fail validation (only SOUL.md and IDENTITY.md are allowed)
     expect(result.ok).toBe(false);
   });
+
+  // ── identity_read ──
+
+  test('identity_read returns file content after write', async () => {
+    harness = await TestHarness.create({ profile: 'balanced' });
+
+    // Write first
+    await harness.ipcCall('identity_write', {
+      file: 'SOUL.md',
+      content: '# My Soul\n\nI love reading.',
+      reason: 'setup',
+      origin: 'user_request',
+    });
+
+    // Read it back
+    const result = await harness.ipcCall('identity_read', {
+      file: 'SOUL.md',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe('# My Soul\n\nI love reading.');
+    expect(result.file).toBe('SOUL.md');
+  });
+
+  test('identity_read returns empty string for missing file', async () => {
+    harness = await TestHarness.create({ profile: 'balanced' });
+
+    const result = await harness.ipcCall('identity_read', {
+      file: 'IDENTITY.md',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toBe('');
+    expect(result.file).toBe('IDENTITY.md');
+  });
+
+  // ── Admin gate E2E ──
+
+  test('identity_write rejects non-admin user', async () => {
+    harness = await TestHarness.create({ profile: 'balanced' });
+
+    // Seed admins file with only 'bob' — agentDir is join(tmpDir, 'agents', 'main')
+    const { writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    writeFileSync(join(harness.agentDir, 'admins'), 'bob\n', 'utf-8');
+
+    const result = await harness.ipcCall('identity_write', {
+      file: 'SOUL.md',
+      content: 'hacked soul',
+      reason: 'attack',
+      origin: 'user_request',
+    }, { userId: 'eve' });
+
+    expect(result.queued).toBe(true);
+    expect(result.reason).toContain('Non-admin');
+  });
 });

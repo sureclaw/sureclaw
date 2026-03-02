@@ -424,6 +424,7 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
         ...(action === 'skill_propose' ? { skill: 'test', content: 'test' } : {}),
         ...(action === 'audit_query' ? {} : {}),
         ...(action === 'agent_delegate' ? { task: 'test' } : {}),
+        ...(action === 'identity_read' ? { file: 'SOUL.md' } : {}),
         ...(action === 'identity_write' ? { file: 'SOUL.md', content: 'test', reason: 'test', origin: 'user_request' } : {}),
         ...(action === 'user_write' ? { userId: 'u1', content: 'test', reason: 'test', origin: 'user_request' } : {}),
         ...(action === 'scheduler_add_cron' ? { schedule: '0 * * * *', prompt: 'test' } : {}),

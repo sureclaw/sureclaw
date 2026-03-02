@@ -1,14 +1,14 @@
 /**
- * IPC handlers: identity_write and user_write.
+ * IPC handlers: identity_read, identity_write, and user_write.
  * These have custom taint handling (queues instead of hard-blocking).
  */
-import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
 import { agentDir as agentDirPath, agentIdentityDir, agentUserDir } from '../../paths.js';
-import { isAgentBootstrapMode } from '../server.js';
+import { isAgentBootstrapMode, isAdmin } from '../server.js';
 
 export interface IdentityHandlerOptions {
   agentDir?: string;
@@ -20,9 +20,32 @@ export interface IdentityHandlerOptions {
 export function createIdentityHandlers(providers: ProviderRegistry, opts: IdentityHandlerOptions) {
   const { agentDir, agentName, profile, taintBudget } = opts;
 
+  const topDir = agentDirPath(agentName);
+
   return {
+    identity_read: async (req: any, _ctx: IPCContext) => {
+      if (!agentDir) {
+        return { content: '', file: req.file };
+      }
+      const filePath = join(agentDir, req.file);
+      if (!existsSync(filePath)) {
+        return { content: '', file: req.file };
+      }
+      return { content: readFileSync(filePath, 'utf-8'), file: req.file };
+    },
+
     identity_write: async (req: any, ctx: IPCContext) => {
-      // 0. Scan proposed content — blocks injection in identity files
+      // 0a. Admin gate — non-admin users cannot directly modify identity files
+      if (ctx.userId && !isAdmin(topDir, ctx.userId)) {
+        await providers.audit.log({
+          action: 'identity_write',
+          sessionId: ctx.sessionId,
+          args: { file: req.file, reason: req.reason, origin: req.origin, decision: 'rejected_non_admin', userId: ctx.userId },
+        });
+        return { queued: true, file: req.file, reason: 'Non-admin users cannot directly modify identity files' };
+      }
+
+      // 0b. Scan proposed content — blocks injection in identity files
       const scanResult = await providers.scanner.scanInput({
         content: req.content,
         source: 'identity_mutation',
@@ -90,7 +113,17 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
         return { ok: false, error: 'user_write requires userId in payload' };
       }
 
-      // 0. Scan proposed content — blocks injection in user files
+      // 0a. Admin gate — non-admins can only write their own user file
+      if (ctx.userId && ctx.userId !== req.userId && !isAdmin(topDir, ctx.userId)) {
+        await providers.audit.log({
+          action: 'user_write',
+          sessionId: ctx.sessionId,
+          args: { userId: req.userId, reason: req.reason, origin: req.origin, decision: 'rejected_non_admin', callerUserId: ctx.userId },
+        });
+        return { queued: true, reason: 'Non-admin users can only write their own user file' };
+      }
+
+      // 0b. Scan proposed content — blocks injection in user files
       const scanResult = await providers.scanner.scanInput({
         content: req.content,
         source: 'user_mutation',

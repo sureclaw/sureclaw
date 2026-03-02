@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { agentDir as agentDirPath, agentIdentityDir, proposalsDir } from '../../paths.js';
-import { isAgentBootstrapMode } from '../server.js';
+import { isAgentBootstrapMode, isAdmin } from '../server.js';
 import { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {
@@ -106,6 +106,17 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
     },
 
     proposal_review: async (req: any, ctx: IPCContext) => {
+      // Admin gate — only admins can review proposals
+      const topDir = agentDirPath(agentName);
+      if (ctx.userId && !isAdmin(topDir, ctx.userId)) {
+        await providers.audit.log({
+          action: 'proposal_review',
+          sessionId: ctx.sessionId,
+          args: { proposalId: req.proposalId, decision: req.decision, userId: ctx.userId, decision_gate: 'rejected_non_admin' },
+        });
+        return { ok: false, error: 'Only admins can review proposals' };
+      }
+
       const dir = proposalsDir();
       const filePath = join(dir, `${req.proposalId}.json`);
       if (!existsSync(filePath)) {

@@ -205,6 +205,10 @@ export const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md'] as const;
 
 export const IDENTITY_ORIGINS = ['user_request', 'agent_initiated'] as const;
 
+export const IdentityReadSchema = ipcAction('identity_read', {
+  file: z.enum(IDENTITY_FILES),
+});
+
 export const IdentityWriteSchema = ipcAction('identity_write', {
   file: z.enum(IDENTITY_FILES),
   content: safeString(32_768),

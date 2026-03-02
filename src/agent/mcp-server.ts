@@ -126,20 +126,24 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
 
     // ── Identity ──
     tool('identity',
-      'Write or update identity files or user preferences.\n\n' +
+      'Read, write, or update identity files or user preferences.\n\n' +
       'Operations:\n' +
+      '- read: Read current content of SOUL.md or IDENTITY.md (requires file)\n' +
       '- write: Update SOUL.md or IDENTITY.md (requires file, content, reason, origin)\n' +
       '- user_write: Update user preferences USER.md (requires content, reason, origin)',
       {
-        type: z.enum(['write', 'user_write']),
+        type: z.enum(['read', 'write', 'user_write']),
         file: z.enum(['SOUL.md', 'IDENTITY.md']).optional(),
-        content: z.string(),
-        reason: z.string(),
-        origin: z.string().describe('"user_request" or "agent_initiated"'),
+        content: z.string().optional(),
+        reason: z.string().optional(),
+        origin: z.string().optional().describe('"user_request" or "agent_initiated"'),
       },
       (args) => {
         const { type, ...rest } = args;
         const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
+        if (type === 'read') {
+          return ipcCall('identity_read', params);
+        }
         const action = type === 'write' ? 'identity_write' : 'user_write';
         const normalized = { ...params, origin: normalizeOrigin(params.origin) };
         if (type === 'user_write') {

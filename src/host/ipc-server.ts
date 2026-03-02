@@ -186,7 +186,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
     // Step 3.5: Taint budget check (SC-SEC-003)
     // identity_write has custom taint handling (queues instead of hard-blocking)
-    if (taintBudget && actionName !== 'identity_write' && actionName !== 'user_write' && actionName !== 'identity_propose') {
+    if (taintBudget && actionName !== 'identity_read' && actionName !== 'identity_write' && actionName !== 'user_write' && actionName !== 'identity_propose') {
       const taintCheck = taintBudget.checkAction(effectiveCtx.sessionId, actionName);
       if (!taintCheck.allowed) {
         logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });

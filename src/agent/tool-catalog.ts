@@ -118,10 +118,15 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'identity',
     label: 'Identity',
     description:
-      'Write or update identity files and user preferences.\n\nOperations:\n' +
+      'Read, write, or update identity files and user preferences.\n\nOperations:\n' +
+      '- read: Read the current content of an identity file (SOUL.md or IDENTITY.md)\n' +
       '- write: Write or update a shared identity file (SOUL.md or IDENTITY.md)\n' +
       '- user_write: Write or update what you have learned about the current user (USER.md). Per-user scoped.',
     parameters: Type.Union([
+      Type.Object({
+        type: Type.Literal('read'),
+        file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
+      }),
       Type.Object({
         type: Type.Literal('write'),
         file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
@@ -139,6 +144,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     category: 'identity',
     injectUserId: true,
     actionMap: {
+      read: 'identity_read',
       write: 'identity_write',
       user_write: 'user_write',
     },
