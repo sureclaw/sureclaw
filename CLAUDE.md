@@ -92,16 +92,42 @@ We're a nervous crab peeking through its claws — but behind those claws, we kn
 
 You MUST follow this protocol for every task you work on.
 
-### Setup
+### Directory Structure
 
-If they don't already exist, create these files at the start of any session:
+Journal and lessons are organized by **category** (not by date) in nested directories:
 
-- `.claude/journal.md`
-- `.claude/lessons.md`
+```
+.claude/journal/
+├── index.md          # Category listing with entry counts
+├── host/             # Host process: server, delegation, orchestration, event console
+├── agent/            # Agent process: tools, prompt, runner
+├── providers/        # Provider implementations: llm, sandbox, channel, etc.
+├── testing/          # Test infrastructure, integration, E2E, migrations
+├── security/         # Security hardening, vulnerabilities
+├── config/           # Configuration, paths, onboarding
+├── docs/             # Documentation, plans
+├── ipc/              # IPC protocol
+└── refactoring/      # Cleanup work
 
-### Journal (`.claude/journal.md`)
+.claude/lessons/
+├── index.md          # Key Principles + category listing
+├── testing/          # Test patterns, infrastructure, mocking, SQLite
+├── architecture/     # Design patterns, provider contracts
+├── providers/        # Provider-specific lessons: llm, sandbox, channel, etc.
+├── host/             # Host process, orchestration, delegation
+├── agent/            # Agent runners, prompt building
+├── ipc/              # Zod schemas, handler registration
+├── config/           # Configuration, env vars
+├── security/         # Import security, safe paths
+├── filesystem/       # Symlinks, file I/O
+└── workflow/         # CI/CD, GitHub Actions
+```
 
-Append an entry every time you complete a meaningful unit of work (a fix, a feature, a refactor, an investigation, etc). Use this exact format:
+Each directory has an `index.md` with a summary and file listing. Content files within directories hold the actual entries.
+
+### Journal (`.claude/journal/`)
+
+Append an entry to the appropriate **category file** (e.g., `host/orchestration.md`, `providers/llm.md`) every time you complete a meaningful unit of work. Use this exact format:
 
 ```
 ## [YYYY-MM-DD HH:MM] — <short title>
@@ -117,10 +143,13 @@ Rules:
 - Be concise. Each entry should be 5-10 lines max.
 - Log even failed attempts — they have value.
 - Never delete or edit past entries. The journal is append-only.
+- Place entries in **reverse chronological order** (newest first) within each file.
+- If a new category is needed, create the directory with an `index.md`.
+- Update the category's `index.md` when adding entries (add to the bullet list).
 
-### Lessons Learned (`.claude/lessons.md`)
+### Lessons Learned (`.claude/lessons/`)
 
-Append an entry whenever you:
+Append an entry to the appropriate **category file** whenever you:
 - Make a mistake and then fix it
 - Discover something non-obvious about the codebase
 - Find that an approach doesn't work in this project
@@ -137,25 +166,28 @@ Use this exact format:
 ```
 
 Rules:
-- Before adding a lesson, scan the file to avoid duplicates.
+- Before adding a lesson, scan the category file to avoid duplicates.
 - Lessons should be **actionable** — written as instructions to your future self.
   - Bad: "The tests were tricky"
   - Good: "Always run `npm test -- --bail` before committing; the test suite fails silently on import errors"
 - Keep lessons atomic. One insight per entry.
+- If a new category is needed, create the directory with an `index.md` that includes Key Takeaways.
 
 ### Workflow Summary
 
 ```
 START OF TASK:
-  1. Plan approach (considering lessons)
-  2. Do the work
-  3. Append to journal.md
-  4. If you learned something new → append to lessons.md
+  1. Read .claude/lessons/index.md Key Principles to inform approach
+  2. Plan approach (read relevant category lessons if applicable)
+  3. Do the work
+  4. Append to appropriate .claude/journal/<category>/<file>.md
+  5. If you learned something new → append to appropriate .claude/lessons/<category>/<file>.md
 END OF TASK
 ```
 
-**IMPORTANT:** Steps 3 and 4 MUST happen BEFORE creating any git commit. Never commit without first updating the journal and lessons. The commit should reflect that journal/lessons are already up to date.
+**IMPORTANT:** Steps 4 and 5 MUST happen BEFORE creating any git commit. Never commit without first updating the journal and lessons. The commit should reflect that journal/lessons are already up to date.
 
 ### Periodic Maintenance
 
-If `.claude/lessons.md` exceeds 100 entries, create a new section at the top called `## Key Principles` that distills the most important recurring lessons into a compact list. Keep the detailed entries below for reference.
+- If any single lessons file exceeds 30 entries, split it into subcategory files.
+- Keep `.claude/lessons/index.md` Key Principles updated with the most important cross-cutting lessons (max ~10).

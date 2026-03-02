@@ -1,0 +1,20 @@
+# Agent
+
+Agent process: runner, tools, prompt builder, MCP server, tool catalog.
+
+## Entries
+
+- 2026-02-28 22:48 — Update all tests for consolidated tool names (Task 6) [tools.md](tools.md)
+- 2026-02-28 22:30 — Consolidate MCP server tools (28 -> 10) [tools.md](tools.md)
+- 2026-02-28 22:30 — Update prompt modules with consolidated tool names [tools.md](tools.md)
+- 2026-02-28 22:00 — Consolidate tool-catalog.ts from 28 tools to 10 [tools.md](tools.md)
+- 2026-02-28 21:30 — Update pi-session.ts tool definition generation (Task 4) [tools.md](tools.md)
+- 2026-02-27 12:30 — Remove pi-agent-core as a user-facing agent type [runner.md](runner.md)
+- 2026-02-27 09:35 — Dev/production mode split for agent runner [runner.md](runner.md)
+- 2026-02-27 09:00 — Fix agent delegation EPERM crash / retry loop [runner.md](runner.md)
+- 2026-02-26 14:00 — LLM tool call optimization: context-aware filtering [tools.md](tools.md)
+- 2026-02-25 16:33 — Add minimal-context guidance to DelegationModule [prompt.md](prompt.md)
+- 2026-02-25 16:28 — Add DelegationModule system prompt for agent_delegate [prompt.md](prompt.md)
+- 2026-02-25 19:00 — Research OpenClaw/Claude Code skills architecture [prompt.md](prompt.md)
+- 2026-02-23 11:00 — Copy OpenClaw prompt optimizations into AX [prompt.md](prompt.md)
+- 2026-02-22 19:20 — Fix bootstrap: include tool guidance and user context [prompt.md](prompt.md)
