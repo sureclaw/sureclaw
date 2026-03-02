@@ -26,12 +26,20 @@ export async function resetAgent(agentName: string, templatesDir: string): Promi
   mkdirSync(configDir, { recursive: true });
   mkdirSync(identityFilesDir, { recursive: true });
 
-  // Copy template files to both configDir and identityFilesDir
-  for (const file of ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md']) {
-    const src = join(templatesDir, file);
+  // BOOTSTRAP.md → both configDir (authoritative) and identityFilesDir (agent-readable copy)
+  {
+    const src = join(templatesDir, 'BOOTSTRAP.md');
     if (existsSync(src)) {
-      copyFileSync(src, join(configDir, file));
-      copyFileSync(src, join(identityFilesDir, file));
+      copyFileSync(src, join(configDir, 'BOOTSTRAP.md'));
+      copyFileSync(src, join(identityFilesDir, 'BOOTSTRAP.md'));
+    }
+  }
+
+  // USER_BOOTSTRAP.md → configDir only (passed to agent via stdin payload, not mounted)
+  {
+    const src = join(templatesDir, 'USER_BOOTSTRAP.md');
+    if (existsSync(src)) {
+      copyFileSync(src, join(configDir, 'USER_BOOTSTRAP.md'));
     }
   }
 

@@ -35,6 +35,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
   const identityFiles = loadIdentityFiles({
     agentDir: config.agentDir,
     userId: config.userId,
+    userBootstrapContent: config.userBootstrapContent,
   });
 
   const hasWorkspaceTiers = !!(config.agentWorkspace || config.userWorkspace);

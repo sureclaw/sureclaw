@@ -42,6 +42,11 @@ export interface IdentityLoadOptions {
    * Maps to ~/.ax/agents/<agentId>/users/<userId>/.
    */
   userDir?: string;
+  /**
+   * USER_BOOTSTRAP.md content from host via stdin payload.
+   * When provided, skips reading USER_BOOTSTRAP.md from disk (it's not in the sandbox mount).
+   */
+  userBootstrapContent?: string;
 }
 
 export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
@@ -59,8 +64,17 @@ export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
     user = capContent(readFile(join(agentDir, 'users', userId), 'USER.md'), 'USER.md');
   }
 
-  // USER_BOOTSTRAP.md is shown when the user has no USER.md yet
-  const userBootstrap = (!user && idDir) ? capContent(readFile(idDir, 'USER_BOOTSTRAP.md'), 'USER_BOOTSTRAP.md') : '';
+  // USER_BOOTSTRAP.md is shown when the user has no USER.md yet.
+  // Prefer host-provided content (via stdin payload) over disk read — the file
+  // lives in agentConfigDir which is not in the sandbox mount.
+  let userBootstrap = '';
+  if (!user) {
+    if (opts.userBootstrapContent) {
+      userBootstrap = capContent(opts.userBootstrapContent, 'USER_BOOTSTRAP.md');
+    } else if (idDir) {
+      userBootstrap = capContent(readFile(idDir, 'USER_BOOTSTRAP.md'), 'USER_BOOTSTRAP.md');
+    }
+  }
 
   return {
     agents: load('AGENTS.md'),

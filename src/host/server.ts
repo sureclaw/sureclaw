@@ -197,6 +197,9 @@ export async function createServer(
       renameSync(legacySrc, newDest);
     }
   }
+  // Cleanup: USER_BOOTSTRAP.md should NOT be in identityFilesDir (it's passed via stdin).
+  // Remove stale copy if present (from earlier migration that placed it there).
+  try { unlinkSync(join(identityFilesDir, 'USER_BOOTSTRAP.md')); } catch { /* may not exist */ }
 
   // Let scheduler know where the identity files dir is (for HEARTBEAT.md loading)
   config.scheduler.agent_dir = identityFilesDir;
@@ -228,16 +231,24 @@ export async function createServer(
     }
   }
 
-  // Bootstrap files → both agentConfigDir (authoritative) and identityFilesDir (agent-readable)
+  // BOOTSTRAP.md → both agentConfigDir (authoritative) and identityFilesDir (agent-readable copy)
   // Don't re-create BOOTSTRAP.md if bootstrap already completed
-  for (const file of ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md']) {
-    if (file === 'BOOTSTRAP.md' && bootstrapAlreadyComplete) continue;
-    const src = join(templatesDir, file);
+  if (!bootstrapAlreadyComplete) {
+    const src = join(templatesDir, 'BOOTSTRAP.md');
     if (existsSync(src)) {
-      const configDest = join(agentConfigDir, file);
-      const identityDest = join(identityFilesDir, file);
+      const configDest = join(agentConfigDir, 'BOOTSTRAP.md');
+      const identityDest = join(identityFilesDir, 'BOOTSTRAP.md');
       if (!existsSync(configDest)) copyFileSync(src, configDest);
       if (!existsSync(identityDest)) copyFileSync(src, identityDest);
+    }
+  }
+
+  // USER_BOOTSTRAP.md → agentConfigDir only (passed to agent via stdin payload, not mounted)
+  {
+    const src = join(templatesDir, 'USER_BOOTSTRAP.md');
+    if (existsSync(src)) {
+      const configDest = join(agentConfigDir, 'USER_BOOTSTRAP.md');
+      if (!existsSync(configDest)) copyFileSync(src, configDest);
     }
   }
 

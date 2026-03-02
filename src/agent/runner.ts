@@ -50,6 +50,8 @@ export interface AgentConfig {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
+  /** USER_BOOTSTRAP.md content from host (not in sandbox mount). */
+  userBootstrapContent?: string;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -236,6 +238,8 @@ export interface StdinPayload {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
+  /** USER_BOOTSTRAP.md content from host (not in sandbox mount). */
+  userBootstrapContent?: string;
 }
 
 /**
@@ -275,6 +279,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
         agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
         userWorkspace: typeof parsed.userWorkspace === 'string' ? parsed.userWorkspace : undefined,
+        userBootstrapContent: typeof parsed.userBootstrapContent === 'string' ? parsed.userBootstrapContent : undefined,
       };
     }
   } catch {
@@ -336,6 +341,7 @@ if (isMain) {
     config.agentId = payload.agentId;
     config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
     config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
+    config.userBootstrapContent = payload.userBootstrapContent;
     return run(config);
   }).catch((err) => {
     logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });

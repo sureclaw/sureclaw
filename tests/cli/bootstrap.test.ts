@@ -77,6 +77,20 @@ describe('bootstrap command', () => {
     expect(identityContent).toContain('Bootstrap');
   });
 
+  test('resetAgent copies USER_BOOTSTRAP.md to configDir only (not identityFilesDir)', async () => {
+    writeFileSync(join(templatesDir, 'USER_BOOTSTRAP.md'), '# Welcome\nTell me about yourself.');
+
+    await resetAgent('main', templatesDir);
+
+    // Should exist in configDir (host reads it and passes via stdin)
+    expect(existsSync(join(configDir, 'USER_BOOTSTRAP.md'))).toBe(true);
+    const content = readFileSync(join(configDir, 'USER_BOOTSTRAP.md'), 'utf-8');
+    expect(content).toContain('Welcome');
+
+    // Should NOT exist in identityFilesDir (not mounted in sandbox)
+    expect(existsSync(join(identityDir, 'USER_BOOTSTRAP.md'))).toBe(false);
+  });
+
   test('resetAgent deletes .bootstrap-admin-claimed file', async () => {
     writeFileSync(join(topDir, '.bootstrap-admin-claimed'), 'U12345');
 

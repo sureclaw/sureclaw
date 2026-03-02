@@ -4,11 +4,11 @@
  * agent spawning, outbound scanning, and memory persistence.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { isValidSessionId, workspaceDir, agentWorkspaceDir, agentSkillsDir, userSkillsDir, userWorkspaceDir } from '../paths.js';
+import { isValidSessionId, workspaceDir, agentIdentityDir, agentWorkspaceDir, agentSkillsDir, userSkillsDir, userWorkspaceDir } from '../paths.js';
 import { mergeSkillsOverlay } from '../providers/sandbox/canonical-paths.js';
 import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
 import { safePath } from '../utils/safe-path.js';
@@ -396,6 +396,16 @@ export async function processCompletion(
     mkdirSync(enterpriseAgentWs, { recursive: true });
     mkdirSync(enterpriseUserWs, { recursive: true });
 
+    // Read USER_BOOTSTRAP.md from the config dir (not in sandbox mount) to pass via stdin
+    let userBootstrapContent: string | undefined;
+    try {
+      const configDir = agentIdentityDir(agentName);
+      const ubPath = join(configDir, 'USER_BOOTSTRAP.md');
+      if (existsSync(ubPath)) {
+        userBootstrapContent = readFileSync(ubPath, 'utf-8');
+      }
+    } catch { /* non-fatal */ }
+
     // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);
     const stdinPayload = JSON.stringify({
@@ -412,6 +422,8 @@ export async function processCompletion(
       agentId: agentName,
       agentWorkspace: enterpriseAgentWs,
       userWorkspace: enterpriseUserWs,
+      // Identity content from config dir (not in sandbox mount)
+      ...(userBootstrapContent ? { userBootstrapContent } : {}),
     });
 
     // Spawn, run, and collect agent output — with retry on transient crashes.
