@@ -1,5 +1,13 @@
 # Journal
 
+## [2026-03-02 12:00] — Create MemoryFS v2 plan (files-first, memU-inspired)
+
+**Task:** Summarize conversation decisions about memory architecture and create a revised plan
+**What I did:** Reviewed conversation about git tracking (rejected), SQLite-as-source-of-truth (rejected), and markdown-files-as-source-of-truth (chosen). Incorporated memU's architecture: three-layer data model (Resource→Item→Category), inline processing (memorize extracts+categorizes in one call), reinforcement instead of decay, no background processes. Wrote comprehensive v2 plan with 3 phases: Phase 1 (core memory, zero SQLite), Phase 2 (FTS5+embeddings search index), Phase 3 (richer history options).
+**Files touched:** docs/plans/2026-03-02-memoryfs-v2-plan.md (new)
+**Outcome:** Success — plan written, not yet committed
+**Notes:** Key removals vs v1: Reconciler, Decayer, Monitor, Anticipator, Git Worker, two-phase writes, trigger files. SQLite is now a derived search index only — blow it away and rebuild from files. Reinforcement (access count [×N] inline in files) replaces timer-based decay.
+
 ## [2026-03-01 16:11] — Add context metrics to event console logs
 
 **Task:** Show context usage metrics in logs: context % remaining, estimated input tokens per LLM turn
