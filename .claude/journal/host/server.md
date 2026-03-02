@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-02 12:45] — Add HTTP bootstrap admin claiming to handleCompletions
+
+**Task:** Fix bug where the first HTTP user wasn't added to the admins file during bootstrap. The bootstrap admin claiming only existed in the channel handler (Slack, Discord), not in the HTTP completions path.
+**What I did:** Added bootstrap gate logic to `handleCompletions` in server.ts — after userId extraction, calls `claimBootstrapAdmin(agentDirVal, userId)` when bootstrap mode is active and user is not already an admin. Returns 403 if admin is already claimed and user is not admin. Added 3 integration tests: auto-promote first HTTP user, block second HTTP user, allow requests without user field.
+**Files touched:** src/host/server.ts, tests/host/admin-gate.test.ts
+**Outcome:** Success — 2011 tests pass, TypeScript clean
+**Notes:** The HTTP path uses 403 status code (vs channel handler which sends a chat message) since HTTP clients can handle HTTP error codes directly.
+
 ## [2026-02-26 15:00] — AI SDK format for image content blocks
 
 **Task:** Map internal image content blocks to AI SDK UI message stream schema.

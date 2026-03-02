@@ -4,9 +4,47 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { unlinkSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin, createServer, type AxServer } from '../../src/host/server.js';
 import { loadConfig } from '../../src/config.js';
 import type { ChannelProvider, InboundMessage, OutboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
+
+/** Send an HTTP request over a Unix socket */
+function sendRequest(
+  socket: string,
+  path: string,
+  opts: { method?: string; body?: unknown } = {},
+): Promise<{ status: number; body: string; headers: Record<string, string | string[] | undefined> }> {
+  return new Promise((resolve, reject) => {
+    const bodyStr = opts.body ? JSON.stringify(opts.body) : undefined;
+    const req = httpRequest(
+      {
+        socketPath: socket,
+        path,
+        method: opts.method ?? 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(bodyStr ? { 'Content-Length': Buffer.byteLength(bodyStr) } : {}),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf-8'),
+            headers: res.headers,
+          });
+        });
+        res.on('error', reject);
+      },
+    );
+    req.on('error', reject);
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
 
 // ── Unit tests for helpers ──
 
@@ -444,5 +482,97 @@ describe('bootstrap gate (channel integration)', () => {
     // Non-admin should get through after bootstrap
     expect(sentMessages).toHaveLength(1);
     expect(sentMessages[0].content.content).not.toContain('still being set up');
+  });
+});
+
+// ── Integration test for HTTP bootstrap gate ──
+
+describe('bootstrap gate (HTTP integration)', () => {
+  let server: AxServer;
+  let socketPath: string;
+  let originalAxHome: string | undefined;
+  let axHome: string;
+
+  beforeEach(() => {
+    socketPath = join(tmpdir(), `ax-gate-http-${randomUUID()}.sock`);
+    originalAxHome = process.env.AX_HOME;
+    axHome = mkdtempSync(join(tmpdir(), 'ax-gate-http-home-'));
+    process.env.AX_HOME = axHome;
+  });
+
+  afterEach(async () => {
+    if (server) await server.stop();
+    try { unlinkSync(socketPath); } catch { /* ignore */ }
+    rmSync(axHome, { recursive: true, force: true });
+    if (originalAxHome !== undefined) {
+      process.env.AX_HOME = originalAxHome;
+    } else {
+      delete process.env.AX_HOME;
+    }
+  });
+
+  test('auto-promotes first HTTP user to admin during bootstrap', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    const agentTopDir = join(axHome, 'agents', 'main');
+
+    // Verify bootstrap mode is active
+    expect(isAgentBootstrapMode('main')).toBe(true);
+
+    // First HTTP user should be auto-promoted to admin
+    const res = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        user: 'vinay@canopyworks.com/conv-001',
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(isAdmin(agentTopDir, 'vinay@canopyworks.com')).toBe(true);
+    expect(existsSync(join(agentTopDir, '.bootstrap-admin-claimed'))).toBe(true);
+  });
+
+  test('blocks second HTTP user during bootstrap after first claims admin', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    // First HTTP user claims admin
+    const res1 = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        user: 'first-user/conv-001',
+      },
+    });
+    expect(res1.status).toBe(200);
+
+    // Second HTTP user should be blocked
+    const res2 = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        user: 'stranger/conv-002',
+      },
+    });
+    expect(res2.status).toBe(403);
+    const data = JSON.parse(res2.body);
+    expect(data.error?.message).toContain('still being set up');
+  });
+
+  test('allows HTTP requests without user field during bootstrap (no gate)', async () => {
+    const config = loadConfig('tests/integration/ax-test.yaml');
+    server = await createServer(config, { socketPath });
+    await server.start();
+
+    // Request with no user field should not be gated
+    const res = await sendRequest(socketPath, '/v1/chat/completions', {
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+      },
+    });
+
+    // Should succeed (no userId → bootstrap gate is skipped)
+    expect(res.status).toBe(200);
   });
 });

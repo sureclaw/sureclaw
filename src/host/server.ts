@@ -611,6 +611,16 @@ export async function createServer(
     // Extract userId from user field (first segment before /)
     const userId = chatReq.user?.split('/')[0] || undefined;
 
+    // Bootstrap gate: auto-promote the first HTTP user to admin (same as channel handler).
+    if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
+      if (claimBootstrapAdmin(agentDirVal, userId)) {
+        logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+      } else {
+        sendError(res, 403, 'This agent is still being set up. Only admins can interact during bootstrap.');
+        return;
+      }
+    }
+
     if (chatReq.stream) {
       // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
       res.writeHead(200, {
