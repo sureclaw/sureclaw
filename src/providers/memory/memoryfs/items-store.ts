@@ -121,6 +121,31 @@ export class ItemsStore {
     return rows.map(r => this.rowToItem(r));
   }
 
+  getByIds(ids: string[]): MemoryFSItem[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db.prepare(
+      `SELECT * FROM items WHERE id IN (${placeholders})`,
+    ).all(...ids) as Record<string, unknown>[];
+    return rows.map(r => this.rowToItem(r));
+  }
+
+  /** Return all item IDs in a given scope. Used for backfill checks. */
+  listIdsByScope(scope: string): string[] {
+    const rows = this.db.prepare(
+      'SELECT id FROM items WHERE scope = ?',
+    ).all(scope) as Array<{ id: string }>;
+    return rows.map(r => r.id);
+  }
+
+  /** Return all distinct scopes that have items. */
+  listAllScopes(): string[] {
+    const rows = this.db.prepare(
+      'SELECT DISTINCT scope FROM items',
+    ).all() as Array<{ scope: string }>;
+    return rows.map(r => r.scope);
+  }
+
   deleteById(id: string): void {
     this.db.prepare('DELETE FROM items WHERE id = ?').run(id);
   }

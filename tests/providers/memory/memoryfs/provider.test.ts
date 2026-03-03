@@ -120,4 +120,19 @@ describe('memoryfs provider', () => {
     expect(results).toHaveLength(1);
     expect(results[0].content).toContain('Agent 1');
   });
+
+  it('query() with embedding returns empty when no items exist, not unfiltered listing', async () => {
+    // Write some items to the store (keyword-searchable)
+    await memory.write({ scope: 'default', content: 'Some keyword-searchable fact' });
+    await memory.write({ scope: 'default', content: 'Another fact in the store' });
+
+    // Query with an embedding vector but for a scope with no embeddings
+    // Should return empty — not fall through to keyword/listing search
+    const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3]);
+    const results = await memory.query({
+      scope: 'nonexistent-scope',
+      embedding: fakeEmbedding,
+    });
+    expect(results).toEqual([]);
+  });
 });

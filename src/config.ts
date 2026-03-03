@@ -102,7 +102,9 @@ const ConfigSchema = z.strictObject({
     memory_recall: z.boolean().default(false),
     memory_recall_limit: z.number().int().min(1).max(20).default(5),
     memory_recall_scope: z.string().default('*'),
-  }).default({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10, memory_recall: false, memory_recall_limit: 5, memory_recall_scope: '*' }),
+    embedding_model: z.string().default('text-embedding-3-small'),
+    embedding_dimensions: z.number().int().min(64).max(4096).default(1536),
+  }).default({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10, memory_recall: false, memory_recall_limit: 5, memory_recall_scope: '*', embedding_model: 'text-embedding-3-small', embedding_dimensions: 1536 }),
   delegation: z.strictObject({
     max_concurrent: z.number().int().min(1).max(10).default(3),
     max_depth: z.number().int().min(1).max(5).default(2),

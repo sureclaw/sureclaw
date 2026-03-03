@@ -2,6 +2,71 @@
 
 Memory provider implementations, MemoryFS planning.
 
+## [2026-03-03 03:25] — Fix TS build errors in embedding-store.ts
+
+**Task:** Fix 8 TypeScript compilation errors in embedding-store.ts after merging origin/main
+**What I did:** Fixed import of `createDatabase` from `@dao-xyz/sqlite3-vec` — the package's `exports["."].types` resolves to `dist/unified.d.ts` which doesn't declare `createDatabase` as a named export (it's only in `dist/unified-node.d.ts`). Switched to default import (`import sqliteVec from ...`) and used `sqliteVec.createDatabase()`. Fixed 7 "Object is possibly null" errors in `init()` by using a local `db` variable instead of `this.db` (which is typed `Database | null`).
+**Files touched:** src/providers/memory/memoryfs/embedding-store.ts
+**Outcome:** Success — build passes clean, all 2216 tests pass
+**Notes:** The `@dao-xyz/sqlite3-vec` package has a type declaration mismatch: runtime entry is `dist/unified-node.js` (exports `createDatabase`) but types resolve to `dist/unified.d.ts` (doesn't export it). The default export is typed as `any`, so `sqliteVec.createDatabase()` works but loses type safety on the function signature — mitigated by annotating the result as `Database`.
+
+## [2026-03-03 03:00] — Fix 3 PR review issues in embedding search
+
+**Task:** Address codex review comments on PR #57: (P1) embedding query falls through to unfiltered listing, (P2) backfill only covers 'default' scope, (P2) scoped similarity search uses incorrect global-MATCH-then-filter
+**What I did:**
+- Fixed P1: `query()` now returns `[]` when embedding search yields empty results instead of falling through to unfiltered keyword/listing search. Error fallthrough preserved for graceful degradation.
+- Fixed P2 (backfill): Changed `backfillEmbeddings()` to iterate all scopes via new `ItemsStore.listAllScopes()` method instead of hardcoded 'default'.
+- Fixed P2 (scoped search): Added `embedding BLOB` column to `embedding_meta` table, storing raw vectors on upsert. Scoped `findSimilar()` now uses `vec_distance_l2()` scalar function with `WHERE scope = ?` for correct within-scope brute-force search instead of the broken global MATCH + post-filter approach. Unscoped queries still use fast vec0 MATCH.
+- Added 4 new tests: scoped nearest-neighbor correctness, empty scope returns empty, `listAllScopes`, and embedding query empty result behavior.
+**Files touched:** `src/providers/memory/memoryfs/provider.ts`, `src/providers/memory/memoryfs/embedding-store.ts`, `src/providers/memory/memoryfs/items-store.ts`, `tests/providers/memory/memoryfs/embedding-store.test.ts`, `tests/providers/memory/memoryfs/items-store.test.ts`, `tests/providers/memory/memoryfs/provider.test.ts`
+**Outcome:** Success — all 2149 tests pass (201 files)
+**Notes:** The `vec_distance_l2()` approach trades ANN speed for correctness on scoped queries. For memory store sizes (hundreds to low thousands per scope), brute-force is fine.
+
+## [2026-03-03 02:26] — Add embedding-based semantic search to MemoryFS
+
+**Task:** Replace keyword (LIKE) search with vector embedding similarity search for MemoryFS memory recall, using @dao-xyz/sqlite3-vec for vector storage and OpenAI embeddings API for embedding generation.
+
+**What I did:**
+- Added `@dao-xyz/sqlite3-vec` dependency for sqlite-vec virtual table support
+- Created `src/utils/embedding-client.ts` — standalone OpenAI embedding client with graceful degradation when no API key
+- Created `src/providers/memory/memoryfs/embedding-store.ts` — vec0-backed vector store with similarity search, scope filtering, backfill support
+- Extended `MemoryQuery` with optional `embedding: Float32Array` field (backward compatible)
+- Added `getByIds()` and `listIdsByScope()` to `ItemsStore` for batch lookups
+- Integrated embeddings into MemoryFS provider: write→embed, query→vector search with salience, memorize→batch embed
+- Updated `memory-recall.ts` to use embedding-based search with keyword fallback
+- Wired `EmbeddingClient` in `server-completions.ts` from config
+- Added `embedding_model` and `embedding_dimensions` config fields (defaults: text-embedding-3-small, 1536)
+- Background backfill of existing memories on provider startup
+- Wrote 31 new tests across 3 test files + updated 2 existing test files
+- Fixed pre-existing provider-map path regex that didn't support nested provider directories
+
+**Files touched:**
+- `package.json` — added @dao-xyz/sqlite3-vec
+- `src/utils/embedding-client.ts` — new
+- `src/providers/memory/memoryfs/embedding-store.ts` — new
+- `src/providers/memory/types.ts` — added embedding field to MemoryQuery
+- `src/providers/memory/memoryfs/provider.ts` — integrated embeddings
+- `src/providers/memory/memoryfs/items-store.ts` — added getByIds, listIdsByScope
+- `src/host/memory-recall.ts` — embedding search with keyword fallback
+- `src/host/server-completions.ts` — create and pass embedding client
+- `src/config.ts` — added embedding config fields
+- `src/types.ts` — added embedding config types
+- `tests/utils/embedding-client.test.ts` — new (6 tests)
+- `tests/providers/memory/memoryfs/embedding-store.test.ts` — new (10 tests)
+- `tests/host/memory-recall.test.ts` — added 5 embedding tests (15 total)
+- `tests/config-history.test.ts` — updated default assertion
+- `tests/integration/phase2.test.ts` — fixed path regex
+- `tests/host/provider-map.test.ts` — fixed path regex
+
+**Outcome:** Success. All 2144 tests pass. Memory recall now uses semantic vector search when OPENAI_API_KEY is available, with automatic fallback to keyword search when it's not.
+
+**Notes:**
+- Separate _vec.db file for vector data avoids extension compat issues with the generic SQLite adapter
+- `@dao-xyz/sqlite3-vec` wraps better-sqlite3 and auto-loads the native vec extension
+- Embedding generation is non-blocking (fire-and-forget) on write to avoid latency
+- Similarity score feeds into existing salience formula: similarity × log(reinforcement+1) × recencyDecay
+- Config is opt-in: embedding_model defaults to text-embedding-3-small, dimensions to 1536
+
 ## [2026-03-02 16:34] — Add full lifecycle integration test (Task 10 of 10)
 
 **Task:** Create end-to-end integration test exercising the complete MemoryFS pipeline through the public MemoryProvider interface.

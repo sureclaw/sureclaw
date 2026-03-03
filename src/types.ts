@@ -107,6 +107,8 @@ export interface Config {
     memory_recall: boolean;
     memory_recall_limit: number;
     memory_recall_scope: string;
+    embedding_model: string;
+    embedding_dimensions: number;
   };
   delegation?: {
     max_concurrent?: number;

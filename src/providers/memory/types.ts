@@ -19,6 +19,9 @@ export interface MemoryQuery {
   tags?: string[];
   /** Filter by agent ID. When set, only entries belonging to this agent are returned. */
   agentId?: string;
+  /** Pre-computed embedding vector for semantic search. When provided,
+   *  providers that support it will use vector similarity instead of keyword matching. */
+  embedding?: Float32Array;
 }
 
 export interface ConversationTurn {

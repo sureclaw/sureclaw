@@ -106,4 +106,16 @@ describe('ItemsStore', () => {
     const items = store.getAllForCategory('preferences', 'default');
     expect(items).toHaveLength(2);
   });
+
+  it('listAllScopes returns all distinct scopes', () => {
+    store.insert({ ...sampleItem, scope: 'project-a' });
+    store.insert({ ...sampleItem, scope: 'project-b', contentHash: 'gggggggggggggggg' });
+    store.insert({ ...sampleItem, scope: 'project-a', contentHash: 'hhhhhhhhhhhhhhhh' });
+    const scopes = store.listAllScopes();
+    expect(scopes.sort()).toEqual(['project-a', 'project-b']);
+  });
+
+  it('listAllScopes returns empty for empty store', () => {
+    expect(store.listAllScopes()).toEqual([]);
+  });
 });

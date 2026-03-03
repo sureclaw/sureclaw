@@ -4,10 +4,15 @@
  * history. This gives the agent relevant cross-session knowledge without
  * relying on it to proactively call the memory tool.
  *
+ * Supports two recall strategies:
+ *   1. Embedding-based semantic search (preferred — when EmbeddingClient is available)
+ *   2. Keyword extraction fallback (when no OPENAI_API_KEY / embedding client)
+ *
  * Runs on the host side (trusted process) with direct memory provider access.
  */
 
 import type { MemoryProvider, MemoryEntry } from '../providers/memory/types.js';
+import type { EmbeddingClient } from '../utils/embedding-client.js';
 import type { Logger } from '../logger.js';
 
 export interface MemoryRecallConfig {
@@ -17,6 +22,8 @@ export interface MemoryRecallConfig {
   limit: number;
   /** Memory scope to search (default: '*' = all scopes). */
   scope: string;
+  /** Embedding client for semantic search (optional — falls back to keywords). */
+  embeddingClient?: EmbeddingClient;
 }
 
 export const MEMORY_RECALL_DEFAULTS: MemoryRecallConfig = {
@@ -26,13 +33,12 @@ export const MEMORY_RECALL_DEFAULTS: MemoryRecallConfig = {
 };
 
 /**
- * Extract keywords from user message for FTS5 query.
+ * Extract keywords from user message for keyword-based query.
  *
- * FTS5 uses OR-semantics by default when terms are separated by spaces,
- * so we extract meaningful words (skip short ones and stop words) and
- * join them with OR for broad matching.
+ * Extracts meaningful words (skip short ones and stop words) and
+ * joins them with OR for broad matching.
  */
-function extractQueryTerms(message: string): string {
+export function extractQueryTerms(message: string): string {
   const stopWords = new Set([
     'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
@@ -89,6 +95,10 @@ function formatMemoryTurns(
  * Query long-term memory for entries relevant to the user's message
  * and return formatted context turns to prepend to conversation history.
  *
+ * Strategy:
+ *   1. If embeddingClient is available → embed user message, use vector search
+ *   2. Otherwise → extract keywords, use keyword search
+ *
  * Returns empty array if disabled, no matches, or on error.
  */
 export async function recallMemoryForMessage(
@@ -99,9 +109,41 @@ export async function recallMemoryForMessage(
 ): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
   if (!config.enabled) return [];
 
+  // Strategy 1: Embedding-based semantic search
+  if (config.embeddingClient?.available) {
+    try {
+      const [embedding] = await config.embeddingClient.embed([userMessage]);
+
+      const entries = await memory.query({
+        scope: config.scope,
+        embedding,
+        limit: config.limit,
+      });
+
+      if (entries.length > 0) {
+        logger.info('memory_recall_hit', {
+          strategy: 'embedding',
+          matchCount: entries.length,
+          entryIds: entries.map(e => e.id).filter(Boolean),
+        });
+        return formatMemoryTurns(entries);
+      }
+
+      logger.debug('memory_recall_empty', { strategy: 'embedding' });
+      return [];
+    } catch (err) {
+      // Embedding failed — fall through to keyword search
+      logger.warn('memory_recall_embedding_failed', {
+        error: (err as Error).message,
+        fallback: 'keyword',
+      });
+    }
+  }
+
+  // Strategy 2: Keyword extraction fallback
   const queryTerms = extractQueryTerms(userMessage);
   if (!queryTerms) {
-    logger.debug('memory_recall_skip', { reason: 'no_query_terms' });
+    logger.debug('memory_recall_skip', { reason: 'no_query_terms', strategy: 'keyword' });
     return [];
   }
 
@@ -113,11 +155,12 @@ export async function recallMemoryForMessage(
     });
 
     if (entries.length === 0) {
-      logger.debug('memory_recall_empty', { queryTerms });
+      logger.debug('memory_recall_empty', { strategy: 'keyword', queryTerms });
       return [];
     }
 
     logger.info('memory_recall_hit', {
+      strategy: 'keyword',
       queryTerms,
       matchCount: entries.length,
       entryIds: entries.map(e => e.id).filter(Boolean),

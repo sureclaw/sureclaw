@@ -39,7 +39,7 @@ scheduler:
   heartbeat_interval_min: 30
 `);
     const config = loadConfig(p);
-    expect(config.history).toEqual({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10, memory_recall: false, memory_recall_limit: 5, memory_recall_scope: '*' });
+    expect(config.history).toEqual({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10, memory_recall: false, memory_recall_limit: 5, memory_recall_scope: '*', embedding_model: 'text-embedding-3-small', embedding_dimensions: 1536 });
   });
 
   it('accepts explicit history settings', () => {

@@ -1,305 +1,346 @@
-# Plan: LLM Tool Call Optimization
+# Embedding-Based Memory Recall — Implementation Plan
 
-## Problem Statement
+Replace LIKE keyword search with semantic vector search for MemoryFS memory
+recall. Uses `@dao-xyz/sqlite3-vec` for vector storage and OpenAI embeddings API
+(configurable model) for embedding generation. Falls back to keyword search when
+no `OPENAI_API_KEY` is set.
 
-AX currently sends **all 25 IPC tools** on every LLM call regardless of context. Combined with runner-local tools (4 for pi-agent-core, ~25 for pi-coding-agent), this means up to **50 tools per call** — hitting the IPC schema hard limit. Every extra tool consumes input tokens and degrades the model's tool-selection accuracy.
+## Architecture Overview
 
-The system also **duplicates tool descriptions** across three layers (TOOL_CATALOG TypeBox → MCP Zod → system prompt prose) without full sync validation, and sends enterprise-only tools (workspace, governance) even when enterprise features are disabled.
+```
+Write path (memorize / write):
+  content → EmbeddingClient.embed() → Float32Array
+                                          ↓
+  ItemsStore.insert(item) ──────→ EmbeddingStore.upsert(itemId, vector)
 
-## Goals
+Query path (recall / query):
+  user message → EmbeddingClient.embed() → Float32Array
+                                                ↓
+  EmbeddingStore.findSimilar(vector, limit) → [{itemId, distance}]
+                                                ↓
+  ItemsStore.getByIds(itemIds) → MemoryEntry[] (ranked by distance × salience)
 
-1. **Context-aware tool filtering** — only send tools relevant to the current session
-2. **Description tightening** — reduce token overhead without losing clarity
-3. **Enterprise tool gating** — exclude workspace/governance tools when those features are off
-4. **Maintain all existing invariants** — sync tests, IPC schemas, MCP parity, security boundaries
+Fallback: When OPENAI_API_KEY is absent, degrade to existing LIKE search.
+```
 
-## Non-Goals
-
-- Tool consolidation (merging memory_* into one tool) — too risky for model compatibility
-- Two-stage LLM routing — premature until tool count exceeds ~40
-- Dynamic runtime tool loading — violates SC-SEC-002 static allowlist
+History assembly order remains:
+`[memory recall] → [summaries] → [recent turns] → [current message]`
 
 ---
 
-## Architecture
+## Step 1: Add `@dao-xyz/sqlite3-vec` dependency
 
-### New concept: `ToolCategory` and `ToolFilter`
+**File:** `package.json`
 
-Add a **category tag** to each `ToolSpec` and a **filter function** that selects tools based on `PromptContext`. The filter runs in all three consumers (ipc-tools.ts, pi-session.ts, mcp-server.ts) so the tool list sent to the LLM matches the tools actually available.
-
-```
-ToolSpec.category: 'core' | 'memory' | 'web' | 'identity' | 'scheduler' | 'skills' | 'delegation' | 'workspace' | 'governance'
+```bash
+npm install @dao-xyz/sqlite3-vec
 ```
 
-Filter rules:
-- `core`: always included (memory_query, memory_write, web_fetch, web_search, audit_query)
-- `identity`: always included (identity_write, user_write)
-- `memory`: always included (memory_read, memory_delete, memory_list)
-- `scheduler`: included when heartbeat content exists (`ctx.identityFiles.heartbeat` is non-empty)
-- `skills`: included when skills are loaded (`ctx.skills.length > 0`)
-- `delegation`: always included (single tool, low overhead)
-- `workspace`: included only when `ctx.hasWorkspaceTiers === true`
-- `governance`: included only when `ctx.hasGovernance === true`
-
-This aligns tool visibility with the existing prompt module `shouldInclude()` logic — if the HeartbeatModule is excluded, the scheduler tools are also excluded.
+This brings sqlite-vec (the C extension) and a Node.js wrapper that auto-loads
+the vec extension into better-sqlite3.
 
 ---
 
-## Changes by File
+## Step 2: Create `EmbeddingClient` utility
 
-### 1. `src/agent/tool-catalog.ts`
+**New file:** `src/utils/embedding-client.ts`
 
-**Add `category` field to `ToolSpec`:**
+A standalone, stateless client for generating text embeddings. Wraps the OpenAI
+SDK's `embeddings.create()` endpoint. Not an LLM provider — this is a utility.
 
 ```typescript
-export type ToolCategory =
-  | 'memory' | 'web' | 'audit' | 'identity'
-  | 'scheduler' | 'skills' | 'delegation'
-  | 'workspace' | 'governance';
+interface EmbeddingClientConfig {
+  model: string;       // e.g. 'text-embedding-3-small'
+  dimensions: number;  // e.g. 1536
+  apiKey?: string;     // defaults to OPENAI_API_KEY env var
+  baseUrl?: string;    // defaults to https://api.openai.com/v1
+}
 
-export interface ToolSpec {
-  name: string;
-  label: string;
-  description: string;
-  parameters: TSchema;
-  injectUserId?: boolean;
-  category: ToolCategory;
+interface EmbeddingClient {
+  embed(texts: string[]): Promise<Float32Array[]>;
+  readonly dimensions: number;
+  readonly available: boolean;  // false when no API key
+}
+
+function createEmbeddingClient(config: EmbeddingClientConfig): EmbeddingClient
+```
+
+Key behaviors:
+- Returns `available: false` when no API key set (no throw — graceful degradation)
+- Returns Float32Array for direct sqlite-vec consumption
+- Uses `openai` SDK already in dependencies — no new HTTP client
+- Logs via `getLogger().child({ component: 'embedding-client' })`
+
+**New test file:** `tests/utils/embedding-client.test.ts`
+- Test graceful degradation when no API key
+- Test Float32Array output format
+- Mock OpenAI SDK for unit tests
+
+---
+
+## Step 3: Create `EmbeddingStore` for sqlite-vec operations
+
+**New file:** `src/providers/memory/memoryfs/embedding-store.ts`
+
+A vector store backed by sqlite-vec's `vec0` virtual table. Separate from
+`ItemsStore` — uses `@dao-xyz/sqlite3-vec`'s `createDatabase()` for automatic
+extension loading.
+
+```typescript
+class EmbeddingStore {
+  constructor(dbPath: string, dimensions: number);
+
+  upsert(itemId: string, embedding: Float32Array): void;
+  findSimilar(query: Float32Array, limit: number, scope?: string): Array<{
+    itemId: string;
+    distance: number;
+  }>;
+  delete(itemId: string): void;
+  hasEmbedding(itemId: string): boolean;
+  listUnembedded(limit: number): string[];  // for backfill
+  close(): void;
 }
 ```
 
-Tag each tool in TOOL_CATALOG with its category. No description changes yet.
+Schema:
+```sql
+-- vec0 virtual table for vector similarity search
+CREATE VIRTUAL TABLE IF NOT EXISTS item_embeddings USING vec0(
+  item_id TEXT PRIMARY KEY,
+  embedding float[{dimensions}]
+);
 
-**Add `filterTools()` function:**
+-- Mapping table to join vectors with scope for filtering
+CREATE TABLE IF NOT EXISTS embedding_meta (
+  item_id    TEXT PRIMARY KEY,
+  scope      TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_emeta_scope ON embedding_meta(scope);
+```
+
+Separate database file (`_vec.db`) to avoid extension compatibility issues with
+the existing sync SQLite adapter used by `ItemsStore`.
+
+Query pattern:
+```sql
+SELECT em.item_id, v.distance
+FROM item_embeddings v
+JOIN embedding_meta em ON em.item_id = v.item_id
+WHERE em.scope = ?
+  AND v.embedding MATCH ?
+ORDER BY v.distance
+LIMIT ?
+```
+
+**New test file:** `tests/providers/memory/memoryfs/embedding-store.test.ts`
+- Test CRUD operations (upsert, find, delete)
+- Test similarity search returns correct ordering
+- Test scope filtering
+- Test `listUnembedded()` for backfill
+- Uses temp file for database
+
+---
+
+## Step 4: Extend `MemoryQuery` with optional embedding field
+
+**Modified file:** `src/providers/memory/types.ts`
 
 ```typescript
-export interface ToolFilterContext {
-  hasHeartbeat: boolean;       // identityFiles.heartbeat is non-empty
-  hasSkills: boolean;          // skills.length > 0
-  hasWorkspaceTiers: boolean;  // enterprise workspace tiers enabled
-  hasGovernance: boolean;      // enterprise governance enabled
-}
-
-export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
-  return TOOL_CATALOG.filter(spec => {
-    switch (spec.category) {
-      case 'scheduler':  return ctx.hasHeartbeat;
-      case 'skills':     return ctx.hasSkills;
-      case 'workspace':  return ctx.hasWorkspaceTiers;
-      case 'governance': return ctx.hasGovernance;
-      default:           return true;  // core tools always included
-    }
-  });
+export interface MemoryQuery {
+  scope: string;
+  query?: string;
+  limit?: number;
+  tags?: string[];
+  agentId?: string;
+  /** Pre-computed embedding vector for semantic search (optional). */
+  embedding?: Float32Array;
 }
 ```
 
-**Tighten tool descriptions** — trim each to ≤120 chars where possible. The detailed behavioral guidance lives in the prompt modules, not in the tool `description` field. Specific changes:
+Backward-compatible — existing providers ignore the field.
 
-| Tool | Current desc length | Target |
-|------|-------------------|--------|
-| `identity_write` | ~270 chars | ~120 chars — remove "Auto-applied in clean sessions..." (that's in IdentityModule) |
-| `user_write` | ~200 chars | ~100 chars — remove "Auto-applied in clean..." |
-| `skill_propose` | ~270 chars | ~100 chars — remove screening details (that's in SkillsModule) |
-| `agent_delegate` | ~220 chars | ~120 chars — remove runner list (that's in DelegationModule) |
-| `workspace_write` | ~180 chars | ~80 chars |
-| `identity_propose` | ~200 chars | ~100 chars |
+---
 
-Leave short descriptions (<100 chars) untouched.
+## Step 5: Integrate embeddings into MemoryFS provider
 
-### 2. `src/agent/ipc-tools.ts`
+**Modified file:** `src/providers/memory/memoryfs/provider.ts`
 
-**Accept a `ToolFilterContext` and use `filterTools()`:**
+Changes to `create(config)`:
+
+1. Initialize `EmbeddingClient` from config/env vars
+2. Initialize `EmbeddingStore` alongside `ItemsStore`
+3. On `write()`: generate embedding → `embeddingStore.upsert()`
+4. On `memorize()`: batch-generate embeddings for all new items
+5. On `query()`:
+   - If `q.embedding` provided → `embeddingStore.findSimilar()` → join with salience
+   - Else if `q.query` provided → existing LIKE search (fallback)
+   - Rank: combine `similarity = 1 / (1 + distance)` with existing `salienceScore()`
+6. On `delete()`: also delete from embedding store
+
+The salience formula in `salience.ts` already accepts a `similarity` parameter —
+pass computed similarity instead of the hardcoded `1.0` currently used.
+
+**Modified file:** `src/providers/memory/memoryfs/items-store.ts`
+
+Add `getByIds(ids: string[]): MemoryFSItem[]` — batch lookup by ID list
+(needed to hydrate vector search results into full items).
+
+---
+
+## Step 6: Update memory recall to use embeddings
+
+**Modified file:** `src/host/memory-recall.ts`
 
 ```typescript
-export function createIPCTools(
-  client: IPCClient,
-  opts?: IPCToolsOptions & { filter?: ToolFilterContext },
-): AgentTool[] {
-  const catalog = opts?.filter ? filterTools(opts.filter) : TOOL_CATALOG;
-  return catalog.map(spec => ({ ... }));
+export interface MemoryRecallConfig {
+  enabled: boolean;
+  limit: number;
+  scope: string;
+  /** Embedding client for semantic search (falls back to keywords if absent). */
+  embeddingClient?: EmbeddingClient;
 }
 ```
 
-### 3. `src/agent/runners/pi-session.ts`
+Changes to `recallMemoryForMessage()`:
+1. If `embeddingClient?.available` → embed user message → pass `{ embedding }` in query
+2. Else → fall back to existing `extractQueryTerms()` + keyword search
+3. Logging: add `strategy: 'embedding' | 'keyword'` to recall log events
 
-**Pass filter context to `createIPCToolDefinitions()`:**
+**Modified file:** `src/host/server-completions.ts`
 
-```typescript
-function createIPCToolDefinitions(
-  client: IPCClient,
-  opts?: IPCToolDefsOptions & { filter?: ToolFilterContext },
-): ToolDefinition[] {
-  const catalog = opts?.filter ? filterTools(opts.filter) : TOOL_CATALOG;
-  return catalog.map(spec => ({ ... }));
-}
-```
-
-Build the filter context from agent config/prompt context in `runPiSession()`.
-
-### 4. `src/agent/mcp-server.ts`
-
-**Accept a `ToolFilterContext` and filter the manually-defined tools:**
-
-The MCP server defines tools manually with Zod schemas. Add a name-based filter:
+Create `EmbeddingClient` instance from config and pass to memory recall:
 
 ```typescript
-export function createIPCMcpServer(
-  client: IPCClient,
-  opts?: MCPServerOptions & { filter?: ToolFilterContext },
-): McpSdkServerConfigWithInstance {
-  const allowedNames = new Set(
-    (opts?.filter ? filterTools(opts.filter) : TOOL_CATALOG).map(s => s.name)
-  );
+import { createEmbeddingClient } from '../utils/embedding-client.js';
 
-  const allTools = [ /* existing tool() definitions */ ];
-  const filteredTools = allTools.filter(t => allowedNames.has(t.name));
-  // ... pass filteredTools to createSdkMcpServer
-}
-```
+const embeddingClient = createEmbeddingClient({
+  model: config.history.embedding_model,
+  dimensions: config.history.embedding_dimensions,
+});
 
-This requires a small refactor: move the `tool()` calls into an array, then filter it, then pass to `createSdkMcpServer`.
-
-### 5. `src/agent/runner.ts` (pi-agent-core)
-
-**Build filter context from AgentConfig and pass to `createIPCTools()`:**
-
-```typescript
-const filter: ToolFilterContext = {
-  hasHeartbeat: !!identityFiles.heartbeat?.trim(),
-  hasSkills: skills.length > 0,
-  hasWorkspaceTiers: !!(config.agentWorkspace || config.userWorkspace || config.scratchDir),
-  hasGovernance: config.profile === 'paranoid' || config.profile === 'balanced',
+const recallConfig: MemoryRecallConfig = {
+  enabled: config.history.memory_recall,
+  limit: config.history.memory_recall_limit,
+  scope: config.history.memory_recall_scope,
+  embeddingClient,
 };
-const ipcTools = createIPCTools(client, { userId: config.userId, filter });
 ```
 
-This requires loading identity files and skills **before** creating tools — currently done in `buildSystemPrompt()`. Factor out a shared `buildToolFilterContext()` helper.
+---
 
-### 6. `src/agent/runners/claude-code.ts`
+## Step 7: Add config fields for embeddings
 
-**Build filter context and pass to `createIPCMcpServer()`:**
+**Modified file:** `src/config.ts`
 
-Same pattern — derive ToolFilterContext from the already-loaded prompt context.
+Add to the `history` strict object:
+```typescript
+embedding_model: z.string().default('text-embedding-3-small'),
+embedding_dimensions: z.number().int().min(64).max(4096).default(1536),
+```
 
-### 7. `src/agent/agent-setup.ts`
+**Modified file:** `src/types.ts`
 
-**Export a helper to build ToolFilterContext from AgentConfig:**
+Add to `Config.history`:
+```typescript
+embedding_model: string;
+embedding_dimensions: number;
+```
+
+---
+
+## Step 8: Background backfill for existing memories
+
+**Modified file:** `src/providers/memory/memoryfs/provider.ts`
+
+After initialization, kick off a fire-and-forget backfill:
 
 ```typescript
-export function buildToolFilterContext(config: AgentConfig): ToolFilterContext {
-  const identityFiles = loadIdentityFiles({ agentDir: config.agentDir, userId: config.userId });
-  const skills = loadSkills(config.skills);
-  return {
-    hasHeartbeat: !!identityFiles.heartbeat?.trim(),
-    hasSkills: skills.length > 0,
-    hasWorkspaceTiers: !!(config.agentWorkspace || config.userWorkspace || config.scratchDir),
-    hasGovernance: config.profile === 'paranoid' || config.profile === 'balanced',
-  };
+async function backfillEmbeddings(
+  store: ItemsStore,
+  embeddingStore: EmbeddingStore,
+  client: EmbeddingClient,
+  batchSize = 50,
+) {
+  if (!client.available) return;
+  const unembedded = embeddingStore.listUnembedded(batchSize);
+  if (unembedded.length === 0) return;
+
+  const items = store.getByIds(unembedded);
+  const vectors = await client.embed(items.map(i => i.content));
+  for (let i = 0; i < items.length; i++) {
+    embeddingStore.upsert(items[i].id, vectors[i]);
+  }
 }
 ```
 
-Note: this loads identity files twice (once for filter, once for prompt). To avoid this, refactor `buildSystemPrompt()` to also return the filter context and loaded data. The prompt build already loads both — just expose them.
-
-**Preferred approach**: refactor `buildSystemPrompt()` to return `{ systemPrompt, metadata, filterContext }`, deriving the ToolFilterContext from the same loaded data it already has.
-
-### 8. Tests
-
-**`tests/agent/tool-catalog.test.ts`:**
-- Update "exports exactly 25 tools" assertion
-- Add tests for `filterTools()`:
-  - All flags false → excludes scheduler, skills, workspace, governance tools
-  - All flags true → returns full catalog
-  - Individual flag tests (hasHeartbeat=true includes scheduler, etc.)
-- Add test: every tool has a valid `category` value
-
-**`tests/agent/tool-catalog-sync.test.ts`:**
-- Update sync tests to account for filtering:
-  - MCP sync test: verify filtered tools match (pass full context to get all tools)
-  - System prompt sync test: verify that excluded tools are NOT documented in excluded modules (and vice versa) — this is already the case via `shouldInclude()` but worth asserting
-- Add test: `filterTools` categories align with prompt module `shouldInclude()` — when a category is excluded, the corresponding prompt module is also excluded
-
-**`tests/agent/ipc-tools.test.ts`:**
-- Add test: createIPCTools with filter context returns correct subset
-- Add test: createIPCTools without filter returns full catalog (backward compat)
-
-**New test: `tests/agent/tool-filter.test.ts`:**
-- Dedicated test file for filterTools and ToolFilterContext
-- Tests all combination of flags
-- Tests that no tool is "orphaned" (every category has at least one tool)
-
-### 9. `src/agent/mcp-server.ts` — Description sync
-
-**Tighten MCP descriptions to match trimmed TOOL_CATALOG descriptions.** These must stay in sync per the existing sync test (which checks names and parameter keys but not descriptions). After trimming, manually verify each MCP description matches.
+- Runs once on provider creation (non-blocking)
+- Processes in batches of 50
+- Logs progress and errors
+- Subsequent queries will have embeddings available
 
 ---
 
-## Execution Order
+## Step 9: Tests
 
-1. **Add `category` to ToolSpec and tag all tools** (`tool-catalog.ts`)
-2. **Add `filterTools()` and `ToolFilterContext`** (`tool-catalog.ts`)
-3. **Tighten descriptions** in TOOL_CATALOG + matching MCP descriptions
-4. **Refactor `buildSystemPrompt()`** to also return ToolFilterContext (`agent-setup.ts`)
-5. **Wire filtering into ipc-tools.ts** (pi-agent-core consumer)
-6. **Wire filtering into pi-session.ts** (pi-coding-agent consumer)
-7. **Wire filtering into mcp-server.ts** (claude-code consumer)
-8. **Wire filtering into runner.ts and claude-code.ts** (pass context through)
-9. **Write tests** — tool-catalog, tool-filter, ipc-tools, sync tests
-10. **Run full test suite**, fix any breakage
+**New test files:**
+- `tests/utils/embedding-client.test.ts` — Client unit tests
+- `tests/providers/memory/memoryfs/embedding-store.test.ts` — Vector store tests
 
----
-
-## Impact Analysis
-
-### Token savings (estimated per LLM call)
-
-| Scenario | Before (tools) | After (tools) | Δ tools | Est. token savings |
-|----------|:-:|:-:|:-:|:-:|
-| No heartbeat, no skills, no enterprise | 25 | 14 | -11 | ~800-1200 tokens |
-| With heartbeat, no skills, no enterprise | 25 | 18 | -7 | ~500-800 tokens |
-| Full enterprise setup | 25 | 25 | 0 | ~200 (from trimmed descriptions) |
-
-These savings compound: AX makes multiple LLM calls per session (typically 3-15). At 10 calls/session, that's 5,000-12,000 input tokens saved — meaningful for cost and latency.
-
-### Description trimming savings
-
-Trimming 6 verbose descriptions by ~100-170 chars each saves ~600-1000 chars → ~150-250 tokens per call, regardless of filtering.
-
-### Risk assessment
-
-- **Low risk**: Category tags are additive (new field, backward compatible)
-- **Low risk**: filterTools is opt-in (callers that don't pass filter get full catalog)
-- **Medium risk**: MCP server refactor (moving tools into an array then filtering). Sync test catches regressions.
-- **Low risk**: Description trimming — behavioral guidance lives in prompt modules, not tool descriptions
-
-### What could break
-
-- Tests that assert exact tool count (25) — need updating
-- Tests that assume all tools are always present — need filter context
-- MCP server structure change — sync test validates
+**Modified test files:**
+- `tests/host/memory-recall.test.ts` — Add embedding-based recall tests:
+  - Embedding available → uses semantic search
+  - Embedding unavailable → falls back to keywords
+  - Mock embedding client
+- `tests/config-history.test.ts` — Update default config assertion with new fields
+- `tests/providers/memory/memoryfs/` — Update provider tests:
+  - Test write generates embedding when client available
+  - Test query with embedding field uses vector search
+  - Test graceful fallback when no embedding client
 
 ---
 
-## Security Considerations
+## Step 10: Journal and lessons
 
-- **No new dynamic imports** — filterTools uses category tags from the static catalog
-- **No config-driven tool paths** — respects SC-SEC-002
-- **Credentials never exposed** — filter context contains only boolean flags
-- **Taint tagging unaffected** — filter happens before tool execution, not during
-- **IPC validation unchanged** — Zod schemas still validate at host boundary
+Update `.claude/journal/` and `.claude/lessons/` per protocol before committing.
 
 ---
 
-## Files Modified
+## File Change Summary
 
-| File | Change |
-|------|--------|
-| `src/agent/tool-catalog.ts` | Add category, filterTools(), tighten descriptions |
-| `src/agent/ipc-tools.ts` | Accept filter context |
-| `src/agent/mcp-server.ts` | Accept filter context, refactor to filterable array |
-| `src/agent/runner.ts` | Pass filter context to createIPCTools |
-| `src/agent/runners/pi-session.ts` | Pass filter context to createIPCToolDefinitions |
-| `src/agent/runners/claude-code.ts` | Pass filter context to createIPCMcpServer |
-| `src/agent/agent-setup.ts` | Return ToolFilterContext from buildSystemPrompt |
-| `tests/agent/tool-catalog.test.ts` | Update count, add category/filter tests |
-| `tests/agent/tool-catalog-sync.test.ts` | Update for filtering awareness |
-| `tests/agent/tool-filter.test.ts` | New: dedicated filter tests |
-| `tests/agent/ipc-tools.test.ts` | Add filtered tool creation tests |
+| File | Action | Description |
+|------|--------|-------------|
+| `package.json` | modify | Add `@dao-xyz/sqlite3-vec` |
+| `src/utils/embedding-client.ts` | **new** | Standalone OpenAI embedding client |
+| `src/providers/memory/memoryfs/embedding-store.ts` | **new** | sqlite-vec vector store |
+| `src/providers/memory/types.ts` | modify | Add optional `embedding` to MemoryQuery |
+| `src/providers/memory/memoryfs/provider.ts` | modify | Integrate embedding on write/query |
+| `src/providers/memory/memoryfs/items-store.ts` | modify | Add `getByIds()` batch method |
+| `src/host/memory-recall.ts` | modify | Embed user message, pass to query, fallback |
+| `src/host/server-completions.ts` | modify | Create embedding client, pass to recall |
+| `src/config.ts` | modify | Add `embedding_model`, `embedding_dimensions` |
+| `src/types.ts` | modify | Add embedding config to `Config.history` |
+| `tests/utils/embedding-client.test.ts` | **new** | Embedding client unit tests |
+| `tests/providers/memory/memoryfs/embedding-store.test.ts` | **new** | Vector store tests |
+| `tests/host/memory-recall.test.ts` | modify | Add embedding recall tests |
+| `tests/config-history.test.ts` | modify | Update default config assertion |
+
+---
+
+## Key Design Decisions
+
+1. **Separate `EmbeddingClient` utility** (not extending LLMProvider) — embeddings are request/response, not streaming chat. Different API shape entirely.
+
+2. **Separate `_vec.db` file** — avoids compatibility issues between the vec extension and the existing sync SQLite adapter. The vec extension needs to be loaded via `@dao-xyz/sqlite3-vec`, not the generic `openDatabase()`.
+
+3. **`MemoryQuery.embedding` optional field** (not new interface method) — backward compatible, all existing providers and callers continue to work unchanged.
+
+4. **FTS5/LIKE fallback** — when `OPENAI_API_KEY` is absent, the system degrades to keyword search silently. No errors, no broken functionality.
+
+5. **Configurable model + dimensions** — defaulting to `text-embedding-3-small` (1536 dims, $0.02/1M tokens). Can set to any OpenAI-compatible embedding endpoint via config.
+
+6. **Background backfill** — existing memories get embeddings generated lazily after startup. Non-blocking, non-critical.
+
+7. **Similarity × salience scoring** — vector distance maps to `similarity = 1 / (1 + distance)`, then feeds into the existing `salienceScore()` formula. Combines semantic relevance with reinforcement frequency and recency.
+
+8. **EmbeddingClient created in two places** — MemoryFS provider (for write-time embedding) and server-completions (for query-time embedding). Both are stateless OpenAI HTTP clients reading from the same env vars. This avoids threading the embedding client through the provider registry.

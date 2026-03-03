@@ -29,6 +29,7 @@ import type { FileStore } from '../file-store.js';
 import type { EventBus } from './event-bus.js';
 import { maybeSummarizeHistory, type SummarizationConfig } from './history-summarizer.js';
 import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall.js';
+import { createEmbeddingClient } from '../utils/embedding-client.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -329,12 +330,17 @@ export async function processCompletion(
     }
 
     // Inject long-term memory recall as the oldest context turns.
-    // Uses FTS5 keyword search against the memory provider to find entries
-    // relevant to the current user message, prepended before any history.
+    // Prefers embedding-based semantic search; falls back to keyword search
+    // when no OPENAI_API_KEY is available.
+    const embeddingClient = createEmbeddingClient({
+      model: config.history.embedding_model,
+      dimensions: config.history.embedding_dimensions,
+    });
     const recallConfig: MemoryRecallConfig = {
       enabled: config.history.memory_recall,
       limit: config.history.memory_recall_limit,
       scope: config.history.memory_recall_scope,
+      embeddingClient,
     };
     if (recallConfig.enabled) {
       try {

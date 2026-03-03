@@ -4,6 +4,7 @@ import {
   type MemoryRecallConfig,
 } from '../../src/host/memory-recall.js';
 import type { MemoryProvider, MemoryEntry, MemoryQuery } from '../../src/providers/memory/types.js';
+import type { EmbeddingClient } from '../../src/utils/embedding-client.js';
 
 const silentLogger = {
   info: vi.fn(),
@@ -264,5 +265,163 @@ describe('recallMemoryForMessage', () => {
     );
 
     expect(capturedQuery!.scope).toBe('project-notes');
+  });
+
+  // ── Embedding-based recall tests ──
+
+  it('uses embedding search when embeddingClient is available', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        return [{ id: 'mem1', scope: 'default', content: 'Found via embedding' }];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    const mockEmbeddingClient: EmbeddingClient = {
+      available: true,
+      dimensions: 3,
+      async embed(texts: string[]) {
+        return texts.map(() => new Float32Array([0.1, 0.2, 0.3]));
+      },
+    };
+
+    const result = await recallMemoryForMessage(
+      'What database do we use?',
+      memory,
+      { ...enabledConfig, embeddingClient: mockEmbeddingClient },
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].content).toContain('Found via embedding');
+    // Query should have embedding, not keyword query
+    expect(capturedQuery!.embedding).toBeInstanceOf(Float32Array);
+    expect(capturedQuery!.query).toBeUndefined();
+  });
+
+  it('falls back to keyword search when embedding client is unavailable', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        if (q.query) {
+          return [{ id: 'mem1', scope: 'default', content: 'Found via keywords for database' }];
+        }
+        return [];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    const unavailableClient: EmbeddingClient = {
+      available: false,
+      dimensions: 3,
+      async embed() { throw new Error('not available'); },
+    };
+
+    const result = await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      { ...enabledConfig, embeddingClient: unavailableClient },
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(2);
+    // Should have used keyword query, not embedding
+    expect(capturedQuery!.query).toBeTruthy();
+    expect(capturedQuery!.embedding).toBeUndefined();
+  });
+
+  it('falls back to keyword search when embedding fails', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        if (q.query) {
+          return [{ id: 'mem1', scope: 'default', content: 'Fallback keyword result for database' }];
+        }
+        return [];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    const failingClient: EmbeddingClient = {
+      available: true,
+      dimensions: 3,
+      async embed() { throw new Error('API rate limited'); },
+    };
+
+    const result = await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      { ...enabledConfig, embeddingClient: failingClient },
+      silentLogger,
+    );
+
+    // Should fall back to keyword search after embedding failure
+    expect(result).toHaveLength(2);
+    expect(capturedQuery!.query).toBeTruthy();
+    expect(silentLogger.warn).toHaveBeenCalledWith(
+      'memory_recall_embedding_failed',
+      expect.objectContaining({ error: 'API rate limited', fallback: 'keyword' }),
+    );
+  });
+
+  it('logs embedding strategy on recall hit', async () => {
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query() {
+        return [{ id: 'mem1', scope: 'default', content: 'Result via embedding' }];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    const mockClient: EmbeddingClient = {
+      available: true,
+      dimensions: 3,
+      async embed(texts: string[]) {
+        return texts.map(() => new Float32Array([0.1, 0.2, 0.3]));
+      },
+    };
+
+    await recallMemoryForMessage(
+      'Tell me about the architecture',
+      memory,
+      { ...enabledConfig, embeddingClient: mockClient },
+      silentLogger,
+    );
+
+    expect(silentLogger.info).toHaveBeenCalledWith(
+      'memory_recall_hit',
+      expect.objectContaining({ strategy: 'embedding' }),
+    );
+  });
+
+  it('works without embeddingClient at all (backward compat)', async () => {
+    const memory = createMockMemory([
+      { id: 'mem1', scope: 'default', content: 'Database uses PostgreSQL' },
+    ]);
+
+    const result = await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      enabledConfig, // no embeddingClient field
+      silentLogger,
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].content).toContain('PostgreSQL');
   });
 });
