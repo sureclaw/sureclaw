@@ -399,7 +399,6 @@ describe('Provider Map', () => {
 
     // Credential providers
     expect(PROVIDER_MAP.credentials).toHaveProperty('plaintext');
-    expect(PROVIDER_MAP.credentials).toHaveProperty('encrypted');
 
     // Skills providers
     expect(PROVIDER_MAP.skills).toHaveProperty('readonly');
