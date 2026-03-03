@@ -172,7 +172,7 @@ describe('skill_install handler', () => {
 
       expect(result.ok).toBe(true);
       expect(result.steps[0].status).toBe('invalid');
-      expect(result.steps[0].validationError).toContain('known package manager');
+      expect(result.steps[0].validationError).toContain('Shell operators');
     });
 
     test('flags sudo commands during inspect', async () => {

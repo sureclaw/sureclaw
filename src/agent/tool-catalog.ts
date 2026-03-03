@@ -229,14 +229,14 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       }),
       Type.Object({
         type: Type.Literal('install'),
-        name: Type.String({ description: 'Skill name to install dependencies for' }),
+        skill: Type.String({ description: 'Skill name to install dependencies for' }),
         phase: Type.String({ description: '"inspect" to check what\'s needed, or "execute" to run one approved step' }),
         stepIndex: Type.Optional(Type.Number({ description: 'Step index to execute (required for execute phase)' })),
         inspectToken: Type.Optional(Type.String({ description: 'SHA-256 token from inspect response; required for execute phase' })),
       }),
       Type.Object({
         type: Type.Literal('install_status'),
-        name: Type.String({ description: 'Skill name to check install progress for' }),
+        skill: Type.String({ description: 'Skill name to check install progress for' }),
       }),
     ]),
     category: 'skill',

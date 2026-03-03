@@ -20,6 +20,13 @@ const execFileAsync = promisify(execFile);
 const ALLOWED_PREFIXES = /^(npm|npx|brew|pip|pip3|uv|cargo|go|apt|apt-get|apk|gem|composer|dotnet)\b/;
 const BLOCKED_PREFIXES = /^(sudo|su|doas|pkexec)\b/;
 
+/**
+ * Shell operators and metacharacters that enable command chaining or injection.
+ * Since executeInstallStep runs via `/bin/sh -c`, these would allow arbitrary
+ * command execution even if the prefix is a valid package manager.
+ */
+const SHELL_OPERATOR_RE = /[;|&`$><]|\$\(|\)\s*\{/;
+
 export interface CommandValidation {
   valid: boolean;
   reason?: string;
@@ -31,6 +38,11 @@ export function validateRunCommand(cmd: string): CommandValidation {
   // Hard-reject privilege escalation
   if (BLOCKED_PREFIXES.test(trimmed)) {
     return { valid: false, reason: `Privilege escalation command rejected: ${trimmed.split(/\s/)[0]}` };
+  }
+
+  // Reject shell operators that enable command chaining/injection (§11)
+  if (SHELL_OPERATOR_RE.test(trimmed)) {
+    return { valid: false, reason: 'Shell operators (;, &&, ||, |, `, $(), >, <) are not allowed in install commands' };
   }
 
   // Require known package manager prefix
