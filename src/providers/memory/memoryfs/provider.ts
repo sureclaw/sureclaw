@@ -9,7 +9,7 @@ import { dataFile } from '../../../paths.js';
 import { ItemsStore } from './items-store.js';
 import { EmbeddingStore } from './embedding-store.js';
 import { writeSummary, readSummary, initDefaultCategories } from './summary-io.js';
-import { extractByRegex, extractByLLM } from './extractor.js';
+import { extractByLLM } from './extractor.js';
 import { computeContentHash } from './content-hash.js';
 import { salienceScore } from './salience.js';
 import { buildSummaryPrompt } from './prompts.js';
@@ -285,12 +285,13 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
 
     async memorize(conversation: ConversationTurn[]): Promise<void> {
       if (conversation.length === 0) return;
+      if (!llm) {
+        throw new Error('memorize requires an LLM provider');
+      }
       const scope = 'default';
 
-      // Step 1: Extract items (LLM or regex fallback)
-      const candidates = llm
-        ? await extractByLLM(conversation, scope, llm).catch(() => extractByRegex(conversation, scope))
-        : extractByRegex(conversation, scope);
+      // Step 1: Extract items via LLM (errors propagate)
+      const candidates = await extractByLLM(conversation, scope, llm);
 
       // Step 2: Dedup/reinforce or insert, collecting new items for embedding
       const newItemsByCategory = new Map<string, string[]>();
@@ -309,18 +310,9 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
         }
       }
 
-      // Step 3: Update category summaries via LLM (or bullet-append fallback)
-      if (llm) {
-        for (const [category, newContents] of newItemsByCategory) {
-          await updateCategorySummary(llm, memoryDir, category, newContents);
-        }
-      } else {
-        for (const [category, newContents] of newItemsByCategory) {
-          const existingSummary = await readSummary(memoryDir, category) || `# ${category}\n`;
-          const newBullets = newContents.map(c => `- ${c}`).join('\n');
-          const updated = `${existingSummary.trimEnd()}\n${newBullets}\n`;
-          await writeSummary(memoryDir, category, updated);
-        }
+      // Step 3: Update category summaries via LLM
+      for (const [category, newContents] of newItemsByCategory) {
+        await updateCategorySummary(llm, memoryDir, category, newContents);
       }
 
       // Step 4: Generate embeddings for new items (non-blocking batch)

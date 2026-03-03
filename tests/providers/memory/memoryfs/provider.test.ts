@@ -103,27 +103,11 @@ describe('memoryfs provider', () => {
     expect(entry).toBeNull();
   });
 
-  it('memorize() extracts facts from conversation', async () => {
+  it('memorize() throws when no LLM is available', async () => {
     const conversation: ConversationTurn[] = [
       { role: 'user', content: 'Remember that I prefer dark mode in all editors' },
-      { role: 'assistant', content: 'Got it, I will remember that.' },
     ];
-    await memory.memorize!(conversation);
-    const results = await memory.query({ scope: 'default', query: 'dark mode' });
-    expect(results.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('memorize() deduplicates and reinforces', async () => {
-    const conv1: ConversationTurn[] = [
-      { role: 'user', content: 'Remember that I prefer TypeScript' },
-    ];
-    const conv2: ConversationTurn[] = [
-      { role: 'user', content: 'Remember that I prefer TypeScript' },
-    ];
-    await memory.memorize!(conv1);
-    await memory.memorize!(conv2);
-    const results = await memory.query({ scope: 'default', query: 'TypeScript' });
-    expect(results).toHaveLength(1);
+    await expect(memory.memorize!(conversation)).rejects.toThrow('memorize requires an LLM provider');
   });
 
   it('preserves taint tags', async () => {
@@ -235,37 +219,15 @@ describe('memoryfs provider with LLM', () => {
     expect(results[0].content).toBe('User prefers dark mode');
   });
 
-  it('memorize() falls back to regex when LLM extraction fails', async () => {
-    // LLM returns invalid response — should fall back to regex
+  it('memorize() throws when LLM extraction fails', async () => {
+    // LLM returns invalid response — error should propagate
     llm = mockLLM(['this is not valid JSON']);
     memory = await create(config, undefined, { llm });
 
     const conversation: ConversationTurn[] = [
       { role: 'user', content: 'Remember that I prefer TypeScript' },
     ];
-    await memory.memorize!(conversation);
-
-    // Regex fallback should still extract the memory
-    const results = await memory.query({ scope: 'default', query: 'TypeScript' });
-    expect(results.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('without LLM, memorize() uses regex + bullet append (existing behavior)', async () => {
-    // No LLM passed
-    memory = await create(config);
-
-    const conversation: ConversationTurn[] = [
-      { role: 'user', content: 'Remember that I prefer dark mode in all editors' },
-    ];
-    await memory.memorize!(conversation);
-
-    const results = await memory.query({ scope: 'default', query: 'dark mode' });
-    expect(results.length).toBeGreaterThanOrEqual(1);
-
-    // Verify bullet-append style in summary file
-    const memoryDir = dataFile('memory');
-    const summary = await readFile(join(memoryDir, 'personal_info.md'), 'utf-8');
-    expect(summary).toContain('- ');
+    await expect(memory.memorize!(conversation)).rejects.toThrow('LLM extraction returned no JSON array');
   });
 
   it('memorize() updates summary via LLM when available', async () => {

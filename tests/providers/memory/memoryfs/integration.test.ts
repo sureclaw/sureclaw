@@ -1,5 +1,5 @@
 // tests/providers/memory/memoryfs/integration.test.ts
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -7,8 +7,31 @@ import { randomUUID } from 'node:crypto';
 import { create } from '../../../../src/providers/memory/memoryfs/provider.js';
 import type { MemoryProvider, ConversationTurn } from '../../../../src/providers/memory/types.js';
 import type { Config } from '../../../../src/types.js';
+import type { LLMProvider, ChatChunk } from '../../../../src/providers/llm/types.js';
 
 const config = {} as Config;
+
+/** Create an async iterable from an array of chunks. */
+async function* chunksFrom(chunks: ChatChunk[]): AsyncIterable<ChatChunk> {
+  for (const c of chunks) yield c;
+}
+
+/** Build a mock LLM that returns canned responses per call index. */
+function mockLLM(responses: string[]): LLMProvider {
+  let callIdx = 0;
+  return {
+    name: 'mock',
+    chat: vi.fn().mockImplementation(() => {
+      const resp = responses[callIdx] ?? responses[responses.length - 1];
+      callIdx++;
+      return chunksFrom([
+        { type: 'text', content: resp },
+        { type: 'done' },
+      ]);
+    }),
+    models: vi.fn().mockResolvedValue(['fast']),
+  };
+}
 
 describe('MemoryFS integration', () => {
   let memory: MemoryProvider;
@@ -17,7 +40,6 @@ describe('MemoryFS integration', () => {
   beforeEach(async () => {
     testHome = await mkdtemp(join(tmpdir(), `memfs-integ-${randomUUID()}-`));
     process.env.AX_HOME = testHome;
-    memory = await create(config);
   });
 
   afterEach(async () => {
@@ -26,6 +48,14 @@ describe('MemoryFS integration', () => {
   });
 
   it('full lifecycle: memorize -> query -> reinforcement', async () => {
+    const extractionResponse = JSON.stringify([
+      { content: 'Prefers dark mode in all editors', memoryType: 'profile', category: 'preferences' },
+      { content: 'Always runs tests before committing', memoryType: 'behavior', category: 'habits' },
+    ]);
+    const summaryResponse = '# preferences\n- Dark mode\n# habits\n- Tests before commit';
+    const llm = mockLLM([extractionResponse, summaryResponse, summaryResponse]);
+    memory = await create(config, undefined, { llm });
+
     const conversation: ConversationTurn[] = [
       { role: 'user', content: 'Remember that I prefer dark mode in all editors' },
       { role: 'assistant', content: 'Noted!' },
@@ -41,6 +71,14 @@ describe('MemoryFS integration', () => {
   });
 
   it('dedup: same fact mentioned twice -> one entry reinforced', async () => {
+    const extractionResponse = JSON.stringify([
+      { content: 'Uses PostgreSQL', memoryType: 'knowledge', category: 'knowledge' },
+    ]);
+    const summaryResponse = '# knowledge\n- Uses PostgreSQL';
+    // Two memorize calls: extraction + summary for first, extraction only for second (dedup)
+    const llm = mockLLM([extractionResponse, summaryResponse, extractionResponse]);
+    memory = await create(config, undefined, { llm });
+
     const conv1: ConversationTurn[] = [
       { role: 'user', content: 'Remember that I use PostgreSQL' },
     ];
@@ -55,6 +93,7 @@ describe('MemoryFS integration', () => {
   });
 
   it('write + read + delete round-trip', async () => {
+    memory = await create(config);
     const id = await memory.write({
       scope: 'test-scope',
       content: 'Manual fact about the project',
@@ -70,6 +109,7 @@ describe('MemoryFS integration', () => {
   });
 
   it('scope isolation', async () => {
+    memory = await create(config);
     await memory.write({ scope: 'proj-a', content: 'Uses React' });
     await memory.write({ scope: 'proj-b', content: 'Uses Vue' });
 
@@ -83,6 +123,13 @@ describe('MemoryFS integration', () => {
   });
 
   it('summary files are created in memory directory', async () => {
+    const extractionResponse = JSON.stringify([
+      { content: 'Prefers TypeScript', memoryType: 'profile', category: 'preferences' },
+    ]);
+    const summaryResponse = '# preferences\n- Prefers TypeScript';
+    const llm = mockLLM([extractionResponse, summaryResponse]);
+    memory = await create(config, undefined, { llm });
+
     await memory.memorize!([
       { role: 'user', content: 'Remember that I prefer TypeScript' },
     ]);
