@@ -27,6 +27,8 @@ import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode } from '../utils/
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
 import type { EventBus } from './event-bus.js';
+import { maybeSummarizeHistory, type SummarizationConfig } from './history-summarizer.js';
+import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -324,6 +326,27 @@ export async function processCompletion(
         role: m.role as 'user' | 'assistant',
         content: m.content,
       }));
+    }
+
+    // Inject long-term memory recall as the oldest context turns.
+    // Uses FTS5 keyword search against the memory provider to find entries
+    // relevant to the current user message, prepended before any history.
+    const recallConfig: MemoryRecallConfig = {
+      enabled: config.history.memory_recall,
+      limit: config.history.memory_recall_limit,
+      scope: config.history.memory_recall_scope,
+    };
+    if (recallConfig.enabled) {
+      try {
+        const recallTurns = await recallMemoryForMessage(
+          textContent, providers.memory, recallConfig, reqLogger,
+        );
+        if (recallTurns.length > 0) {
+          history.unshift(...recallTurns);
+        }
+      } catch (err) {
+        reqLogger.warn('memory_recall_error', { error: (err as Error).message });
+      }
     }
 
     // Spawn sandbox — run agent with plain `node`, never through the tsx
@@ -662,6 +685,22 @@ export async function processCompletion(
         // Lazy prune: only when count exceeds limit
         if (conversationStore.count(persistentSessionId) > maxTurns) {
           conversationStore.prune(persistentSessionId, maxTurns);
+        }
+
+        // Summarize old turns if enabled — compresses older turns into a summary
+        // so conversations can grow indefinitely without losing context.
+        const summarizeConfig: SummarizationConfig = {
+          enabled: config.history.summarize,
+          threshold: config.history.summarize_threshold,
+          keepRecent: config.history.summarize_keep_recent,
+        };
+        if (summarizeConfig.enabled) {
+          maybeSummarizeHistory(
+            persistentSessionId, conversationStore, providers.llm,
+            summarizeConfig, reqLogger,
+          ).catch(err => {
+            reqLogger.warn('history_summarize_error', { error: (err as Error).message });
+          });
         }
       } catch (err) {
         reqLogger.warn('history_save_failed', { error: (err as Error).message });

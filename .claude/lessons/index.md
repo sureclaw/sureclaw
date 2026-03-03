@@ -39,6 +39,7 @@
 - ALTER TABLE ADD COLUMN has no IF NOT EXISTS in SQLite [testing/sqlite.md](testing/sqlite.md)
 - Always check runMigrations result.error in store factories [testing/sqlite.md](testing/sqlite.md)
 - Structured content serialization — use JSON detection on load [testing/sqlite.md](testing/sqlite.md)
+- SQLite autoincrement IDs don't respect logical ordering after delete+insert [testing/sqlite.md](testing/sqlite.md)
 - Bootstrap lifecycle must be tested end-to-end including server restarts [testing/bootstrap.md](testing/bootstrap.md)
 - isAgentBootstrapMode requires BOTH SOUL.md and IDENTITY.md to complete bootstrap [testing/bootstrap.md](testing/bootstrap.md)
 
