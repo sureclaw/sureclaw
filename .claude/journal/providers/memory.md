@@ -2,6 +2,14 @@
 
 Memory provider implementations, MemoryFS planning.
 
+## [2026-03-03 03:25] — Fix TS build errors in embedding-store.ts
+
+**Task:** Fix 8 TypeScript compilation errors in embedding-store.ts after merging origin/main
+**What I did:** Fixed import of `createDatabase` from `@dao-xyz/sqlite3-vec` — the package's `exports["."].types` resolves to `dist/unified.d.ts` which doesn't declare `createDatabase` as a named export (it's only in `dist/unified-node.d.ts`). Switched to default import (`import sqliteVec from ...`) and used `sqliteVec.createDatabase()`. Fixed 7 "Object is possibly null" errors in `init()` by using a local `db` variable instead of `this.db` (which is typed `Database | null`).
+**Files touched:** src/providers/memory/memoryfs/embedding-store.ts
+**Outcome:** Success — build passes clean, all 2216 tests pass
+**Notes:** The `@dao-xyz/sqlite3-vec` package has a type declaration mismatch: runtime entry is `dist/unified-node.js` (exports `createDatabase`) but types resolve to `dist/unified.d.ts` (doesn't export it). The default export is typed as `any`, so `sqliteVec.createDatabase()` works but loses type safety on the function signature — mitigated by annotating the result as `Database`.
+
 ## [2026-03-03 03:00] — Fix 3 PR review issues in embedding search
 
 **Task:** Address codex review comments on PR #57: (P1) embedding query falls through to unfiltered listing, (P2) backfill only covers 'default' scope, (P2) scoped similarity search uses incorrect global-MATCH-then-filter

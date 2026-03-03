@@ -15,8 +15,8 @@
 ### @dao-xyz/sqlite3-vec uses async API wrapping sync better-sqlite3
 **Date:** 2026-03-03
 **Context:** Integrating sqlite-vec for vector similarity search. The library's `createDatabase()` returns a Promise and `prepare()` is async, but the underlying operations are synchronous better-sqlite3 calls.
-**Lesson:** When using `@dao-xyz/sqlite3-vec` in Node.js: (1) `createDatabase()` is async — await it; (2) `prepare()` returns `Promise<Statement>` — await it; (3) `stmt.run()`, `stmt.get()`, `stmt.all()` are sync; (4) Float32Array values are auto-converted to Buffer for BLOB binding; (5) Use a separate database file from the existing `openDatabase()` adapter to avoid extension loading issues.
-**Tags:** sqlite-vec, better-sqlite3, embedding, vector-search, async
+**Lesson:** When using `@dao-xyz/sqlite3-vec` in Node.js: (1) `createDatabase()` is async — await it; (2) `prepare()` returns `Promise<Statement>` — await it; (3) `stmt.run()`, `stmt.get()`, `stmt.all()` are sync; (4) Float32Array values are auto-converted to Buffer for BLOB binding; (5) Use a separate database file from the existing `openDatabase()` adapter to avoid extension loading issues. **Import caveat:** Use `import sqliteVec from '@dao-xyz/sqlite3-vec'` (default import), NOT `import { createDatabase }` — the package's `exports["."].types` resolves to `dist/unified.d.ts` which doesn't declare `createDatabase` as a named export. The default export is typed `any`, so annotate the result: `const db: Database = await sqliteVec.createDatabase(...)`.
+**Tags:** sqlite-vec, better-sqlite3, embedding, vector-search, async, typescript-import
 
 ### Check dependency chain before implementing plan tasks — missing prereqs block you
 **Date:** 2026-03-02

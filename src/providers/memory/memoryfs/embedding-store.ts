@@ -9,7 +9,7 @@
  * to avoid extension compatibility issues with the existing SQLite adapter.
  */
 
-import { createDatabase, type Database, type Statement } from '@dao-xyz/sqlite3-vec';
+import sqliteVec, { type Database } from '@dao-xyz/sqlite3-vec';
 import { getLogger } from '../../../logger.js';
 
 const logger = getLogger().child({ component: 'embedding-store' });
@@ -32,13 +32,14 @@ export class EmbeddingStore {
   }
 
   private async init(): Promise<void> {
-    this.db = await createDatabase({ database: this.dbPath });
-    this.db.open();
+    const db: Database = await sqliteVec.createDatabase({ database: this.dbPath });
+    db.open();
+    this.db = db;
 
     // Metadata table for scope filtering + tracking which items have embeddings.
     // The embedding BLOB column stores a copy of the vector for scoped brute-force
     // queries via vec_distance_l2(), since vec0 MATCH doesn't support WHERE filtering.
-    this.db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS embedding_meta (
         item_id    TEXT PRIMARY KEY,
         scope      TEXT NOT NULL,
@@ -46,28 +47,28 @@ export class EmbeddingStore {
         embedding  BLOB
       )
     `);
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_emeta_scope ON embedding_meta(scope)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_emeta_scope ON embedding_meta(scope)');
 
     // Migration: add embedding column if upgrading from older schema
     try {
-      this.db.exec('ALTER TABLE embedding_meta ADD COLUMN embedding BLOB');
+      db.exec('ALTER TABLE embedding_meta ADD COLUMN embedding BLOB');
     } catch {
       // Column already exists — expected on non-first run
     }
 
     // vec0 virtual table for vector similarity search
-    this.db.exec(
+    db.exec(
       `CREATE VIRTUAL TABLE IF NOT EXISTS item_embeddings USING vec0(embedding float[${this.dimensions}])`,
     );
 
     // Mapping table: vec0 rowid -> item_id (vec0 uses integer rowids internally)
-    this.db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS embedding_rowmap (
         rowid   INTEGER PRIMARY KEY,
         item_id TEXT NOT NULL UNIQUE
       )
     `);
-    this.db.exec('CREATE INDEX IF NOT EXISTS idx_rowmap_item ON embedding_rowmap(item_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_rowmap_item ON embedding_rowmap(item_id)');
 
     logger.debug('init', { dbPath: this.dbPath, dimensions: this.dimensions });
   }

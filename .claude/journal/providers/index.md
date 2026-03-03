@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-03 03:25 — Fix TS build errors in embedding-store.ts [memory.md](memory.md)
 - 2026-03-03 03:00 — Fix 3 PR review issues in embedding search [memory.md](memory.md)
 - 2026-03-03 02:26 — Add embedding-based semantic search to MemoryFS [memory.md](memory.md)
 - 2026-03-03 01:10 — Implement plainjob scheduler: SQLite-persisted cron tier [scheduler.md](scheduler.md)
