@@ -53,9 +53,12 @@ export class SQLiteJobStore implements JobStore {
         prompt      TEXT NOT NULL,
         max_token_budget INTEGER,
         delivery    TEXT,
-        run_once    INTEGER NOT NULL DEFAULT 0
+        run_once    INTEGER NOT NULL DEFAULT 0,
+        run_at      TEXT
       )
     `);
+    // Migration: add run_at column to tables created before this column existed
+    try { this.db.exec('ALTER TABLE scheduler_jobs ADD COLUMN run_at TEXT'); } catch { /* already exists */ }
   }
 
   get(jobId: string): CronJobDef | undefined {
@@ -89,6 +92,22 @@ export class SQLiteJobStore implements JobStore {
       ? this.db.prepare('SELECT * FROM scheduler_jobs WHERE agent_id = ?').all(agentId) as Record<string, unknown>[]
       : this.db.prepare('SELECT * FROM scheduler_jobs').all() as Record<string, unknown>[];
     return rows.map(r => this.rowToJob(r));
+  }
+
+  /** Persist the fire-at timestamp for a one-shot job. */
+  setRunAt(jobId: string, runAt: Date): void {
+    this.db.prepare('UPDATE scheduler_jobs SET run_at = ? WHERE id = ?')
+      .run(runAt.toISOString(), jobId);
+  }
+
+  /** Return all jobs that have a persisted run_at (one-shot jobs awaiting rehydration). */
+  listWithRunAt(): Array<{ job: CronJobDef; runAt: Date }> {
+    const rows = this.db.prepare('SELECT * FROM scheduler_jobs WHERE run_at IS NOT NULL')
+      .all() as Record<string, unknown>[];
+    return rows.map(r => ({
+      job: this.rowToJob(r),
+      runAt: new Date(r.run_at as string),
+    }));
   }
 
   close(): void {

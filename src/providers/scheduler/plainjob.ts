@@ -35,6 +35,10 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   const lastFiredMinute = new Map<string, string>();
   // Timers for one-shot jobs scheduled via scheduleOnce()
   const onceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Track in-flight async cleanup promises so stop() can wait for them
+  const pendingCleanups = new Set<Promise<void>>();
+  // Closed flag to guard deferred cleanup against closed DB
+  let stopped = false;
 
   const activeHours: ActiveHours = {
     start: parseTime(config.scheduler.active_hours.start),
@@ -44,6 +48,10 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
 
   const heartbeatIntervalMs = config.scheduler.heartbeat_interval_min * 60 * 1000;
   const agentDir = config.scheduler.agent_dir;
+
+  // Filter cron scan to current agent to prevent cross-agent execution
+  // in multi-agent deployments sharing a single scheduler.db
+  const agentName = config.agent_name ?? 'main';
 
   function fireHeartbeat(): void {
     if (!onMessageHandler) return;
@@ -67,6 +75,25 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     });
   }
 
+  /** Track an async cleanup so stop() can await it before closing the DB. */
+  function trackCleanup(fn: () => void): void {
+    if (stopped) return; // DB already closed
+    try { fn(); } catch { /* ignore cleanup errors on closed DB */ }
+  }
+
+  function deferCleanup(result: unknown, fn: () => void): void {
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      const p = (result as Promise<unknown>).then(
+        () => trackCleanup(fn),
+        () => trackCleanup(fn),
+      ) as Promise<void>;
+      pendingCleanups.add(p);
+      p.finally(() => pendingCleanups.delete(p));
+    } else {
+      fn();
+    }
+  }
+
   function fireOnceJob(job: CronJobDef): void {
     if (!onMessageHandler) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,17 +105,10 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       attachments: [],
       timestamp: new Date(),
     });
-    // Defer cleanup until after async handler completes so the handler can
-    // still look up the job in the store (e.g., for delivery resolution).
-    const cleanup = () => {
+    deferCleanup(result, () => {
       jobs.delete(job.id);
       onceTimers.delete(job.id);
-    };
-    if (result?.then) {
-      result.then(cleanup, cleanup);
-    } else {
-      cleanup();
-    }
+    });
   }
 
   function checkCronJobs(at?: Date): void {
@@ -96,7 +116,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     if (!isWithinActiveHours(activeHours)) return;
     const now = at ?? new Date();
     const mk = minuteKey(now);
-    for (const job of jobs.list()) {
+    for (const job of jobs.list(agentName)) {
       if (!matchesCron(job.schedule, now)) continue;
       if (lastFiredMinute.get(job.id) === mk) continue; // already fired this minute
       lastFiredMinute.set(job.id, mk);
@@ -110,15 +130,10 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
         timestamp: now,
       });
       if (job.runOnce) {
-        const runOnceCleanup = () => {
+        deferCleanup(result, () => {
           jobs.delete(job.id);
           lastFiredMinute.delete(job.id);
-        };
-        if (result?.then) {
-          result.then(runOnceCleanup, runOnceCleanup);
-        } else {
-          runOnceCleanup();
-        }
+        });
       }
     }
   }
@@ -126,6 +141,19 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   return {
     async start(onMessage: (msg: InboundMessage) => void): Promise<void> {
       onMessageHandler = onMessage;
+      stopped = false;
+
+      // Rehydrate persisted one-shot jobs with run_at timestamps
+      if (jobs instanceof SQLiteJobStore) {
+        const now = Date.now();
+        for (const { job, runAt } of jobs.listWithRunAt()) {
+          // Only rehydrate jobs belonging to this agent
+          if (job.agentId !== agentName) continue;
+          const delayMs = Math.max(0, runAt.getTime() - now);
+          const timer = setTimeout(() => fireOnceJob(job), delayMs);
+          onceTimers.set(job.id, timer);
+        }
+      }
 
       // Heartbeat timer
       heartbeatTimer = setInterval(fireHeartbeat, heartbeatIntervalMs);
@@ -146,6 +174,11 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       for (const timer of onceTimers.values()) clearTimeout(timer);
       onceTimers.clear();
       onMessageHandler = null;
+      // Wait for in-flight async cleanups before closing the DB
+      if (pendingCleanups.size > 0) {
+        await Promise.allSettled([...pendingCleanups]);
+      }
+      stopped = true;
       jobs.close();
     },
 
@@ -163,11 +196,15 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     },
 
     listJobs(): CronJobDef[] {
-      return jobs.list();
+      return jobs.list(agentName);
     },
 
     scheduleOnce(job: CronJobDef, fireAt: Date): void {
       jobs.set(job);
+      // Persist fire time so one-shot jobs survive restarts
+      if (jobs instanceof SQLiteJobStore) {
+        jobs.setRunAt(job.id, fireAt);
+      }
       const delayMs = Math.max(0, fireAt.getTime() - Date.now());
       const timer = setTimeout(() => fireOnceJob(job), delayMs);
       onceTimers.set(job.id, timer);
