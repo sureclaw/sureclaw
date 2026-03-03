@@ -5,6 +5,28 @@
 <p align="center"><em>Like OpenClaw but with trust issues</em></p>
 <p align="center"><strong>Always-on AI agents that act autonomously</strong></p>
 
+<p align="center">
+  <a href="https://github.com/project-ax/project-ax/actions/workflows/ci.yml"><img src="https://github.com/project-ax/project-ax/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/project-ax/project-ax/actions/workflows/pages.yml"><img src="https://github.com/project-ax/project-ax/actions/workflows/pages.yml/badge.svg" alt="GitHub Pages"></a>
+  <a href="https://github.com/project-ax/project-ax/blob/main/LICENSE"><img src="https://img.shields.io/github/license/project-ax/project-ax" alt="License: MIT"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-%E2%89%A524-5fa04e?logo=nodedotjs&logoColor=white" alt="Node.js >= 24"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/project-ax/project-ax/stargazers"><img src="https://img.shields.io/github/stars/project-ax/project-ax?style=flat" alt="GitHub stars"></a>
+  <a href="https://github.com/project-ax/project-ax/network/members"><img src="https://img.shields.io/github/forks/project-ax/project-ax?style=flat" alt="GitHub forks"></a>
+  <a href="https://github.com/project-ax/project-ax/issues"><img src="https://img.shields.io/github/issues/project-ax/project-ax" alt="GitHub issues"></a>
+  <a href="https://github.com/project-ax/project-ax/pulls"><img src="https://img.shields.io/github/issues-pr/project-ax/project-ax" alt="GitHub pull requests"></a>
+  <a href="https://github.com/project-ax/project-ax/commits/main"><img src="https://img.shields.io/github/last-commit/project-ax/project-ax" alt="Last commit"></a>
+  <a href="https://github.com/project-ax/project-ax"><img src="https://img.shields.io/github/repo-size/project-ax/project-ax" alt="Repo size"></a>
+</p>
+<p align="center">
+  <a href="https://semgrep.dev/"><img src="https://img.shields.io/badge/security-semgrep-purple?logo=semgrep" alt="Semgrep"></a>
+  <a href="https://github.com/gitleaks/gitleaks"><img src="https://img.shields.io/badge/secrets-gitleaks-blue" alt="Gitleaks"></a>
+  <a href="https://github.com/project-ax/project-ax/blob/main/SECURITY.md"><img src="https://img.shields.io/badge/security%20policy-published-green" alt="Security policy"></a>
+  <a href="https://github.com/project-ax/project-ax/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
+</p>
+
 ---
 
 AX is a **personal AI agent** that lets you message an AI assistant (via CLI, Slack, WhatsApp, Telegram, etc.) and have it take actions on your behalf — read emails, fetch web pages, control a browser, generate images, manage your calendar, remember your preferences.
