@@ -108,6 +108,16 @@ describe('MemoryFS integration', () => {
     expect(deleted).toBeNull();
   });
 
+  it('hash dedup: identical write() calls return same id without embeddings', async () => {
+    memory = await create(config);
+    const id1 = await memory.write({ scope: 'default', content: 'Uses TypeScript everywhere' });
+    const id2 = await memory.write({ scope: 'default', content: 'Uses TypeScript everywhere' });
+
+    expect(id2).toBe(id1);
+    const entries = await memory.list('default');
+    expect(entries).toHaveLength(1);
+  });
+
   it('scope isolation', async () => {
     memory = await create(config);
     await memory.write({ scope: 'proj-a', content: 'Uses React' });

@@ -6,6 +6,12 @@
 **Lesson:** Content-hash dedup (sha256 of normalized lowercase content) works perfectly for identical text (whitespace/case invariant) but fails for LLM-extracted items because the LLM rephrases facts differently each extraction. To achieve semantic dedup, either: (1) constrain extraction prompt to produce canonical minimal phrasings, (2) use embedding similarity to detect near-duplicates before insert, or (3) both.
 **Tags:** memoryfs, dedup, llm, extraction, content-hash, semantic-duplicates
 
+### Mock embedding vectors must match EmbeddingStore configured dimensions
+**Date:** 2026-03-03
+**Context:** Semantic dedup tests used 3-element Float32Arrays but the provider defaults to 1536 dimensions. The EmbeddingStore's vec0 table was created with `float[1536]`, so 3-element upserts silently failed (caught by `.catch(() => {})`), making `findSimilar` return nothing.
+**Lesson:** When testing embedding-related features, pass `config.history.embedding_dimensions` matching the mock vector length. Use `{ history: { embedding_dimensions: 3 } } as unknown as Config` for small test vectors. The EmbeddingStore's vec0 virtual table enforces dimension consistency at the SQLite level.
+**Tags:** memoryfs, embedding, testing, dimensions, sqlite-vec
+
 ### LLM summary generator wraps output in markdown code fences
 **Date:** 2026-03-03
 **Context:** Acceptance test IT-4 found that 4 of 10 category summary .md files start with ` ```markdown ` instead of `# category_name`. The LLM returns the summary wrapped in code fences.

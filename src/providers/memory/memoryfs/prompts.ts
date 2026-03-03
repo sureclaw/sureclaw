@@ -26,15 +26,14 @@ export function buildSummaryPrompt(params: {
     '5. Output only the updated markdown profile. No explanations, no meta text.',
     '',
     '# Output Format',
-    '```markdown',
     `# ${category}`,
     '## <sub-topic>',
     '- User information item',
     '- User information item',
     '## <sub-topic>',
     '- User information item',
-    '```',
     '',
+    'IMPORTANT: Output ONLY the raw markdown profile. Do NOT wrap in code fences (no ```markdown blocks).',
     `Critical: Do not exceed ${targetLength} tokens. Merge or omit unimportant information to meet this limit.`,
     '',
     '# Input',
@@ -83,13 +82,12 @@ export function buildSummaryPromptWithRefs(params: {
     '4. Output only the updated markdown profile with inline references.',
     '',
     '# Output Format',
-    '```markdown',
     `# ${category}`,
     '## <sub-topic>',
     '- User information item [ref:ITEM_ID]',
     '- User information item [ref:ITEM_ID,ITEM_ID2]',
-    '```',
     '',
+    'IMPORTANT: Output ONLY the raw markdown profile. Do NOT wrap in code fences (no ```markdown blocks).',
     `Critical: Do not exceed ${targetLength} tokens. Always include [ref:ITEM_ID] for new items.`,
     '',
     '# Input',
@@ -137,6 +135,17 @@ export function buildPatchPrompt(params: {
     'Update:',
     updateContent,
   ].join('\n');
+}
+
+/**
+ * Strip markdown code fences that LLMs sometimes wrap output in,
+ * e.g. ```markdown\n...\n``` or ```\n...\n```
+ */
+export function stripCodeFences(text: string): string {
+  return text
+    .replace(/^```(?:markdown|md)?\s*\n/i, '')
+    .replace(/\n```\s*$/, '')
+    .trim();
 }
 
 export interface PatchResult {

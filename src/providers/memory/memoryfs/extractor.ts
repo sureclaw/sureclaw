@@ -14,7 +14,11 @@ const VALID_CATEGORIES = new Set([
 ]);
 
 const EXTRACTION_PROMPT = `Extract discrete facts, preferences, and action items from this conversation that should be remembered about the user. For each item:
-- content: A concise, self-contained statement (not the raw text — rephrase for clarity)
+- content: A short canonical statement using the SIMPLEST possible wording. Use "Subject verb object" form. Strip filler words, qualifiers, and synonyms. The SAME fact must ALWAYS produce the SAME wording regardless of how the user phrased it.
+  Examples of canonical form:
+  - "Prefers dark mode" (not "Likes to use dark mode in editors" or "Prefers using dark mode in all code editors")
+  - "Uses TypeScript for all projects" (not "The user uses TypeScript for all of their projects")
+  - "Runs tests before committing" (not "Always runs the test suite before making a commit")
 - memoryType: one of profile, event, knowledge, behavior, skill, tool
 - category: one of personal_info, preferences, relationships, activities, goals, experiences, knowledge, opinions, habits, work_life
 
@@ -75,7 +79,7 @@ export async function extractByLLM(
         content: item.content,
         memoryType,
         category,
-        contentHash: computeContentHash(item.content, memoryType),
+        contentHash: computeContentHash(item.content),
         confidence: 0.85,
         reinforcementCount: 1,
         lastReinforcedAt: now,

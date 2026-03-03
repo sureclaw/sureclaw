@@ -5,6 +5,7 @@ import {
   buildSummaryPromptWithRefs,
   buildPatchPrompt,
   parsePatchResponse,
+  stripCodeFences,
 } from '../../../../src/providers/memory/memoryfs/prompts.js';
 
 describe('buildSummaryPrompt', () => {
@@ -19,6 +20,16 @@ describe('buildSummaryPrompt', () => {
     expect(prompt).toContain('400');
     expect(prompt).toContain('Prefers TypeScript');
     expect(prompt).toContain('Uses vim');
+  });
+
+  it('instructs LLM not to wrap in code fences', () => {
+    const prompt = buildSummaryPrompt({
+      category: 'preferences',
+      originalContent: '',
+      newItems: ['test'],
+      targetLength: 400,
+    });
+    expect(prompt).toContain('Do NOT wrap in code fences');
   });
 
   it('includes original content when provided', () => {
@@ -78,5 +89,32 @@ describe('parsePatchResponse', () => {
   it('handles malformed JSON gracefully', () => {
     const result = parsePatchResponse('not json');
     expect(result.needUpdate).toBe(false);
+  });
+});
+
+describe('stripCodeFences', () => {
+  it('strips ```markdown fences', () => {
+    const input = '```markdown\n# preferences\n## Editor\n- Uses vim\n```';
+    expect(stripCodeFences(input)).toBe('# preferences\n## Editor\n- Uses vim');
+  });
+
+  it('strips ```md fences', () => {
+    const input = '```md\n# habits\n- Runs tests\n```';
+    expect(stripCodeFences(input)).toBe('# habits\n- Runs tests');
+  });
+
+  it('strips bare ``` fences', () => {
+    const input = '```\n# knowledge\n- Uses TypeScript\n```';
+    expect(stripCodeFences(input)).toBe('# knowledge\n- Uses TypeScript');
+  });
+
+  it('leaves clean markdown unchanged', () => {
+    const input = '# preferences\n## Editor\n- Uses vim';
+    expect(stripCodeFences(input)).toBe(input);
+  });
+
+  it('handles case-insensitive fence markers', () => {
+    const input = '```Markdown\n# test\n```';
+    expect(stripCodeFences(input)).toBe('# test');
   });
 });

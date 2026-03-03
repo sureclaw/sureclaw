@@ -1,5 +1,13 @@
 # Scheduler Provider Journal
 
+## [2026-03-03 09:30] — Design acceptance tests for plainjob scheduler
+
+**Task:** Design acceptance tests for the plainjob scheduler feature against its plan document
+**What I did:** Read the plan, explored the full implementation (plainjob.ts, types.ts, utils.ts, provider-map.ts, existing unit tests), and designed 12 acceptance tests: 8 structural, 2 behavioral, 2 integration
+**Files touched:** `tests/acceptance/plainjob-scheduler/test-plan.md` (created)
+**Outcome:** Success — test plan written but not yet executed (per user request)
+**Notes:** Heavy emphasis on structural tests since the scheduler is infrastructure. Behavioral tests verify server startup with plainjob config. Integration tests verify SQLite persistence across server restarts using direct DB injection.
+
 ## [2026-03-03 01:10] — Implement plainjob scheduler: SQLite-persisted cron tier
 
 **Task:** Implement `docs/plans/2026-03-02-plainjob-scheduler.md` — add a new `plainjob` scheduler tier that persists jobs to SQLite

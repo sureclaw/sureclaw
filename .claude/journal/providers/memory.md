@@ -1,6 +1,30 @@
 # Providers: Memory
 
+## [2026-03-03 21:00] — Run remaining acceptance tests: BT-9, IT-7, IT-8
+
+**Task:** Run the 3 skipped acceptance tests that required embedding support (BT-9, IT-7, IT-8)
+**What I did:** Set up isolated test home, started AX server with DeepInfra embeddings (Qwen/Qwen3-Embedding-0.6B). Ran BT-9 (memory recall in new session), IT-7 (cross-session semantic recall with Rust/AWS facts), IT-8 (backfill of directly-inserted items). All 3 passed. Updated results.md (37/37 PASS, 0 SKIP), fixes.md (removed "Not Tested" section), and .env.test.example (DEEPINFRA_API_KEY instead of OPENAI_API_KEY).
+**Files touched:** `tests/acceptance/memoryfs-v2/results.md`, `tests/acceptance/memoryfs-v2/fixes.md`, `tests/acceptance/fixtures/.env.test.example`
+**Outcome:** Success — all 37 acceptance tests now PASS
+**Notes:** The "Requires OPENAI_API_KEY" skip reason was outdated — embeddings now use DeepInfra. Unrelated queries still trigger recall (no distance threshold in `findSimilar()`), same observation as BT-8. Agent correctly ignores irrelevant recalled context.
+
+## [2026-03-03 14:10] — Fix FIX-6: Make content hash type-agnostic for dedup
+
+**Task:** Fix BT-2 acceptance test failure — dedup failing when LLM assigns different memory types to the same fact across conversations
+**What I did:** Removed `memoryType` from the content hash computation. Hash was `sha256("{type}:{normalized}")[:16]`, now it's `sha256(normalized)[:16]`. Updated all call sites (provider.ts `write()`, extractor.ts `extractByLLM()`) and tests. Ran BT-2 acceptance test end-to-end: 1 item with reinforcement_count=2 after two identical messages.
+**Files touched:** `src/providers/memory/memoryfs/content-hash.ts` (removed type param), `src/providers/memory/memoryfs/provider.ts` (updated call), `src/providers/memory/memoryfs/extractor.ts` (updated call), `tests/providers/memory/memoryfs/content-hash.test.ts` (updated assertions), `tests/acceptance/memoryfs-v2/results.md`, `tests/acceptance/memoryfs-v2/fixes.md`
+**Outcome:** Success — 29 unit tests pass, BT-2 acceptance test PASS (was PARTIAL PASS)
+**Notes:** The risk of false collisions from removing type is negligible — if two genuinely different facts have identical normalized text, they'd be the same fact anyway. The LLM's memory type assignment is too inconsistent to rely on for dedup.
+
 Memory provider implementations, MemoryFS planning.
+
+## [2026-03-03 14:01] — Add embedding-based semantic dedup to write()
+
+**Task:** Implement semantic dedup in `write()` to catch paraphrased duplicates that hash-based dedup misses (BT-2 acceptance test fix)
+**What I did:** Added `SEMANTIC_DEDUP_THRESHOLD = 0.8` constant and a semantic dedup check between hash-based fast path and insert in `write()`. When hash misses but embeddings are available, embeds the content, finds nearest neighbor in same scope, and reinforces if similarity >= 0.8. Precomputed vector is reused for the embedding store upsert to avoid double API calls. Created separate test file for semantic dedup (6 tests) and added 1 hash dedup integration test.
+**Files touched:** `src/providers/memory/memoryfs/provider.ts` (modified write()), `tests/providers/memory/memoryfs/semantic-dedup.test.ts` (new), `tests/providers/memory/memoryfs/integration.test.ts` (added 1 test)
+**Outcome:** Success — all 2239 tests pass, 0 regressions
+**Notes:** Mock vectors must match the EmbeddingStore's configured dimensions (default 1536). Tests use `config.history.embedding_dimensions: 3` with 3-element Float32Arrays. Fire-and-forget upsert after first write needs ~50ms settle time before second write can find it via `findSimilar`.
 
 ## [2026-03-03 06:04] — Wire LLM into MemoryFS for extraction and summary generation
 

@@ -12,12 +12,14 @@ import { writeSummary, readSummary, initDefaultCategories } from './summary-io.j
 import { extractByLLM } from './extractor.js';
 import { computeContentHash } from './content-hash.js';
 import { salienceScore } from './salience.js';
-import { buildSummaryPrompt } from './prompts.js';
+import { buildSummaryPrompt, stripCodeFences } from './prompts.js';
 import { llmComplete } from './llm-helpers.js';
 import { createEmbeddingClient, type EmbeddingClient } from '../../../utils/embedding-client.js';
 import { getLogger } from '../../../logger.js';
 
 const logger = getLogger().child({ component: 'memoryfs' });
+
+const SEMANTIC_DEDUP_THRESHOLD = 0.8;
 
 export interface CreateOptions {
   llm?: LLMProvider;
@@ -104,7 +106,8 @@ async function updateCategorySummary(
     newItems,
     targetLength: 400,
   });
-  const updated = await llmComplete(llm, prompt);
+  const raw = await llmComplete(llm, prompt);
+  const updated = stripCodeFences(raw);
   await writeSummary(memoryDir, category, updated);
 }
 
@@ -135,14 +138,39 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
   return {
     async write(entry: MemoryEntry): Promise<string> {
       const now = new Date().toISOString();
-      const contentHash = computeContentHash(entry.content, 'knowledge');
+      const contentHash = computeContentHash(entry.content);
       const scope = entry.scope || 'default';
 
-      // Dedup: reinforce if same content exists
+      // Fast path: hash-based dedup (exact match after normalization)
       const existing = store.findByHash(contentHash, scope, entry.agentId);
       if (existing) {
         store.reinforce(existing.id);
         return existing.id;
+      }
+
+      // Semantic dedup: catch paraphrases via embedding similarity
+      let precomputedVector: Float32Array | undefined;
+      if (embeddingClient.available) {
+        try {
+          const [vector] = await embeddingClient.embed([entry.content]);
+          precomputedVector = vector;
+          const similar = await embeddingStore.findSimilar(vector, 1, scope);
+          if (similar.length > 0) {
+            const similarity = 1 / (1 + similar[0].distance);
+            if (similarity >= SEMANTIC_DEDUP_THRESHOLD) {
+              store.reinforce(similar[0].itemId);
+              logger.info('semantic_dedup_hit', {
+                existingId: similar[0].itemId,
+                similarity,
+                scope,
+              });
+              return similar[0].itemId;
+            }
+          }
+        } catch (err) {
+          logger.warn('semantic_dedup_failed', { error: (err as Error).message });
+          // Fall through to insert — don't block writes on embedding failures
+        }
       }
 
       // Explicit writes get reinforcement boost of 10
@@ -161,8 +189,12 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
         taint: entry.taint ? JSON.stringify(entry.taint) : undefined,
       });
 
-      // Generate embedding (non-blocking — don't delay the write response)
-      embedItem(id, entry.content, scope, embeddingStore, embeddingClient).catch(() => {});
+      // Store embedding — reuse precomputed vector if available
+      if (precomputedVector) {
+        embeddingStore.upsert(id, scope, precomputedVector).catch(() => {});
+      } else {
+        embedItem(id, entry.content, scope, embeddingStore, embeddingClient).catch(() => {});
+      }
 
       // Update summary via LLM (fire-and-forget)
       if (llm) {

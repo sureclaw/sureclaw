@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto';
-import type { MemoryType, RefId } from './types.js';
+import type { RefId } from './types.js';
 
 /**
  * Compute deterministic content hash for deduplication.
- * Matches memU's compute_content_hash: sha256("{type}:{normalized}")[:16].
+ * Hash is based solely on normalized content text (type-agnostic) so the same
+ * fact deduplicates even when the LLM assigns different memory types.
  */
-export function computeContentHash(content: string, memoryType: MemoryType): string {
+export function computeContentHash(content: string): string {
   const normalized = content.toLowerCase().split(/\s+/).join(' ').trim();
-  const input = `${memoryType}:${normalized}`;
-  return createHash('sha256').update(input).digest('hex').slice(0, 16);
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
 /**
