@@ -53,3 +53,9 @@
 **Context:** Added `wait: false` to delegate, told the prompt to "poll via agent_orch_status" — but that IPC action wasn't exposed as an agent tool. The agent resorted to `sleep 15 && echo ...`.
 **Lesson:** When adding an async fire-and-forget pattern, always provide a **blocking collect tool** (like `delegate_collect`) that accepts handleIds and awaits all results. Polling is bad UX for LLMs — they improvise with sleep/retry. A collect action that blocks until done is cleaner. Also: verify end-to-end that the agent actually has access to every tool/action referenced in its prompt.
 **Tags:** delegation, async, fire-and-forget, agent-tools, prompt-tool-mismatch
+
+### Inject filesystem ops as deps for testable HTTP handlers
+**Date:** 2026-03-03
+**Context:** Building the webhook handler needed existsSync/readFileSync for transform files, but mocking the filesystem in tests is fragile.
+**Lesson:** When a handler needs to check file existence or read files, inject those as callbacks in the deps struct (e.g. `transformExists: (name) => boolean`, `readTransform: (name) => string`) instead of importing fs directly. This makes the handler fully testable with simple mocks and avoids temp file setup/teardown in tests. The server.ts composition root provides the real implementations.
+**Tags:** testing, dependency-injection, webhook, server-composition

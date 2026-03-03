@@ -67,10 +67,10 @@ export function sendSSEChunk(res: ServerResponse, chunk: OpenAIStreamChunk): voi
   res.write(`data: ${JSON.stringify(chunk)}\n\n`);
 }
 
-export async function readBody(req: IncomingMessage): Promise<string> {
+export async function readBody(req: IncomingMessage, maxBytes?: number): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
-  const MAX_BODY = 1024 * 1024; // 1MB
+  const MAX_BODY = maxBytes ?? 1024 * 1024; // default 1MB
 
   for await (const chunk of req) {
     size += (chunk as Buffer).length;

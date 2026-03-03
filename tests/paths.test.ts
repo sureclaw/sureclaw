@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { isValidSessionId, workspaceDir, agentDir, agentStateDir, agentUserDir, axHome, composeSessionId, parseSessionId, userSkillsDir, agentSkillsDir } from '../src/paths.js';
+import { isValidSessionId, workspaceDir, agentDir, agentStateDir, agentUserDir, axHome, composeSessionId, parseSessionId, userSkillsDir, agentSkillsDir, webhooksDir, webhookTransformPath } from '../src/paths.js';
 
 describe('paths', () => {
   const originalEnv = process.env.AX_HOME;
@@ -170,5 +170,21 @@ describe('paths', () => {
     expect(agentSkillsDir('main')).toBe(
       join(axHome(), 'agents', 'main', 'agent', 'skills'),
     );
+  });
+
+  test('webhooksDir returns ~/.ax/webhooks/', () => {
+    const dir = webhooksDir();
+    expect(dir).toMatch(/\.ax\/webhooks$/);
+  });
+
+  test('webhookTransformPath returns safe .md path', () => {
+    const p = webhookTransformPath('github');
+    expect(p).toMatch(/\.ax\/webhooks\/github\.md$/);
+  });
+
+  test('webhookTransformPath sanitizes unsafe names', () => {
+    const p = webhookTransformPath('../../../etc/passwd');
+    expect(p).not.toContain('..');
+    expect(p).toMatch(/\.ax\/webhooks\//);
   });
 });

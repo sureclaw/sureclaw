@@ -1,6 +1,19 @@
 # IPC: Protocol
 
-IPC protocol enhancements: heartbeat keep-alive.
+IPC protocol enhancements: heartbeat keep-alive, schema hardening.
+
+## [2026-03-03 02:50] — Address PR #48 review comments on ipc-schemas.ts
+
+**Task:** Address unresolved review comment on src/ipc-schemas.ts from PR #48
+**What I did:**
+- Extracted duplicated agent state enum values into a shared `agentStates` const and `agentStateEnum` in `AgentOrchListSchema`
+- Changed `policyTags` items from bare `z.string().max(50)` to `safeString(50)` for null-byte validation consistency
+- Changed `payload` record keys from `z.string()` to `safeString(200)` for consistency with `headers` record
+- Changed `eventType` from bare `z.string()` to `safeString(200)` for length/null-byte validation
+- Added `.min(0)` bound to `since` number field in `AgentOrchTimelineSchema`
+**Files touched:** `src/ipc-schemas.ts`
+**Outcome:** Success — all 2147 tests pass (200 test files)
+**Notes:** The other two PR #48 review comments (on orchestration.ts and orchestrator.ts) were already addressed by commit 2e6cf08 and marked "Outdated" on GitHub. Only ipc-schemas.ts had an unresolved comment.
 
 ## [2026-02-27 10:29] — IPC Heartbeat Keep-Alive
 

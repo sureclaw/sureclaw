@@ -4,6 +4,8 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-03 02:45 — Address codex PR review comments on webhook PR [webhooks.md](webhooks.md)
+- 2026-03-03 01:30 — Implement LLM-powered webhook transforms [webhooks.md](webhooks.md)
 - 2026-03-02 19:40 — Add long-term memory recall injection into conversation history [memory-recall.md](memory-recall.md)
 - 2026-03-02 23:40 — Implement persistent chat history summarization for infinite-length conversations [history-summarizer.md](history-summarizer.md)
 - 2026-03-02 12:45 — Add HTTP bootstrap admin claiming to handleCompletions [server.md](server.md)

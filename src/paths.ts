@@ -51,6 +51,7 @@
 
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { safePath } from './utils/safe-path.js';
 
 /** Root directory for all AX files. */
 export function axHome(): string {
@@ -229,4 +230,14 @@ export function registryPath(): string {
 /** Path to the proposals directory for governance: ~/.ax/data/proposals/ */
 export function proposalsDir(): string {
   return join(dataDir(), 'proposals');
+}
+
+/** Directory for webhook transform files: ~/.ax/webhooks/ */
+export function webhooksDir(): string {
+  return join(axHome(), 'webhooks');
+}
+
+/** Path to a specific webhook transform file: ~/.ax/webhooks/<name>.md */
+export function webhookTransformPath(name: string): string {
+  return safePath(webhooksDir(), `${name}.md`);
 }

@@ -41,6 +41,9 @@ import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } 
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import { FileStore } from '../file-store.js';
+import { createWebhookHandler } from './server-webhooks.js';
+import { createWebhookTransform } from './webhook-transform.js';
+import { webhookTransformPath } from '../paths.js';
 
 // =====================================================
 // Types
@@ -376,6 +379,62 @@ export async function createServer(
     orchestrator,
   });
 
+  // Webhook path prefix (configurable, defaults to '/webhooks/')
+  const webhookPrefix = config.webhooks?.path
+    ? (config.webhooks.path.endsWith('/') ? config.webhooks.path : config.webhooks.path + '/')
+    : '/webhooks/';
+
+  // Webhook handler (optional — only if config has webhooks.enabled)
+  const webhookHandler = config.webhooks?.enabled
+    ? createWebhookHandler({
+        config: {
+          token: config.webhooks.token,
+          maxBodyBytes: config.webhooks.max_body_bytes,
+          model: config.webhooks.model,
+          allowedAgentIds: config.webhooks.allowed_agent_ids,
+        },
+        transform: createWebhookTransform(
+          providers.llm,
+          config.webhooks.model ?? config.models?.fast?.[0] ?? config.models?.default?.[0] ?? 'claude-haiku-4-5-20251001',
+        ),
+        dispatch: (result, runId) => {
+          const childConfig: Config = {
+            ...config,
+            ...(result.agentId ? { agent_name: result.agentId } : {}),
+            ...(result.model ? { models: { default: [result.model] } } : {}),
+            ...(result.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: result.timeoutSec } } : {}),
+          };
+          const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
+          void processCompletion(
+            childDeps,
+            result.message,
+            runId,
+            [],
+            undefined,
+            undefined,
+            'webhook',
+          ).catch(err => {
+            logger.error('webhook_dispatch_failed', { runId, error: (err as Error).message });
+          });
+        },
+        logger,
+        transformExists: (name) => existsSync(webhookTransformPath(name)),
+        readTransform: (name) => readFileSync(webhookTransformPath(name), 'utf-8'),
+        recordTaint: (sessionId, content, isTainted) => {
+          taintBudget.recordContent(sessionId, content, isTainted);
+        },
+        audit: (entry) => {
+          providers.audit.log({
+            action: entry.action,
+            sessionId: entry.runId ?? 'webhook',
+            args: { webhook: entry.webhook, ip: entry.ip },
+            result: 'success',
+            durationMs: 0,
+          }).catch(() => {});
+        },
+      })
+    : null;
+
   const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
   const ipcServer: NetServer = createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
   logger.debug('ipc_server_started', { socket: ipcSocketPath });
@@ -429,8 +488,8 @@ export async function createServer(
 
     const url = req.url ?? '/';
 
-    // Reject new completion requests during shutdown (let health/models through)
-    if (draining && url === '/v1/chat/completions') {
+    // Reject new requests during shutdown (let health/models through)
+    if (draining && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix))) {
       sendError(res, 503, 'Server is shutting down — not accepting new requests');
       return;
     }
@@ -486,6 +545,25 @@ export async function createServer(
     // SSE event stream: GET /v1/events?request_id=...&types=...
     if (url.startsWith('/v1/events') && req.method === 'GET') {
       handleEvents(req, res);
+      return;
+    }
+
+    // Webhooks: POST <prefix><name>
+    if (webhookHandler && url.startsWith(webhookPrefix)) {
+      const webhookName = url.slice(webhookPrefix.length).split('?')[0];
+      if (!webhookName) {
+        sendError(res, 404, 'Not found');
+        return;
+      }
+      trackRequestStart();
+      try {
+        await webhookHandler(req, res, webhookName);
+      } catch (err) {
+        logger.error('webhook_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Webhook processing failed');
+      } finally {
+        trackRequestEnd();
+      }
       return;
     }
 

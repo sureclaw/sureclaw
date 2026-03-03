@@ -109,6 +109,14 @@ const ConfigSchema = z.strictObject({
     max_concurrent: z.number().int().min(1).max(10).default(3),
     max_depth: z.number().int().min(1).max(5).default(2),
   }).optional(),
+  webhooks: z.strictObject({
+    enabled: z.boolean(),
+    token: z.string().min(1),
+    path: z.string().optional(),
+    max_body_bytes: z.number().int().positive().optional(),
+    model: z.string().optional(),
+    allowed_agent_ids: z.array(z.string().min(1)).optional(),
+  }).optional(),
 });
 
 export function loadConfig(path?: string): Config {

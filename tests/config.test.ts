@@ -227,6 +227,126 @@ scheduler:
     expect(config.profile).toBeDefined();
   });
 
+  test('accepts valid webhooks config', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+webhooks:
+  enabled: true
+  token: "test-secret-token"
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.webhooks).toEqual({
+        enabled: true,
+        token: 'test-secret-token',
+      });
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('accepts webhooks config with all optional fields', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks-full.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+webhooks:
+  enabled: true
+  token: "test-secret-token"
+  path: "/hooks"
+  max_body_bytes: 131072
+  model: "claude-haiku-4-5-20251001"
+  allowed_agent_ids:
+    - "main"
+    - "devops"
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.webhooks?.path).toBe('/hooks');
+      expect(config.webhooks?.max_body_bytes).toBe(131072);
+      expect(config.webhooks?.model).toBe('claude-haiku-4-5-20251001');
+      expect(config.webhooks?.allowed_agent_ids).toEqual(['main', 'devops']);
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('rejects webhooks config without token when enabled', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks-notoken.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+webhooks:
+  enabled: true
+`);
+    try {
+      expect(() => loadConfig(tmpPath)).toThrow();
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('config without webhooks section parses fine', () => {
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
+    expect(config.webhooks).toBeUndefined();
+  });
+
   test('accepts config with optional skillScreener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
