@@ -1,9 +1,12 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 108 entries across 9 categories.
+Category-based organization of all journal entries. Total: 110 entries across 9 categories.
 
 ## Entries
 
+- 2026-03-02 22:35 — Save skills install plan feedback to file [docs/plans.md](docs/plans.md)
+- 2026-03-02 22:30 — Fix OAuth refresh token persistence bugs [config/onboarding.md](config/onboarding.md)
+- 2026-03-02 22:10 — Review skills install architecture plan [docs/plans.md](docs/plans.md)
 - 2026-03-02 11:42 — Nest CANONICAL paths under /workspace, make mount root the CWD [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-02 12:00 — Create MemoryFS v2 plan (files-first, memU-inspired) [docs/plans.md](docs/plans.md)
 - 2026-03-01 21:20 — Fix CI unhandled ENOENT in phase1.test.ts [testing/integration.md](testing/integration.md)

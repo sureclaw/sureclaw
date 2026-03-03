@@ -150,15 +150,11 @@ export async function createServer(
   eventBus.emit({ type: 'server.config', requestId: 'system', timestamp: Date.now(),
     data: { profile: config.profile } });
 
-  // Load providers
+  // Load providers (credential provider is loaded first inside loadProviders
+  // so process.env is seeded before channel providers read tokens).
   logger.debug('loading_providers');
   const providers = await loadProviders(config);
   logger.debug('providers_loaded');
-
-  // Seed process.env from the credential provider so synchronous readers
-  // (e.g. the Anthropic proxy) can access tokens without the async API.
-  const { loadCredentials } = await import('../dotenv.js');
-  await loadCredentials(providers.credentials);
 
   eventBus.emit({ type: 'server.providers', requestId: 'system', timestamp: Date.now(), data: {} });
 

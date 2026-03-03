@@ -2,6 +2,21 @@
 
 Configuration wizard, model selection, API key flow, task-type model routing.
 
+## [2026-03-02 22:30] — Fix OAuth refresh token persistence bugs
+
+**Task:** OAuth `invalid_grant` error persists even after re-authenticating via `ax configure`
+**What I did:**
+1. **Root cause 1:** `loadDotEnv()` runs first and loads stale OAuth tokens from `~/.ax/.env` into `process.env`. `loadCredentials()` then skips those keys ("don't override shell exports"), so fresh tokens from `credentials.yaml` are never loaded.
+2. **Root cause 2:** Proxy 401-retry path (`_doRefreshEnvOnly`) updates only `process.env`, not `credentials.yaml`. If the OAuth server rotates refresh tokens, the old token in `credentials.yaml` becomes invalid on next restart.
+3. **Root cause 3:** `loadProviders()` loaded ALL providers (including Slack) before `loadCredentials()` seeded `process.env`. Providers that read tokens at creation time (e.g. Slack) failed because credentials.yaml values weren't in process.env yet.
+4. **Fix 1:** Changed `loadCredentials()` to always use credential provider values (the authoritative source).
+5. **Fix 2:** Added `forceRefreshOAuthViaProvider()` for the proxy's 401-retry path.
+6. **Fix 3:** Moved credential provider loading + `loadCredentials()` into `loadProviders()` before other providers, and removed the duplicate call from `server.ts`.
+7. Added regression tests: stale `.env` values are overridden by `credentials.yaml`, basic seeding works.
+**Files touched:** src/dotenv.ts, src/host/server-completions.ts, src/host/registry.ts, src/host/server.ts, tests/dotenv.test.ts
+**Outcome:** Success — 2193 tests pass, TypeScript build clean
+**Notes:** The `.env` → `credentials.yaml` migration had three gaps: (1) stale `.env` overriding fresh credentials.yaml, (2) reactive token refresh not persisting, (3) provider loading order not accounting for credentials.yaml as the token source.
+
 ## [2026-02-26 03:35] — Add image model selection to `ax configure`
 
 **Task:** Add optional image model prompt to the configure wizard so users don't have to manually edit ax.yaml

@@ -3,7 +3,8 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { loadDotEnv } from '../src/dotenv.js';
+import { loadDotEnv, loadCredentials } from '../src/dotenv.js';
+import type { CredentialProvider } from '../src/providers/credentials/types.js';
 
 describe('loadDotEnv', () => {
   let tmpDir: string;
@@ -83,4 +84,65 @@ describe('loadDotEnv', () => {
 
   // OAuth refresh tests moved to credential provider tests.
   // loadDotEnv() is now a simple .env → process.env loader.
+});
+
+describe('loadCredentials', () => {
+  const savedEnv: Record<string, string | undefined> = {};
+  const testKeys = [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN', 'AX_OAUTH_REFRESH_TOKEN', 'AX_OAUTH_EXPIRES_AT',
+  ];
+
+  beforeEach(() => {
+    for (const key of testKeys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of testKeys) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
+  });
+
+  function mockProvider(store: Record<string, string>): CredentialProvider {
+    return {
+      get: async (key: string) => store[key] ?? null,
+      set: async (key: string, val: string) => { store[key] = val; },
+      delete: async (key: string) => { delete store[key]; },
+      list: async () => Object.keys(store),
+    };
+  }
+
+  test('credentials.yaml values override stale .env values in process.env', async () => {
+    // Simulate loadDotEnv() having loaded a stale token from .env
+    process.env.AX_OAUTH_REFRESH_TOKEN = 'stale-refresh-token-from-dotenv';
+    process.env.AX_OAUTH_EXPIRES_AT = String(Math.floor(Date.now() / 1000) + 99999);
+
+    // Credential provider (credentials.yaml) has the fresh token
+    const provider = mockProvider({
+      AX_OAUTH_REFRESH_TOKEN: 'fresh-refresh-token-from-yaml',
+      AX_OAUTH_EXPIRES_AT: String(Math.floor(Date.now() / 1000) + 99999),
+    });
+
+    await loadCredentials(provider);
+
+    // Fresh token from credentials.yaml should win
+    expect(process.env.AX_OAUTH_REFRESH_TOKEN).toBe('fresh-refresh-token-from-yaml');
+  });
+
+  test('seeds process.env from provider when no prior value exists', async () => {
+    const provider = mockProvider({
+      ANTHROPIC_API_KEY: 'sk-from-provider',
+    });
+
+    await loadCredentials(provider);
+
+    expect(process.env.ANTHROPIC_API_KEY).toBe('sk-from-provider');
+  });
 });

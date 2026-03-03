@@ -22,7 +22,7 @@ import { type Logger, truncate } from '../logger.js';
 import { drainGeneratedImages } from './ipc-handlers/image.js';
 import { startAnthropicProxy } from './proxy.js';
 import { diagnoseError } from '../errors.js';
-import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv } from '../dotenv.js';
+import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
@@ -394,7 +394,11 @@ export async function processCompletion(
 
       proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
       const proxy = startAnthropicProxy(proxySocketPath!, undefined, async () => {
-        await refreshOAuthTokenFromEnv();
+        if (providers.credentials) {
+          await forceRefreshOAuthViaProvider(providers.credentials);
+        } else {
+          await refreshOAuthTokenFromEnv();
+        }
       });
       proxyCleanup = proxy.stop;
     }

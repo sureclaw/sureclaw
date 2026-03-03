@@ -2,6 +2,22 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-02 22:35] — Save skills install plan feedback to file
+
+**Task:** Save the previously provided plan-review comments into a standalone markdown file.
+**What I did:** Created `skill-install-feedback.md` in the repo root and copied the full prioritized findings, open questions, and summary from the review response.
+**Files touched:** skill-install-feedback.md (new)
+**Outcome:** Success — feedback captured as a dedicated file for sharing/tracking.
+**Notes:** Content mirrors the reviewed findings order (P0→P2) so implementation work can be triaged directly.
+
+## [2026-03-02 22:10] — Review skills install architecture plan
+
+**Task:** Review the proposed skills install architecture plan and provide concrete implementation feedback.
+**What I did:** Fetched the draft plan, cross-checked it against current AX skills/IPC/tool-catalog code paths, and identified security, correctness, and testing gaps with line-referenced findings.
+**Files touched:** Remote plan doc only (reviewed), local context files under src/ and tests/ read for validation.
+**Outcome:** Success — produced prioritized findings (approval bypass risk, TOCTOU approval drift, integration/test omissions, and execution model concerns).
+**Notes:** The plan is directionally solid, but inspect-phase command execution and execute-phase drift checks need hardening before implementation.
+
 ## [2026-03-02 12:00] — Create MemoryFS v2 plan (files-first, memU-inspired)
 
 **Task:** Summarize conversation decisions about memory architecture and create a revised plan

@@ -16,6 +16,13 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     await opts.pluginHost.startAll();
   }
 
+  // Load credential provider FIRST and seed process.env.
+  // Other providers (e.g. Slack) read tokens from process.env at creation
+  // time, so credentials must be available before they are loaded.
+  const credentials = await loadProvider('credentials', config.providers.credentials, config);
+  const { loadCredentials } = await import('../dotenv.js');
+  await loadCredentials(credentials);
+
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.
   // Old configs may still list it; silently skip for backward compatibility.
   const channelNames = config.providers.channels.filter(name => (name as string) !== 'cli');
@@ -59,7 +66,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     channels,
     web:         await loadProvider('web', config.providers.web, config),
     browser:     await loadProvider('browser', config.providers.browser, config),
-    credentials: await loadProvider('credentials', config.providers.credentials, config),
+    credentials,
     skills,
     audit:       await loadProvider('audit', config.providers.audit, config),
     sandbox:     await loadProvider('sandbox', config.providers.sandbox, config),

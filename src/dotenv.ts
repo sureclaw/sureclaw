@@ -62,10 +62,15 @@ const SEED_KEYS = [
  * Seed process.env from the credential provider so synchronous readers
  * (e.g. the Anthropic proxy) can access tokens without the async API.
  * Also triggers OAuth refresh if the token is expired.
+ *
+ * The credential provider is the authoritative source for managed
+ * credentials. Its values always override process.env (which may contain
+ * stale tokens loaded from a legacy .env file by loadDotEnv()). For keys
+ * NOT in the provider's store, the provider itself falls back to
+ * process.env, so genuine shell exports still work.
  */
 export async function loadCredentials(provider: CredentialProvider): Promise<void> {
   for (const key of SEED_KEYS) {
-    if (process.env[key] !== undefined) continue; // don't override shell exports
     const val = await provider.get(key);
     if (val !== null) process.env[key] = val;
   }
@@ -146,12 +151,34 @@ export async function ensureOAuthTokenFresh(): Promise<void> {
 
 /**
  * Force-refresh the OAuth token using the refresh token from process.env.
- * Updates process.env only. Exported for the proxy's reactive retry on 401.
+ * Updates process.env only. Exported for the proxy's reactive retry on 401
+ * when no credential provider is available.
  */
 export async function refreshOAuthTokenFromEnv(): Promise<void> {
   const refreshToken = process.env.AX_OAUTH_REFRESH_TOKEN;
   if (!refreshToken) throw new Error('No refresh token available');
   await _doRefreshEnvOnly(refreshToken);
+}
+
+/**
+ * Force-refresh the OAuth token and persist via credential provider.
+ * Used by the proxy's 401 retry when a credential provider is available,
+ * ensuring rotated refresh tokens survive process restarts.
+ */
+export async function forceRefreshOAuthViaProvider(provider: CredentialProvider): Promise<void> {
+  const refreshToken = process.env.AX_OAUTH_REFRESH_TOKEN;
+  if (!refreshToken) throw new Error('No refresh token available');
+
+  const { refreshOAuthTokens } = await import('./host/oauth.js');
+  const tokens = await refreshOAuthTokens(refreshToken);
+
+  process.env.CLAUDE_CODE_OAUTH_TOKEN = tokens.access_token;
+  process.env.AX_OAUTH_REFRESH_TOKEN = tokens.refresh_token;
+  process.env.AX_OAUTH_EXPIRES_AT = String(tokens.expires_at);
+
+  await provider.set('CLAUDE_CODE_OAUTH_TOKEN', tokens.access_token);
+  await provider.set('AX_OAUTH_REFRESH_TOKEN', tokens.refresh_token);
+  await provider.set('AX_OAUTH_EXPIRES_AT', String(tokens.expires_at));
 }
 
 async function _doRefreshEnvOnly(refreshToken: string): Promise<void> {
