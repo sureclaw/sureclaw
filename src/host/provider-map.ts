@@ -77,9 +77,10 @@ const _PROVIDER_MAP = {
     docker:     '../providers/sandbox/docker.js',
   },
   scheduler: {
-    none: '../providers/scheduler/none.js',
-    cron: '../providers/scheduler/cron.js',
-    full: '../providers/scheduler/full.js',
+    none:     '../providers/scheduler/none.js',
+    cron:     '../providers/scheduler/cron.js',
+    full:     '../providers/scheduler/full.js',
+    plainjob: '../providers/scheduler/plainjob.js',
   },
   screener: {
     static: '../providers/screener/static.js',

@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-03 01:10 — Implement plainjob scheduler: SQLite-persisted cron tier [scheduler.md](scheduler.md)
 - 2026-03-02 16:31 — Wire MemoryFS provider with items store, memorize pipeline, and salience ranking (Tasks 2+8 of 10) [memory.md](memory.md)
 - 2026-03-02 16:12 — Add content hashing with type-scoped dedup and ref IDs (Task 3 of 10) [memory.md](memory.md)
 - 2026-03-02 16:09 — Add SQLite items store (Task 2 of 10) [memory.md](memory.md)

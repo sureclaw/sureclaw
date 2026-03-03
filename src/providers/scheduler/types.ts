@@ -1,6 +1,7 @@
 // src/providers/scheduler/types.ts — Scheduler provider types
 import type { InboundMessage, SessionAddress } from '../shared-types.js';
 import type { ProactiveHint } from '../shared-types.js';
+import type { SQLiteDatabase } from '../../utils/sqlite.js';
 
 export interface CronDelivery {
   mode: 'channel' | 'none';
@@ -36,6 +37,75 @@ export class MemoryJobStore implements JobStore {
     return agentId ? all.filter(j => j.agentId === agentId) : all;
   }
   close(): void { this.jobs.clear(); }
+}
+
+/** SQLite-backed JobStore. Persists jobs across process restarts. */
+export class SQLiteJobStore implements JobStore {
+  private db: SQLiteDatabase;
+
+  constructor(db: SQLiteDatabase) {
+    this.db = db;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS scheduler_jobs (
+        id          TEXT PRIMARY KEY,
+        schedule    TEXT NOT NULL,
+        agent_id    TEXT NOT NULL,
+        prompt      TEXT NOT NULL,
+        max_token_budget INTEGER,
+        delivery    TEXT,
+        run_once    INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+  }
+
+  get(jobId: string): CronJobDef | undefined {
+    const row = this.db.prepare('SELECT * FROM scheduler_jobs WHERE id = ?').get(jobId) as Record<string, unknown> | undefined;
+    return row ? this.rowToJob(row) : undefined;
+  }
+
+  set(job: CronJobDef): void {
+    this.db.prepare(`
+      INSERT OR REPLACE INTO scheduler_jobs (id, schedule, agent_id, prompt, max_token_budget, delivery, run_once)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      job.id,
+      job.schedule,
+      job.agentId,
+      job.prompt,
+      job.maxTokenBudget ?? null,
+      job.delivery ? JSON.stringify(job.delivery) : null,
+      job.runOnce ? 1 : 0,
+    );
+  }
+
+  delete(jobId: string): boolean {
+    const before = this.db.prepare('SELECT COUNT(*) as cnt FROM scheduler_jobs WHERE id = ?').get(jobId) as { cnt: number };
+    this.db.prepare('DELETE FROM scheduler_jobs WHERE id = ?').run(jobId);
+    return (before?.cnt ?? 0) > 0;
+  }
+
+  list(agentId?: string): CronJobDef[] {
+    const rows = agentId
+      ? this.db.prepare('SELECT * FROM scheduler_jobs WHERE agent_id = ?').all(agentId) as Record<string, unknown>[]
+      : this.db.prepare('SELECT * FROM scheduler_jobs').all() as Record<string, unknown>[];
+    return rows.map(r => this.rowToJob(r));
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  private rowToJob(row: Record<string, unknown>): CronJobDef {
+    return {
+      id: row.id as string,
+      schedule: row.schedule as string,
+      agentId: row.agent_id as string,
+      prompt: row.prompt as string,
+      maxTokenBudget: row.max_token_budget as number | undefined,
+      delivery: row.delivery ? JSON.parse(row.delivery as string) : undefined,
+      runOnce: (row.run_once as number) === 1,
+    };
+  }
 }
 
 export interface SchedulerProvider {
