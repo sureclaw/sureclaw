@@ -117,6 +117,7 @@ function formatEvent(event: StreamEvent): { label: string; status: string } | nu
       const parts: string[] = [];
       if (data.socket) parts.push(String(data.socket));
       if (data.port) parts.push(`port: ${data.port}`);
+      if (data.admin) parts.push(`admin: ${data.admin}`);
       return { label: 'server.ready', status: green(parts.join('  ')) };
     }
 

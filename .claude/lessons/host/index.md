@@ -4,6 +4,8 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Admin TCP port must handle EADDRINUSE gracefully [entries.md](entries.md)
+- Tailwind v4 uses @tailwindcss/postcss, not direct tailwindcss plugin [entries.md](entries.md)
 - IPC defaultCtx.agentId is 'system', not the configured agent name [entries.md](entries.md)
 - Plugin providers use a runtime Map, not the static _PROVIDER_MAP [entries.md](entries.md)
 - Child process IPC for plugins: fork() + process.send(), not worker_threads [entries.md](entries.md)

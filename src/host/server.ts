@@ -43,6 +43,8 @@ import { handleFileUpload, handleFileDownload } from './server-files.js';
 import { FileStore } from '../file-store.js';
 import { createWebhookHandler } from './server-webhooks.js';
 import { createWebhookTransform } from './webhook-transform.js';
+import { createAdminHandler } from './server-admin.js';
+import { AgentRegistry } from './agent-registry.js';
 import { webhookTransformPath } from '../paths.js';
 
 // =====================================================
@@ -360,6 +362,10 @@ export async function createServer(
   // the heartbeat monitor uses as proof of life.
   const disableAutoState = orchestrator.enableAutoState();
 
+  // Create shared agent registry
+  const agentRegistry = new AgentRegistry();
+  agentRegistry.ensureDefault();
+
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
     agentDir: identityFilesDir,
@@ -373,6 +379,7 @@ export async function createServer(
     } : undefined,
     eventBus,
     orchestrator,
+    agentRegistry,
   });
 
   // Webhook path prefix (configurable, defaults to '/webhooks/')
@@ -428,6 +435,18 @@ export async function createServer(
             durationMs: 0,
           }).catch(() => {});
         },
+      })
+    : null;
+
+  // Admin dashboard handler (optional — only if config has admin.enabled)
+  const startTime = Date.now();
+  const adminHandler = config.admin.enabled
+    ? createAdminHandler({
+        config,
+        providers,
+        eventBus,
+        agentRegistry,
+        startTime,
       })
     : null;
 
@@ -559,6 +578,17 @@ export async function createServer(
         if (!res.headersSent) sendError(res, 500, 'Webhook processing failed');
       } finally {
         trackRequestEnd();
+      }
+      return;
+    }
+
+    // Admin dashboard: /admin/*
+    if (adminHandler && url.startsWith('/admin')) {
+      try {
+        await adminHandler(req, res, url.split('?')[0]);
+      } catch (err) {
+        logger.error('admin_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Admin request failed');
       }
       return;
     }
@@ -824,20 +854,42 @@ export async function createServer(
       httpServer!.on('error', rejectP);
     });
 
-    // Optionally listen on a TCP port (for external clients like LM Studio)
-    if (opts.port != null) {
+    // Listen on a TCP port: explicit --port, or auto-bind for admin dashboard
+    const tcpPort = opts.port ?? (config.admin.enabled ? config.admin.port : undefined);
+    let tcpBound = false;
+    if (tcpPort != null) {
       tcpServer = createHttpServer(handleRequest);
-      await new Promise<void>((resolveP, rejectP) => {
-        tcpServer!.listen(opts.port, '127.0.0.1', () => {
-          logger.debug('server_listening_tcp', { port: opts.port });
-          resolveP();
+      try {
+        await new Promise<void>((resolveP, rejectP) => {
+          tcpServer!.listen(tcpPort, '127.0.0.1', () => {
+            logger.debug('server_listening_tcp', { port: tcpPort });
+            tcpBound = true;
+            resolveP();
+          });
+          tcpServer!.on('error', (err) => {
+            // If this is an auto-bind for admin (not explicit --port), swallow port conflicts
+            if (opts.port == null && (err as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+              logger.warn('admin_port_in_use', { port: tcpPort, message: 'Admin dashboard port in use, skipping TCP listener' });
+              tcpServer = null;
+              resolveP();
+            } else {
+              rejectP(err);
+            }
+          });
         });
-        tcpServer!.on('error', rejectP);
-      });
+      } catch (err) {
+        if (opts.port != null) throw err;
+        logger.warn('tcp_bind_failed', { port: tcpPort, error: (err as Error).message });
+        tcpServer = null;
+      }
     }
 
     eventBus.emit({ type: 'server.ready', requestId: 'system', timestamp: Date.now(),
-      data: { socket: socketPath, ...(opts.port != null ? { port: opts.port } : {}) } });
+      data: {
+        socket: socketPath,
+        ...(tcpBound ? { port: tcpPort } : {}),
+        ...(adminHandler && tcpBound ? { admin: `http://127.0.0.1:${tcpPort}/admin` } : {}),
+      } });
 
     // Start scheduler
     await providers.scheduler.start(async (msg: InboundMessage) => {

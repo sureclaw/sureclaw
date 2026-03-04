@@ -4,6 +4,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-03-04 12:00 — Create AX admin dashboard React source files [website.md](website.md)
 - 2026-03-02 22:35 — Save skills install plan feedback to file [plans.md](plans.md)
 - 2026-03-02 22:10 — Review skills install architecture plan [plans.md](plans.md)
 - 2026-03-02 12:00 — Create MemoryFS v2 plan (files-first, memU-inspired) [plans.md](plans.md)

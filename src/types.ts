@@ -122,6 +122,11 @@ export interface Config {
     model?: string;
     allowed_agent_ids?: string[];
   };
+  admin: {
+    enabled: boolean;
+    token?: string;
+    port: number;
+  };
 }
 
 export interface ProviderRegistry {

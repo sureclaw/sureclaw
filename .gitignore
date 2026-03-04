@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+src/admin-ui/
 
 # Runtime data (sessions, memory, audit logs)
 data/

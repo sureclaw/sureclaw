@@ -117,6 +117,11 @@ const ConfigSchema = z.strictObject({
     model: z.string().optional(),
     allowed_agent_ids: z.array(z.string().min(1)).optional(),
   }).optional(),
+  admin: z.strictObject({
+    enabled: z.boolean().default(true),
+    token: z.string().optional(),
+    port: z.number().int().min(1).max(65535).default(8080),
+  }).default({ enabled: true, port: 8080 }),
 });
 
 export function loadConfig(path?: string): Config {

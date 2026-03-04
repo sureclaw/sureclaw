@@ -20,3 +20,5 @@ scheduler:
   active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
   max_token_budget: 4096
   heartbeat_interval_min: 30
+admin:
+  enabled: false

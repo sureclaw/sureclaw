@@ -10,7 +10,6 @@ import type { LogLevel } from '../logger.js';
 
 export interface CommandHandlers {
   serve?: () => Promise<void>;
-  chat?: () => Promise<void>;
   send?: (args: string[]) => Promise<void>;
   configure?: () => Promise<void>;
   bootstrap?: (args: string[]) => Promise<void>;
@@ -27,9 +26,6 @@ export async function routeCommand(
   switch (command) {
     case 'serve':
       if (handlers.serve) await handlers.serve();
-      break;
-    case 'chat':
-      if (handlers.chat) await handlers.chat();
       break;
     case 'send':
       if (handlers.send) await handlers.send(args.slice(1));
@@ -55,7 +51,6 @@ AX - Security-first personal AI agent
 
 Usage:
   ax serve [options]     Start the AX server (default)
-  ax chat [options]      Start interactive chat client
   ax send <message>      Send a single message
   ax configure           Run configuration wizard
   ax bootstrap [agent]   Reset agent identity and re-run bootstrap
@@ -69,19 +64,19 @@ Server Options:
   --verbose              Show tool calls and LLM turns in real-time
   --json                 Output all logs and events as JSONL
 
-Chat Options:
-  --socket <path>        Unix socket path (default: ~/.ax/ax.sock)
-  --no-stream            Disable streaming responses
-
 Send Options:
   --socket <path>        Unix socket path (default: ~/.ax/ax.sock)
   --stdin, -             Read message from stdin
   --no-stream            Wait for full response
   --json                 Output full OpenAI JSON response
 
+Admin Dashboard:
+  The admin dashboard opens automatically at http://127.0.0.1:8080/admin
+  when the server starts. Authenticate with the token from your console
+  output or ax.yaml.
+
 Examples:
   ax serve --daemon
-  ax chat
   ax send "what is the capital of France"
   echo "summarize this" | ax send --stdin
   `);
@@ -112,7 +107,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(['serve', 'chat', 'send', 'configure', 'bootstrap', 'plugin', 'help']);
+  const knownCommands = new Set(['serve', 'send', 'configure', 'bootstrap', 'plugin', 'help']);
   let command: string;
   let restArgs: string[];
 
@@ -128,10 +123,6 @@ export async function main(): Promise<void> {
   await routeCommand([command, ...restArgs], {
     serve: async () => {
       await runServe(restArgs);
-    },
-    chat: async () => {
-      const { runChat } = await import('./chat.js');
-      await runChat(restArgs);
     },
     send: async (sendArgs) => {
       const { runSend } = await import('./send.js');
@@ -195,12 +186,12 @@ async function runServe(args: string[]): Promise<void> {
     file: true,
   });
 
-  // First-run detection
+  // First-run detection: if no config file, start setup wizard
   const resolvedConfigPath = configPath ?? getConfigPath();
   if (!existsSync(resolvedConfigPath)) {
-    logger.info('first_run', { message: 'No ax.yaml found — running first-time setup...' });
-    const { runConfigure } = await import('../onboarding/configure.js');
-    await runConfigure(axHome());
+    logger.info('first_run', { message: 'No ax.yaml found — launching setup wizard...' });
+    const { runSetupServer } = await import('./setup-server.js');
+    await runSetupServer({ port: port ?? 8080, configPath: resolvedConfigPath });
     await loadDotEnv();
     logger.info('setup_complete', { message: 'Setup complete! Starting AX...' });
   }

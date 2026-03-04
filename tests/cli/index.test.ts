@@ -9,12 +9,6 @@ describe('CLI Router', () => {
     expect(mockServe).toHaveBeenCalledOnce();
   });
 
-  it('should route chat command', async () => {
-    const mockChat = vi.fn();
-    await routeCommand(['chat'], { chat: mockChat });
-    expect(mockChat).toHaveBeenCalledOnce();
-  });
-
   it('should route send command with args', async () => {
     const mockSend = vi.fn();
     await routeCommand(['send', 'hello'], { send: mockSend });

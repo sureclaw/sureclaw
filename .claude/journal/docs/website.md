@@ -1,6 +1,20 @@
 # Docs: Website
 
-README.md updates, docs/web site updates, warning banners, GitHub Pages deployment.
+README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment.
+
+## [2026-03-04 12:00] — Create AX admin dashboard React source files
+
+**Task:** Create all React component source files for the AX admin dashboard
+**What I did:** Created 6 new page components (overview, agents, logs, security, settings, setup). Verified that 7 files already existed and were complete (main.tsx, index.css, lib/types.ts, lib/api.ts, hooks/use-api.ts, App.tsx, login-page.tsx). All 13 files now form a complete dashboard with: dark zinc/gray theme with amber accents, sidebar navigation, auth gate with token-based login, setup wizard with multi-step flow (welcome/profile/agent-type/api-key/review/done), overview with stats + live agents + activity feed, agents management with detail panel + kill, audit logs with filtering, security monitoring with threat patterns + scan history, read-only settings display.
+**Files touched:**
+- `dashboard/src/components/pages/overview-page.tsx` (created)
+- `dashboard/src/components/pages/agents-page.tsx` (created)
+- `dashboard/src/components/pages/logs-page.tsx` (created)
+- `dashboard/src/components/pages/security-page.tsx` (created)
+- `dashboard/src/components/pages/settings-page.tsx` (created)
+- `dashboard/src/components/pages/setup-page.tsx` (created)
+**Outcome:** Success — all 13 dashboard source files complete
+**Notes:** Uses lucide-react icons, Tailwind CSS with custom component classes (card, btn-primary, badge-green, etc.), useApi hook for data fetching. All components handle loading/error/empty states.
 
 ## [2026-03-03 12:00] — Sync ax/* skills and docs/web with codebase changes
 

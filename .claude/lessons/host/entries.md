@@ -1,5 +1,17 @@
 # Host
 
+### Admin TCP port must handle EADDRINUSE gracefully
+**Date:** 2026-03-04
+**Context:** When adding the admin dashboard with auto-TCP bind, integration tests started failing because multiple test-spawned servers all tried to bind port 8080. The `admin` config defaults to `enabled: true, port: 8080`, so every server instance tried to claim it.
+**Lesson:** When auto-binding a TCP port for optional features (admin dashboard), catch EADDRINUSE and log a warning instead of crashing. Only throw for explicit `--port` from the user. Also: always add `admin: { enabled: false }` to test configs (ax-test.yaml) to prevent port conflicts in CI/parallel test runs.
+**Tags:** server, admin, tcp, port, eaddrinuse, testing, config-defaults
+
+### Tailwind v4 uses @tailwindcss/postcss, not direct tailwindcss plugin
+**Date:** 2026-03-04
+**Context:** The dashboard build failed with Tailwind v4 because `tailwindcss` can no longer be used directly as a PostCSS plugin. The PostCSS plugin moved to `@tailwindcss/postcss`. Also, `@tailwind base/components/utilities` directives were replaced with `@import "tailwindcss"`.
+**Lesson:** When using Tailwind CSS v4+, use `@tailwindcss/postcss` in postcss.config.js and `@import "tailwindcss"` in CSS files. The `@tailwind` directives and `theme()` function in CSS are v3 patterns.
+**Tags:** tailwind, css, postcss, build, dashboard
+
 ### IPC defaultCtx.agentId is 'system', not the configured agent name
 **Date:** 2026-02-26
 **Context:** Image resolver in ipc-handlers/llm.ts used `ctx.agentId` to look up images in user workspace, but images were persisted under `agentName` (typically 'main'). The resolver was looking in `~/.ax/agents/system/users/{user}/workspace/` instead of `~/.ax/agents/main/users/{user}/workspace/`.

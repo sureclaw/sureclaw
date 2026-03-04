@@ -76,5 +76,5 @@ export async function runBootstrap(args: string[]): Promise<void> {
   }
 
   await resetAgent(agentName, templatesDir);
-  console.log(`[bootstrap] Reset complete. Run 'ax chat' to begin the bootstrap ritual.`);
+  console.log(`[bootstrap] Reset complete. Run 'ax serve' and open the admin dashboard to begin the bootstrap ritual.`);
 }

@@ -347,6 +347,52 @@ webhooks:
     expect(config.webhooks).toBeUndefined();
   });
 
+  test('admin config defaults when not specified', () => {
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
+    expect(config.admin).toEqual({
+      enabled: true,
+      port: 8080,
+    });
+  });
+
+  test('accepts admin config from YAML', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-admin.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: file
+  scanner: basic
+  channels: []
+  web: none
+  browser: none
+  credentials: env
+  skills: readonly
+  audit: file
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+admin:
+  enabled: true
+  token: "test-token-123"
+  port: 9090
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.admin.enabled).toBe(true);
+      expect(config.admin.token).toBe('test-token-123');
+      expect(config.admin.port).toBe(9090);
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
   test('accepts config with optional screener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
