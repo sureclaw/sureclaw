@@ -29,6 +29,7 @@ const CREATE_INDEXES = [
   'CREATE INDEX IF NOT EXISTS idx_items_category ON items(category, scope)',
   'CREATE INDEX IF NOT EXISTS idx_items_hash ON items(content_hash, scope)',
   'CREATE INDEX IF NOT EXISTS idx_items_agent ON items(agent_id, scope)',
+  'CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id, scope)',
 ];
 
 export class ItemsStore {
@@ -64,11 +65,15 @@ export class ItemsStore {
     return row ? this.rowToItem(row) : null;
   }
 
-  findByHash(contentHash: string, scope: string, agentId?: string): MemoryFSItem | null {
-    const sql = agentId
-      ? 'SELECT * FROM items WHERE content_hash = ? AND scope = ? AND agent_id = ?'
-      : 'SELECT * FROM items WHERE content_hash = ? AND scope = ? AND agent_id IS NULL';
-    const params = agentId ? [contentHash, scope, agentId] : [contentHash, scope];
+  findByHash(contentHash: string, scope: string, agentId?: string, userId?: string): MemoryFSItem | null {
+    let sql = 'SELECT * FROM items WHERE content_hash = ? AND scope = ?';
+    const params: unknown[] = [contentHash, scope];
+    // Agent scoping: match specific agent or NULL
+    sql += agentId ? ' AND agent_id = ?' : ' AND agent_id IS NULL';
+    if (agentId) params.push(agentId);
+    // User scoping: match specific user or NULL
+    sql += userId ? ' AND user_id = ?' : ' AND user_id IS NULL';
+    if (userId) params.push(userId);
     const row = this.db.prepare(sql).get(...params) as Record<string, unknown> | undefined;
     return row ? this.rowToItem(row) : null;
   }
@@ -82,21 +87,33 @@ export class ItemsStore {
     `).run(now, now, id);
   }
 
-  listByCategory(category: string, scope: string, limit?: number): MemoryFSItem[] {
-    const sql = limit
-      ? 'SELECT * FROM items WHERE category = ? AND scope = ? ORDER BY created_at DESC LIMIT ?'
-      : 'SELECT * FROM items WHERE category = ? AND scope = ? ORDER BY created_at DESC';
-    const params = limit ? [category, scope, limit] : [category, scope];
+  listByCategory(category: string, scope: string, limit?: number, userId?: string): MemoryFSItem[] {
+    let sql = 'SELECT * FROM items WHERE category = ? AND scope = ?';
+    const params: unknown[] = [category, scope];
+    if (userId) {
+      sql += ' AND (user_id = ? OR user_id IS NULL)';
+      params.push(userId);
+    }
+    sql += ' ORDER BY created_at DESC';
+    if (limit) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
     const rows = this.db.prepare(sql).all(...params) as Record<string, unknown>[];
     return rows.map(r => this.rowToItem(r));
   }
 
-  listByScope(scope: string, limit?: number, agentId?: string): MemoryFSItem[] {
+  listByScope(scope: string, limit?: number, agentId?: string, userId?: string): MemoryFSItem[] {
     let sql = 'SELECT * FROM items WHERE scope = ?';
     const params: unknown[] = [scope];
     if (agentId) {
       sql += ' AND agent_id = ?';
       params.push(agentId);
+    }
+    // User scoping: when userId set, return user's own + shared (user_id IS NULL)
+    if (userId) {
+      sql += ' AND (user_id = ? OR user_id IS NULL)';
+      params.push(userId);
     }
     sql += ' ORDER BY created_at DESC';
     if (limit) {
@@ -114,7 +131,13 @@ export class ItemsStore {
     return rows.map(r => this.rowToItem(r));
   }
 
-  searchContent(query: string, scope: string, limit = 50): MemoryFSItem[] {
+  searchContent(query: string, scope: string, limit = 50, userId?: string): MemoryFSItem[] {
+    if (userId) {
+      const rows = this.db.prepare(
+        'SELECT * FROM items WHERE scope = ? AND content LIKE ? AND (user_id = ? OR user_id IS NULL) ORDER BY created_at DESC LIMIT ?',
+      ).all(scope, `%${query}%`, userId, limit) as Record<string, unknown>[];
+      return rows.map(r => this.rowToItem(r));
+    }
     const rows = this.db.prepare(
       'SELECT * FROM items WHERE scope = ? AND content LIKE ? ORDER BY created_at DESC LIMIT ?',
     ).all(scope, `%${query}%`, limit) as Record<string, unknown>[];

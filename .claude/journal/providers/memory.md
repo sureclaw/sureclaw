@@ -1,5 +1,13 @@
 # Providers: Memory
 
+## [2026-03-04 02:55] — Multi-user scoped memory implementation
+
+**Task:** Add per-user memory isolation to MemoryFS so DMs are user-scoped and channels are agent-scoped
+**What I did:** Implemented full multi-user memory scoping across 16 files: (1) threaded `sessionScope` through IPC pipeline (ipc-server → server-completions → server-channels → runner → ipc-client → runners), (2) added `userId` to memory provider types, (3) updated ItemsStore with userId filtering (findByHash, listByScope, searchContent, listByCategory), (4) updated EmbeddingStore with user_id column migration and userId filtering in upsert/findSimilar, (5) threaded userId through MemoryFS provider write/query/list/memorize, (6) added server-side userId injection in IPC memory handlers with isDmScope() helper, (7) updated memory recall with userId/sessionScope config, (8) wrote comprehensive tests across 5 test files (items-store, embedding-store, provider, memory-recall, IPC handler).
+**Files touched:** `src/host/ipc-server.ts`, `src/host/server-completions.ts`, `src/host/server-channels.ts`, `src/agent/runner.ts`, `src/agent/ipc-client.ts`, `src/agent/runners/claude-code.ts`, `src/agent/runners/pi-session.ts`, `src/providers/memory/types.ts`, `src/providers/memory/memoryfs/items-store.ts`, `src/providers/memory/memoryfs/embedding-store.ts`, `src/providers/memory/memoryfs/provider.ts`, `src/host/ipc-handlers/memory.ts`, `src/host/memory-recall.ts`, `tests/providers/memory/memoryfs/items-store.test.ts`, `tests/providers/memory/memoryfs/embedding-store.test.ts`, `tests/providers/memory/memoryfs/provider.test.ts`, `tests/host/memory-recall.test.ts`, `tests/host/ipc-handlers/memory.test.ts`, `docs/plans/multi-user-scoped-memory.md`
+**Outcome:** Success — 209 test files, 2327 tests pass, 0 failures
+**Notes:** Key design: `userId = NULL` = shared/agent-scoped. DMs inject ctx.userId, channels set userId=undefined. Existing data (all NULL) becomes shared — fully backward compatible. SQL pattern: `(user_id = ? OR user_id IS NULL)` for "own + shared" semantics.
+
 ## [2026-03-03 21:00] — Run remaining acceptance tests: BT-9, IT-7, IT-8
 
 **Task:** Run the 3 skipped acceptance tests that required embedding support (BT-9, IT-7, IT-8)

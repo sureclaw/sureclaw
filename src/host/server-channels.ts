@@ -243,6 +243,7 @@ export function registerChannelHandler(
         { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
         msg.sender,
         replyOptional,
+        msg.session.scope,
       );
 
       // If LLM chose not to reply, skip sending

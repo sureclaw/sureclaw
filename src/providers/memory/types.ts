@@ -10,6 +10,8 @@ export interface MemoryEntry {
   createdAt?: Date;
   /** Agent ID for enterprise scoping. When set, entry belongs to this agent only. */
   agentId?: string;
+  /** User ID for multi-user scoping. NULL = shared/agent-scoped memory. */
+  userId?: string;
 }
 
 export interface MemoryQuery {
@@ -19,6 +21,8 @@ export interface MemoryQuery {
   tags?: string[];
   /** Filter by agent ID. When set, only entries belonging to this agent are returned. */
   agentId?: string;
+  /** User ID for multi-user scoping. When set, returns user's own + shared (userId IS NULL) memories. */
+  userId?: string;
   /** Pre-computed embedding vector for semantic search. When provided,
    *  providers that support it will use vector similarity instead of keyword matching. */
   embedding?: Float32Array;
@@ -46,7 +50,7 @@ export interface MemoryProvider {
   query(q: MemoryQuery): Promise<MemoryEntry[]>;
   read(id: string): Promise<MemoryEntry | null>;
   delete(id: string): Promise<void>;
-  list(scope: string, limit?: number): Promise<MemoryEntry[]>;
-  memorize?(conversation: ConversationTurn[]): Promise<void>;
+  list(scope: string, limit?: number, userId?: string): Promise<MemoryEntry[]>;
+  memorize?(conversation: ConversationTurn[], userId?: string): Promise<void>;
   onProactiveHint?(handler: (hint: ProactiveHint) => void): void;
 }

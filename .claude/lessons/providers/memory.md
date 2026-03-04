@@ -1,5 +1,17 @@
 # Provider Lessons: Memory
 
+### userId = NULL means shared; use (user_id = ? OR user_id IS NULL) for "own + shared" queries
+**Date:** 2026-03-04
+**Context:** Implementing multi-user memory scoping for MemoryFS. Needed a backward-compatible way to isolate user memories while keeping agent-wide shared memories accessible.
+**Lesson:** The pattern `userId = NULL` = shared/agent-scoped works perfectly for backward compatibility (all existing data has NULL userId, so it becomes shared). For user-scoped queries, use `(user_id = ? OR user_id IS NULL)` SQL to return both the user's own memories and shared ones. For hash dedup (`findByHash`), match exactly: `user_id = ?` or `user_id IS NULL` — never combine with OR, since the same content stored by different users should be separate entries.
+**Tags:** memoryfs, userId, scoping, sql, backward-compatibility
+
+### Server-side userId injection prevents agent impersonation
+**Date:** 2026-03-04
+**Context:** Designing where userId should be enforced for memory operations. Considered agent-side injection vs server-side injection.
+**Lesson:** Always inject userId server-side in IPC handlers, never trust agent-provided userId. Use `isDmScope(ctx)` to decide: DMs/web/undefined contexts inject `ctx.userId`, channel/group contexts set `userId = undefined` (shared). This keeps userId out of agent-facing IPC schemas entirely — the agent never controls or sees the userId field.
+**Tags:** memoryfs, userId, security, ipc, server-side-injection
+
 ### LLM extraction rephrases facts — content-hash dedup only catches exact matches
 **Date:** 2026-03-03
 **Context:** Running acceptance tests for MemoryFS v2. Sent "Remember I use TypeScript" twice. Expected dedup via content hash. Got 3 items: "Uses TypeScript for all projects", "User uses TypeScript for all projects. Apply this context...", "The user uses TypeScript for all of their projects."

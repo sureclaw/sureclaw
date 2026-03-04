@@ -24,6 +24,10 @@ export interface MemoryRecallConfig {
   scope: string;
   /** Embedding client for semantic search (optional — falls back to keywords). */
   embeddingClient?: EmbeddingClient;
+  /** User ID for multi-user scoping. When set in DM context, queries return user's own + shared. */
+  userId?: string;
+  /** Session scope from channel. DM = user-scoped, channel/group = agent-scoped. */
+  sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
 }
 
 export const MEMORY_RECALL_DEFAULTS: MemoryRecallConfig = {
@@ -109,6 +113,10 @@ export async function recallMemoryForMessage(
 ): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
   if (!config.enabled) return [];
 
+  // Determine userId for scoping: DMs use user-scoped queries, channels use shared-only
+  const isDm = config.sessionScope === 'dm' || config.sessionScope === undefined;
+  const queryUserId = isDm ? config.userId : undefined;
+
   // Strategy 1: Embedding-based semantic search
   if (config.embeddingClient?.available) {
     try {
@@ -118,6 +126,7 @@ export async function recallMemoryForMessage(
         scope: config.scope,
         embedding,
         limit: config.limit,
+        userId: queryUserId,
       });
 
       if (entries.length > 0) {
@@ -152,6 +161,7 @@ export async function recallMemoryForMessage(
       scope: config.scope,
       query: queryTerms,
       limit: config.limit,
+      userId: queryUserId,
     });
 
     if (entries.length === 0) {

@@ -89,7 +89,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   const bridge = await startTCPBridge(config.proxySocket);
 
   // 2. Connect IPC client for MCP tools
-  const client = new IPCClient({ socketPath: config.ipcSocket, sessionId: config.sessionId, userId: config.userId });
+  const client = new IPCClient({ socketPath: config.ipcSocket, sessionId: config.sessionId, userId: config.userId, sessionScope: config.sessionScope });
   await client.connect();
 
   // 3. Build system prompt (also returns toolFilter for MCP tool filtering)

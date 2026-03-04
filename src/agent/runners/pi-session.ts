@@ -312,7 +312,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     logger.debug('proxy_unavailable', { reason: 'config.proxySocket not set, falling back to IPC for LLM calls' });
   }
 
-  const client = new IPCClient({ socketPath: config.ipcSocket, sessionId: config.sessionId, userId: config.userId });
+  const client = new IPCClient({ socketPath: config.ipcSocket, sessionId: config.sessionId, userId: config.userId, sessionScope: config.sessionScope });
   await client.connect();
 
   // Register LLM provider (replaces built-in providers — no network in sandbox)
