@@ -46,6 +46,8 @@ export interface AgentConfig {
   replyOptional?: boolean;
   /** Session ID from host — used to scope IPC requests (e.g. image generation). */
   sessionId?: string;
+  /** Session scope from channel provider — determines memory scoping (dm = user-scoped, channel = agent-scoped). */
+  sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
   // Enterprise fields
   agentId?: string;
   agentWorkspace?: string;
@@ -234,6 +236,8 @@ export interface StdinPayload {
   replyOptional?: boolean;
   /** Session ID from host — used to scope IPC requests (e.g. image generation). */
   sessionId?: string;
+  /** Session scope from channel provider — determines memory scoping (dm = user-scoped, channel = agent-scoped). */
+  sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
   // Enterprise fields
   agentId?: string;
   agentWorkspace?: string;
@@ -275,6 +279,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         userId: typeof parsed.userId === 'string' ? parsed.userId : undefined,
         replyOptional: parsed.replyOptional === true,
         sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+        sessionScope: typeof parsed.sessionScope === 'string' ? parsed.sessionScope as StdinPayload['sessionScope'] : undefined,
         // Enterprise fields
         agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
         agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
@@ -336,6 +341,7 @@ if (isMain) {
     config.userId = payload.userId;
     config.replyOptional = payload.replyOptional;
     config.sessionId = payload.sessionId;
+    config.sessionScope = payload.sessionScope;
     // Enterprise fields — prefer canonical env vars (set by sandbox provider)
     // over stdin payload (which carries host paths).
     config.agentId = payload.agentId;

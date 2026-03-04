@@ -16,6 +16,8 @@ export interface IPCClientOptions {
   sessionId?: string;
   /** User ID included in every IPC request for per-user scoping. */
   userId?: string;
+  /** Session scope included in every IPC request for memory scoping (dm = user-scoped, channel = agent-scoped). */
+  sessionScope?: string;
 }
 
 export class IPCClient {
@@ -24,6 +26,7 @@ export class IPCClient {
   private maxReconnectAttempts: number;
   private sessionId?: string;
   private userId?: string;
+  private sessionScope?: string;
   private socket: Socket | null = null;
   private connected = false;
 
@@ -33,6 +36,7 @@ export class IPCClient {
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS;
     this.sessionId = opts.sessionId;
     this.userId = opts.userId;
+    this.sessionScope = opts.sessionScope;
   }
 
   async connect(): Promise<void> {
@@ -114,6 +118,7 @@ export class IPCClient {
       ...request,
       ...(this.sessionId ? { _sessionId: this.sessionId } : {}),
       ...(this.userId ? { _userId: this.userId } : {}),
+      ...(this.sessionScope ? { _sessionScope: this.sessionScope } : {}),
     };
     const payload = Buffer.from(JSON.stringify(enriched), 'utf-8');
     const lenBuf = Buffer.alloc(4);

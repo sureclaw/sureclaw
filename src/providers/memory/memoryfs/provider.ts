@@ -135,6 +135,19 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
     logger.warn('backfill_error', { error: (err as Error).message });
   });
 
+  /** Convert internal MemoryFSItem to public MemoryEntry. */
+  function toEntry(item: import('./types.js').MemoryFSItem): MemoryEntry {
+    return {
+      id: item.id,
+      scope: item.scope,
+      content: item.content,
+      taint: item.taint ? JSON.parse(item.taint) : undefined,
+      createdAt: new Date(item.createdAt),
+      agentId: item.agentId,
+      userId: item.userId,
+    };
+  }
+
   return {
     async write(entry: MemoryEntry): Promise<string> {
       const now = new Date().toISOString();
@@ -142,7 +155,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       const scope = entry.scope || 'default';
 
       // Fast path: hash-based dedup (exact match after normalization)
-      const existing = store.findByHash(contentHash, scope, entry.agentId);
+      const existing = store.findByHash(contentHash, scope, entry.agentId, entry.userId);
       if (existing) {
         store.reinforce(existing.id);
         return existing.id;
@@ -154,7 +167,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
         try {
           const [vector] = await embeddingClient.embed([entry.content]);
           precomputedVector = vector;
-          const similar = await embeddingStore.findSimilar(vector, 1, scope);
+          const similar = await embeddingStore.findSimilar(vector, 1, scope, entry.userId);
           if (similar.length > 0) {
             const similarity = 1 / (1 + similar[0].distance);
             if (similarity >= SEMANTIC_DEDUP_THRESHOLD) {
@@ -186,17 +199,18 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
         updatedAt: now,
         scope,
         agentId: entry.agentId,
+        userId: entry.userId,
         taint: entry.taint ? JSON.stringify(entry.taint) : undefined,
       });
 
       // Store embedding — reuse precomputed vector if available
       if (precomputedVector) {
-        embeddingStore.upsert(id, scope, precomputedVector).catch(() => {});
+        embeddingStore.upsert(id, scope, precomputedVector, entry.userId).catch(() => {});
       } else {
         embedItem(id, entry.content, scope, embeddingStore, embeddingClient).catch(() => {});
       }
 
-      // Update summary via LLM (fire-and-forget)
+      // Update summary via LLM (fire-and-forget) — summaries stay agent-wide
       if (llm) {
         updateCategorySummary(llm, memoryDir, 'knowledge', [entry.content]).catch(err =>
           logger.warn('write_summary_update_failed', { error: (err as Error).message }),
@@ -213,7 +227,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       // Path 1: Embedding-based semantic search
       if (q.embedding) {
         try {
-          const similar = await embeddingStore.findSimilar(q.embedding, limit, scope);
+          const similar = await embeddingStore.findSimilar(q.embedding, limit, scope, q.userId);
           if (similar.length === 0) {
             // No similar items found — return empty rather than falling through
             // to unfiltered keyword/listing search which would return irrelevant results
@@ -240,14 +254,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
           });
           ranked.sort((a, b) => b.score - a.score);
 
-          return ranked.slice(0, limit).map(({ item }) => ({
-            id: item.id,
-            scope: item.scope,
-            content: item.content,
-            taint: item.taint ? JSON.parse(item.taint) : undefined,
-            createdAt: new Date(item.createdAt),
-            agentId: item.agentId,
-          }));
+          return ranked.slice(0, limit).map(({ item }) => toEntry(item));
         } catch (err) {
           logger.warn('embedding_query_failed', { error: (err as Error).message });
           // Fall through to keyword search only on error (graceful degradation)
@@ -256,8 +263,8 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
 
       // Path 2: Keyword search (fallback or when no embedding provided)
       let items = q.query
-        ? store.searchContent(q.query, scope, limit)
-        : store.listByScope(scope, limit, q.agentId);
+        ? store.searchContent(q.query, scope, limit, q.userId)
+        : store.listByScope(scope, limit, q.agentId, q.userId);
 
       if (q.agentId && q.query) {
         items = items.filter(i => i.agentId === q.agentId);
@@ -275,27 +282,13 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       }));
       ranked.sort((a, b) => b.score - a.score);
 
-      return ranked.slice(0, limit).map(({ item }) => ({
-        id: item.id,
-        scope: item.scope,
-        content: item.content,
-        taint: item.taint ? JSON.parse(item.taint) : undefined,
-        createdAt: new Date(item.createdAt),
-        agentId: item.agentId,
-      }));
+      return ranked.slice(0, limit).map(({ item }) => toEntry(item));
     },
 
     async read(id: string): Promise<MemoryEntry | null> {
       const item = store.getById(id);
       if (!item) return null;
-      return {
-        id: item.id,
-        scope: item.scope,
-        content: item.content,
-        taint: item.taint ? JSON.parse(item.taint) : undefined,
-        createdAt: new Date(item.createdAt),
-        agentId: item.agentId,
-      };
+      return toEntry(item);
     },
 
     async delete(id: string): Promise<void> {
@@ -303,19 +296,12 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       await embeddingStore.delete(id).catch(() => {});
     },
 
-    async list(scope: string, limit?: number): Promise<MemoryEntry[]> {
-      const items = store.listByScope(scope, limit ?? 50);
-      return items.map(item => ({
-        id: item.id,
-        scope: item.scope,
-        content: item.content,
-        taint: item.taint ? JSON.parse(item.taint) : undefined,
-        createdAt: new Date(item.createdAt),
-        agentId: item.agentId,
-      }));
+    async list(scope: string, limit?: number, userId?: string): Promise<MemoryEntry[]> {
+      const items = store.listByScope(scope, limit ?? 50, undefined, userId);
+      return items.map(item => toEntry(item));
     },
 
-    async memorize(conversation: ConversationTurn[]): Promise<void> {
+    async memorize(conversation: ConversationTurn[], userId?: string): Promise<void> {
       if (conversation.length === 0) return;
       if (!llm) {
         throw new Error('memorize requires an LLM provider');
@@ -330,11 +316,11 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       const newItems: Array<{ id: string; content: string; scope: string }> = [];
 
       for (const candidate of candidates) {
-        const existing = store.findByHash(candidate.contentHash, scope);
+        const existing = store.findByHash(candidate.contentHash, scope, undefined, userId);
         if (existing) {
           store.reinforce(existing.id);
         } else {
-          const id = store.insert(candidate);
+          const id = store.insert({ ...candidate, userId });
           newItems.push({ id, content: candidate.content, scope });
           const items = newItemsByCategory.get(candidate.category) || [];
           items.push(candidate.content);
@@ -342,7 +328,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
         }
       }
 
-      // Step 3: Update category summaries via LLM
+      // Step 3: Update category summaries via LLM — summaries stay agent-wide
       for (const [category, newContents] of newItemsByCategory) {
         await updateCategorySummary(llm, memoryDir, category, newContents);
       }
@@ -353,7 +339,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
           try {
             const vectors = await embeddingClient.embed(newItems.map(i => i.content));
             for (let i = 0; i < newItems.length; i++) {
-              await embeddingStore.upsert(newItems[i].id, newItems[i].scope, vectors[i]);
+              await embeddingStore.upsert(newItems[i].id, newItems[i].scope, vectors[i], userId);
             }
           } catch (err) {
             logger.warn('memorize_embed_failed', { error: (err as Error).message });

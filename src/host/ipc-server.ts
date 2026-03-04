@@ -35,6 +35,8 @@ export interface IPCContext {
   sessionId: string;
   agentId: string;
   userId?: string;
+  /** Session scope from the channel provider. DM = user-scoped memory, channel/group = agent-scoped. */
+  sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
 }
 
 export interface DelegationConfig {
@@ -148,8 +150,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
     const actionName = envelope.data.action;
 
-    // If the agent included a _sessionId or _userId, use them to scope this request
-    // (e.g. for per-session image generation tracking, per-user workspace writes).
+    // If the agent included a _sessionId, _userId, or _sessionScope, use them to scope
+    // this request (e.g. per-session tracking, per-user workspace writes, memory scoping).
     // Strip metadata fields before schema validation — strictObject schemas reject unknown fields.
     const requestSessionId = (parsed as Record<string, unknown>)._sessionId;
     if (requestSessionId !== undefined) {
@@ -159,10 +161,15 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     if (requestUserId !== undefined) {
       delete (parsed as Record<string, unknown>)._userId;
     }
-    const effectiveCtx = {
+    const requestSessionScope = (parsed as Record<string, unknown>)._sessionScope;
+    if (requestSessionScope !== undefined) {
+      delete (parsed as Record<string, unknown>)._sessionScope;
+    }
+    const effectiveCtx: IPCContext = {
       ...ctx,
       ...(typeof requestSessionId === 'string' ? { sessionId: requestSessionId } : {}),
       ...(typeof requestUserId === 'string' ? { userId: requestUserId } : {}),
+      ...(typeof requestSessionScope === 'string' ? { sessionScope: requestSessionScope as IPCContext['sessionScope'] } : {}),
     };
 
     logger.debug('action_parsed', { action: actionName });

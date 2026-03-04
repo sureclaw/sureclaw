@@ -73,6 +73,14 @@ export class EmbeddingStore {
       // Column already exists — expected on non-first run
     }
 
+    // Migration: add user_id column for multi-user memory scoping
+    try {
+      db.exec('ALTER TABLE embedding_meta ADD COLUMN user_id TEXT');
+    } catch {
+      // Column already exists — expected on non-first run
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_emeta_user ON embedding_meta(user_id, scope)');
+
     // vec0 virtual table for vector similarity search
     try {
       db.exec(
@@ -102,7 +110,7 @@ export class EmbeddingStore {
   }
 
   /** Insert or update an embedding for the given item. */
-  async upsert(itemId: string, scope: string, embedding: Float32Array): Promise<void> {
+  async upsert(itemId: string, scope: string, embedding: Float32Array, userId?: string): Promise<void> {
     await this._ready;
     if (!this._available) return;
     const db = this.db!;
@@ -136,21 +144,25 @@ export class EmbeddingStore {
     // Upsert metadata (includes embedding BLOB for scoped brute-force queries)
     const embeddingBuf = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const metaStmt = db.prepare(
-      `INSERT INTO embedding_meta(item_id, scope, created_at, embedding)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(item_id) DO UPDATE SET scope = excluded.scope, embedding = excluded.embedding`,
+      `INSERT INTO embedding_meta(item_id, scope, created_at, embedding, user_id)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(item_id) DO UPDATE SET scope = excluded.scope, embedding = excluded.embedding, user_id = excluded.user_id`,
     );
-    metaStmt.run(itemId, scope, new Date().toISOString(), embeddingBuf);
+    metaStmt.run(itemId, scope, new Date().toISOString(), embeddingBuf, userId ?? null);
   }
 
   /**
    * Find items most similar to the query vector.
    * Returns results ordered by ascending distance (closest first).
+   *
+   * When userId is set, returns items belonging to that user + shared (user_id IS NULL).
+   * When userId is absent, returns only shared items (user_id IS NULL).
    */
   async findSimilar(
     query: Float32Array,
     limit: number,
     scope?: string,
+    userId?: string,
   ): Promise<SimilarityResult[]> {
     await this._ready;
     if (!this._available) return [];
@@ -161,6 +173,20 @@ export class EmbeddingStore {
       // the embedding_meta table, filtered by scope. This avoids the incorrect
       // global-MATCH-then-filter approach that could miss in-scope neighbors.
       const queryBuf = Buffer.from(query.buffer, query.byteOffset, query.byteLength);
+
+      if (userId) {
+        // User-scoped: return user's own + shared (user_id IS NULL)
+        const stmt = db.prepare(
+          `SELECT item_id, vec_distance_l2(embedding, ?) as distance
+           FROM embedding_meta
+           WHERE scope = ? AND (user_id = ? OR user_id IS NULL) AND embedding IS NOT NULL
+           ORDER BY distance ASC
+           LIMIT ?`,
+        );
+        const results = stmt.all(queryBuf, scope, userId, limit) as Array<{ item_id: string; distance: number }>;
+        return results.map(r => ({ itemId: r.item_id, distance: r.distance }));
+      }
+
       const scopeStmt = db.prepare(
         `SELECT item_id, vec_distance_l2(embedding, ?) as distance
          FROM embedding_meta

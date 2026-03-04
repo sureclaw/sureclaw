@@ -129,6 +129,67 @@ describe('memoryfs provider', () => {
     expect(results[0].content).toContain('Agent 1');
   });
 
+  // ── userId scoping tests ──
+
+  it('write() with userId stores user-scoped entry', async () => {
+    const id = await memory.write({
+      scope: 'default',
+      content: 'Alice prefers dark mode',
+      userId: 'alice',
+    });
+    const entry = await memory.read(id);
+    expect(entry).not.toBeNull();
+    expect(entry!.userId).toBe('alice');
+  });
+
+  it('query() with userId returns own + shared', async () => {
+    await memory.write({ scope: 'default', content: 'Alice fact about TypeScript', userId: 'alice' });
+    await memory.write({ scope: 'default', content: 'Shared fact about TypeScript' }); // no userId = shared
+    await memory.write({ scope: 'default', content: 'Bob fact about TypeScript', userId: 'bob' });
+
+    const results = await memory.query({ scope: 'default', query: 'TypeScript', userId: 'alice' });
+    expect(results).toHaveLength(2);
+    const contents = results.map(r => r.content);
+    expect(contents).toContain('Alice fact about TypeScript');
+    expect(contents).toContain('Shared fact about TypeScript');
+    expect(contents).not.toContain('Bob fact about TypeScript');
+  });
+
+  it('query() without userId returns all items', async () => {
+    await memory.write({ scope: 'default', content: 'Alice fact about React', userId: 'alice' });
+    await memory.write({ scope: 'default', content: 'Shared fact about React' });
+    await memory.write({ scope: 'default', content: 'Bob fact about React', userId: 'bob' });
+
+    const results = await memory.query({ scope: 'default', query: 'React' });
+    expect(results).toHaveLength(3);
+  });
+
+  it('list() with userId returns own + shared', async () => {
+    await memory.write({ scope: 'default', content: 'Alice memory', userId: 'alice' });
+    await memory.write({ scope: 'default', content: 'Shared memory' });
+    await memory.write({ scope: 'default', content: 'Bob memory', userId: 'bob' });
+
+    const entries = await memory.list('default', undefined, 'alice');
+    expect(entries).toHaveLength(2);
+    const contents = entries.map(e => e.content);
+    expect(contents).toContain('Alice memory');
+    expect(contents).toContain('Shared memory');
+  });
+
+  it('hash dedup scopes by userId (same content, different users = separate entries)', async () => {
+    const id1 = await memory.write({ scope: 'default', content: 'Prefers TypeScript', userId: 'alice' });
+    const id2 = await memory.write({ scope: 'default', content: 'Prefers TypeScript', userId: 'bob' });
+
+    // Both should be separate entries
+    expect(id1).not.toBe(id2);
+    const entry1 = await memory.read(id1);
+    const entry2 = await memory.read(id2);
+    expect(entry1).not.toBeNull();
+    expect(entry2).not.toBeNull();
+    expect(entry1!.userId).toBe('alice');
+    expect(entry2!.userId).toBe('bob');
+  });
+
   it('query() with embedding returns empty when no items exist, not unfiltered listing', async () => {
     // Write some items to the store (keyword-searchable)
     await memory.write({ scope: 'default', content: 'Some keyword-searchable fact' });

@@ -118,4 +118,85 @@ describe('ItemsStore', () => {
   it('listAllScopes returns empty for empty store', () => {
     expect(store.listAllScopes()).toEqual([]);
   });
+
+  // ── userId scoping ──
+
+  it('findByHash isolates by userId', () => {
+    store.insert({ ...sampleItem, userId: 'alice' });
+    store.insert({ ...sampleItem, content: 'Same hash different user', contentHash: 'a1b2c3d4e5f6g7h8', userId: 'bob' });
+
+    const aliceItem = store.findByHash('a1b2c3d4e5f6g7h8', 'default', undefined, 'alice');
+    expect(aliceItem).not.toBeNull();
+    expect(aliceItem!.userId).toBe('alice');
+
+    const bobItem = store.findByHash('a1b2c3d4e5f6g7h8', 'default', undefined, 'bob');
+    expect(bobItem).not.toBeNull();
+    expect(bobItem!.userId).toBe('bob');
+  });
+
+  it('findByHash with no userId matches only NULL userId items', () => {
+    store.insert({ ...sampleItem, userId: 'alice' });
+    store.insert({ ...sampleItem, contentHash: 'shared_hash_12345' }); // no userId = shared
+
+    const shared = store.findByHash('shared_hash_12345', 'default');
+    expect(shared).not.toBeNull();
+
+    const userScoped = store.findByHash('a1b2c3d4e5f6g7h8', 'default');
+    expect(userScoped).toBeNull(); // userId='alice' does not match NULL
+  });
+
+  it('listByScope with userId returns own + shared items', () => {
+    store.insert({ ...sampleItem, userId: 'alice' });
+    store.insert({ ...sampleItem, content: 'Shared fact', contentHash: 'shared_hash_12345' }); // shared
+    store.insert({ ...sampleItem, content: 'Bob fact', contentHash: 'bob_hash_12345678', userId: 'bob' });
+
+    const aliceView = store.listByScope('default', 50, undefined, 'alice');
+    expect(aliceView).toHaveLength(2); // alice's own + shared
+    const contents = aliceView.map(i => i.content);
+    expect(contents).toContain('Prefers TypeScript over JavaScript'); // alice's
+    expect(contents).toContain('Shared fact'); // shared
+  });
+
+  it('listByScope without userId returns all items (no user filter)', () => {
+    store.insert({ ...sampleItem, userId: 'alice' });
+    store.insert({ ...sampleItem, content: 'Shared fact', contentHash: 'shared_hash_12345' });
+    store.insert({ ...sampleItem, content: 'Bob fact', contentHash: 'bob_hash_12345678', userId: 'bob' });
+
+    const allView = store.listByScope('default', 50);
+    expect(allView).toHaveLength(3); // all items
+  });
+
+  it('searchContent with userId returns own + shared', () => {
+    store.insert({ ...sampleItem, content: 'Alice likes TypeScript', userId: 'alice' });
+    store.insert({ ...sampleItem, content: 'TypeScript is shared knowledge', contentHash: 'shared_ts_123456' }); // shared
+    store.insert({ ...sampleItem, content: 'Bob uses TypeScript too', contentHash: 'bob_ts_12345678', userId: 'bob' });
+
+    const aliceResults = store.searchContent('TypeScript', 'default', 50, 'alice');
+    expect(aliceResults).toHaveLength(2); // alice's + shared
+    const contents = aliceResults.map(i => i.content);
+    expect(contents).toContain('Alice likes TypeScript');
+    expect(contents).toContain('TypeScript is shared knowledge');
+    expect(contents).not.toContain('Bob uses TypeScript too');
+  });
+
+  it('listByCategory with userId returns own + shared', () => {
+    store.insert({ ...sampleItem, userId: 'alice' });
+    store.insert({ ...sampleItem, content: 'Shared preference', contentHash: 'shared_pref_12345' }); // shared
+    store.insert({ ...sampleItem, content: 'Bob preference', contentHash: 'bob_pref_12345678', userId: 'bob' });
+
+    const alicePrefs = store.listByCategory('preferences', 'default', undefined, 'alice');
+    expect(alicePrefs).toHaveLength(2); // alice's + shared
+  });
+
+  it('stores and retrieves userId field', () => {
+    const id = store.insert({ ...sampleItem, userId: 'alice' });
+    const item = store.getById(id);
+    expect(item!.userId).toBe('alice');
+  });
+
+  it('stores undefined userId as null', () => {
+    const id = store.insert({ ...sampleItem });
+    const item = store.getById(id);
+    expect(item!.userId).toBeUndefined();
+  });
 });

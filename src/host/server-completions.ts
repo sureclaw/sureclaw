@@ -166,6 +166,7 @@ export async function processCompletion(
   preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
   userId?: string,
   replyOptional?: boolean,
+  sessionScope?: 'dm' | 'channel' | 'thread' | 'group',
 ): Promise<CompletionResult> {
   const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, agentDir, logger, eventBus } = deps;
   const sessionId = preProcessed?.sessionId ?? randomUUID();
@@ -341,6 +342,8 @@ export async function processCompletion(
       limit: config.history.memory_recall_limit,
       scope: config.history.memory_recall_scope,
       embeddingClient,
+      userId: currentUserId,
+      sessionScope: sessionScope,
     };
     if (recallConfig.enabled) {
       try {
@@ -456,6 +459,7 @@ export async function processCompletion(
       userId: currentUserId,
       replyOptional: replyOptional ?? false,
       sessionId: requestId,
+      sessionScope: sessionScope ?? 'dm',
       // Enterprise fields
       agentId: agentName,
       agentWorkspace: enterpriseAgentWs,
@@ -676,7 +680,9 @@ export async function processCompletion(
           })),
           { role: 'assistant' as const, content: outbound.content },
         ];
-        await providers.memory.memorize(fullHistory);
+        // DM context: memories are user-scoped. Channel context: memories are agent-scoped (shared).
+        const isDm = (sessionScope ?? 'dm') === 'dm';
+        await providers.memory.memorize(fullHistory, isDm ? currentUserId : undefined);
       } catch (err) {
         reqLogger.warn('memorize_failed', { error: (err as Error).message });
       }

@@ -424,4 +424,111 @@ describe('recallMemoryForMessage', () => {
     expect(result).toHaveLength(2);
     expect(result[0].content).toContain('PostgreSQL');
   });
+
+  // ── userId scoping tests ──
+
+  it('passes userId to keyword query in DM scope', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        return [];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      { ...enabledConfig, userId: 'alice', sessionScope: 'dm' },
+      silentLogger,
+    );
+
+    expect(capturedQuery).not.toBeNull();
+    expect(capturedQuery!.userId).toBe('alice');
+  });
+
+  it('omits userId from query in channel scope', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        return [];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      { ...enabledConfig, userId: 'alice', sessionScope: 'channel' },
+      silentLogger,
+    );
+
+    expect(capturedQuery).not.toBeNull();
+    expect(capturedQuery!.userId).toBeUndefined();
+  });
+
+  it('defaults to DM scope when sessionScope is undefined', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        return [];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    await recallMemoryForMessage(
+      'What database are we using?',
+      memory,
+      { ...enabledConfig, userId: 'alice' }, // no sessionScope
+      silentLogger,
+    );
+
+    expect(capturedQuery).not.toBeNull();
+    expect(capturedQuery!.userId).toBe('alice');
+  });
+
+  it('passes userId via embedding query in DM scope', async () => {
+    let capturedQuery: MemoryQuery | null = null;
+    const memory: MemoryProvider = {
+      async write() { return 'id'; },
+      async query(q: MemoryQuery) {
+        capturedQuery = q;
+        return [{ id: 'mem1', scope: 'default', content: 'Found via embedding' }];
+      },
+      async read() { return null; },
+      async delete() {},
+      async list() { return []; },
+    };
+
+    const mockEmbeddingClient: EmbeddingClient = {
+      available: true,
+      dimensions: 3,
+      async embed(texts: string[]) {
+        return texts.map(() => new Float32Array([0.1, 0.2, 0.3]));
+      },
+    };
+
+    await recallMemoryForMessage(
+      'What database do we use?',
+      memory,
+      { ...enabledConfig, embeddingClient: mockEmbeddingClient, userId: 'alice', sessionScope: 'dm' },
+      silentLogger,
+    );
+
+    expect(capturedQuery).not.toBeNull();
+    expect(capturedQuery!.userId).toBe('alice');
+    expect(capturedQuery!.embedding).toBeInstanceOf(Float32Array);
+  });
 });

@@ -204,6 +204,49 @@ describe('EmbeddingStore', () => {
     expect(results).toEqual([]);
   });
 
+  // ── userId scoping tests ──
+
+  it('upsert stores userId in embedding_meta', async () => {
+    const s = createStore();
+    await s.ready();
+
+    await s.upsert('item-alice', 'default', new Float32Array([0.1, 0.2, 0.3]), 'alice');
+    await s.upsert('item-shared', 'default', new Float32Array([0.4, 0.5, 0.6]));
+
+    expect(await s.hasEmbedding('item-alice')).toBe(true);
+    expect(await s.hasEmbedding('item-shared')).toBe(true);
+  });
+
+  it('findSimilar with userId returns own + shared items', async () => {
+    const s = createStore();
+    await s.ready();
+
+    await s.upsert('item-alice', 'project', new Float32Array([0.1, 0.2, 0.3]), 'alice');
+    await s.upsert('item-shared', 'project', new Float32Array([0.15, 0.25, 0.35])); // no userId = shared
+    await s.upsert('item-bob', 'project', new Float32Array([0.12, 0.22, 0.32]), 'bob');
+
+    const results = await s.findSimilar(new Float32Array([0.1, 0.2, 0.3]), 10, 'project', 'alice');
+
+    const ids = results.map(r => r.itemId);
+    expect(ids).toContain('item-alice');
+    expect(ids).toContain('item-shared');
+    expect(ids).not.toContain('item-bob');
+  });
+
+  it('findSimilar without userId returns all items (no user filter) in scoped query', async () => {
+    const s = createStore();
+    await s.ready();
+
+    await s.upsert('item-alice', 'project', new Float32Array([0.1, 0.2, 0.3]), 'alice');
+    await s.upsert('item-shared', 'project', new Float32Array([0.15, 0.25, 0.35]));
+    await s.upsert('item-bob', 'project', new Float32Array([0.12, 0.22, 0.32]), 'bob');
+
+    // Without userId, scoped query returns all items in that scope
+    const results = await s.findSimilar(new Float32Array([0.1, 0.2, 0.3]), 10, 'project');
+
+    expect(results).toHaveLength(3);
+  });
+
   describe('graceful degradation when vec0 is unavailable', () => {
     it('does not throw when sqlite-vec fails to load', async () => {
       mockControl.shouldFailLoad = true;
