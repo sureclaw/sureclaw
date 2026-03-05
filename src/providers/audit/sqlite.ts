@@ -8,7 +8,7 @@ import { createKyselyDb } from '../../utils/database.js';
 import { runMigrations } from '../../utils/migrator.js';
 import { auditMigrations } from '../../migrations/audit.js';
 
-export async function create(_config: Config): Promise<AuditProvider> {
+export async function create(_config: Config, _name?: string, _opts?: Record<string, unknown>): Promise<AuditProvider> {
   mkdirSync(dataDir(), { recursive: true });
   const dbPath = dataFile('audit.db');
 

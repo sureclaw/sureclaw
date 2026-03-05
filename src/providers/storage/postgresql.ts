@@ -317,7 +317,7 @@ function createDocumentStore(db: Kysely<any>): DocumentStore {
  * Expects the config to include a `POSTGRESQL_URL` environment variable
  * or a `database_url` config field for the connection string.
  */
-export async function create(config: Config): Promise<StorageProvider> {
+export async function create(config: Config, _name?: string, _opts?: Record<string, unknown>): Promise<StorageProvider> {
   const connectionString = process.env.POSTGRESQL_URL
     ?? process.env.DATABASE_URL
     ?? 'postgresql://localhost:5432/ax';

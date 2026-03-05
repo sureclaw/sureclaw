@@ -4,7 +4,7 @@ import { dataFile } from '../../paths.js';
 import type { AuditProvider, AuditEntry, AuditFilter } from './types.js';
 import type { Config } from '../../types.js';
 
-export async function create(_config: Config): Promise<AuditProvider> {
+export async function create(_config: Config, _name?: string, _opts?: Record<string, unknown>): Promise<AuditProvider> {
   const auditPath = dataFile('audit', 'audit.jsonl');
   mkdirSync(dirname(auditPath), { recursive: true });
 

@@ -60,8 +60,9 @@ const _PROVIDER_MAP = {
     git:      '../providers/skills/git.js',
   },
   audit: {
-    file:   '../providers/audit/file.js',
-    sqlite: '../providers/audit/sqlite.js',
+    file:     '../providers/audit/file.js',
+    sqlite:   '../providers/audit/sqlite.js',
+    database: '../providers/audit/database.js',
   },
   sandbox: {
     subprocess: '../providers/sandbox/subprocess.js',
@@ -80,9 +81,15 @@ const _PROVIDER_MAP = {
     static: '../providers/screener/static.js',
     none:   '../providers/screener/none.js',
   },
+  database: {
+    sqlite:     '../providers/database/sqlite.js',
+    postgresql: '../providers/database/postgres.js',
+  },
   storage: {
     sqlite:     '../providers/storage/sqlite.js',
     postgresql: '../providers/storage/postgresql.js',
+    file:       '../providers/storage/file.js',
+    database:   '../providers/storage/database.js',
   },
   eventbus: {
     inprocess: '../providers/eventbus/inprocess.js',
@@ -115,6 +122,7 @@ export type WebProviderName        = keyof ProviderMapType['web'];
 export type BrowserProviderName    = keyof ProviderMapType['browser'];
 export type CredentialProviderName = keyof ProviderMapType['credentials'];
 export type SkillsProviderName     = keyof ProviderMapType['skills'];
+export type DatabaseProviderName    = keyof ProviderMapType['database'];
 export type AuditProviderName      = keyof ProviderMapType['audit'];
 export type SandboxProviderName    = keyof ProviderMapType['sandbox'];
 export type SchedulerProviderName  = keyof ProviderMapType['scheduler'];

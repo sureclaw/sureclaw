@@ -14,11 +14,13 @@ import type { SandboxProvider } from './providers/sandbox/types.js';
 import type { SchedulerProvider, CronDelivery } from './providers/scheduler/types.js';
 import type { StorageProvider } from './providers/storage/types.js';
 import type { EventBusProvider } from './providers/eventbus/types.js';
+import type { DatabaseProvider } from './providers/database/types.js';
 import type {
   MemoryProviderName, ScannerProviderName, ChannelProviderName,
   WebProviderName, BrowserProviderName, CredentialProviderName,
   SkillsProviderName, AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
+  DatabaseProviderName,
 } from './host/provider-map.js';
 
 /** Allowed image MIME types (matches Anthropic vision API). */
@@ -81,6 +83,7 @@ export interface Config {
     sandbox: SandboxProviderName;
     scheduler: SchedulerProviderName;
     storage: StorageProviderName;
+    database?: DatabaseProviderName;
     eventbus: EventBusProviderName;
     screener?: string;
   };
@@ -147,6 +150,7 @@ export interface ProviderRegistry {
   sandbox: SandboxProvider;
   scheduler: SchedulerProvider;
   storage: StorageProvider;
+  database?: DatabaseProvider;
   eventbus: EventBusProvider;
   screener?: SkillScreenerProvider;
 }

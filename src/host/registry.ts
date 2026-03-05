@@ -1,5 +1,6 @@
 import { resolveProviderPath, listPluginProviders } from './provider-map.js';
 import type { Config, ProviderRegistry } from '../types.js';
+import type { DatabaseProvider } from '../providers/database/types.js';
 import { isTracingEnabled, getTracer } from '../utils/tracing.js';
 import { TracedLLMProvider } from '../providers/llm/traced.js';
 import type { PluginHost } from './plugin-host.js';
@@ -22,6 +23,14 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   const credentials = await loadProvider('credentials', config.providers.credentials, config);
   const { loadCredentials } = await import('../dotenv.js');
   await loadCredentials(credentials);
+
+  // Load database provider SECOND — storage, audit, memory all consume it.
+  let database: DatabaseProvider | undefined;
+  if (config.providers.database) {
+    const dbModPath = resolveProviderPath('database', config.providers.database);
+    const dbMod = await import(dbModPath);
+    database = await dbMod.create(config);
+  }
 
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.
   // Old configs may still list it; silently skip for backward compatibility.
@@ -58,13 +67,20 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   const skillsMod = await import(skillsModulePath);
   const skills = await skillsMod.create(config, config.providers.skills, { screener });
 
-  // Load memory provider, passing LLM for extraction + summary generation
+  // Load memory provider, passing LLM for extraction + summary generation + database
   const memoryModPath = resolveProviderPath('memory', config.providers.memory);
   const memoryMod = await import(memoryModPath);
-  const memory = await memoryMod.create(config, config.providers.memory, { llm: tracedLlm });
+  const memory = await memoryMod.create(config, config.providers.memory, { llm: tracedLlm, database });
 
-  // Load storage provider (wraps MessageQueue, ConversationStore, SessionStore, DocumentStore)
-  const storage = await loadProvider('storage', config.providers.storage, config);
+  // Load storage provider — pass database for storage/database provider
+  const storageModPath = resolveProviderPath('storage', config.providers.storage);
+  const storageMod = await import(storageModPath);
+  const storage = await storageMod.create(config, config.providers.storage, { database });
+
+  // Load audit provider — pass database for audit/database provider
+  const auditModPath = resolveProviderPath('audit', config.providers.audit);
+  const auditMod = await import(auditModPath);
+  const audit = await auditMod.create(config, config.providers.audit, { database });
 
   // Load eventbus provider (in-process pub/sub; Phase 2 adds NATS for k8s)
   const eventbus = await loadProvider('eventbus', config.providers.eventbus, config);
@@ -79,10 +95,11 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     browser:     await loadProvider('browser', config.providers.browser, config),
     credentials,
     skills,
-    audit:       await loadProvider('audit', config.providers.audit, config),
+    audit,
     sandbox:     await loadProvider('sandbox', config.providers.sandbox, config),
     scheduler:   await loadProvider('scheduler', config.providers.scheduler, config),
     storage,
+    database,
     eventbus,
     screener,
   };

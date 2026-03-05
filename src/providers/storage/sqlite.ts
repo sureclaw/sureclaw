@@ -124,7 +124,7 @@ async function createDocumentStore(dbPath: string): Promise<{ store: DocumentSto
  *
  * Follows the standard provider contract: export a `create(config)` function.
  */
-export async function create(_config: Config): Promise<StorageProvider> {
+export async function create(_config: Config, _name?: string, _opts?: Record<string, unknown>): Promise<StorageProvider> {
   mkdirSync(dataDir(), { recursive: true });
 
   // Create the three existing stores using their standard factory methods

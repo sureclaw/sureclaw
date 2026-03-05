@@ -59,6 +59,7 @@ const ConfigSchema = z.strictObject({
     audit: providerEnum('audit'),
     sandbox: providerEnum('sandbox'),
     scheduler: providerEnum('scheduler'),
+    database: providerEnum('database').optional(),
     storage: providerEnum('storage').optional().default('sqlite'),
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
     screener: z.string().optional(),
