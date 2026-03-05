@@ -4,6 +4,7 @@ Category-based organization of all journal entries. Total: 111 entries across 9 
 
 ## Entries
 
+- 2026-03-05 06:00 — Add Helm ConfigMap + Host deployment/service/ingress templates [host/k8s-deployment.md](host/k8s-deployment.md)
 - 2026-03-05 05:22 — Add loadTierConfigs() for SANDBOX_TEMPLATE_DIR support [host/k8s-deployment.md](host/k8s-deployment.md)
 - 2026-03-04 23:30 — Implement Phase 3: K8s Deployment [host/k8s-deployment.md](host/k8s-deployment.md)
 - 2026-03-03 21:45 — Fix PR #60: production dependency bumps (7 packages) [refactoring/cleanup.md](refactoring/cleanup.md)

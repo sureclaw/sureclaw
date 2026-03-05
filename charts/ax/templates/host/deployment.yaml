@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ax.fullname" . }}-host
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.componentLabels" (dict "component" "host" "context" $) | nindent 4 }}
+    ax.io/plane: ingress
+spec:
+  replicas: {{ .Values.host.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ax.selectorLabels" (dict "component" "host" "context" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ax.selectorLabels" (dict "component" "host" "context" $) | nindent 8 }}
+        ax.io/plane: ingress
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-ax-config.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: host
+          image: {{ include "ax.image" (dict "image" .Values.host.image "global" .Values.global "context" $) }}
+          command: {{ .Values.host.command | toJson }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.host.ports.http }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.host.ports.metrics }}
+              protocol: TCP
+          env:
+            - name: AX_CONFIG_PATH
+              value: "/etc/ax/ax.yaml"
+            - name: PORT
+              value: {{ .Values.host.ports.http | quote }}
+            - name: NATS_URL
+              value: {{ include "ax.natsUrl" . | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ax.databaseSecretRef" . }}
+                  key: {{ .Values.postgresql.external.secretKey | default "url" }}
+            {{- with .Values.host.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.host.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.host.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.host.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: ax-config
+              mountPath: /etc/ax
+              readOnly: true
+      terminationGracePeriodSeconds: {{ .Values.host.terminationGracePeriodSeconds }}
+      volumes:
+        - name: ax-config
+          configMap:
+            name: {{ include "ax.fullname" . }}-config

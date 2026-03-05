@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ax.fullname" . }}-config
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.labels" . | nindent 4 }}
+data:
+  ax.yaml: |
+    {{- .Values.config | toYaml | nindent 4 }}

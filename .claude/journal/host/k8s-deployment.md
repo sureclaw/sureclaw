@@ -1,5 +1,21 @@
 # K8s Deployment Journal
 
+## [2026-03-05 06:15] — Add agent runtime deployment and RBAC Helm templates
+
+**Task:** Create Helm templates for the agent-runtime component: Deployment, ServiceAccount, Role, and RoleBinding
+**What I did:** Created 4 Helm templates under charts/ax/templates/agent-runtime/. Deployment includes config checksum annotation, ANTHROPIC_API_KEY secret mount, K8S_NAMESPACE/K8S_POD_IMAGE env vars for sandbox pod creation, and 600s termination grace period. RBAC grants pod CRUD + pod/log read for sandbox management.
+**Files touched:** charts/ax/templates/agent-runtime/deployment.yaml (created), serviceaccount.yaml (created), role.yaml (created), rolebinding.yaml (created)
+**Outcome:** Success — helm template renders all 4 resources correctly with proper label/selector resolution
+**Notes:** Follows same pattern as host/ templates. ServiceAccount is referenced by deployment spec.serviceAccountName. Role is scoped to namespace with minimal pod permissions for sandbox lifecycle.
+
+## [2026-03-05 06:00] — Add Helm ConfigMap + Host deployment/service/ingress templates
+
+**Task:** Create Helm templates for the ax.yaml ConfigMap, host Deployment, Service, and Ingress
+**What I did:** Created 4 template files: configmap-ax-config.yaml (renders .Values.config as ax.yaml), host/deployment.yaml (with config mount, checksum annotation, all helpers), host/service.yaml (ClusterIP on port 80), host/ingress.yaml (conditional on .Values.host.ingress.enabled). Ran helm dependency build and verified all templates render correctly.
+**Files touched:** charts/ax/templates/configmap-ax-config.yaml (created), charts/ax/templates/host/deployment.yaml (created), charts/ax/templates/host/service.yaml (created), charts/ax/templates/host/ingress.yaml (created)
+**Outcome:** Success — helm template renders all 4 resources correctly with proper labels, selectors, config mount, and rolling restart annotation
+**Notes:** Key design: .Values.config is rendered verbatim as ax.yaml ConfigMap, mounted at /etc/ax. AX_CONFIG_PATH env var points to it. checksum/config annotation triggers rolling restart on config changes. Ingress only renders when host.ingress.enabled=true.
+
 ## [2026-03-05 05:22] — Add loadTierConfigs() for SANDBOX_TEMPLATE_DIR support
 
 **Task:** Extract hardcoded tier configs from pool controller main() into a loadTierConfigs() function that supports loading from JSON files via SANDBOX_TEMPLATE_DIR env var
