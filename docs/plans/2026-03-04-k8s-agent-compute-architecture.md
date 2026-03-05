@@ -24,6 +24,7 @@
 10. [Observability](#observability)
 11. [Phased Implementation](#phased-implementation)
 12. [Migration from Current Architecture](#migration-from-current-architecture)
+13. [Helm Chart + FluxCD GitOps](#helm-chart--fluxcd-gitops)
 
 ---
 
@@ -1024,3 +1025,81 @@ Cloud SQL (PostgreSQL):
 Total baseline: ~8-13 CPU, ~15-22Gi RAM
 Peak (heavy load): ~30-50 CPU, ~100-150Gi RAM
 ```
+
+---
+
+## Helm Chart + FluxCD GitOps
+
+### Overview
+
+The raw k8s manifests from Phase 3 (tasks 8-13) have been replaced by a Helm chart at `charts/ax/` with FluxCD GitOps at `flux/`. The raw manifests are preserved at `k8s/archive/` for reference.
+
+### Key Design Decision: ConfigMap-Mounted ax.yaml
+
+Instead of scattering configuration across env vars in each deployment, the Helm chart renders `.Values.config` as a full `ax.yaml` ConfigMap. Every pod mounts this at `/etc/ax/ax.yaml` and sets `AX_CONFIG_PATH=/etc/ax/ax.yaml`. This reuses the existing `loadConfig()` code path — no changes to `config.ts` were needed.
+
+Two small code changes support this:
+- `src/paths.ts`: `configPath()` respects `AX_CONFIG_PATH` env var
+- `src/pool-controller/main.ts`: `loadTierConfigs()` reads tier configs from JSON files when `SANDBOX_TEMPLATE_DIR` is set
+
+### Chart Structure
+
+```
+charts/ax/
+├── Chart.yaml                    # NATS + PostgreSQL subchart dependencies
+├── values.yaml                   # Single source of truth for all config
+├── templates/
+│   ├── _helpers.tpl              # ax.fullname, ax.image, ax.natsUrl, etc.
+│   ├── configmap-ax-config.yaml  # Renders .Values.config as ax.yaml
+│   ├── nats-stream-init-job.yaml # Post-install hook: creates 5 JetStream streams
+│   ├── host/
+│   │   ├── deployment.yaml       # Checksum annotation for rolling restart
+│   │   ├── service.yaml
+│   │   └── ingress.yaml          # Conditional on host.ingress.enabled
+│   ├── agent-runtime/
+│   │   ├── deployment.yaml       # ANTHROPIC_API_KEY from secret, 600s grace
+│   │   ├── serviceaccount.yaml
+│   │   ├── role.yaml             # Pod CRUD for sandbox management
+│   │   └── rolebinding.yaml
+│   ├── pool-controller/
+│   │   ├── deployment.yaml       # SANDBOX_TEMPLATE_DIR=/etc/ax/sandbox-templates
+│   │   ├── configmap-sandbox-templates.yaml  # light.json + heavy.json
+│   │   ├── serviceaccount.yaml
+│   │   ├── role.yaml
+│   │   └── rolebinding.yaml
+│   └── networkpolicies/
+│       ├── sandbox-restrict.yaml       # NATS + DNS only
+│       ├── agent-runtime-network.yaml  # NATS + PostgreSQL + HTTPS + DNS
+│       └── host-network.yaml           # Inbound HTTP + NATS + PostgreSQL + HTTPS + DNS
+```
+
+### FluxCD Structure
+
+```
+.sops.yaml                        # SOPS encryption rules (age keys)
+flux/
+├── sources/
+│   ├── git-repository.yaml       # GitRepository pointing to this repo
+│   └── helm-repository-nats.yaml # HelmRepository for nats-io charts
+├── base/
+│   └── kustomization.yaml        # Reconciles sources
+├── staging/
+│   ├── flux-kustomization.yaml
+│   └── helm-release.yaml         # 1 host, 2 agent-runtime, no HPA, balanced
+└── production/
+    ├── flux-kustomization.yaml
+    └── helm-release.yaml         # 2+ host, 3+ agent-runtime, HPA, TLS, paranoid
+```
+
+### PostgreSQL: Vendor-Agnostic
+
+The chart accepts any PostgreSQL connection URL via a k8s Secret (`postgresql.external.existingSecret`). No vendor-specific proxy is bundled — users deploy Cloud SQL Auth Proxy, RDS Proxy, or pgBouncer separately as needed. Network policies allow generic PostgreSQL egress on port 5432.
+
+### Subcharts
+
+- **NATS** (`nats-io/nats`): Conditional on `nats.enabled`. JetStream with configurable replicas, memory/file store sizes.
+- **PostgreSQL** (`bitnami/postgresql`): Conditional on `postgresql.internal.enabled`. For self-hosted/dev environments. Production uses external PostgreSQL.
+
+### Sandbox Templates
+
+Sandbox tier configs (CPU, memory, image, command) are Helm-configurable via `.Values.sandbox.tiers`, rendered as JSON files in a ConfigMap mounted at `/etc/ax/sandbox-templates/`. Security context (gVisor runtime, `readOnlyRootFilesystem`, `drop ALL` capabilities, `runAsNonRoot`) remains hardcoded in `k8s-client.ts:createPod()` — never configurable.
