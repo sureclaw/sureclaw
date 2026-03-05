@@ -2,6 +2,22 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-05 15:30] — Design acceptance tests for K8s agent compute architecture
+
+**Task:** Design acceptance tests for `docs/plans/2026-03-04-k8s-agent-compute-architecture.md` using kind (Kubernetes IN Docker) as the test platform.
+**What I did:** Read the full architecture plan and explored the codebase to verify implementation status (all core components exist: StorageProvider, EventBusProvider, k8s-pod sandbox, NATS protocols, pool controller, sandbox worker, host/agent-runtime process separation, Helm chart + FluxCD). Designed 42 acceptance tests across 5 categories: Structural (16), Helm Template (8), Kind Cluster (8), Integration (6), Security (4). Documented kind-specific adaptations (no gVisor, no GCS, no KEDA, single NATS node) and plan deviations. Created kind-values.yaml override spec and full setup/teardown instructions.
+**Files touched:** `tests/acceptance/k8s-agent-compute/test-plan.md` (new)
+**Outcome:** Success — comprehensive test plan ready for review before execution.
+**Notes:** Codebase is extensively implemented — all Phase 1-3 components exist. Tests designed to validate integration and deployment rather than basic existence. Key risk areas: NATS stream init, NetworkPolicy enforcement (needs Calico on kind), per-turn pod affinity, conversation history persistence across pod restarts.
+
+## [2026-03-05 12:00] — Helm templates: pool controller deployment, RBAC, sandbox templates
+
+**Task:** Create Helm templates for the pool controller component (Task 6 of Helm chart build)
+**What I did:** Created 5 template files: Deployment, ConfigMap (sandbox tier templates), ServiceAccount, Role, and RoleBinding. The sandbox templates ConfigMap renders each tier (light/heavy) as a JSON file consumed by the pool controller via SANDBOX_TEMPLATE_DIR env var. Deployment includes checksum annotations for config rollover.
+**Files touched:** charts/ax/templates/pool-controller/{deployment,configmap-sandbox-templates,serviceaccount,role,rolebinding}.yaml (all new)
+**Outcome:** Success — all templates render correctly via `helm template`, JSON is valid, RBAC grants pods CRUD to the pool controller service account.
+**Notes:** The sandbox tier range loop handles both tiers with optional nodeSelector. Checksums on both ax-config and sandbox-templates ConfigMaps ensure pod restarts on config changes.
+
 ## [2026-03-02 22:35] — Save skills install plan feedback to file
 
 **Task:** Save the previously provided plan-review comments into a standalone markdown file.
