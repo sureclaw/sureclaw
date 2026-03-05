@@ -2,6 +2,14 @@
 
 Security hardening: provider path resolution, cross-provider dependencies, vulnerability fixes.
 
+## [2026-03-05 13:50] — Bump hono and @hono/node-server for security fixes
+
+**Task:** Fix vulnerabilities identified by Dependabot PRs #68 and #69
+**What I did:** Ran `npm update hono @hono/node-server` to update hono 4.12.2→4.12.5 and @hono/node-server 1.19.9→1.19.11. Fixes: SSE control field injection (GHSA-p6xx-57qc-3wxr), cookie attribute injection (GHSA-5pq2-9x2x-5p6w), serve static middleware bypass (GHSA-q5qw-h33p-qvwr, GHSA-wc8c-qw6v-h7f6).
+**Files touched:** package-lock.json
+**Outcome:** Success — all 2411 tests pass, 0 vulnerabilities reported
+**Notes:** hono is a direct dep; @hono/node-server is transitive via @modelcontextprotocol/sdk
+
 ## [2026-03-03 21:30] — Fix two P1 PR review comments on skills install
 
 **Task:** Address two P1 Codex review comments on PR #62 for the skills install architecture
