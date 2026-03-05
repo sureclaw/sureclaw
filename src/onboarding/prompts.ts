@@ -37,7 +37,7 @@ const defaultSandbox = process.platform === 'darwin' ? 'seatbelt' : 'bwrap';
 export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   paranoid: {
     agent: 'pi-coding-agent',
-    memory: 'file',
+    memory: 'sqlite',
     scanner: 'patterns',
     web: 'none',
     browser: 'none',
@@ -45,7 +45,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     skills: 'readonly',
     audit: 'file',
     sandbox: defaultSandbox,
-    scheduler: 'cron',
+    scheduler: 'full',
     timeoutSec: 60,
     memoryMb: 256,
   },
@@ -170,16 +170,16 @@ export const DEFAULT_IMAGE_MODELS: Record<ImageProviderChoice, string> = {
 
 /** Available provider choices per category, derived from the provider map. */
 export const PROVIDER_CHOICES = {
-  memory: ['file', 'sqlite'],
-  scanner: ['basic', 'patterns'],
+  memory: ['sqlite', 'memoryfs'],
+  scanner: ['patterns'],
   web: ['none', 'fetch'],
   browser: ['none', 'container'],
   credentials: ['keychain', 'plaintext'],
   skills: ['readonly', 'git'],
   audit: ['file', 'sqlite'],
   sandbox: ['subprocess', 'seatbelt', 'bwrap', 'nsjail', 'docker'],
-  scheduler: ['none', 'cron', 'full'],
-  channels: ['slack', 'whatsapp', 'telegram', 'discord'],
+  scheduler: ['none', 'full'],
+  channels: ['slack'],
 } as const;
 
 export const ASCII_WELCOME = `

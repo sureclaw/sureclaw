@@ -4,8 +4,8 @@ models:
   default:
     - mock/default
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none

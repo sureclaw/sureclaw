@@ -200,8 +200,8 @@ profile: ${profile}
 agent: ${agentType}
 
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none

@@ -383,11 +383,10 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.llm).toHaveProperty('mock');
 
     // Memory providers
-    expect(PROVIDER_MAP.memory).toHaveProperty('file');
     expect(PROVIDER_MAP.memory).toHaveProperty('sqlite');
+    expect(PROVIDER_MAP.memory).toHaveProperty('memoryfs');
 
     // Scanner providers
-    expect(PROVIDER_MAP.scanner).toHaveProperty('basic');
     expect(PROVIDER_MAP.scanner).toHaveProperty('patterns');
 
     // Channel providers (cli removed — replaced by ax chat client)
@@ -416,7 +415,6 @@ describe('Provider Map', () => {
 
     // Scheduler providers
     expect(PROVIDER_MAP.scheduler).toHaveProperty('none');
-    expect(PROVIDER_MAP.scheduler).toHaveProperty('cron');
     expect(PROVIDER_MAP.scheduler).toHaveProperty('full');
   });
 });

@@ -6,7 +6,7 @@ models:
   default:
     - mock/default
 providers:
-  memory: file
+  memory: sqlite
   scanner: patterns
   channels: []
   web: none

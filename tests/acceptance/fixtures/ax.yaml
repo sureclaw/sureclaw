@@ -29,7 +29,7 @@ providers:
   skills: git
   channels: []
   web: none
-  scanner: basic
+  scanner: patterns
   storage: sqlite
   eventbus: inprocess
 

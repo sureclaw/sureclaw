@@ -5,7 +5,7 @@ function mockConfig(): Config {
   return {
     profile: 'balanced',
     providers: {
-      memory: 'file', scanner: 'basic',
+      memory: 'sqlite', scanner: 'patterns',
       channels: ['cli'], web: 'none', browser: 'none',
       credentials: 'keychain', skills: 'readonly', audit: 'file',
       sandbox: 'docker', scheduler: 'none',

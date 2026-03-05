@@ -32,21 +32,15 @@ const _PROVIDER_MAP = {
     mock:       '../providers/image/mock.js',
   },
   memory: {
-    file:     '../providers/memory/file.js',
     sqlite:   '../providers/memory/sqlite.js',
-    memu:     '../providers/memory/memu.js',
     memoryfs: '../providers/memory/memoryfs/index.js',
   },
   scanner: {
-    basic:     '../providers/scanner/basic.js',
     patterns:  '../providers/scanner/patterns.js',
     promptfoo: '../providers/scanner/promptfoo.js',
   },
   channel: {
     slack:     '../providers/channel/slack.js',
-    whatsapp:  '../providers/channel/whatsapp.js',
-    telegram:  '../providers/channel/telegram.js',
-    discord:   '../providers/channel/discord.js',
   },
   web: {
     none:   '../providers/web/none.js',
@@ -75,11 +69,10 @@ const _PROVIDER_MAP = {
     nsjail:     '../providers/sandbox/nsjail.js',
     bwrap:      '../providers/sandbox/bwrap.js',
     docker:     '../providers/sandbox/docker.js',
-    'k8s-pod':  '../providers/sandbox/k8s-pod.js',
+    k8s:        '../providers/sandbox/k8s.js',
   },
   scheduler: {
     none:     '../providers/scheduler/none.js',
-    cron:     '../providers/scheduler/cron.js',
     full:     '../providers/scheduler/full.js',
     plainjob: '../providers/scheduler/plainjob.js',
   },

@@ -2,7 +2,7 @@
 #
 # This config is rendered into a ConfigMap for feature-level acceptance tests
 # running on a kind cluster. Compare with ax.yaml (local) — differences are:
-#   sandbox:    k8s-pod   (vs seatbelt)
+#   sandbox:    k8s       (vs seatbelt)
 #   eventbus:   nats      (vs inprocess)
 #   storage:    sqlite    (keeps things simple — postgresql is tested by k8s-agent-compute)
 #
@@ -21,14 +21,14 @@ providers:
   memory: memoryfs
   audit: sqlite
   credentials: env
-  sandbox: k8s-pod
+  sandbox: k8s
   screener: static
   scheduler: plainjob
   browser: none
   skills: git
   channels: []
   web: none
-  scanner: basic
+  scanner: patterns
   storage: sqlite
   eventbus: nats
 

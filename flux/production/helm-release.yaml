@@ -31,7 +31,7 @@ spec:
         credentials: env
         storage: postgresql
         eventbus: nats
-        sandbox: k8s-pod
+        sandbox: k8s
         audit: sqlite
         history: sqlite
         scheduler: sqlite

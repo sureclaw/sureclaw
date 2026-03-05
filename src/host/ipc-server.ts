@@ -82,7 +82,7 @@ export interface IPCHandlerOptions {
   orchestrator?: Orchestrator;
   /** Maps sessionId → workspace directory path. Populated by processCompletion(), consumed by sandbox tool handlers. */
   workspaceMap?: Map<string, string>;
-  /** NATS sandbox dispatcher for k8s-pod tool dispatch. When set, sandbox tools dispatch via NATS instead of locally. */
+  /** NATS sandbox dispatcher for k8s tool dispatch. When set, sandbox tools dispatch via NATS instead of locally. */
   natsDispatcher?: NATSSandboxDispatcher;
   /** Maps sessionId → requestId for per-turn pod affinity tracking. */
   requestIdMap?: Map<string, string>;

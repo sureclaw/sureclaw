@@ -76,7 +76,7 @@ describe('Plugin provider registration (SC-SEC-002)', () => {
 
     // Built-in should still work
     expect(resolveProviderPath('llm', 'anthropic')).toContain('/providers/llm/anthropic.js');
-    expect(resolveProviderPath('memory', 'file')).toContain('/providers/memory/file.js');
+    expect(resolveProviderPath('memory', 'sqlite')).toContain('/providers/memory/sqlite.js');
 
     // Plugin should also work
     expect(resolveProviderPath('memory', 'postgres')).toBe('plugin://@test/pg');

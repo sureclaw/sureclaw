@@ -100,4 +100,4 @@ config:
   providers:
     storage: postgresql
     eventbus: nats
-    sandbox: k8s-pod
+    sandbox: k8s

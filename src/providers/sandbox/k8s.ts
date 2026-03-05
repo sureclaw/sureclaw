@@ -1,5 +1,5 @@
 /**
- * k8s-pod sandbox provider — Kubernetes pod-based isolation.
+ * k8s sandbox provider — Kubernetes pod-based isolation.
  *
  * Creates a k8s pod for each sandbox instance. The pod runs the agent
  * subprocess with gVisor runtime, resource limits, and NATS connectivity
@@ -22,7 +22,7 @@ import type { Config } from '../../types.js';
 import { getLogger } from '../../logger.js';
 import { CANONICAL, canonicalEnv } from './canonical-paths.js';
 
-const logger = getLogger().child({ component: 'sandbox-k8s-pod' });
+const logger = getLogger().child({ component: 'sandbox-k8s' });
 
 const DEFAULT_IMAGE = 'ax/agent:latest';
 const DEFAULT_NAMESPACE = 'ax';

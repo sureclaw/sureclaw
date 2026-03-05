@@ -17,8 +17,8 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
   return {
     profile: 'balanced',
     providers: {
-      memory: 'file',
-      scanner: 'basic',
+      memory: 'sqlite',
+      scanner: 'patterns',
       channels: [],
       web: 'none',
       browser: 'none',

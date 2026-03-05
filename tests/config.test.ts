@@ -35,8 +35,8 @@ describe('Config parser', () => {
 agent: ${agent}
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -69,8 +69,8 @@ scheduler:
 agent: unknown-agent
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -104,8 +104,8 @@ models:
     - openrouter/anthropic/claude-sonnet-4
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -145,8 +145,8 @@ models:
     - openrouter/seedream-5-0
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -191,8 +191,8 @@ models:
     - openai/gpt-image-1.5
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -233,8 +233,8 @@ scheduler:
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -271,8 +271,8 @@ webhooks:
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -315,8 +315,8 @@ webhooks:
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -361,8 +361,8 @@ webhooks:
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none
@@ -399,8 +399,8 @@ admin:
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
-  memory: file
-  scanner: basic
+  memory: sqlite
+  scanner: patterns
   channels: []
   web: none
   browser: none

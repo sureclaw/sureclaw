@@ -16,7 +16,7 @@ function routerConfig(model: string, fallbacks?: string[], extras?: Partial<Mode
     },
     profile: 'balanced',
     providers: {
-      memory: 'file', scanner: 'basic',
+      memory: 'sqlite', scanner: 'patterns',
       channels: [], web: 'none', browser: 'none',
       credentials: 'keychain', skills: 'readonly', audit: 'file',
       sandbox: 'subprocess', scheduler: 'none',

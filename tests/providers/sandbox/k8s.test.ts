@@ -1,6 +1,6 @@
-// tests/providers/sandbox/k8s-pod.test.ts — k8s-pod sandbox provider tests
+// tests/providers/sandbox/k8s.test.ts — k8s sandbox provider tests
 //
-// Tests the k8s-pod SandboxProvider with mocked @kubernetes/client-node.
+// Tests the k8s SandboxProvider with mocked @kubernetes/client-node.
 // No real k8s cluster is needed for these unit tests.
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -52,10 +52,10 @@ function mockConfig(): Config {
   return {
     profile: 'balanced',
     providers: {
-      memory: 'file', scanner: 'basic',
+      memory: 'sqlite', scanner: 'patterns',
       channels: ['cli'], web: 'none', browser: 'none',
       credentials: 'keychain', skills: 'readonly', audit: 'file',
-      sandbox: 'k8s-pod', scheduler: 'none',
+      sandbox: 'k8s', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
     scheduler: {
@@ -77,13 +77,13 @@ function mockSandboxConfig(): SandboxConfig {
   };
 }
 
-describe('sandbox-k8s-pod provider', () => {
+describe('sandbox-k8s provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   test('create returns a valid SandboxProvider', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     expect(provider.spawn).toBeTypeOf('function');
@@ -92,7 +92,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('spawn creates a k8s pod', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
@@ -113,7 +113,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('pod spec includes security hardening', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
@@ -130,7 +130,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('pod spec includes resource limits from config', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
@@ -140,7 +140,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('pod includes NATS_URL in env', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
@@ -150,7 +150,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('pod includes activeDeadlineSeconds from timeoutSec', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
@@ -159,7 +159,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('exitCode resolves when pod succeeds', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
@@ -177,7 +177,7 @@ describe('sandbox-k8s-pod provider', () => {
       return { abort: vi.fn() };
     });
 
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
@@ -186,7 +186,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('kill() deletes the pod', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
@@ -199,7 +199,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('kill(pid) deletes pod by PID lookup', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
@@ -209,7 +209,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('kill(pid) is no-op for unknown PID', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     await provider.kill(999999);
@@ -217,7 +217,7 @@ describe('sandbox-k8s-pod provider', () => {
   });
 
   test('isAvailable checks k8s API connectivity', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const available = await provider.isAvailable();
@@ -230,7 +230,7 @@ describe('sandbox-k8s-pod provider', () => {
   test('isAvailable returns false when k8s API fails', async () => {
     mockListNamespacedPod.mockRejectedValueOnce(new Error('unauthorized'));
 
-    const { create } = await import('../../../src/providers/sandbox/k8s-pod.js');
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const available = await provider.isAvailable();

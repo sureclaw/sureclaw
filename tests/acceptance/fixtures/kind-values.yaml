@@ -3,7 +3,7 @@
 # Simplified version of k8s-agent-compute/kind-values.yaml.
 # Feature tests only need a running AX server accessible via HTTP,
 # not the full host -> NATS -> agent-runtime pipeline. We deploy a
-# single-pod AX server with NATS for eventbus and k8s-pod sandbox.
+# single-pod AX server with NATS for eventbus and k8s sandbox.
 #
 # Agent-runtime and pool-controller are disabled — feature tests
 # use single-process mode where the host spawns agent pods directly.

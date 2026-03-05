@@ -4,7 +4,7 @@ import { resolveProviderPath, PROVIDER_MAP } from '../../src/host/provider-map.j
 describe('Provider allowlist (SC-SEC-002)', () => {
   test('resolves valid provider paths', () => {
     expect(resolveProviderPath('llm', 'anthropic')).toContain('/providers/llm/anthropic.js');
-    expect(resolveProviderPath('memory', 'file')).toContain('/providers/memory/file.js');
+    expect(resolveProviderPath('memory', 'sqlite')).toContain('/providers/memory/sqlite.js');
     expect(resolveProviderPath('scheduler', 'none')).toContain('/providers/scheduler/none.js');
     expect(resolveProviderPath('sandbox', 'seatbelt')).toContain('/providers/sandbox/seatbelt.js');
     expect(resolveProviderPath('sandbox', 'subprocess')).toContain('/providers/sandbox/subprocess.js');

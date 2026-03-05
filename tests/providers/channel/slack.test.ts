@@ -7,7 +7,7 @@ function testConfig(channelConfig?: Record<string, unknown>): Config {
   return {
     profile: 'default' as any,
     providers: {
-      memory: 'file', scanner: 'basic', channels: ['slack'],
+      memory: 'sqlite', scanner: 'patterns', channels: ['slack'],
       web: 'none', browser: 'none', credentials: 'keychain', skills: 'readonly',
       audit: 'file', sandbox: 'subprocess', scheduler: 'none',
     },

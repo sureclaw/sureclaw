@@ -2,7 +2,7 @@
 //
 // Claims session requests from NATS queue group, runs processCompletion,
 // publishes events and results back via NATS. This is the "conversation plane"
-// in the k8s architecture.
+// in the k8s (Kubernetes) architecture.
 //
 // Responsibilities:
 //   - NATS queue group subscriber for session.request.*
@@ -115,14 +115,14 @@ async function main(): Promise<void> {
   const fileStore = await FileStore.create();
 
   // The agent loop must run as a local subprocess inside this pod, even when
-  // providers.sandbox is k8s-pod. The k8s-pod provider creates a NEW k8s pod
-  // which can't connect back via Unix socket IPC. k8s-pod is only for tool
-  // dispatch (sandbox worker pods), not for the agent conversation loop.
+  // providers.sandbox is k8s. The k8s provider creates a NEW k8s pod which
+  // can't connect back via Unix socket IPC. k8s is only for tool dispatch
+  // (sandbox worker pods), not for the agent conversation loop.
   let agentSandbox = providers.sandbox;
   let sandboxDispatcher: NATSSandboxDispatcher | undefined;
   const requestIdMap = new Map<string, string>();
 
-  if (config.providers.sandbox === 'k8s-pod') {
+  if (config.providers.sandbox === 'k8s') {
     const subprocessModule = await import('../providers/sandbox/subprocess.js');
     agentSandbox = await subprocessModule.create(config);
 

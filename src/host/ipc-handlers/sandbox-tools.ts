@@ -30,7 +30,7 @@ export interface SandboxToolHandlerOptions {
 
   /**
    * When set, tool calls dispatch via NATS to remote sandbox pods
-   * instead of executing locally. Used when sandbox provider is k8s-pod.
+   * instead of executing locally. Used when sandbox provider is k8s.
    */
   natsDispatcher?: NATSSandboxDispatcher;
 

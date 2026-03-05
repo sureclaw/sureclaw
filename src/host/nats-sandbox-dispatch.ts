@@ -1,7 +1,7 @@
 // src/host/nats-sandbox-dispatch.ts — NATS-based sandbox tool dispatch
 //
 // Used by sandbox tool IPC handlers to dispatch tool calls to remote
-// sandbox pods via NATS request/reply when the sandbox provider is k8s-pod.
+// sandbox pods via NATS request/reply when the sandbox provider is k8s.
 //
 // Per-turn pod affinity: the first tool call in a turn claims a warm pod,
 // subsequent calls in the same turn reuse the same pod via its unique subject.

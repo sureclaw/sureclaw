@@ -48,7 +48,7 @@ spec:
             - name: AX_PROVIDERS_EVENTBUS
               value: "nats"
             - name: AX_PROVIDERS_SANDBOX
-              value: "k8s-pod"
+              value: "k8s"
             - name: K8S_NAMESPACE
               value: "ax"
             - name: K8S_POD_IMAGE

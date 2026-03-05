@@ -29,7 +29,7 @@ config:
     skills: readonly
     storage: postgresql
     eventbus: nats
-    sandbox: k8s-pod
+    sandbox: k8s
     audit: sqlite
     scheduler: plainjob
   sandbox:

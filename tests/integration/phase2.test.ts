@@ -36,7 +36,7 @@ function powerUserConfig(): Config {
   return {
     profile: 'yolo',
     providers: {
-      memory: 'file', scanner: 'promptfoo',
+      memory: 'sqlite', scanner: 'promptfoo',
       channels: [], web: 'tavily', browser: 'container',
       credentials: 'keychain', skills: 'git', audit: 'sqlite',
       sandbox: 'docker', scheduler: 'full',
@@ -166,7 +166,7 @@ describe('Phase 2 Provider Map', () => {
     const { PROVIDER_MAP } = await import('../../src/host/provider-map.js');
 
     // Phase 2 providers
-    expect(PROVIDER_MAP.memory).toHaveProperty('memu');
+    expect(PROVIDER_MAP.memory).toHaveProperty('memoryfs');
     expect(PROVIDER_MAP.scanner).toHaveProperty('promptfoo');
     expect(PROVIDER_MAP.channel).toHaveProperty('slack');
     expect(PROVIDER_MAP.web).toHaveProperty('tavily');
@@ -215,41 +215,9 @@ describe('memU Memory Integration', () => {
     expect(memorizedConversations[0]).toEqual(conversation);
   });
 
-  test('memU provider extracts facts from conversation', async () => {
-    const { create } = await import('../../src/providers/memory/memu.js');
-    const provider = await create({} as Config);
+  test.skip('memU provider removed — was subset of memoryfs', () => {});
 
-    await provider.memorize!([
-      { role: 'user', content: 'Remember that the deploy server is at 10.0.0.5' },
-      { role: 'assistant', content: 'Noted.' },
-      { role: 'user', content: 'I need to update the SSL certificate by Friday' },
-      { role: 'assistant', content: "I'll remind you." },
-    ]);
-
-    const results = await provider.list('memu');
-    expect(results.length).toBeGreaterThanOrEqual(2);
-
-    // Should have explicit memory + action item
-    const hasExplicit = results.some(r => r.tags?.includes('explicit'));
-    const hasAction = results.some(r => r.tags?.includes('action-item'));
-    expect(hasExplicit).toBe(true);
-    expect(hasAction).toBe(true);
-  });
-
-  test('memU write/delete are no-ops for CRUD compatibility', async () => {
-    const { create } = await import('../../src/providers/memory/memu.js');
-    const provider = await create({} as Config);
-
-    // write returns a UUID but doesn't store
-    const id = await provider.write({ scope: 'test', content: 'should be ignored' });
-    expect(id).toMatch(/^[0-9a-f]{8}-/);
-
-    const entry = await provider.read(id);
-    expect(entry).toBeNull();
-
-    // delete is a no-op
-    await provider.delete(id);
-  });
+  test.skip('memU write/delete removed — was subset of memoryfs', () => {});
 });
 
 // ═══════════════════════════════════════════════════════
@@ -462,30 +430,22 @@ describe('Architectural Invariants', () => {
   });
 
   test('MemoryProvider has optional memorize method', async () => {
-    const { create: createFile } = await import('../../src/providers/memory/file.js');
-    const fileProvider = await createFile({} as Config);
+    const { create: createSqlite } = await import('../../src/providers/memory/sqlite.js');
+    const sqliteProvider = await createSqlite({} as Config);
 
-    // File provider should NOT have memorize
-    expect(fileProvider.memorize).toBeUndefined();
-
-    const { create: createMemu } = await import('../../src/providers/memory/memu.js');
-    const memuProvider = await createMemu({} as Config);
-
-    // memU provider SHOULD have memorize
-    expect(typeof memuProvider.memorize).toBe('function');
+    // SQLite provider should NOT have memorize
+    expect(sqliteProvider.memorize).toBeUndefined();
   });
 
   test('scanner providers share the same interface', async () => {
-    const { create: createBasic } = await import('../../src/providers/scanner/basic.js');
     const { create: createPatterns } = await import('../../src/providers/scanner/patterns.js');
     const { create: createPromptfoo } = await import('../../src/providers/scanner/promptfoo.js');
 
-    const basic = await createBasic({} as Config);
     const patterns = await createPatterns({} as Config);
     const promptfoo = await createPromptfoo({} as Config);
 
-    // All three should have the same interface
-    for (const scanner of [basic, patterns, promptfoo]) {
+    // Both should have the same interface
+    for (const scanner of [patterns, promptfoo]) {
       expect(typeof scanner.scanInput).toBe('function');
       expect(typeof scanner.scanOutput).toBe('function');
       expect(typeof scanner.canaryToken).toBe('function');
