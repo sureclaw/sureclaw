@@ -48,6 +48,15 @@
 **Outcome:** Success — both tests pass (template dir loading + default fallback)
 **Notes:** Security context (gVisor, readOnlyRoot, drop ALL caps) stays hardcoded in k8s-client.ts:createPod() — templates only control resources and config. This enables Helm charts to inject tier configs via ConfigMap-mounted JSON files.
 
+## [2026-03-05 00:00] — Create Helm chart scaffolding
+
+**Task:** Create foundational Helm chart files under charts/ax/ for the AX platform
+**What I did:** Created 5 Helm chart files: Chart.yaml (with NATS and PostgreSQL subchart dependencies), .helmignore, templates/_helpers.tpl (11 template helpers for names, labels, images, NATS URL, DB secret, namespace, plane labels), templates/NOTES.txt (post-install notes), and values.yaml (comprehensive defaults for all components: host, agent-runtime, pool-controller, sandbox tiers, PostgreSQL, NATS, network policies, API credentials).
+**Files touched:**
+- Created: charts/ax/Chart.yaml, charts/ax/.helmignore, charts/ax/templates/_helpers.tpl, charts/ax/templates/NOTES.txt, charts/ax/values.yaml
+**Outcome:** Success — helm lint passes (0 charts failed). Expected warnings about missing subchart dependencies (resolved at `helm dependency update` time).
+**Notes:** The values.yaml config block mirrors the existing AX loadConfig() schema so it can be rendered as ax.yaml and mounted into pods without code changes. Helper templates use dict-based argument passing for component labels/selectors/images.
+
 ## [2026-03-04 23:30] — Implement Phase 3: K8s Deployment
 
 **Task:** Implement Phase 3 of the k8s agent compute architecture plan (tasks 8-13)

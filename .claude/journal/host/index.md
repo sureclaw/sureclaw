@@ -9,6 +9,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 - 2026-03-05 06:15 — Add agent runtime deployment and RBAC Helm templates [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 06:00 — Add Helm ConfigMap + Host deployment/service/ingress templates [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 05:22 — Add loadTierConfigs() for SANDBOX_TEMPLATE_DIR support [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-05 00:00 — Create Helm chart scaffolding [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-04 23:30 — Implement Phase 3: K8s Deployment [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-04 03:45 — Implement admin dashboard (18-task plan) [admin-dashboard.md](admin-dashboard.md)
 - 2026-03-03 02:45 — Address codex PR review comments on webhook PR [webhooks.md](webhooks.md)
