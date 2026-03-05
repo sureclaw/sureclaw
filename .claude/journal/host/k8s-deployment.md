@@ -1,5 +1,13 @@
 # K8s Deployment Journal
 
+## [2026-03-05 07:30] — Add network policies and Cloud SQL proxy Helm templates
+
+**Task:** Create Helm templates for network policies (sandbox, agent-runtime, host) and Cloud SQL proxy (deployment, service, serviceaccount)
+**What I did:** Created 3 NetworkPolicy templates under charts/ax/templates/networkpolicies/ and 3 Cloud SQL proxy templates under charts/ax/templates/cloud-sql-proxy/. Network policies enforce plane-based segmentation: sandbox pods (execution plane) get NATS+DNS only, agent-runtime (conversation plane) gets NATS+PostgreSQL+HTTPS+DNS, host (ingress plane) gets inbound HTTP + NATS+PostgreSQL+HTTPS+DNS egress. Cloud SQL proxy uses Workload Identity (GKE) with auto-IAM-authn.
+**Files touched:** charts/ax/templates/networkpolicies/sandbox-restrict.yaml, agent-runtime-network.yaml, host-network.yaml (created), charts/ax/templates/cloud-sql-proxy/deployment.yaml, service.yaml, serviceaccount.yaml (created)
+**Outcome:** Success — networkPolicies.enabled=false produces 0 NetworkPolicy resources, enabled produces 3. Cloud SQL proxy conditional on postgresql.external.enabled AND cloudSqlProxy.enabled.
+**Notes:** Network policies reference cloud-sql-proxy pod selector for PostgreSQL egress even when proxy is disabled — no matching pods means no egress allowed, which is correct security posture.
+
 ## [2026-03-05 07:00] — Add NATS JetStream stream init hook job
 
 **Task:** Create Helm template for NATS JetStream stream initialization as a post-install/post-upgrade hook

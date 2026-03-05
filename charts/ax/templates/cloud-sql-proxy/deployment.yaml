@@ -1,0 +1,41 @@
+{{- if and .Values.postgresql.external.enabled .Values.postgresql.external.cloudSqlProxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ax.fullname" . }}-cloud-sql-proxy
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.componentLabels" (dict "component" "cloud-sql-proxy" "context" $) | nindent 4 }}
+spec:
+  replicas: {{ .Values.postgresql.external.cloudSqlProxy.replicas }}
+  selector:
+    matchLabels:
+      {{- include "ax.selectorLabels" (dict "component" "cloud-sql-proxy" "context" $) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ax.selectorLabels" (dict "component" "cloud-sql-proxy" "context" $) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ax.fullname" . }}-cloud-sql-proxy
+      containers:
+        - name: proxy
+          image: "{{ .Values.postgresql.external.cloudSqlProxy.image.repository }}:{{ .Values.postgresql.external.cloudSqlProxy.image.tag }}"
+          args:
+            - "--structured-logs"
+            - "--auto-iam-authn"
+            - "--address=0.0.0.0"
+            - "--port=5432"
+            - {{ .Values.postgresql.external.cloudSqlProxy.instanceConnectionName | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          {{- with .Values.postgresql.external.cloudSqlProxy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: postgres
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

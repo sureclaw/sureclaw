@@ -4,6 +4,12 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-05 07:30 — Add network policies and Cloud SQL proxy Helm templates [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-05 07:00 — Add NATS JetStream stream init hook job [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-05 06:15 — Add agent runtime deployment and RBAC Helm templates [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-05 06:00 — Add Helm ConfigMap + Host deployment/service/ingress templates [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-05 05:22 — Add loadTierConfigs() for SANDBOX_TEMPLATE_DIR support [k8s-deployment.md](k8s-deployment.md)
+- 2026-03-04 23:30 — Implement Phase 3: K8s Deployment [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-04 03:45 — Implement admin dashboard (18-task plan) [admin-dashboard.md](admin-dashboard.md)
 - 2026-03-03 02:45 — Address codex PR review comments on webhook PR [webhooks.md](webhooks.md)
 - 2026-03-03 01:30 — Implement LLM-powered webhook transforms [webhooks.md](webhooks.md)

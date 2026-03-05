@@ -1,0 +1,32 @@
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ax.fullname" . }}-sandbox-restrict
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      ax.io/plane: execution
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # Allow NATS client connections
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # Allow DNS resolution (kube-dns)
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+  ingress: []  # No inbound connections to sandbox pods
+{{- end }}

@@ -1,0 +1,16 @@
+{{- if and .Values.postgresql.external.enabled .Values.postgresql.external.cloudSqlProxy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ax.fullname" . }}-cloud-sql-proxy
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.componentLabels" (dict "component" "cloud-sql-proxy" "context" $) | nindent 4 }}
+spec:
+  selector:
+    {{- include "ax.selectorLabels" (dict "component" "cloud-sql-proxy" "context" $) | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

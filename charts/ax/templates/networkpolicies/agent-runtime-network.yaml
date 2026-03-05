@@ -1,0 +1,42 @@
+{{- if .Values.networkPolicies.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ax.fullname" . }}-agent-runtime-network
+  namespace: {{ include "ax.namespace" . }}
+  labels:
+    {{- include "ax.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      ax.io/plane: conversation
+  policyTypes:
+    - Egress
+  egress:
+    # NATS
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+      ports:
+        - port: 4222
+          protocol: TCP
+    # PostgreSQL (Cloud SQL Proxy or internal)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "ax.fullname" . }}-cloud-sql-proxy
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Anthropic API (external HTTPS)
+    - ports:
+        - port: 443
+          protocol: TCP
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
