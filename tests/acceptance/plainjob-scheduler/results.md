@@ -1,7 +1,7 @@
 # Acceptance Test Results: PlainJob Scheduler
 
-**Date run:** 2026-03-03 15:23
-**Server version:** 21b8bae
+**Date run:** 2026-03-05 13:44
+**Server version:** 2526aad
 **LLM provider:** openrouter/google/gemini-3-flash-preview
 
 ## Summary
@@ -15,7 +15,7 @@
 | ST-5 | Structural | PASS | Imports matchesCron, isWithinActiveHours, minuteKey, parseTime from ./utils.js |
 | ST-6 | Structural | PASS | No proactive hint logic, no token budget tracking — only cron/heartbeat/scheduleOnce |
 | ST-7 | Structural | PASS | addCron → jobs.set() (INSERT OR REPLACE), removeCron → jobs.delete() (DELETE) |
-| ST-8 | Structural | PASS | 35 unit tests covering lifecycle, CRUD, persistence, cron, runOnce, dedup, scheduleOnce, heartbeat, async cleanup, rehydration |
+| ST-8 | Structural | PASS | 32 unit tests covering lifecycle, CRUD, persistence, cron, runOnce, dedup, scheduleOnce, heartbeat, async cleanup, rehydration |
 | BT-1 | Behavioral | PASS | Server starts, health returns 200, agent responds normally, no scheduler errors in logs |
 | BT-2 | Behavioral | PASS | scheduler.db created under data/, scheduler_jobs table matches plan schema, WAL mode enabled |
 | IT-1 | Integration | PASS | Cron job inserted into SQLite survived full server restart with all fields intact, no duplicates |
@@ -28,7 +28,7 @@
 ### ST-1: SQLiteJobStore exists in scheduler types
 **Result:** PASS
 **Evidence:**
-- `src/providers/scheduler/types.ts:43` — `export class SQLiteJobStore implements JobStore`
+- `src/providers/scheduler/types.ts:42` — `export class SQLiteJobStore implements JobStore`
 - Constructor at line 46 accepts `db: SQLiteDatabase`
 - Implements: `get` (line 64), `set` (line 69), `delete` (line 84), `list` (line 90), `close` (line 113)
 - Additional methods: `setRunAt` (line 98), `listWithRunAt` (line 104)
@@ -43,13 +43,13 @@
 ### ST-3: plainjob registered in provider-map
 **Result:** PASS
 **Evidence:**
-- `src/host/provider-map.ts:83` — `plainjob: '../providers/scheduler/plainjob.js'`
+- `src/host/provider-map.ts:84` — `plainjob: '../providers/scheduler/plainjob.js'`
 
 ### ST-4: scheduler_jobs table schema matches plan
 **Result:** PASS
 **Evidence:**
 ```sql
-CREATE TABLE IF NOT EXISTS scheduler_jobs (
+CREATE TABLE scheduler_jobs (
     id          TEXT PRIMARY KEY,
     schedule    TEXT NOT NULL,
     agent_id    TEXT NOT NULL,
@@ -65,29 +65,29 @@ All required columns present with correct types.
 ### ST-5: plainjob reuses shared utilities
 **Result:** PASS
 **Evidence:**
-- `plainjob.ts:11-13` imports: `schedulerSession`, `parseTime`, `isWithinActiveHours`, `matchesCron`, `minuteKey` from `./utils.js`
+- `plainjob.ts:10-13` imports: `ActiveHours`, `schedulerSession`, `parseTime`, `isWithinActiveHours`, `matchesCron`, `minuteKey` from `./utils.js`
 - No local reimplementation of cron matching, active hours, or minute key logic
 
 ### ST-6: Tier boundary — no proactive hints or token budget
 **Result:** PASS
 **Evidence:**
-- Grep for `proactive|hint|token_budget|confidence_threshold` in plainjob.ts: only match is default heartbeat message text "review pending tasks and proactive hints" (a string, not logic)
-- `full.ts` has extensive proactive hint logic: `handleProactiveHint()`, confidence thresholds, cooldown, `recordTokenUsage()`, `listPendingHints()`, pending hints queue
+- Grep for `proactive|hint|token_budget|confidence_threshold` in plainjob.ts: only match is default heartbeat message text "review pending tasks and proactive hints" (a string constant, not logic)
+- `full.ts` has extensive proactive hint logic: `handleProactiveHint()`, confidence thresholds, cooldown, `recordTokenUsage()`, `listPendingHints()`
 - plainjob.ts does NOT export `recordTokenUsage` or `listPendingHints`
 
 ### ST-7: SQLite persistence on addCron / removeCron
 **Result:** PASS
 **Evidence:**
-- `addCron()` at line 186: `jobs.set(job)` → `SQLiteJobStore.set()` at line 69 uses `INSERT OR REPLACE INTO scheduler_jobs`
-- `removeCron()` at line 195: `jobs.delete(jobId)` → `SQLiteJobStore.delete()` at line 84 uses `DELETE FROM scheduler_jobs WHERE id = ?`
+- `addCron()` at line 185: `jobs.set(job)` → `SQLiteJobStore.set()` at line 69 uses `INSERT OR REPLACE INTO scheduler_jobs`
+- `removeCron()` at line 189: `jobs.delete(jobId)` → `SQLiteJobStore.delete()` at line 84 uses `DELETE FROM scheduler_jobs WHERE id = ?`
 
 ### ST-8: Comprehensive tests exist
 **Result:** PASS
 **Evidence:**
-- `tests/providers/scheduler/plainjob.test.ts` — 35 tests all passing
+- `tests/providers/scheduler/plainjob.test.ts` — 32 tests (10 SQLiteJobStore unit + 22 scheduler provider)
 - Lifecycle: "starts and stops without error", "stop clears all timers"
 - CRUD: "addCron and listJobs", "removeCron removes a job"
-- Agent filtering: "listJobs only returns jobs for this agent", "checkCronNow only fires jobs for this agent"
+- Agent filtering: "listJobs only returns jobs for this agent", "checkCronNow only fires jobs for this agent", "agent_name config overrides"
 - SQLite persistence: "jobs persist across provider recreates", "persists across database reopens", "removed jobs do not reappear after restart"
 - Cron matching: "cron job fires on matching minute via checkCronNow"
 - Dedup: "cron job fires only once per matching minute (dedup)"
@@ -103,13 +103,13 @@ All required columns present with correct types.
 - Server started with `providers.scheduler: plainjob` in ax.yaml
 - `ax.sock` exists
 - `GET /health` returned `{"status":"ok"}`
-- Sent `hello` via `ax send` — agent responded: "Hello. I am Tester, an acceptance test agent. How can I help you today?"
+- Sent `hello` via `ax send` — agent responded: "Hello. How can I help you?"
 - No scheduler errors in `ax.log`
 
 ### BT-2: Scheduler database created on startup
 **Result:** PASS
 **Evidence:**
-- `$TEST_HOME/data/scheduler.db` exists after server startup
+- `$TEST_HOME/data/scheduler.db` exists after server startup (12288 bytes)
 - `sqlite3 .schema scheduler_jobs` shows correct table with all planned columns
 - `PRAGMA journal_mode` returns `wal`
 
@@ -124,9 +124,9 @@ All required columns present with correct types.
 ### IT-2: One-shot job run_at persists for rehydration
 **Result:** PASS
 **Evidence:**
-- Inserted one-shot job with future run_at: `'oneshot-persist-1', '* * * * *', 'main', 'One-shot reminder', 1, '2026-03-03T20:35:12.000Z'`
+- Inserted one-shot job with future run_at: `'oneshot-persist-1', '* * * * *', 'main', 'One-shot reminder', 1, '2026-03-05T18:56:03.000Z'`
 - Stopped server, restarted
-- Queried: `SELECT id, run_once, run_at ... WHERE id = 'oneshot-persist-1'` — returned `oneshot-persist-1|1|2026-03-03T20:35:12.000Z`
+- Queried: `SELECT id, run_once, run_at ... WHERE id = 'oneshot-persist-1'` — returned `oneshot-persist-1|1|2026-03-05T18:56:03.000Z`
 - `run_once` = 1 and `run_at` preserved
 
 ### Failures
