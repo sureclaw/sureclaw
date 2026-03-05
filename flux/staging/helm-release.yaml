@@ -1,0 +1,99 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ax-staging
+  namespace: ax-staging
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: ./charts/ax
+      sourceRef:
+        kind: GitRepository
+        name: ax
+        namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  values:
+    namespace:
+      name: ax-staging
+
+    config:
+      profile: balanced
+      providers:
+        memory: sqlite
+        scanner: regex
+        channels: []
+        web: none
+        browser: none
+        credentials: env
+        storage: postgresql
+        eventbus: nats
+        sandbox: k8s-pod
+        audit: sqlite
+        history: sqlite
+        scheduler: sqlite
+        image: none
+
+    host:
+      replicas: 1
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+      autoscaling:
+        enabled: false
+
+    agentRuntime:
+      replicas: 2
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "1Gi"
+        limits:
+          cpu: "1"
+          memory: "2Gi"
+      autoscaling:
+        enabled: false
+
+    poolController:
+      replicas: 1
+
+    sandbox:
+      tiers:
+        light:
+          minReady: 1
+          maxReady: 5
+          template:
+            command: ["node", "dist/sandbox-worker/main.js"]
+            cpu: "500m"
+            memory: "1Gi"
+            workspaceRoot: "/workspace"
+        heavy:
+          minReady: 0
+          maxReady: 1
+          template:
+            command: ["node", "dist/sandbox-worker/main.js"]
+            cpu: "2"
+            memory: "8Gi"
+            workspaceRoot: "/workspace"
+
+    nats:
+      enabled: true
+      config:
+        cluster:
+          replicas: 1
+        jetstream:
+          enabled: true
+          memoryStore:
+            maxSize: 128Mi
+          fileStore:
+            maxSize: 4Gi
+
+    networkPolicies:
+      enabled: true

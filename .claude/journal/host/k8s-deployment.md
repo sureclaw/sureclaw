@@ -1,5 +1,13 @@
 # K8s Deployment Journal
 
+## [2026-03-05 08:00] — Add FluxCD sources, base kustomization, and SOPS config
+
+**Task:** Create FluxCD GitOps structure with source definitions, base kustomization, and SOPS encryption config
+**What I did:** Created 4 files: .sops.yaml (SOPS encryption config for FluxCD secrets using age), flux/sources/git-repository.yaml (GitRepository source pointing to ax repo), flux/sources/helm-repository-nats.yaml (HelmRepository for NATS charts), flux/base/kustomization.yaml (Kustomization pointing to sources path)
+**Files touched:** .sops.yaml (created), flux/sources/git-repository.yaml (created), flux/sources/helm-repository-nats.yaml (created), flux/base/kustomization.yaml (created)
+**Outcome:** Success — FluxCD structure established with source reconciliation and SOPS-ready secrets encryption
+**Notes:** SOPS config uses placeholder age key that must be replaced with actual key before use. GitRepository uses 1m interval, HelmRepository uses 1h interval, Kustomization uses 10m interval with prune enabled.
+
 ## [2026-03-05 07:30] — Add network policies and Cloud SQL proxy Helm templates
 
 **Task:** Create Helm templates for network policies (sandbox, agent-runtime, host) and Cloud SQL proxy (deployment, service, serviceaccount)

@@ -1,0 +1,126 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ax-production
+  namespace: ax
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: ./charts/ax
+      sourceRef:
+        kind: GitRepository
+        name: ax
+        namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  values:
+    namespace:
+      name: ax
+
+    config:
+      profile: paranoid
+      providers:
+        memory: sqlite
+        scanner: regex
+        channels: []
+        web: none
+        browser: none
+        credentials: env
+        storage: postgresql
+        eventbus: nats
+        sandbox: k8s-pod
+        audit: sqlite
+        history: sqlite
+        scheduler: sqlite
+        image: none
+      sandbox:
+        timeout_sec: 120
+        memory_mb: 512
+      admin:
+        enabled: true
+        port: 8080
+
+    host:
+      replicas: 2
+      resources:
+        requests:
+          cpu: "500m"
+          memory: "512Mi"
+        limits:
+          cpu: "1"
+          memory: "1Gi"
+      ingress:
+        enabled: true
+        className: ""
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+        host: "ax.example.com"
+        tls:
+          - secretName: ax-tls
+            hosts:
+              - "ax.example.com"
+      autoscaling:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 10
+        targetCPUUtilizationPercentage: 70
+
+    agentRuntime:
+      replicas: 3
+      resources:
+        requests:
+          cpu: "1"
+          memory: "2Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"
+      autoscaling:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 20
+        targetCPUUtilizationPercentage: 60
+
+    poolController:
+      replicas: 1
+
+    sandbox:
+      tiers:
+        light:
+          minReady: 2
+          maxReady: 10
+          template:
+            command: ["node", "dist/sandbox-worker/main.js"]
+            cpu: "1"
+            memory: "2Gi"
+            workspaceRoot: "/workspace"
+        heavy:
+          minReady: 0
+          maxReady: 3
+          template:
+            command: ["node", "dist/sandbox-worker/main.js"]
+            cpu: "4"
+            memory: "16Gi"
+            workspaceRoot: "/workspace"
+            nodeSelector:
+              cloud.google.com/compute-class: Performance
+
+    nats:
+      enabled: true
+      config:
+        cluster:
+          enabled: true
+          replicas: 3
+        jetstream:
+          enabled: true
+          memoryStore:
+            maxSize: 256Mi
+          fileStore:
+            maxSize: 8Gi
+            pvc:
+              size: 10Gi
+
+    networkPolicies:
+      enabled: true

@@ -1,0 +1,7 @@
+# SOPS encryption config for FluxCD secrets.
+# Replace the age public key with your actual key.
+# Generate with: age-keygen -o age.key
+creation_rules:
+  - path_regex: flux/.*secret.*\.yaml$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
