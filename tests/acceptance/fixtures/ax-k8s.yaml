@@ -20,7 +20,7 @@ models:
 providers:
   memory: memoryfs
   audit: sqlite
-  credentials: env
+  credentials: plaintext
   sandbox: k8s
   screener: static
   scheduler: plainjob

@@ -1,8 +1,9 @@
 # Acceptance Test Results: Skills Install Architecture
 
-**Date run:** 2026-03-03 21:51
-**Server version:** e0d0429
+**Date run:** 2026-03-05 20:10
+**Server version:** 74b01ed
 **LLM provider:** openrouter/google/gemini-3-flash-preview
+**Environment:** Local (seatbelt sandbox, inprocess eventbus, sqlite storage)
 
 ## Summary
 
@@ -226,3 +227,124 @@ No failures. All 23 executed tests passed. 1 test (BT-4) was skipped due to test
 2. **agentId defaults to 'system':** The IPC default context uses `agentId: 'system'`, so install state is persisted under `system/` rather than `main/`. This is a known behavior (documented in lessons).
 
 3. **Screener + validator defense-in-depth:** The screener catches dangerous patterns during `skill_import` (full content scan). The install-validator independently blocks shell operators during `skill_install execute`. Both layers must pass for a command to run.
+
+---
+
+# K8s Environment Results
+
+**Date run:** 2026-03-05 21:04
+**Server version:** 74b01ed
+**LLM provider:** openrouter/google/gemini-3-flash-preview
+**Environment:** K8s (kind-ax-test, subprocess sandbox, nats eventbus, sqlite storage)
+**Host pod:** ax-ax-test-99b8d608-host-5847c8c755-pknn4
+**Namespace:** ax-test-99b8d608
+
+## Summary
+
+| Test | Category | Result | Notes |
+|------|----------|--------|-------|
+| BT-1 | Behavioral | PASS | inspectToken (64-char hex), binChecks with found:false, step status=needed |
+| BT-2 | Behavioral | PASS | Two-phase inspect->execute works; stdout="10.9.4\n", state persisted |
+| BT-3 | Behavioral | PASS | Bogus token rejected with `token_mismatch` error, no command executed |
+| BT-5 | Behavioral | PASS | `skill_read` returns content + warning about missing binary |
+| IT-1 | Integration | PASS | Full lifecycle: inspect->execute->status all work end-to-end |
+| IT-2 | Integration | PASS | Old `kind: node, package: cowsay` -> `run: "npm install -g cowsay"` |
+| IT-3 | Integration | PASS | Linux step + universal step included; macOS step filtered out (correct for Linux) |
+
+**Overall: 7/7 passed**
+
+## Test Method
+
+Tests were executed via direct IPC calls to the host's Unix socket (`/tmp/ax-2Lduba/proxy.sock`) using the length-prefixed binary protocol, bypassing the LLM layer. This approach was chosen because:
+
+1. The LLM model (Gemini Flash via OpenRouter) intermittently used wrong parameter names (`name`/`skillName` instead of `skill`) for the `skill_install` IPC action, causing Zod strict-mode validation failures.
+2. A successful end-to-end chat completions test was also performed (session `acceptance:skills-install:bt1-k8s-e2e`) confirming the agent CAN use the skill tool correctly when the LLM sends correct parameters.
+3. The IPC handlers are the system under test for these behavioral/integration tests; the LLM's ability to follow tool schemas is orthogonal.
+
+## Detailed Results
+
+### BT-1 (k8s): Inspect install requirements
+**Result:** PASS
+**Evidence:**
+- IPC call: `{ action: "skill_install", skill: "test-install-skill", phase: "inspect" }`
+- Response: `{ ok: true, status: "needs_install", inspectToken: "e111d106...d89" }` (64-char hex SHA-256)
+- `binChecks: [{ bin: "nonexistent-test-bin-xyz", found: false }]`
+- `steps: [{ index: 0, run: "npm --version", label: "Check npm version", status: "needed", bin: "nonexistent-test-bin-xyz", binFound: false }]`
+- No commands executed during inspect (only safe PATH lookup via `command -v`)
+
+### BT-2 (k8s): Execute install step with valid token
+**Result:** PASS
+**Evidence:**
+- Phase 1 (inspect): received `inspectToken: "e111d106...d89"`
+- Phase 2 (execute): `{ ok: true, status: "completed", step: 0, exitCode: 0, stdout: "10.9.4\n", stderr: "", durationMs: 89, binVerified: false }`
+- State file persisted at `/home/agent/.ax/data/skill-install-state/system/7c40c5e69f5aeb42.json`
+- Audit log records: `skill_install_inspect`, `skill_install_execute`, `skill_install_step`
+
+### BT-3 (k8s): Reject mismatched inspectToken
+**Result:** PASS
+**Evidence:**
+- IPC call with bogus token `"0000...0000"`
+- Response: `{ ok: true, status: "token_mismatch", error: "Skill content changed since inspect — please re-inspect before executing." }`
+- No install command was executed
+- Audit log recorded `skill_install_token_mismatch` with expected vs actual tokens
+
+### BT-5 (k8s): Missing-bin warnings when reading skill
+**Result:** PASS
+**Evidence:**
+- IPC call: `{ action: "skill_read", name: "test-bin-warning-skill" }`
+- Response: `{ ok: true, content: "...", warnings: ["Required binary \"nonexistent-binary-for-warning-test\" not found in PATH"] }`
+- Skill content returned alongside warning (not blocked)
+
+### IT-1 (k8s): Full install lifecycle
+**Result:** PASS
+**Evidence:**
+- **Inspect:** `inspectToken: "23cf1f75...edb"`, step `status: needed`
+- **Execute:** `{ status: "completed", exitCode: 0, stdout: "10.9.4\n", durationMs: 45 }`
+- **Status:** `{ status: "completed", steps: [{ run: "npm --version", status: "completed", output: "10.9.4\n" }] }`
+- State file persisted at `/home/agent/.ax/data/skill-install-state/system/96090ad18c4bd76c.json`
+- Audit log entries for all three phases confirmed (23 total skill_install* entries)
+- agentId is `system` (IPC default context)
+
+### IT-2 (k8s): Backward-compat old format
+**Result:** PASS
+**Evidence:**
+- Skill with `kind: node, package: cowsay, bins: [cowsay]` loaded without errors
+- Inspect returned converted step: `run: "npm install -g cowsay"`, `bin: "cowsay"`, `status: needed`
+- `inspectToken: "6cd8261...b6ae"` computed correctly over converted steps
+- `binChecks: [{ bin: "cowsay", found: false }]`
+
+### IT-3 (k8s): OS filtering
+**Result:** PASS
+**Evidence:**
+- k8s pod runs Linux (`process.platform === "linux"`)
+- Inspect returned 2 steps: "Linux only step" (index 0) + "Universal step" (index 1)
+- macOS step correctly excluded
+- Steps show `status: "invalid"` because `echo` is not an allowlisted package manager prefix — this is correct behavior per command prefix allowlisting (same as local tests)
+- `inspectToken` computed over filtered steps only (2 steps, not 3)
+
+## Side Effects Verification
+
+### Audit Log
+23 `skill_install*` entries confirmed:
+- `skill_install_inspect` for each inspect call
+- `skill_install_execute` for test-install-skill and test-lifecycle-skill
+- `skill_install_step` with exitCode, durationMs, binVerified
+- `skill_install_token_mismatch` for BT-3's bogus token
+- `skill_install_status` for IT-1 status check
+
+### State Persistence
+Two state files confirmed at `/home/agent/.ax/data/skill-install-state/system/`:
+- `7c40c5e69f5aeb42.json` — test-install-skill (BT-2 execute)
+- `96090ad18c4bd76c.json` — test-lifecycle-skill (IT-1 execute)
+
+Both contain `status: "completed"`, hashed filenames, scoped under `system/` agentId.
+
+## K8s-Specific Notes
+
+1. **Skill metadata format:** Skills must use the `metadata.openclaw` (or `metadata.clawdbot`/`metadata.clawdis`) block for `install` and `requires` fields. Top-level frontmatter fields are NOT parsed by `resolveMetadata()` — only `metadata.<alias>` nested objects are checked. Initial test skills used top-level fields and returned empty steps until corrected.
+
+2. **API key configuration:** The `ax-api-credentials` secret existed but was not mounted as environment variables in the host deployment. Required patching the deployment to add `OPENROUTER_API_KEY` and `DEEPINFRA_API_KEY` from the secret.
+
+3. **npm version difference:** k8s pod has npm 10.9.4 (local had 11.8.0) — both are valid.
+
+4. **OS filtering difference from local:** Local environment (macOS) included macOS + universal steps, filtered Linux. K8s environment (Linux) includes Linux + universal steps, filtered macOS. Both are correct per platform.

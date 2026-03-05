@@ -100,6 +100,7 @@
 - resolveCallerHandle OR vs AND bug pattern [host/entries.md](host/entries.md)
 - Orchestration handlers now wired into createIPCHandler [host/entries.md](host/entries.md)
 - Async fire-and-forget needs a collect mechanism, not polling [host/entries.md](host/entries.md)
+- Features in server.ts must also be ported to host-process.ts [host/entries.md](host/entries.md)
 
 ### agent
 

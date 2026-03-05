@@ -250,7 +250,7 @@ cp tests/acceptance/fixtures/.env.test.example .env.test
 | storage | sqlite | sqlite |
 | memory | memoryfs | memoryfs |
 | audit | sqlite | sqlite |
-| credentials | plaintext | env |
+| credentials | plaintext | plaintext |
 | skills | git | git |
 | scheduler | plainjob | plainjob |
 | screener | static | static |
@@ -331,77 +331,108 @@ pkill -f "tsx src/cli/index.ts serve" 2>/dev/null
 
 Deploy AX to a kind cluster for testing with k8s-native providers (k8s-pod sandbox, NATS eventbus).
 
+**CRITICAL**: Always use a unique random namespace for each test run. This prevents collisions with other test runs or pre-existing deployments, and ensures clean teardown. Never use a hardcoded namespace like `ax-acceptance`.
+
 #### Prerequisites
 
-- `kind` CLI installed
+- A running kind cluster (check with `kind get clusters`)
 - `kubectl` CLI installed
 - `helm` CLI installed
 - `docker` running
 - `.env.test` with API keys at project root
 
+**Use an existing kind cluster** — don't create one per test run. Look for an existing cluster with `kind get clusters` and use its context (e.g., `kind-ax-test`). Set the context for all commands:
+```bash
+KIND_CLUSTER="ax-test"  # or whatever cluster exists
+KUBE_CTX="kind-$KIND_CLUSTER"
+```
+
 #### Setup
 
 ```bash
-# 1. Create kind cluster (if not exists)
-kind create cluster --name ax-acceptance --config - <<'EOF'
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-  - role: worker
-EOF
+# 1. Generate a unique random namespace for this test run
+K8S_NS="ax-test-$(openssl rand -hex 4)"
+echo "Test namespace: $K8S_NS"
 
-# 2. Build and load AX image
+# 2. Build and load AX image (skip if image is current)
+npm run build
 docker build -t ax/host:test -f container/Dockerfile .
-kind load docker-image ax/host:test --name ax-acceptance
+kind load docker-image ax/host:test --name "$KIND_CLUSTER"
 
 # 3. Create namespace and secrets
-kubectl create namespace ax-acceptance
-kubectl -n ax-acceptance create secret generic ax-api-credentials \
+kubectl --context "$KUBE_CTX" create namespace "$K8S_NS"
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-api-credentials \
   --from-literal=openrouter-api-key="$(grep OPENROUTER_API_KEY .env.test | cut -d= -f2-)" \
   --from-literal=deepinfra-api-key="$(grep DEEPINFRA_API_KEY .env.test | cut -d= -f2-)"
 
-# 4. Deploy via Helm
-helm dependency update charts/ax
-helm install ax charts/ax -n ax-acceptance \
-  -f tests/acceptance/fixtures/kind-values.yaml
+# Also create a dummy DB secret (required by host deployment template even when using sqlite)
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-db-credentials \
+  --from-literal=url="sqlite:///tmp/unused.db"
 
-# 5. Wait for pods to be ready
-kubectl -n ax-acceptance wait --for=condition=Ready pod \
+# 4. Deploy via Helm with a unique release name
+#    The kind-values.yaml provides base overrides. Use --set to override
+#    the namespace and any feature-specific config (e.g., webhooks).
+HELM_RELEASE="ax-$K8S_NS"
+helm dependency update charts/ax
+helm --kube-context "$KUBE_CTX" install "$HELM_RELEASE" charts/ax -n "$K8S_NS" \
+  -f tests/acceptance/fixtures/kind-values.yaml \
+  --set namespace.create=false \
+  --set namespace.name="$K8S_NS"
+
+# 5. Delete agent-runtime and pool-controller deployments
+#    (kind-values.yaml disables them, but templates may still render)
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
+  -l app.kubernetes.io/component=agent-runtime 2>/dev/null
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
+  -l app.kubernetes.io/component=pool-controller 2>/dev/null
+
+# 6. Wait for host pod to be ready
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/component=host --timeout=120s
 
-# 6. Install test identity (copy into running pod)
-HOST_POD=$(kubectl -n ax-acceptance get pod \
+# 7. Identify host pod
+HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/component=host \
   -o jsonpath='{.items[0].metadata.name}')
+echo "Host pod: $HOST_POD"
+
+# 8. Install test identity (copy into running pod)
 FIXTURES="tests/acceptance/fixtures"
-kubectl -n ax-acceptance cp \
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$HOST_POD" -- \
+  mkdir -p /home/agent/.ax/agents/main/agent/identity
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
   "$FIXTURES/IDENTITY.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
-kubectl -n ax-acceptance cp \
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
   "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
 
-# 7. Port-forward for test access
-kubectl -n ax-acceptance port-forward svc/ax-host 18080:8080 &
+# 9. Port-forward for test access
+pkill -f "port-forward.*18080" 2>/dev/null; sleep 1
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host 18080:80 &
 PF_PID=$!
 
-# 8. Health check
+# 10. Health check
 sleep 3
 curl -sf http://localhost:18080/health && echo "K8S_SERVER_READY"
 ```
 
 If the health check fails, check pod logs:
 ```bash
-kubectl -n ax-acceptance logs -f "$HOST_POD"
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f "$HOST_POD"
 ```
+
+**IMPORTANT**: Store `K8S_NS`, `KUBE_CTX`, `HELM_RELEASE`, `HOST_POD`, and `PF_PID` — they are needed for all subsequent commands and teardown.
 
 #### Teardown
 
+**Always tear down after tests complete**, regardless of pass/fail:
+
 ```bash
 kill $PF_PID 2>/dev/null
-helm uninstall ax -n ax-acceptance
-kubectl delete namespace ax-acceptance
-kind delete cluster --name ax-acceptance
+helm --kube-context "$KUBE_CTX" uninstall "$HELM_RELEASE" -n "$K8S_NS" 2>/dev/null
+kubectl --context "$KUBE_CTX" delete namespace "$K8S_NS"
 ```
+
+Do NOT delete the kind cluster itself — it's shared across test runs.
 
 ---
 
@@ -449,11 +480,11 @@ Use the correct commands for the target environment:
 
 | Check | Local | K8s |
 |-------|-------|-----|
-| Memory DB | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl -n ax-acceptance exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
-| Embedding DB | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl -n ax-acceptance exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
-| Audit DB | `sqlite3 "$TEST_HOME/data/audit.db" "..."` | `kubectl -n ax-acceptance exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db "..."` |
-| Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl -n ax-acceptance exec $HOST_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
-| Logs | `tail -f "$TEST_HOME/data/ax.log"` | `kubectl -n ax-acceptance logs -f $HOST_POD` |
+| Memory DB | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
+| Embedding DB | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
+| Audit DB | `sqlite3 "$TEST_HOME/data/audit.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db "..."` |
+| Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
+| Logs | `tail -f "$TEST_HOME/data/ax.log"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD` |
 
 ### Running behavioral tests
 
@@ -565,7 +596,7 @@ Use these to quickly find the relevant code when tracing failures:
 | Sandbox | `src/providers/sandbox/seatbelt.ts`, `src/providers/sandbox/bwrap.ts`, `src/providers/sandbox/subprocess.ts`, `src/providers/sandbox/k8s-pod.ts` |
 | Channels | `src/providers/channel/cli.ts`, `src/providers/channel/slack.ts` |
 | Security | `src/host/taint-budget.ts`, `src/utils/safe-path.ts`, `src/host/provider-map.ts` |
-| Credentials | `src/providers/credentials/env.ts`, `src/providers/credentials/encrypted.ts` |
+| Credentials | `src/providers/credentials/plaintext.ts`, `src/providers/credentials/keychain.ts` |
 | Scheduler | `src/providers/scheduler/cron.ts`, `src/providers/scheduler/plainjob.ts` |
 | Audit | `src/providers/audit/file.ts`, `src/providers/audit/sqlite.ts` |
 | Orchestration | `src/host/orchestration/` |
@@ -651,6 +682,6 @@ Also add each fix to the **TaskCreate tool** so they're tracked in the current s
 - **Check audit logs.** The audit log (`$TEST_HOME/data/audit.db` or via `kubectl exec`) is the best ground truth for what the server actually did during a request. If a behavioral test is ambiguous, the audit log tells you exactly which IPC actions fired.
 - **Don't chase LLM wording.** The agent might phrase things differently each time. Focus on: did it call the right tools? Did the right data end up in the right place? Did it avoid doing the wrong thing?
 - **One feature at a time.** Don't try to test everything in one session. Pick a feature, run its tests, fix the issues, then move on.
-- **Tail logs for debugging.** Local: `tail -f $TEST_HOME/data/ax.log` (server must be started with `LOG_SYNC=1`). K8s: `kubectl -n ax-acceptance logs -f $HOST_POD`.
+- **Tail logs for debugging.** Local: `tail -f $TEST_HOME/data/ax.log` (server must be started with `LOG_SYNC=1`). K8s: `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD`.
 - **Compare environments.** When running both, look for environment-specific failures. A test that passes locally but fails on k8s likely indicates a provider-level bug (e.g., NATS eventbus doesn't fire the same events as inprocess). A test that fails in both points to a feature-level bug.
 - **K8s is optional.** Most features should be validated locally first. Use k8s testing when you specifically want to verify that k8s-native providers (k8s-pod sandbox, NATS eventbus) behave identically to their local counterparts.

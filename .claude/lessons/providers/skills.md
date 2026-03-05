@@ -18,6 +18,12 @@
 **Lesson:** The ClawHavoc attack (824+ malicious skills on ClawHub) succeeded because: 1) no sandbox (skills run on host with full privileges), 2) no screening at upload time, 3) skills can bundle binaries added to PATH with no integrity verification, 4) no capability narrowing. AX's existing sandbox + IPC proxy + capabilities.yaml already prevents all of these attack vectors. When designing executable skills for AX, the sandbox is the runtime — binaries run inside it, not on the host. Untrusted skills must never be allowed to execute.
 **Tags:** skills, security, openclaw, sandbox, supply-chain, architecture
 
+### Skill `install` and `requires` must be inside metadata.openclaw block
+**Date:** 2026-03-05
+**Context:** Creating test skills for k8s acceptance tests — skill_install returned empty steps/binChecks
+**Lesson:** The `parseAgentSkill()` function in `skill-format-parser.ts` reads `install` and `requires` from `resolveMetadata(fm)`, which looks for `fm.metadata.openclaw` (or `clawdbot`/`clawdis`). Placing `install:` or `requires:` at the top level of YAML frontmatter will be IGNORED — they must be nested under `metadata.openclaw:`. If skill_install returns empty steps, check the skill format first.
+**Tags:** skills, parser, metadata, install, frontmatter, acceptance-test
+
 ### Tool filtering must align with prompt module shouldInclude()
 **Date:** 2026-02-26
 **Context:** Added context-aware tool filtering — scheduler tools excluded when no heartbeat. Pi-session test broke because it expected scheduler tools without providing a HEARTBEAT.md file.

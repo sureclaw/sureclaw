@@ -71,3 +71,9 @@
 **Context:** Building the webhook handler needed existsSync/readFileSync for transform files, but mocking the filesystem in tests is fragile.
 **Lesson:** When a handler needs to check file existence or read files, inject those as callbacks in the deps struct (e.g. `transformExists: (name) => boolean`, `readTransform: (name) => string`) instead of importing fs directly. This makes the handler fully testable with simple mocks and avoids temp file setup/teardown in tests. The server.ts composition root provides the real implementations.
 **Tags:** testing, dependency-injection, webhook, server-composition
+
+### Features in server.ts must also be ported to host-process.ts
+**Date:** 2026-03-05
+**Context:** Webhook transforms were fully implemented in server.ts (local all-in-one) but the k8s host entry point (host-process.ts) was never updated. K8s acceptance tests returned 404 for all webhook routes.
+**Lesson:** AX has two HTTP server entry points: `server.ts` (local) and `host-process.ts` (k8s). Any new HTTP route or feature added to server.ts MUST also be ported to host-process.ts — or better, extract the shared route handling into a common module. The dispatch mechanism differs (direct processCompletion vs NATS publish), but route matching, auth, rate limiting, and response shaping should be shared. Always run acceptance tests in BOTH local and k8s environments to catch this class of gap.
+**Tags:** host-process, server, k8s, webhook, integration-gap, dual-entry-point

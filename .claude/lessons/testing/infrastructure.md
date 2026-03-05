@@ -1,5 +1,38 @@
 # Testing Infrastructure
 
+### K8s acceptance tests require multiple workarounds for single-process mode
+**Date:** 2026-03-05
+**Context:** Running plainjob scheduler and memoryfs-v2 acceptance tests in k8s kind cluster
+**Lesson:** The Helm chart deploys `host-process.ts` which delegates to NATS/agent-runtime — it cannot process completions alone. For acceptance tests, override the command to `node dist/cli/index.js serve --port 8080` (compiled JS, not tsx). Also set `BIND_HOST=0.0.0.0` (CLI serve binds to 127.0.0.1 by default, breaking k8s probes). Never use tsx for the host command — dev mode causes agent subprocess spawns to fail because symlink-mount sandboxes can't resolve the tsx ESM loader path. The Helm chart also lacks a PVC for the data directory, so scheduler.db and other SQLite DBs are lost on pod restart. Inject API keys directly as env vars (`kubectl set env`).
+**Tags:** k8s, acceptance, kind, helm, workarounds, bind-host, tsx, pvc
+
+### K8s-pod sandbox requires NATS IPC bridge — use subprocess sandbox for now
+**Date:** 2026-03-05
+**Context:** Running memoryfs-v2 acceptance tests on k8s, k8s-pod sandbox pods created but agent couldn't communicate with host
+**Lesson:** The k8s sandbox provider (`src/providers/sandbox/k8s.ts`) creates pods that need IPC to the host for LLM calls. The agent runner always uses Unix socket IPC (`--ipc-socket`), which only works when host and agent share a filesystem (same machine or pod). In k8s, sandbox pods are separate — the socket doesn't exist there. `src/agent/nats-bridge.ts` exists but isn't wired into runners. For acceptance tests, use `sandbox: subprocess` in kind-values.yaml — runs the agent as a child process in the host pod where IPC works. The k8s-pod sandbox also needs: `stdin: true` on the container spec + k8s Attach API for stdin/stdout piping, `pods/attach` RBAC permission on the sandbox-manager role, and `LOG_LEVEL=warn` to suppress pino logs that pollute pod stdout (which becomes the HTTP response).
+**Tags:** k8s, sandbox, ipc, nats-bridge, subprocess, acceptance
+
+### Helm chart injects API credentials only into agent-runtime, not host
+**Date:** 2026-03-05
+**Context:** Host pod in all-in-one mode returned empty LLM responses — OPENROUTER_API_KEY was missing
+**Lesson:** The Helm chart's `apiCredentials` (OPENROUTER_API_KEY, DEEPINFRA_API_KEY etc.) are only injected into the `agent-runtime/deployment.yaml` template, not the `host/deployment.yaml`. In all-in-one server mode (where host also runs agents), add them via `--set-json 'host.env=[...]'` with `valueFrom.secretKeyRef`. The full helm command for acceptance tests:
+```
+--set-json 'host.env=[{"name":"BIND_HOST","value":"0.0.0.0"},{"name":"OPENROUTER_API_KEY","valueFrom":{"secretKeyRef":{"name":"ax-api-credentials","key":"openrouter-api-key"}}},{"name":"DEEPINFRA_API_KEY","valueFrom":{"secretKeyRef":{"name":"ax-api-credentials","key":"deepinfra-api-key"}}}]'
+```
+**Tags:** helm, credentials, k8s, acceptance, api-keys
+
+### kind-values.yaml must include full config block to override chart defaults
+**Date:** 2026-03-05
+**Context:** Host pod crashed with ECONNREFUSED to PostgreSQL — chart defaults had `storage: postgresql`
+**Lesson:** The `charts/ax/values.yaml` defaults include `storage: postgresql` and other production settings. The `kind-values.yaml` fixture must include a complete `config:` block to override ALL config values, not just a partial overlay. Without it, the host tries to connect to PostgreSQL which doesn't exist in the kind cluster. Always verify the rendered config with `helm template ... | grep -A 50 'ax.yaml'`.
+**Tags:** helm, kind, config, postgresql, acceptance
+
+### Use curl -d @file for multi-turn JSON payloads in acceptance tests
+**Date:** 2026-03-05
+**Context:** IT-1 acceptance test appeared to fail — curl returned empty response for multi-turn conversation
+**Lesson:** The Bash tool's shell can mangle inline JSON in `curl -d '...'` arguments, producing invalid escape sequences the server rejects with HTTP 400. `curl -sf` silently hides 400 errors (returns empty, exit code 22). Always write JSON payloads to a temp file and use `curl -d @/tmp/file.json`. When debugging empty curl responses, use `curl -v` (verbose) instead of `-sf` (silent+fail).
+**Tags:** acceptance, curl, json, shell-escaping, debugging
+
 ### Tool count tests are scattered across many test files
 **Date:** 2026-02-26
 **Context:** Adding skill_import and skill_search tools caused failures in 5 different test files

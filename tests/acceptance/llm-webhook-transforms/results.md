@@ -1,9 +1,10 @@
 # Acceptance Test Results: LLM Webhook Transforms
 
-**Date run:** 2026-03-03 14:30
-**Server version:** 21b8bae
+**Date run:** 2026-03-05 14:45
+**Server version:** 74b01ed
 **LLM provider:** OpenRouter / google/gemini-3-flash-preview
-**Test home:** /tmp/ax-acceptance-1772569426
+**Environment:** Local (seatbelt sandbox, inprocess eventbus, sqlite storage)
+**Test home:** /tmp/ax-acceptance-1772739837
 
 ## Summary
 
@@ -37,11 +38,11 @@
 
 ### ST-1: Config schema includes webhooks section
 **Result:** PASS
-**Evidence:** `src/config.ts:112-119` — `webhooks: z.strictObject({ enabled: z.boolean(), token: z.string().min(1), path: z.string().optional(), max_body_bytes: z.number().int().positive().optional(), model: z.string().optional(), allowed_agent_ids: z.array(z.string().min(1)).optional() }).optional()`
+**Evidence:** `src/config.ts:114-121` — `webhooks: z.strictObject({ enabled: z.boolean(), token: z.string().min(1), path: z.string().optional(), max_body_bytes: z.number().int().positive().optional(), model: z.string().optional(), allowed_agent_ids: z.array(z.string().min(1)).optional() }).optional()`
 
 ### ST-2: Config type interface includes webhooks
 **Result:** PASS
-**Evidence:** `src/types.ts:117-124` — `webhooks?: { enabled: boolean; token: string; path?: string; max_body_bytes?: number; model?: string; allowed_agent_ids?: string[]; }`
+**Evidence:** `src/types.ts:121-128` — `webhooks?: { enabled: boolean; token: string; path?: string; max_body_bytes?: number; model?: string; allowed_agent_ids?: string[]; }`
 
 ### ST-3: Path helpers exported and use safePath
 **Result:** PASS
@@ -65,19 +66,19 @@
 
 ### ST-8: Server wiring — webhookHandler created only when enabled
 **Result:** PASS
-**Evidence:** `src/host/server.ts:384` — `config.webhooks?.enabled ? createWebhookHandler(...) : null`. Line 548 checks `webhookHandler` truthy before processing. Both `createWebhookHandler` and `createWebhookTransform` imported.
+**Evidence:** `src/host/server.ts:395-396` — `config.webhooks?.enabled ? createWebhookHandler(...) : null`. Line 571 checks `webhookHandler` truthy before processing. Both `createWebhookHandler` and `createWebhookTransform` imported.
 
 ### ST-9: Server wiring — configurable path prefix
 **Result:** PASS
-**Evidence:** `src/host/server.ts:379-381` — reads `config.webhooks?.path`, normalizes trailing slash, defaults to `/webhooks/`. Route matching at line 548 uses `url.startsWith(webhookPrefix)`.
+**Evidence:** `src/host/server.ts:390-392` — reads `config.webhooks?.path`, normalizes trailing slash, defaults to `/webhooks/`. Route matching uses `url.startsWith(webhookPrefix)`.
 
 ### ST-10: Server wiring — drain handling rejects webhooks
 **Result:** PASS
-**Evidence:** `src/host/server.ts:488` — `if (draining && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix)))` returns 503. Check is before request tracking and webhook handler invocation.
+**Evidence:** `src/host/server.ts:511-514` — `if (draining && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix)))` returns 503. Check is before request tracking and webhook handler invocation.
 
 ### ST-11: Server wiring — dispatch calls processCompletion correctly
 **Result:** PASS
-**Evidence:** `src/host/server.ts:396-415` — `void processCompletion(...).catch(err => logger.error('webhook_dispatch_failed', ...))`. userId is `'webhook'` (line 411). Agent config overrides (`agentId` → `agent_name`, `model`, `timeoutSec`) plumbed through `childConfig`. `runId` passed as `requestId`.
+**Evidence:** `src/host/server.ts:407-425` — `void processCompletion(...).catch(err => logger.error('webhook_dispatch_failed', ...))`. userId is `'webhook'` (line 422). Agent config overrides (`agentId` → `agent_name`, `model`, `timeoutSec`) plumbed through `childConfig`. `runId` passed as `requestId`.
 
 ### ST-12: Documentation exists with required sections
 **Result:** PASS
@@ -85,7 +86,7 @@
 
 ### BT-1: GitHub push webhook — LLM transforms payload and dispatches agent run
 **Result:** PASS
-**Evidence:** HTTP response 202 with `{"ok":true,"runId":"webhook-5e11cb8d"}`. RunId matches `webhook-[a-f0-9]{8}` pattern. Audit log contains `webhook.received` and `webhook.dispatched` entries.
+**Evidence:** HTTP response 202 with `{"ok":true,"runId":"webhook-37159106"}`. RunId matches `webhook-[a-f0-9]{8}` pattern. Audit log contains `webhook.received` and `webhook.dispatched` entries.
 
 ### BT-2: LLM returns null for ignored event — 204 no content
 **Result:** PASS
@@ -105,7 +106,7 @@
 
 ### IT-1: Full webhook pipeline — CI webhook
 **Result:** PASS
-**Evidence:** POST to `/webhooks/ci` returned 202 with `{"ok":true,"runId":"webhook-dfad1f25"}`. Audit log contains `webhook.received` and `webhook.dispatched` for the CI webhook. Zero `webhook_dispatch_failed` errors in server log.
+**Evidence:** POST to `/webhooks/ci` returned 202 with `{"ok":true,"runId":"webhook-881e47ca"}`. Audit log contains `webhook.received` and `webhook.dispatched` for the CI webhook. Zero `webhook_dispatch_failed` errors in server log.
 
 ### IT-2: Allowlist enforcement end-to-end
 **Result:** PASS
@@ -117,9 +118,9 @@
 **Result:** PASS
 **Evidence:** First 20 requests with wrong token all returned 401. 21st request returned 429. Valid-token request from rate-limited IP also returned 429. `Retry-After: 60` header present in 429 response.
 
-### IT-4: Taint tagging verified via structural analysis
+### IT-4: Taint tagging verified via structural + behavioral analysis
 **Result:** PASS
-**Evidence:** `src/host/server.ts:419-420` wires `recordTaint` callback to `taintBudget.recordContent(sessionId, content, isTainted)`. `src/host/server-webhooks.ts:227` calls `deps.recordTaint(sessionId, JSON.stringify(payload), true)` — `isTainted` is hardcoded to `true`. Session ID follows `webhook:<runId>` pattern (line 225) or uses custom `sessionKey`.
+**Evidence:** Behavioral: Webhook dispatched successfully (202 with runId `webhook-ac86668f`). Structural: `src/host/server.ts:430-432` wires `recordTaint` callback to `taintBudget.recordContent(sessionId, content, isTainted)`. `src/host/server-webhooks.ts:227` calls `deps.recordTaint(sessionId, JSON.stringify(payload), true)` — `isTainted` is hardcoded to `true`. Session ID follows `webhook:<runId>` pattern (line 225) or uses custom `sessionKey`.
 
 ## Failures
 

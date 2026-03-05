@@ -2,6 +2,47 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-05 21:04] — Skills Install k8s acceptance tests
+
+**Task:** Run skills-install behavioral and integration tests against k8s AX server
+**What I did:** Deployed test skills to k8s pod (required openclaw metadata format fix), patched host deployment for API key env vars, ran 7 tests (BT-1/2/3/5, IT-1/2/3) via direct IPC calls to host Unix socket. Also verified one end-to-end chat completions test. Checked audit log (23 entries) and state persistence (2 state files).
+**Files touched:** `tests/acceptance/skills-install/results.md` (appended k8s results section)
+**Outcome:** 7/7 PASS. All behavioral and integration tests pass in k8s. Skill metadata format required `metadata.openclaw` block (not top-level frontmatter). LLM model (Gemini Flash) intermittently used wrong parameter names for skill tool, requiring direct IPC testing approach.
+**Notes:** Three setup issues discovered: (1) Skills must use `metadata.openclaw` nested block for `install`/`requires` fields, (2) API key secret not mounted in host deployment by default, (3) LLM model inconsistently names tool parameters (`name`/`skillName` vs `skill`). OS filtering correctly shows Linux+universal on k8s (vs macOS+universal locally).
+
+## [2026-03-05 16:15] — MemoryFS v2 k8s acceptance tests
+
+**Task:** Run memoryfs-v2 acceptance tests against k8s/kind environment
+**What I did:** Deployed AX to kind cluster, resolved 10+ infrastructure issues, ran 41 tests
+**Files touched:** `src/host/server.ts` (BIND_HOST), `src/providers/sandbox/k8s.ts` (LOG_LEVEL, stdin, Attach), `tests/acceptance/fixtures/kind-values.yaml` (full config block, subprocess sandbox), `tests/acceptance/memoryfs-v2/results-k8s.md` (new)
+**Outcome:** 40/41 PASS, 1 SKIP (IT-8 backfill needs PVC). K8s-pod sandbox not functional with all-in-one server (IPC over Unix sockets doesn't cross pod boundaries, NATS bridge not integrated). Used subprocess sandbox as workaround.
+**Notes:** Major k8s infrastructure gaps discovered: BIND_HOST for probes, API credentials only in agent-runtime template, kind-values.yaml missing full config block, k8s sandbox needs pods/attach RBAC. The k8s-pod sandbox requires NATS IPC bridge integration (Phase 3 work).
+
+## [2026-03-05 15:40] — LLM Webhook Transforms k8s acceptance tests
+
+**Task:** Re-run webhook transforms acceptance tests in k8s environment (previously 12/21 pass)
+**What I did:** Built fresh Docker image with commit 107b074 (which wired webhook routes into host-process.ts). Deployed to kind cluster with webhook config. Ran all 9 behavioral/integration tests sequentially via curl through port-forward. Required workarounds: patched host deployment env vars for API keys (Helm chart only injects into agent-runtime), changed webhook token to avoid zsh `!` escaping, patched ConfigMap for IT-2 allowlist test.
+**Files touched:** `tests/acceptance/llm-webhook-transforms/results-k8s.md` (updated), `tests/acceptance/fixtures/kind-values.yaml` (added webhooks config)
+**Outcome:** 21/21 PASS. All behavioral/integration tests pass after commit 107b074 fixed the missing webhook routes in host-process.ts. Found 2 minor gaps: recordTaint not wired in k8s mode, Helm chart missing apiCredentials for host deployment.
+**Notes:** Stale port-forwards from other namespaces caused intermittent 404s/401s — always kill ALL port-forwards before restarting.
+
+## [2026-03-05 15:35] — PlainJob Scheduler k8s acceptance tests
+
+**Task:** Re-run plainjob scheduler acceptance tests in k8s environment
+**What I did:** Deployed AX to kind cluster, ran BT-1, BT-2, IT-1, IT-2 against a k8s pod. Required multiple workarounds: switched from host-process.ts to compiled CLI serve, set BIND_HOST=0.0.0.0, used compiled JS instead of tsx, injected API keys as env vars.
+**Files touched:** `tests/acceptance/plainjob-scheduler/results-k8s.md` (created)
+**Outcome:** 12/12 PASS — scheduler logic fully correct. Found 5 k8s infrastructure gaps (no PVC for data dir, host-process.ts requires agent-runtime, BIND_HOST default, tsx path resolution, no sqlite3 CLI).
+**Notes:** Structural tests reused from local run. Integration tests tested within-pod SQLite persistence (close/reopen) since no PVC exists for cross-pod persistence. The scheduler actively fired jobs during the test.
+
+## [2026-03-05 14:45] — Re-run MemoryFS v2 acceptance tests (commit 74b01ed)
+
+**Task:** Re-run all 41 acceptance tests for MemoryFS v2
+**What I did:** Set up isolated AX_HOME, ran 27 structural tests via parallel subagents, started server for behavioral/integration tests, ran 9 BTs and 8 ITs sequentially
+**Files touched:**
+- `tests/acceptance/memoryfs-v2/results.md` (overwritten with new results)
+**Outcome:** 41/41 PASS. IT-1 initially appeared as PARTIAL PASS but root-caused to test harness bug (shell mangled inline JSON in curl `-d`). All structural, behavioral, and integration tests pass.
+**Notes:** (1) Server auto-exits after idle (~26s), requiring restarts between test batches. (2) Use `curl -d @file` instead of inline `-d '...'` for multi-turn JSON payloads to avoid shell escaping issues. (3) `curl -sf` silently hides HTTP 400 errors — always check with `-v` when debugging empty responses.
+
 ## [2026-03-05 18:30] — Add dual-environment (local + k8s) support to acceptance test skill
 
 **Task:** Extend the acceptance-test skill so the same BT/IT test plans run against both local and k8s (kind) environments

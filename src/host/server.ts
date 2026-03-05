@@ -865,7 +865,7 @@ export async function createServer(
       tcpServer = createHttpServer(handleRequest);
       try {
         await new Promise<void>((resolveP, rejectP) => {
-          tcpServer!.listen(tcpPort, '127.0.0.1', () => {
+          tcpServer!.listen(tcpPort, process.env.BIND_HOST ?? '127.0.0.1', () => {
             logger.debug('server_listening_tcp', { port: tcpPort });
             tcpBound = true;
             resolveP();

@@ -37,6 +37,8 @@ spec:
               value: {{ .Values.host.ports.http | quote }}
             - name: NATS_URL
               value: {{ include "ax.natsUrl" . | quote }}
+            - name: K8S_RUNTIME_CLASS
+              value: {{ .Values.sandbox.runtimeClass | default "" | quote }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

@@ -3,10 +3,60 @@
 # Simplified version of k8s-agent-compute/kind-values.yaml.
 # Feature tests only need a running AX server accessible via HTTP,
 # not the full host -> NATS -> agent-runtime pipeline. We deploy a
-# single-pod AX server with NATS for eventbus and k8s sandbox.
+# single-pod AX server with NATS for eventbus and subprocess sandbox.
 #
 # Agent-runtime and pool-controller are disabled — feature tests
-# use single-process mode where the host spawns agent pods directly.
+# use single-process mode where the host runs agents as subprocesses.
+# The k8s-pod sandbox requires NATS IPC bridge (not yet integrated),
+# so we use subprocess sandbox for now.
+
+# ─── AX Config overrides ─────────────────────────────────────────
+# Must match tests/acceptance/fixtures/ax-k8s.yaml — the chart renders
+# this block as ax.yaml inside the ConfigMap.
+config:
+  agent: pi-coding-agent
+  profile: yolo
+  models:
+    default:
+      - openrouter/google/gemini-3-flash-preview
+  providers:
+    memory: memoryfs
+    audit: sqlite
+    credentials: plaintext
+    sandbox: subprocess
+    screener: static
+    scheduler: plainjob
+    browser: none
+    skills: git
+    channels: []
+    web: none
+    scanner: patterns
+    storage: sqlite
+    eventbus: nats
+  history:
+    max_turns: 50
+    thread_context_turns: 5
+    summarize: false
+    summarize_threshold: 40
+    summarize_keep_recent: 10
+    memory_recall: true
+    memory_recall_limit: 5
+    memory_recall_scope: "*"
+    embedding_model: deepinfra/Qwen/Qwen3-Embedding-0.6B
+    embedding_dimensions: 1024
+  sandbox:
+    timeout_sec: 120
+    memory_mb: 512
+  scheduler:
+    active_hours:
+      start: "07:00"
+      end: "23:00"
+      timezone: America/New_York
+    max_token_budget: 4096
+    heartbeat_interval_min: 30
+  webhooks:
+    enabled: true
+    token: "acceptance-test-webhook-token-32charsx"
 
 namespace:
   create: false

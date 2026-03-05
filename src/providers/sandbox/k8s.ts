@@ -8,6 +8,10 @@
  * The pod boundary IS the security boundary — no in-pod multi-tenant
  * isolation needed on GKE Autopilot.
  *
+ * Communication: stdin/stdout are connected to the pod via the k8s Attach
+ * API (WebSocket). The host writes the conversation payload to stdin and
+ * reads the agent response from stdout — identical to local sandbox mode.
+ *
  * Environment:
  *   K8S_NAMESPACE — target namespace (default: "ax")
  *   K8S_POD_IMAGE — container image (default: "ax/agent:latest")
@@ -80,6 +84,7 @@ function buildPodSpec(
           image: options.image,
           command: [cmd, ...args],
           workingDir: CANONICAL.root,
+          stdin: true,
 
           resources: {
             requests: {
@@ -103,6 +108,10 @@ function buildPodSpec(
           env: [
             // NATS connectivity
             { name: 'NATS_URL', value: options.natsUrl },
+            // Suppress agent debug/info logs — pod logs are piped into the
+            // SandboxProcess.stdout stream which becomes the HTTP response.
+            // Without this, pino JSON lines pollute the response content.
+            { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? 'warn' },
             // Canonical paths from sandbox config
             ...Object.entries(envVars).map(([name, value]) => ({ name, value })),
             // Pod identity
@@ -142,6 +151,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   }
 
   const coreApi = kc.makeApiClient(k8s.CoreV1Api);
+  const attach = new k8s.Attach(kc);
   const watch = new k8s.Watch(kc);
 
   const image = process.env.K8S_POD_IMAGE ?? DEFAULT_IMAGE;
@@ -226,27 +236,40 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         }, timeoutMs);
       });
 
-      // Create passthrough streams — in k8s mode, IPC goes over NATS, not stdio.
-      // These streams exist to satisfy the SandboxProcess interface but are not
-      // the primary communication channel.
+      // Create passthrough streams — connected to the pod via k8s Attach API.
+      // The host writes the conversation payload to stdin; reads response from stdout.
       const stdout = new PassThrough();
       const stderr = new PassThrough();
       const stdin = new PassThrough();
 
-      // Attach to pod logs (best-effort)
-      try {
-        const logStream = await coreApi.readNamespacedPodLog({
-          name: podName,
-          namespace,
-          follow: true,
-          container: 'sandbox',
-        });
-        if (logStream && typeof logStream === 'object' && 'pipe' in logStream) {
-          (logStream as NodeJS.ReadableStream).pipe(stdout);
+      // Wait for pod to reach Running, then attach stdin/stdout via WebSocket.
+      // The agent runner blocks on stdin.read(), so there's no race — data
+      // written to the PassThrough stdin is buffered until attach completes.
+      (async () => {
+        try {
+          // Poll until pod is Running (up to 60s)
+          for (let i = 0; i < 120; i++) {
+            const pod = await coreApi.readNamespacedPod({ name: podName, namespace });
+            const phase = (pod as any)?.status?.phase;
+            if (phase === 'Running') break;
+            if (phase === 'Failed' || phase === 'Succeeded') {
+              logger.warn('pod_ended_before_attach', { podName, phase });
+              stdout.end();
+              stderr.end();
+              return;
+            }
+            await new Promise(r => setTimeout(r, 500));
+          }
+
+          logger.info('attaching_to_pod', { podName });
+          await attach.attach(namespace, podName, 'sandbox', stdout, stderr, stdin, false);
+          logger.info('pod_attached', { podName });
+        } catch (err: unknown) {
+          logger.warn('pod_attach_failed', { podName, error: (err as Error).message });
+          stdout.end();
+          stderr.end();
         }
-      } catch {
-        // Pod may not be ready yet — logs will be missed but IPC still works via NATS
-      }
+      })();
 
       logger.info('pod_created', { podName, pid });
 
