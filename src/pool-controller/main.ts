@@ -3,19 +3,39 @@
 // Starts the reconciliation loop and metrics server.
 // Handles SIGTERM/SIGINT for graceful shutdown.
 
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { createPoolController } from './controller.js';
 import { createPoolK8sClient, type TierConfig } from './k8s-client.js';
 import { createPoolMetrics, startMetricsServer } from './metrics.js';
 
-async function main(): Promise<void> {
-  const k8sClient = await createPoolK8sClient();
-  const metrics = createPoolMetrics();
+/**
+ * Load tier configurations from JSON files when SANDBOX_TEMPLATE_DIR is set,
+ * otherwise return hardcoded defaults. Templates only control resources and
+ * config — security context (gVisor, readOnlyRoot, drop ALL caps) stays
+ * hardcoded in k8s-client.ts:createPod().
+ */
+export function loadTierConfigs(): TierConfig[] {
+  const templateDir = process.env.SANDBOX_TEMPLATE_DIR;
+
+  if (templateDir) {
+    const tiers: TierConfig[] = [];
+    for (const name of ['light', 'heavy']) {
+      const filePath = join(templateDir, `${name}.json`);
+      if (existsSync(filePath)) {
+        const raw = readFileSync(filePath, 'utf-8');
+        tiers.push(JSON.parse(raw) as TierConfig);
+      }
+    }
+    if (tiers.length > 0) return tiers;
+    // Fall through to defaults if no files found
+  }
 
   const natsUrl = process.env.NATS_URL ?? 'nats://nats.ax.svc.cluster.local:4222';
   const image = process.env.K8S_POD_IMAGE ?? 'ax/agent:latest';
-  const reconcileIntervalMs = parseInt(process.env.RECONCILE_INTERVAL_MS ?? '5000', 10);
 
-  const tiers: TierConfig[] = [
+  return [
     {
       tier: 'light',
       minReady: parseInt(process.env.LIGHT_MIN_READY ?? '2', 10),
@@ -46,6 +66,14 @@ async function main(): Promise<void> {
       },
     },
   ];
+}
+
+async function main(): Promise<void> {
+  const k8sClient = await createPoolK8sClient();
+  const metrics = createPoolMetrics();
+
+  const tiers = loadTierConfigs();
+  const reconcileIntervalMs = parseInt(process.env.RECONCILE_INTERVAL_MS ?? '5000', 10);
 
   const controller = createPoolController({
     tiers,

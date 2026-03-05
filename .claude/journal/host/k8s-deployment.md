@@ -1,5 +1,13 @@
 # K8s Deployment Journal
 
+## [2026-03-05 05:22] — Add loadTierConfigs() for SANDBOX_TEMPLATE_DIR support
+
+**Task:** Extract hardcoded tier configs from pool controller main() into a loadTierConfigs() function that supports loading from JSON files via SANDBOX_TEMPLATE_DIR env var
+**What I did:** Created exported loadTierConfigs() function that reads light.json/heavy.json from SANDBOX_TEMPLATE_DIR when set, falls back to hardcoded defaults otherwise. Updated main() to call loadTierConfigs(). Created first pool-controller test file with 2 tests.
+**Files touched:** src/pool-controller/main.ts (modified), tests/pool-controller/main.test.ts (created)
+**Outcome:** Success — both tests pass (template dir loading + default fallback)
+**Notes:** Security context (gVisor, readOnlyRoot, drop ALL caps) stays hardcoded in k8s-client.ts:createPod() — templates only control resources and config. This enables Helm charts to inject tier configs via ConfigMap-mounted JSON files.
+
 ## [2026-03-04 23:30] — Implement Phase 3: K8s Deployment
 
 **Task:** Implement Phase 3 of the k8s agent compute architecture plan (tasks 8-13)
