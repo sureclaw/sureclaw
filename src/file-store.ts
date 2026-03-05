@@ -1,9 +1,10 @@
-import { openDatabase } from './utils/sqlite.js';
-import type { SQLiteDatabase } from './utils/sqlite.js';
-import { dataFile } from './paths.js';
+import { mkdirSync } from 'node:fs';
+import type { Kysely } from 'kysely';
+import type { DatabaseProvider } from './providers/database/types.js';
 import { createKyselyDb } from './utils/database.js';
 import { runMigrations } from './utils/migrator.js';
 import { filesMigrations } from './migrations/files.js';
+import { dataDir, dataFile } from './paths.js';
 
 export interface FileEntry {
   fileId: string;
@@ -14,48 +15,54 @@ export interface FileEntry {
 }
 
 export class FileStore {
-  private db: SQLiteDatabase;
+  private db: Kysely<any>;
 
-  private constructor(db: SQLiteDatabase) {
+  constructor(db: Kysely<any>) {
     this.db = db;
   }
 
-  static async create(dbPath: string = dataFile('files.db')): Promise<FileStore> {
-    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
-    try {
-      const result = await runMigrations(kyselyDb, filesMigrations);
-      if (result.error) throw result.error;
-    } finally {
-      await kyselyDb.destroy();
+  static async create(database?: DatabaseProvider): Promise<FileStore> {
+    let db: Kysely<any>;
+    if (database) {
+      db = database.db;
+    } else {
+      mkdirSync(dataDir(), { recursive: true });
+      db = createKyselyDb({ type: 'sqlite', path: dataFile('files.db') });
     }
-    const db = openDatabase(dbPath);
+    const result = await runMigrations(db, filesMigrations);
+    if (result.error) throw result.error;
     return new FileStore(db);
   }
 
-  /** Register a file mapping: fileId → (agentName, userId, mimeType). */
-  register(fileId: string, agentName: string, userId: string, mimeType: string): void {
-    this.db.prepare(`
-      INSERT OR REPLACE INTO files (file_id, agent_name, user_id, mime_type)
-      VALUES (?, ?, ?, ?)
-    `).run(fileId, agentName, userId, mimeType);
+  /** Register a file mapping: fileId -> (agentName, userId, mimeType). */
+  async register(fileId: string, agentName: string, userId: string, mimeType: string): Promise<void> {
+    await this.db.insertInto('files')
+      .values({ file_id: fileId, agent_name: agentName, user_id: userId, mime_type: mimeType })
+      .onConflict(oc => oc.column('file_id').doUpdateSet({
+        agent_name: agentName,
+        user_id: userId,
+        mime_type: mimeType,
+      }))
+      .execute();
   }
 
   /** Look up a file by its globally unique fileId. */
-  lookup(fileId: string): FileEntry | undefined {
-    const row = this.db.prepare(
-      'SELECT file_id, agent_name, user_id, mime_type, created_at FROM files WHERE file_id = ?'
-    ).get(fileId) as { file_id: string; agent_name: string; user_id: string; mime_type: string; created_at: string } | undefined;
+  async lookup(fileId: string): Promise<FileEntry | undefined> {
+    const row = await this.db.selectFrom('files')
+      .select(['file_id', 'agent_name', 'user_id', 'mime_type', 'created_at'])
+      .where('file_id', '=', fileId)
+      .executeTakeFirst();
     if (!row) return undefined;
     return {
-      fileId: row.file_id,
-      agentName: row.agent_name,
-      userId: row.user_id,
-      mimeType: row.mime_type,
-      createdAt: row.created_at,
+      fileId: row.file_id as string,
+      agentName: row.agent_name as string,
+      userId: row.user_id as string,
+      mimeType: row.mime_type as string,
+      createdAt: row.created_at as string,
     };
   }
 
-  close(): void {
-    this.db.close();
+  async close(): Promise<void> {
+    // No-op: the shared DatabaseProvider owns the connection.
   }
 }

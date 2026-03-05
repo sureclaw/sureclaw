@@ -206,7 +206,7 @@ export function createOrchestrationHandlers(orchestrator: Orchestrator) {
         return { ok: false, error: 'Agent not found in current session' };
       }
 
-      const events = orchestrator.eventStore.query({
+      const events = await orchestrator.eventStore.query({
         handleId,
         limit: limit ?? 100,
         since,

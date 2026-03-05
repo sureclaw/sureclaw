@@ -17,6 +17,7 @@ export const jobsMigrations: MigrationSet = {
         .addColumn('run_once', 'integer', col =>
           col.notNull().defaultTo(0),
         )
+        .addColumn('run_at', 'text')
         .addColumn('created_at', 'integer', col =>
           col.notNull().defaultTo(sql`(unixepoch())`),
         )

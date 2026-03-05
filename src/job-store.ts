@@ -1,78 +1,94 @@
-import { openDatabase } from './utils/sqlite.js';
-import type { SQLiteDatabase } from './utils/sqlite.js';
-import { dataFile } from './paths.js';
+import type { Kysely } from 'kysely';
 import type { CronJobDef, CronDelivery, JobStore } from './providers/scheduler/types.js';
-import { createKyselyDb } from './utils/database.js';
-import { runMigrations } from './utils/migrator.js';
-import { jobsMigrations } from './migrations/jobs.js';
 
 type JobRow = {
-  id: string; agent_id: string; schedule: string; prompt: string;
-  max_token_budget: number | null; delivery: string | null; run_once: number;
+  id: string;
+  agent_id: string;
+  schedule: string;
+  prompt: string;
+  max_token_budget: number | null;
+  delivery: string | null;
+  run_once: number;
+  run_at: string | null;
 };
 
-export class SqliteJobStore implements JobStore {
-  private db: SQLiteDatabase;
+export class KyselyJobStore implements JobStore {
+  private db: Kysely<any>;
 
-  private constructor(db: SQLiteDatabase) {
+  constructor(db: Kysely<any>) {
     this.db = db;
   }
 
-  static async create(dbPath: string = dataFile('jobs.db')): Promise<SqliteJobStore> {
-    const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
-    try {
-      const result = await runMigrations(kyselyDb, jobsMigrations);
-      if (result.error) throw result.error;
-    } finally {
-      await kyselyDb.destroy();
-    }
-    const db = openDatabase(dbPath);
-    return new SqliteJobStore(db);
-  }
-
-  get(jobId: string): CronJobDef | undefined {
-    const row = this.db.prepare(
-      'SELECT id, agent_id, schedule, prompt, max_token_budget, delivery, run_once FROM cron_jobs WHERE id = ?'
-    ).get(jobId) as JobRow | undefined;
+  async get(jobId: string): Promise<CronJobDef | undefined> {
+    const row = await this.db.selectFrom('cron_jobs')
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at'])
+      .where('id', '=', jobId)
+      .executeTakeFirst();
     if (!row) return undefined;
-    return this.rowToJob(row);
+    return this.rowToJob(row as JobRow);
   }
 
-  set(job: CronJobDef): void {
-    this.db.prepare(
-      `INSERT OR REPLACE INTO cron_jobs (id, agent_id, schedule, prompt, max_token_budget, delivery, run_once)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      job.id,
-      job.agentId,
-      job.schedule,
-      job.prompt,
-      job.maxTokenBudget ?? null,
-      job.delivery ? JSON.stringify(job.delivery) : null,
-      job.runOnce ? 1 : 0,
-    );
+  async set(job: CronJobDef): Promise<void> {
+    await this.db.insertInto('cron_jobs')
+      .values({
+        id: job.id,
+        agent_id: job.agentId,
+        schedule: job.schedule,
+        prompt: job.prompt,
+        max_token_budget: job.maxTokenBudget ?? null,
+        delivery: job.delivery ? JSON.stringify(job.delivery) : null,
+        run_once: job.runOnce ? 1 : 0,
+      })
+      .onConflict(oc => oc.column('id').doUpdateSet({
+        agent_id: job.agentId,
+        schedule: job.schedule,
+        prompt: job.prompt,
+        max_token_budget: job.maxTokenBudget ?? null,
+        delivery: job.delivery ? JSON.stringify(job.delivery) : null,
+        run_once: job.runOnce ? 1 : 0,
+      }))
+      .execute();
   }
 
-  delete(jobId: string): boolean {
-    const row = this.db.prepare('DELETE FROM cron_jobs WHERE id = ? RETURNING id').get(jobId);
-    return row !== undefined;
+  async delete(jobId: string): Promise<boolean> {
+    const result = await this.db.deleteFrom('cron_jobs')
+      .where('id', '=', jobId)
+      .executeTakeFirst();
+    return BigInt(result.numDeletedRows) > 0n;
   }
 
-  list(agentId?: string): CronJobDef[] {
+  async list(agentId?: string): Promise<CronJobDef[]> {
+    let query = this.db.selectFrom('cron_jobs')
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at']);
     if (agentId) {
-      const rows = this.db.prepare(
-        'SELECT id, agent_id, schedule, prompt, max_token_budget, delivery, run_once FROM cron_jobs WHERE agent_id = ?'
-      ).all(agentId) as JobRow[];
-      return rows.map(r => this.rowToJob(r));
+      query = query.where('agent_id', '=', agentId);
     }
-    const rows = this.db.prepare(
-      'SELECT id, agent_id, schedule, prompt, max_token_budget, delivery, run_once FROM cron_jobs'
-    ).all() as JobRow[];
-    return rows.map(r => this.rowToJob(r));
+    const rows = await query.execute();
+    return rows.map(r => this.rowToJob(r as JobRow));
   }
 
-  close(): void {
-    this.db.close();
+  /** Persist the fire-at timestamp for a one-shot job. */
+  async setRunAt(jobId: string, runAt: Date): Promise<void> {
+    await this.db.updateTable('cron_jobs')
+      .set({ run_at: runAt.toISOString() })
+      .where('id', '=', jobId)
+      .execute();
+  }
+
+  /** Return all jobs that have a persisted run_at (one-shot jobs awaiting rehydration). */
+  async listWithRunAt(): Promise<Array<{ job: CronJobDef; runAt: Date }>> {
+    const rows = await this.db.selectFrom('cron_jobs')
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at'])
+      .where('run_at', 'is not', null)
+      .execute();
+    return rows.map(r => ({
+      job: this.rowToJob(r as JobRow),
+      runAt: new Date(r.run_at as string),
+    }));
+  }
+
+  async close(): Promise<void> {
+    // No-op: the shared DatabaseProvider owns the connection.
   }
 
   private rowToJob(row: JobRow): CronJobDef {

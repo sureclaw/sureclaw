@@ -112,7 +112,7 @@ async function main(): Promise<void> {
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
   const sessionCanaries = new Map<string, string>();
   const workspaceMap = new Map<string, string>();
-  const fileStore = await FileStore.create();
+  const fileStore = await FileStore.create(providers.database);
 
   // The agent loop must run as a local subprocess inside this pod, even when
   // providers.sandbox is k8s. The k8s provider creates a NEW k8s pod which
@@ -354,7 +354,7 @@ async function main(): Promise<void> {
     }
     providers.eventbus.close();
     providers.storage.close();
-    try { fileStore.close(); } catch { /* ignore */ }
+    try { await fileStore.close(); } catch { /* ignore */ }
     healthServer.close();
 
     await nc.drain();

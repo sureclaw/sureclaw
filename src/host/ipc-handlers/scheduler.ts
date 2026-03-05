@@ -9,7 +9,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
   return {
     scheduler_add_cron: async (req: any, ctx: IPCContext) => {
       const jobId = randomUUID();
-      providers.scheduler.addCron?.({
+      await providers.scheduler.addCron?.({
         id: jobId,
         schedule: req.schedule,
         agentId: agentName,
@@ -46,9 +46,9 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
       };
       // Use setTimeout-based scheduleOnce for precise timing; fall back to cron
       if (providers.scheduler.scheduleOnce) {
-        providers.scheduler.scheduleOnce(job, dt);
+        await providers.scheduler.scheduleOnce(job, dt);
       } else {
-        providers.scheduler.addCron?.(job);
+        await providers.scheduler.addCron?.(job);
       }
       await providers.audit.log({
         action: 'scheduler_run_at',
@@ -62,7 +62,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
     },
 
     scheduler_remove_cron: async (req: any, ctx: IPCContext) => {
-      providers.scheduler.removeCron?.(req.jobId);
+      await providers.scheduler.removeCron?.(req.jobId);
       await providers.audit.log({
         action: 'scheduler_remove_cron',
         sessionId: ctx.sessionId,
@@ -75,7 +75,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
     },
 
     scheduler_list_jobs: async () => {
-      const jobs = providers.scheduler.listJobs?.() ?? [];
+      const jobs = await providers.scheduler.listJobs?.() ?? [];
       return { jobs };
     },
   };

@@ -161,7 +161,7 @@ export async function handleFileDownload(
   let user = getQueryParam(url, 'user');
 
   if ((!agent || !user) && deps?.fileStore) {
-    const entry = deps.fileStore.lookup(fileId);
+    const entry = await deps.fileStore.lookup(fileId);
     if (entry) {
       agent = entry.agentName;
       user = entry.userId;

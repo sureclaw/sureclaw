@@ -644,7 +644,7 @@ export async function processCompletion(
         // Register extracted files in the file store for fileId-only lookups
         if (deps.fileStore) {
           for (const ef of extracted.extractedFiles) {
-            deps.fileStore.register(ef.fileId, agentName, currentUserId, ef.mimeType);
+            await deps.fileStore.register(ef.fileId, agentName, currentUserId, ef.mimeType);
           }
         }
       }

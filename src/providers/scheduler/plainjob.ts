@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SchedulerProvider, CronJobDef, JobStore } from './types.js';
-import { SQLiteJobStore } from './types.js';
+import { KyselyJobStore } from '../../job-store.js';
 import type { InboundMessage } from '../shared-types.js';
 import type { Config } from '../../types.js';
-import { openDatabase } from '../../utils/sqlite.js';
+import type { DatabaseProvider } from '../database/types.js';
+import { createKyselyDb } from '../../utils/database.js';
+import { runMigrations } from '../../utils/migrator.js';
+import { jobsMigrations } from '../../migrations/jobs.js';
 import { dataDir, dataFile } from '../../paths.js';
 import {
   type ActiveHours,
@@ -14,6 +17,7 @@ import {
 
 interface PlainJobSchedulerDeps {
   jobStore?: JobStore;
+  database?: DatabaseProvider;
 }
 
 export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): Promise<SchedulerProvider> {
@@ -21,10 +25,17 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
 
   if (deps.jobStore) {
     jobs = deps.jobStore;
+  } else if (deps.database) {
+    const result = await runMigrations(deps.database.db, jobsMigrations);
+    if (result.error) throw result.error;
+    jobs = new KyselyJobStore(deps.database.db);
   } else {
+    // Standalone fallback: create own Kysely instance
     mkdirSync(dataDir(), { recursive: true });
-    const db = openDatabase(dataFile('scheduler.db'));
-    jobs = new SQLiteJobStore(db);
+    const db = createKyselyDb({ type: 'sqlite', path: dataFile('scheduler.db') });
+    const result = await runMigrations(db, jobsMigrations);
+    if (result.error) throw result.error;
+    jobs = new KyselyJobStore(db);
   }
 
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -111,12 +122,13 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     });
   }
 
-  function checkCronJobs(at?: Date): void {
+  async function checkCronJobs(at?: Date): Promise<void> {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
     const now = at ?? new Date();
     const mk = minuteKey(now);
-    for (const job of jobs.list(agentName)) {
+    const jobList = await jobs.list(agentName);
+    for (const job of jobList) {
       if (!matchesCron(job.schedule, now)) continue;
       if (lastFiredMinute.get(job.id) === mk) continue; // already fired this minute
       lastFiredMinute.set(job.id, mk);
@@ -144,9 +156,10 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       stopped = false;
 
       // Rehydrate persisted one-shot jobs with run_at timestamps
-      if (jobs instanceof SQLiteJobStore) {
+      if (jobs instanceof KyselyJobStore) {
         const now = Date.now();
-        for (const { job, runAt } of jobs.listWithRunAt()) {
+        const withRunAt = await jobs.listWithRunAt();
+        for (const { job, runAt } of withRunAt) {
           // Only rehydrate jobs belonging to this agent
           if (job.agentId !== agentName) continue;
           const delayMs = Math.max(0, runAt.getTime() - now);
@@ -179,7 +192,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
         await Promise.allSettled([...pendingCleanups]);
       }
       stopped = true;
-      jobs.close();
+      await jobs.close();
     },
 
     addCron(job: CronJobDef): void {
@@ -196,13 +209,16 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     },
 
     listJobs(): CronJobDef[] {
-      return jobs.list(agentName);
+      // For sync callers, return empty during async list
+      const result = jobs.list(agentName);
+      if (Array.isArray(result)) return result;
+      return []; // Promise — caller should handle async
     },
 
     scheduleOnce(job: CronJobDef, fireAt: Date): void {
       jobs.set(job);
       // Persist fire time so one-shot jobs survive restarts
-      if (jobs instanceof SQLiteJobStore) {
+      if (jobs instanceof KyselyJobStore) {
         jobs.setRunAt(job.id, fireAt);
       }
       const delayMs = Math.max(0, fireAt.getTime() - Date.now());

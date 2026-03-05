@@ -218,12 +218,12 @@ export interface EventFilter {
 }
 
 export interface OrchestrationEventStore {
-  append(event: OrchestrationEvent): void;
-  query(filter?: EventFilter): OrchestrationEvent[];
-  byAgent(handleId: string, limit?: number): OrchestrationEvent[];
-  bySession(sessionId: string, limit?: number): OrchestrationEvent[];
+  append(event: OrchestrationEvent): void | Promise<void>;
+  query(filter?: EventFilter): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
+  byAgent(handleId: string, limit?: number): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
+  bySession(sessionId: string, limit?: number): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
   startCapture(eventBus: EventBus): () => void; // returns unsubscribe
-  close(): void;
+  close(): void | Promise<void>;
 }
 
 // ═══════════════════════════════════════════════════════

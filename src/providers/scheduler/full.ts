@@ -111,14 +111,14 @@ export async function create(
     }
   }
 
-  function checkCronJobs(at?: Date): void {
+  async function checkCronJobs(at?: Date): Promise<void> {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
 
     const now = at ?? new Date();
     const mk = minuteKey(now);
 
-    for (const job of jobs.list()) {
+    for (const job of await jobs.list()) {
       if (!matchesCron(job.schedule, now)) continue;
       if (lastFiredMinute.get(job.id) === mk) continue; // already fired this minute
       lastFiredMinute.set(job.id, mk);
@@ -272,12 +272,12 @@ export async function create(
       jobs.delete(jobId);
     },
 
-    listJobs(): CronJobDef[] {
-      return jobs.list();
+    async listJobs(): Promise<CronJobDef[]> {
+      return await jobs.list();
     },
 
-    checkCronNow(at?: Date): void {
-      checkCronJobs(at);
+    async checkCronNow(at?: Date): Promise<void> {
+      await checkCronJobs(at);
     },
 
     scheduleOnce(job: CronJobDef, fireAt: Date): void {

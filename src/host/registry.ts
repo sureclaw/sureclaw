@@ -97,7 +97,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     skills,
     audit,
     sandbox:     await loadProvider('sandbox', config.providers.sandbox, config),
-    scheduler:   await loadProvider('scheduler', config.providers.scheduler, config),
+    scheduler:   await loadScheduler(config, database),
     storage,
     database,
     eventbus,
@@ -116,4 +116,10 @@ async function loadProvider(kind: string, name: string, config: Config) {
   }
 
   return mod.create(config, name);
+}
+
+async function loadScheduler(config: Config, database?: DatabaseProvider) {
+  const modulePath = resolveProviderPath('scheduler', config.providers.scheduler);
+  const mod = await import(modulePath);
+  return mod.create(config, { database });
 }

@@ -1,5 +1,5 @@
 /**
- * Persistent Event Store — SQLite-backed storage for orchestration events.
+ * Persistent Event Store — database-backed storage for orchestration events.
  *
  * Subscribes to EventBus and auto-captures all agent.* events for
  * debugging, replay, and post-mortem analysis. Exposes query methods
@@ -8,15 +8,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { openDatabase } from '../../utils/sqlite.js';
-import type { SQLiteDatabase } from '../../utils/sqlite.js';
+import type { Kysely } from 'kysely';
 import { createKyselyDb } from '../../utils/database.js';
 import { runMigrations } from '../../utils/migrator.js';
 import { orchestrationMigrations } from '../../migrations/orchestration.js';
-import { dataFile } from '../../paths.js';
+import { dataFile, dataDir } from '../../paths.js';
 import { getLogger } from '../../logger.js';
 import type { EventBus, StreamEvent } from '../event-bus.js';
+import type { DatabaseProvider } from '../../providers/database/types.js';
 import type {
   OrchestrationEvent,
   OrchestrationEventStore,
@@ -24,32 +23,6 @@ import type {
 } from './types.js';
 
 const logger = getLogger().child({ component: 'orchestration-event-store' });
-
-interface EventRow {
-  id: string;
-  event_type: string;
-  handle_id: string;
-  agent_id: string;
-  session_id: string;
-  user_id: string;
-  parent_id: string | null;
-  payload_json: string;
-  created_at: number;
-}
-
-function rowToEvent(row: EventRow): OrchestrationEvent {
-  return {
-    id: row.id,
-    eventType: row.event_type,
-    handleId: row.handle_id,
-    agentId: row.agent_id,
-    sessionId: row.session_id,
-    userId: row.user_id,
-    parentId: row.parent_id,
-    payload: JSON.parse(row.payload_json),
-    createdAt: row.created_at,
-  };
-}
 
 function streamEventToOrchEvent(event: StreamEvent): OrchestrationEvent | null {
   const data = event.data;
@@ -74,88 +47,70 @@ function streamEventToOrchEvent(event: StreamEvent): OrchestrationEvent | null {
 }
 
 export async function createOrchestrationEventStore(
-  dbPath: string = dataFile('orchestration.db'),
+  database?: DatabaseProvider,
 ): Promise<OrchestrationEventStore> {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  let db: Kysely<any>;
 
-  const kyselyDb = createKyselyDb({ type: 'sqlite', path: dbPath });
-  try {
-    const result = await runMigrations(kyselyDb, orchestrationMigrations);
-    if (result.error) throw result.error;
-  } finally {
-    await kyselyDb.destroy();
+  if (database) {
+    db = database.db;
+  } else {
+    mkdirSync(dataDir(), { recursive: true });
+    db = createKyselyDb({ type: 'sqlite', path: dataFile('orchestration.db') });
   }
 
-  const db: SQLiteDatabase = openDatabase(dbPath);
+  const migResult = await runMigrations(db, orchestrationMigrations);
+  if (migResult.error) throw migResult.error;
 
-  function append(event: OrchestrationEvent): void {
-    db.prepare(
-      `INSERT INTO orchestration_events
-       (id, event_type, handle_id, agent_id, session_id, user_id, parent_id, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      event.id,
-      event.eventType,
-      event.handleId,
-      event.agentId,
-      event.sessionId,
-      event.userId,
-      event.parentId,
-      JSON.stringify(event.payload),
-      event.createdAt,
-    );
+  async function append(event: OrchestrationEvent): Promise<void> {
+    await db.insertInto('orchestration_events')
+      .values({
+        id: event.id,
+        event_type: event.eventType,
+        handle_id: event.handleId,
+        agent_id: event.agentId,
+        session_id: event.sessionId,
+        user_id: event.userId,
+        parent_id: event.parentId,
+        payload_json: JSON.stringify(event.payload),
+        created_at: event.createdAt,
+      })
+      .execute();
   }
 
-  function query(filter?: EventFilter): OrchestrationEvent[] {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+  async function query(filter?: EventFilter): Promise<OrchestrationEvent[]> {
+    let q = db.selectFrom('orchestration_events')
+      .select(['id', 'event_type', 'handle_id', 'agent_id', 'session_id', 'user_id', 'parent_id', 'payload_json', 'created_at']);
 
-    if (filter?.eventType) {
-      conditions.push('event_type = ?');
-      params.push(filter.eventType);
-    }
-    if (filter?.handleId) {
-      conditions.push('handle_id = ?');
-      params.push(filter.handleId);
-    }
-    if (filter?.agentId) {
-      conditions.push('agent_id = ?');
-      params.push(filter.agentId);
-    }
-    if (filter?.sessionId) {
-      conditions.push('session_id = ?');
-      params.push(filter.sessionId);
-    }
-    if (filter?.userId) {
-      conditions.push('user_id = ?');
-      params.push(filter.userId);
-    }
-    if (filter?.since) {
-      conditions.push('created_at >= ?');
-      params.push(filter.since);
-    }
-    if (filter?.until) {
-      conditions.push('created_at <= ?');
-      params.push(filter.until);
-    }
+    if (filter?.eventType) q = q.where('event_type', '=', filter.eventType);
+    if (filter?.handleId) q = q.where('handle_id', '=', filter.handleId);
+    if (filter?.agentId) q = q.where('agent_id', '=', filter.agentId);
+    if (filter?.sessionId) q = q.where('session_id', '=', filter.sessionId);
+    if (filter?.userId) q = q.where('user_id', '=', filter.userId);
+    if (filter?.since) q = q.where('created_at', '>=', filter.since);
+    if (filter?.until) q = q.where('created_at', '<=', filter.until);
 
-    let sql = 'SELECT * FROM orchestration_events';
-    if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY created_at ASC';
-    if (filter?.limit) {
-      sql += ' LIMIT ?';
-      params.push(filter.limit);
-    }
+    q = q.orderBy('created_at', 'asc');
+    if (filter?.limit) q = q.limit(filter.limit);
 
-    const rows = db.prepare(sql).all(...params) as EventRow[];
-    return rows.map(rowToEvent);
+    const rows = await q.execute();
+    return rows.map(r => ({
+      id: r.id as string,
+      eventType: r.event_type as string,
+      handleId: r.handle_id as string,
+      agentId: r.agent_id as string,
+      sessionId: r.session_id as string,
+      userId: r.user_id as string,
+      parentId: r.parent_id as string | null,
+      payload: JSON.parse(r.payload_json as string),
+      createdAt: r.created_at as number,
+    }));
   }
 
-  function byAgent(handleId: string, limit?: number): OrchestrationEvent[] {
+  async function byAgent(handleId: string, limit?: number): Promise<OrchestrationEvent[]> {
     return query({ handleId, limit });
   }
 
-  function bySession(sessionId: string, limit?: number): OrchestrationEvent[] {
+  async function bySession(sessionId: string, limit?: number): Promise<OrchestrationEvent[]> {
     return query({ sessionId, limit });
   }
 
@@ -169,16 +124,15 @@ export async function createOrchestrationEventStore(
         return;
       }
 
-      try {
-        append(orchEvent);
-      } catch (err) {
+      append(orchEvent).catch(err => {
         logger.error('event_store_append_failed', { type: event.type, err });
-      }
+      });
     });
   }
 
-  function close(): void {
-    db.close();
+  async function close(): Promise<void> {
+    // No-op when using shared database — the DatabaseProvider owns the connection.
+    // When standalone, the Kysely instance will be destroyed by the caller.
   }
 
   return { append, query, byAgent, bySession, startCapture, close };

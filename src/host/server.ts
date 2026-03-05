@@ -168,7 +168,7 @@ export async function createServer(
   const db = providers.storage.messages;
   const conversationStore = providers.storage.conversations;
   const sessionStore = providers.storage.sessions;
-  const fileStore = await FileStore.create();
+  const fileStore = await FileStore.create(providers.database);
   const taintBudget = new TaintBudget({
     threshold: thresholdForProfile(config.profile),
   });
@@ -912,7 +912,7 @@ export async function createServer(
 
           if (msg.sender.startsWith('cron:')) {
             const jobId = msg.sender.slice(5);
-            const jobs = providers.scheduler.listJobs?.() ?? [];
+            const jobs = await providers.scheduler.listJobs?.() ?? [];
             const job = jobs.find(j => j.id === jobId);
             if (job) {
               jobAgentId = job.agentId;
@@ -1040,7 +1040,7 @@ export async function createServer(
     try { providers.storage.close(); } catch {
       logger.debug('storage_close_failed');
     }
-    try { fileStore.close(); } catch {
+    try { await fileStore.close(); } catch {
       logger.debug('file_store_close_failed');
     }
 
