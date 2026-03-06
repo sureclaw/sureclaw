@@ -2,11 +2,13 @@
 #
 # This config is rendered into a ConfigMap for feature-level acceptance tests
 # running on a kind cluster. Compare with ax.yaml (local) — differences are:
-#   sandbox:    k8s       (vs seatbelt)
-#   eventbus:   nats      (vs inprocess)
-#   storage:    file      (keeps things simple — database+postgresql is tested by k8s-agent-compute)
+#   sandbox:    subprocess (agent-runtime runs agents as subprocesses)
+#   eventbus:   nats       (vs inprocess)
+#   storage:    database   (postgresql, deployed in-cluster via Bitnami subchart)
+#   audit:      database   (postgresql)
 #
 # Credentials are injected via Kubernetes secret (ax-api-credentials).
+# PostgreSQL is deployed in-cluster via the Bitnami subchart.
 
 agent: pi-coding-agent
 profile: yolo
@@ -19,9 +21,9 @@ models:
 # -- Providers -------------------------------------------------------------
 providers:
   memory: memoryfs
-  audit: file
+  audit: database
   credentials: plaintext
-  sandbox: k8s
+  sandbox: subprocess
   screener: static
   scheduler: plainjob
   browser: none
@@ -29,7 +31,8 @@ providers:
   channels: []
   web: none
   scanner: patterns
-  storage: file
+  storage: database
+  database: postgresql
   eventbus: nats
 
 # -- History / Memory / Embeddings -----------------------------------------

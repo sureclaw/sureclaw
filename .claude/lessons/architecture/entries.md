@@ -1,5 +1,17 @@
 # Architecture
 
+### Provider-local migrations pattern for shared database connections
+**Date:** 2026-03-05
+**Context:** Refactoring 10+ standalone SQLite connections into a shared DatabaseProvider. Each subsystem (storage, audit, memory, scheduler, files, orchestration) needed its own tables.
+**Lesson:** Each consumer should have its own migration file (e.g., `src/providers/storage/migrations.ts`) that returns a `MigrationSet` with prefixed names (e.g., `storage_001_messages`). Consumers call `runMigrations(database.db, myMigrations(database.type))` at create() time. This keeps migration ownership local while sharing the connection. Use a `dbType` parameter for dialect-specific SQL (datetime defaults, autoincrement, FOR UPDATE SKIP LOCKED).
+**Tags:** database, migrations, kysely, provider-pattern, sqlite, postgresql
+
+### Union return types for sync/async interface compatibility
+**Date:** 2026-03-05
+**Context:** JobStore interface needed to support both sync (in-memory) and async (Kysely) implementations. Making the interface fully async would force unnecessary `await` on simple Map operations.
+**Lesson:** Use `T | Promise<T>` return types (e.g., `list(): CronJobDef[] | Promise<CronJobDef[]>`) when an interface has both sync and async implementations. Callers must always `await` the result (awaiting a non-Promise is a no-op). This avoids forcing the simpler implementation to wrap everything in `Promise.resolve()`.
+**Tags:** typescript, interfaces, async, union-types, provider-pattern
+
 ### Object literal methods cannot reference sibling methods via `this`
 **Date:** 2026-03-04
 **Context:** nats-sandbox-dispatch.ts had a `close()` method calling `this.release()` in a returned object literal. TypeScript compiled it but `this` was undefined at runtime because object literals don't bind `this` like classes.

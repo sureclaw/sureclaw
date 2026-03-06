@@ -31,6 +31,8 @@ spec:
           env:
             - name: AX_CONFIG_PATH
               value: "/etc/ax/ax.yaml"
+            - name: BIND_HOST
+              value: "0.0.0.0"
             - name: NATS_URL
               value: {{ include "ax.natsUrl" . | quote }}
             - name: DATABASE_URL

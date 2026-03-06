@@ -2,6 +2,27 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-05 23:30] — Implement plainjob-scheduler acceptance test fixes
+
+**Task:** Implement 4 fixes from tests/acceptance/plainjob-scheduler/fixes.md
+**What I did:**
+- FIX-1: Enabled agent-runtime in kind-values.yaml (was false, blocking completions via NATS)
+- FIX-2: Switched storage/audit to `database` with `database: postgresql` in both kind-values.yaml and ax-k8s.yaml (was file-based, lost on pod restart)
+- FIX-3: Added `BIND_HOST: "0.0.0.0"` to host and agent-runtime Helm deployment templates (probes need pod IP, not localhost)
+- FIX-4: Confirmed agent-runtime deployment already has apiCredentials rendered — no change needed
+- Updated comments in both fixture files to reflect phase-2 architecture
+**Files touched:** `tests/acceptance/fixtures/kind-values.yaml`, `tests/acceptance/fixtures/ax-k8s.yaml`, `charts/ax/templates/host/deployment.yaml`, `charts/ax/templates/agent-runtime/deployment.yaml`
+**Outcome:** Success — all 4 fixes implemented. Build passes.
+**Notes:** FIX-4 was already done in the agent-runtime template (lines 41-49). The ax-k8s.yaml sandbox was also updated from `k8s` to `subprocess` to match kind-values.yaml.
+
+## [2026-03-05 22:00] — Switch k8s acceptance tests from SQLite to PostgreSQL
+
+**Task:** Update acceptance test fixtures and skill to use PostgreSQL instead of SQLite for storage on k8s
+**What I did:** Changed `storage: sqlite` → `storage: postgresql` in `kind-values.yaml` and `ax-k8s.yaml`. Added `postgresql.internal.enabled: true` to `kind-values.yaml` to deploy Bitnami PostgreSQL subchart in-cluster. Removed dummy `ax-db-credentials` secret from setup. Updated SKILL.md: provider comparison table, k8s setup (PG wait step, PG_POD variable), side-effect checking commands (psql for conversation DB), environment descriptions, results template, and tips.
+**Files touched:** `tests/acceptance/fixtures/kind-values.yaml`, `tests/acceptance/fixtures/ax-k8s.yaml`, `.claude/skills/acceptance-test/SKILL.md`
+**Outcome:** Success — k8s acceptance tests now use PostgreSQL for the storage provider, matching the chart's production defaults. Memory (memoryfs) and audit still use SQLite on the pod's local filesystem.
+**Notes:** Audit provider only supports `file` and `sqlite` — no PostgreSQL option. The `ax-k8s.yaml` keeps `sandbox: k8s` as the ideal target; `kind-values.yaml` overrides to `subprocess` for practical use until NATS IPC bridge is integrated.
+
 ## [2026-03-05 21:04] — Skills Install k8s acceptance tests
 
 **Task:** Run skills-install behavioral and integration tests against k8s AX server

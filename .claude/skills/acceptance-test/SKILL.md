@@ -11,7 +11,7 @@ This skill walks you through a 5-phase workflow: pick a feature, design tests fr
 
 Tests can run against two environments:
 - **Local** — AX server on the host machine (seatbelt sandbox, inprocess eventbus)
-- **K8s** — AX server deployed to a kind cluster (k8s-pod sandbox, NATS eventbus)
+- **K8s** — AX server deployed to a kind cluster (subprocess sandbox, NATS eventbus, PostgreSQL storage)
 
 The same test plans work for both environments. Only the send commands and side-effect checks differ.
 
@@ -215,7 +215,7 @@ After the test plan is approved, **ask the user** which environment(s) to test a
 | Option | Description |
 |--------|-------------|
 | **Local only** (default) | Run against a local AX server with seatbelt sandbox, inprocess eventbus, sqlite storage |
-| **K8s only** | Deploy to a kind cluster with k8s-pod sandbox, NATS eventbus, sqlite storage |
+| **K8s only** | Deploy to a kind cluster with subprocess sandbox, NATS eventbus, PostgreSQL storage |
 | **Both** | Run local first, then k8s — produces separate results files for comparison |
 
 Structural tests are environment-independent and only run once regardless of environment selection.
@@ -227,7 +227,7 @@ Acceptance tests use dedicated config, identity, and credentials files — never
 | File | Purpose |
 |------|---------|
 | `tests/acceptance/fixtures/ax.yaml` | Local test config — seatbelt sandbox, inprocess eventbus, sqlite storage |
-| `tests/acceptance/fixtures/ax-k8s.yaml` | K8s test config — k8s-pod sandbox, nats eventbus, sqlite storage |
+| `tests/acceptance/fixtures/ax-k8s.yaml` | K8s test config — subprocess sandbox, nats eventbus, postgresql storage |
 | `tests/acceptance/fixtures/kind-values.yaml` | Helm overrides for kind cluster — simplified single-pod deployment |
 | `tests/acceptance/fixtures/IDENTITY.md` | Deterministic agent identity (neutral, concise, no emojis) |
 | `tests/acceptance/fixtures/SOUL.md` | Deterministic agent personality (predictable, factual) |
@@ -245,15 +245,17 @@ cp tests/acceptance/fixtures/.env.test.example .env.test
 
 | Provider | Local (`ax.yaml`) | K8s (`ax-k8s.yaml`) |
 |----------|-------------------|---------------------|
-| sandbox | seatbelt | k8s-pod |
+| sandbox | seatbelt | subprocess |
 | eventbus | inprocess | nats |
-| storage | sqlite | sqlite |
+| storage | sqlite | postgresql |
 | memory | memoryfs | memoryfs |
 | audit | sqlite | sqlite |
 | credentials | plaintext | plaintext |
 | skills | git | git |
 | scheduler | plainjob | plainjob |
 | screener | static | static |
+
+**Note:** K8s uses `subprocess` sandbox (not `k8s-pod`) because the k8s-pod sandbox requires the NATS IPC bridge which isn't yet integrated into agent runners (Phase 3 work). Memory and audit still use SQLite files on the pod's local filesystem. Only the `storage` provider (conversation history, sessions) uses PostgreSQL.
 
 ---
 
@@ -329,7 +331,7 @@ pkill -f "tsx src/cli/index.ts serve" 2>/dev/null
 
 ### K8s environment setup
 
-Deploy AX to a kind cluster for testing with k8s-native providers (k8s-pod sandbox, NATS eventbus).
+Deploy AX to a kind cluster for testing with k8s-native providers (subprocess sandbox, NATS eventbus, PostgreSQL storage).
 
 **CRITICAL**: Always use a unique random namespace for each test run. This prevents collisions with other test runs or pre-existing deployments, and ensures clean teardown. Never use a hardcoded namespace like `ax-acceptance`.
 
@@ -365,11 +367,9 @@ kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-api-credenti
   --from-literal=openrouter-api-key="$(grep OPENROUTER_API_KEY .env.test | cut -d= -f2-)" \
   --from-literal=deepinfra-api-key="$(grep DEEPINFRA_API_KEY .env.test | cut -d= -f2-)"
 
-# Also create a dummy DB secret (required by host deployment template even when using sqlite)
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-db-credentials \
-  --from-literal=url="sqlite:///tmp/unused.db"
-
 # 4. Deploy via Helm with a unique release name
+#    kind-values.yaml enables internal PostgreSQL (Bitnami subchart).
+#    The subchart auto-generates a secret with DATABASE_URL.
 #    The kind-values.yaml provides base overrides. Use --set to override
 #    the namespace and any feature-specific config (e.g., webhooks).
 HELM_RELEASE="ax-$K8S_NS"
@@ -386,17 +386,25 @@ kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
   -l app.kubernetes.io/component=pool-controller 2>/dev/null
 
-# 6. Wait for host pod to be ready
+# 6. Wait for PostgreSQL to be ready first (host depends on it)
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/name=postgresql --timeout=120s
+
+# 7. Wait for host pod to be ready
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/component=host --timeout=120s
 
-# 7. Identify host pod
+# 8. Identify host and PostgreSQL pods
 HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/component=host \
   -o jsonpath='{.items[0].metadata.name}')
+PG_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
+  -l app.kubernetes.io/name=postgresql \
+  -o jsonpath='{.items[0].metadata.name}')
 echo "Host pod: $HOST_POD"
+echo "PostgreSQL pod: $PG_POD"
 
-# 8. Install test identity (copy into running pod)
+# 9. Install test identity (copy into running pod)
 FIXTURES="tests/acceptance/fixtures"
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$HOST_POD" -- \
   mkdir -p /home/agent/.ax/agents/main/agent/identity
@@ -405,12 +413,12 @@ kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
   "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
 
-# 9. Port-forward for test access
+# 10. Port-forward for test access
 pkill -f "port-forward.*18080" 2>/dev/null; sleep 1
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host 18080:80 &
 PF_PID=$!
 
-# 10. Health check
+# 11. Health check
 sleep 3
 curl -sf http://localhost:18080/health && echo "K8S_SERVER_READY"
 ```
@@ -420,7 +428,7 @@ If the health check fails, check pod logs:
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f "$HOST_POD"
 ```
 
-**IMPORTANT**: Store `K8S_NS`, `KUBE_CTX`, `HELM_RELEASE`, `HOST_POD`, and `PF_PID` — they are needed for all subsequent commands and teardown.
+**IMPORTANT**: Store `K8S_NS`, `KUBE_CTX`, `HELM_RELEASE`, `HOST_POD`, `PG_POD`, and `PF_PID` — they are needed for all subsequent commands and teardown.
 
 #### Teardown
 
@@ -483,8 +491,11 @@ Use the correct commands for the target environment:
 | Memory DB | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
 | Embedding DB | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
 | Audit DB | `sqlite3 "$TEST_HOME/data/audit.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db "..."` |
+| Conversation DB | `sqlite3 "$TEST_HOME/data/store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "..."` |
 | Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
 | Logs | `tail -f "$TEST_HOME/data/ax.log"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD` |
+
+**Note on k8s databases:** In k8s, the `storage: postgresql` provider stores conversations and sessions in PostgreSQL (query via `$PG_POD`). Memory (`memoryfs`) and audit (`sqlite`) still use SQLite files on the host pod's local filesystem. If the host pod has no `sqlite3` binary, use Node.js: `kubectl exec $HOST_POD -- node -e "const db = require('better-sqlite3')('/home/agent/.ax/data/memory/_store.db'); console.log(JSON.stringify(db.prepare('SELECT * FROM items').all()))"`
 
 ### Running behavioral tests
 
@@ -525,7 +536,7 @@ Use this format:
 **Date run:** <YYYY-MM-DD HH:MM>
 **Server version:** <git commit hash>
 **LLM provider:** <provider and model used>
-**Environment:** <Local (seatbelt sandbox, inprocess eventbus, sqlite storage) | K8s/kind (k8s-pod sandbox, nats eventbus, sqlite storage)>
+**Environment:** <Local (seatbelt sandbox, inprocess eventbus, sqlite storage) | K8s/kind (subprocess sandbox, nats eventbus, postgresql storage)>
 
 ## Summary
 
@@ -677,11 +688,12 @@ Also add each fix to the **TaskCreate tool** so they're tracked in the current s
 
 - **Always use an isolated AX_HOME.** Never run acceptance tests against `~/.ax`. Create a temp directory, copy config files, and set `AX_HOME` on every command.
 - **Start with structural tests.** They're fast, deterministic, and catch the most common gaps (missing implementations, broken wiring). If structural tests show a feature isn't wired up, skip behavioral tests for that feature — they'll obviously fail.
-- **Run behavioral/integration tests sequentially.** They share a SQLite database. Parallel execution causes assertion failures from DB contention.
+- **Run behavioral/integration tests sequentially.** They share databases (SQLite for memory/audit, PostgreSQL for storage on k8s). Parallel execution causes assertion failures from DB contention.
 - **Use fresh sessions.** Each test run should use a unique session ID with 3+ colon-separated segments (e.g., `acceptance:feature:bt1`) to avoid pollution from prior conversations.
-- **Check audit logs.** The audit log (`$TEST_HOME/data/audit.db` or via `kubectl exec`) is the best ground truth for what the server actually did during a request. If a behavioral test is ambiguous, the audit log tells you exactly which IPC actions fired.
+- **Check audit logs.** The audit log (`$TEST_HOME/data/audit.db` locally, or via `kubectl exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db` on k8s) is the best ground truth for what the server actually did during a request. If a behavioral test is ambiguous, the audit log tells you exactly which IPC actions fired.
 - **Don't chase LLM wording.** The agent might phrase things differently each time. Focus on: did it call the right tools? Did the right data end up in the right place? Did it avoid doing the wrong thing?
 - **One feature at a time.** Don't try to test everything in one session. Pick a feature, run its tests, fix the issues, then move on.
 - **Tail logs for debugging.** Local: `tail -f $TEST_HOME/data/ax.log` (server must be started with `LOG_SYNC=1`). K8s: `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD`.
 - **Compare environments.** When running both, look for environment-specific failures. A test that passes locally but fails on k8s likely indicates a provider-level bug (e.g., NATS eventbus doesn't fire the same events as inprocess). A test that fails in both points to a feature-level bug.
-- **K8s is optional.** Most features should be validated locally first. Use k8s testing when you specifically want to verify that k8s-native providers (k8s-pod sandbox, NATS eventbus) behave identically to their local counterparts.
+- **K8s is optional.** Most features should be validated locally first. Use k8s testing when you specifically want to verify that k8s-native providers (NATS eventbus, PostgreSQL storage) behave identically to their local counterparts.
+- **K8s uses PostgreSQL for storage.** Conversation history, sessions, and other storage-layer data lives in PostgreSQL (deployed in-cluster via Bitnami subchart). Memory (memoryfs) and audit still use SQLite files on the host pod. Data in PostgreSQL persists across pod restarts; SQLite data on the host pod does not (no PVC).

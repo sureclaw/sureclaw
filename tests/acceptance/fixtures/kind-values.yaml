@@ -1,14 +1,9 @@
 # Kind cluster overrides for feature-level acceptance tests
 #
-# Simplified version of k8s-agent-compute/kind-values.yaml.
-# Feature tests only need a running AX server accessible via HTTP,
-# not the full host -> NATS -> agent-runtime pipeline. We deploy a
-# single-pod AX server with NATS for eventbus and subprocess sandbox.
-#
-# Agent-runtime and pool-controller are disabled — feature tests
-# use single-process mode where the host runs agents as subprocesses.
-# The k8s-pod sandbox requires NATS IPC bridge (not yet integrated),
-# so we use subprocess sandbox for now.
+# Uses the phase-2 architecture: host publishes session requests to
+# NATS, agent-runtime subscribes and runs agents as subprocesses
+# within its own pod. Pool controller is disabled — sandbox pods
+# are not needed when agent-runtime uses subprocess sandbox.
 
 # ─── AX Config overrides ─────────────────────────────────────────
 # Must match tests/acceptance/fixtures/ax-k8s.yaml — the chart renders
@@ -21,7 +16,7 @@ config:
       - openrouter/google/gemini-3-flash-preview
   providers:
     memory: memoryfs
-    audit: file
+    audit: database
     credentials: plaintext
     sandbox: subprocess
     screener: static
@@ -31,7 +26,8 @@ config:
     channels: []
     web: none
     scanner: patterns
-    storage: file
+    storage: database
+    database: postgresql
     eventbus: nats
   history:
     max_turns: 50
@@ -71,14 +67,29 @@ host:
     requests: { cpu: "500m", memory: "1Gi" }
     limits: { cpu: "1", memory: "2Gi" }
 
-# Disable agent-runtime and pool-controller — feature tests use single-process mode
+# Agent-runtime subscribes to NATS and runs agents as subprocesses.
+# Pool controller disabled — no sandbox pods needed for acceptance tests.
 agentRuntime:
-  enabled: false
+  enabled: true
 poolController:
   enabled: false
 
 sandbox:
   runtimeClass: ""   # no gVisor on kind
+
+# Deploy PostgreSQL in-cluster via Bitnami subchart.
+# The chart auto-generates a secret with the DATABASE_URL.
+postgresql:
+  external:
+    enabled: false
+  internal:
+    enabled: true
+    auth:
+      database: ax
+      username: ax
+    primary:
+      persistence:
+        size: 1Gi
 
 nats:
   enabled: true

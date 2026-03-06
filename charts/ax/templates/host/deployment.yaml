@@ -33,6 +33,8 @@ spec:
           env:
             - name: AX_CONFIG_PATH
               value: "/etc/ax/ax.yaml"
+            - name: BIND_HOST
+              value: "0.0.0.0"
             - name: PORT
               value: {{ .Values.host.ports.http | quote }}
             - name: NATS_URL

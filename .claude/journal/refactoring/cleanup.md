@@ -2,21 +2,13 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
-## [2026-03-05 13:00] — Fix stale provider references in test files
+## [2026-03-05 19:25] — Database layer refactoring (14-task plan)
 
-**Task:** Update all remaining references to removed provider names (sqlite, etc.) in test files
-**What I did:** Fixed 6 test files: (1) `tests/config-history.test.ts` — replaced 3 inline YAML `memory: sqlite` with `memory: memoryfs`. (2) `tests/onboarding/wizard.test.ts:63` — changed expected memory provider from `sqlite` to `memoryfs`. (3) `tests/integration/phase2.test.ts:432-438` — replaced import of removed `memory/sqlite.js` with `memory/memoryfs/index.js`, updated assertion from `memorize` being undefined to being a function (memoryfs has memorize). (4) `tests/integration/phase1.test.ts` — updated 4 assertions: memory `sqlite`->`memoryfs`, audit `sqlite`->`file`, removed duplicate `sqlite` check on memory map, changed audit map check from `sqlite` to `database`. (5) `tests/host/provider-map.test.ts:7` — updated resolve path assertion to `memoryfs/index.js`. (6) `tests/host/plugin-provider-map.test.ts:79` — same resolve path update.
-**Files touched:** tests/config-history.test.ts, tests/onboarding/wizard.test.ts, tests/integration/phase2.test.ts, tests/integration/phase1.test.ts, tests/host/provider-map.test.ts, tests/host/plugin-provider-map.test.ts
-**Outcome:** Success — all stale sqlite/memory provider references in test files updated to match current provider-map.ts
-**Notes:** The PROVIDER_MAP now has `memory: { memoryfs }` (no sqlite), `audit: { file, database }` (no sqlite). Tests must match these entries exactly.
-
-## [2026-03-05 12:00] — Update YAML configs for database refactor provider renames
-
-**Task:** Update all YAML configuration files to use new provider names after removing old sqlite/postgresql providers
-**What I did:** Applied provider name replacements across 15 YAML files: (1) `memory: sqlite` -> `memory: memoryfs` in 13 files. (2) `audit: sqlite` -> `audit: file` in 6 local configs, `audit: database` in 3 k8s/production configs. (3) `storage: sqlite` -> `storage: file` in 3 local configs. (4) `storage: postgresql` -> `storage: database` + added `database: postgresql` in 4 k8s/production configs. (5) Updated YAML comment in ax-k8s.yaml referencing old provider name.
-**Files touched:** ax.yaml, tests/integration/ax-test{,-seatbelt,-pi-coding-agent,-groq,-standard,-power}.yaml, tests/acceptance/fixtures/{ax,ax-k8s,kind-values}.yaml, charts/ax/values.yaml, flux/{staging,production}/helm-release.yaml, tests/acceptance/k8s-agent-compute/kind-values.yaml
-**Outcome:** Success — verified no remaining `memory: sqlite`, `audit: sqlite`, `storage: sqlite`, or `storage: postgresql` in any YAML files
-**Notes:** flux configs still have `history: sqlite` and `scheduler: sqlite` which are separate provider categories not part of this refactor. Also updated comment in ax-test-standard.yaml that referenced "sqlite audit".
+**Task:** Consolidate 10+ standalone SQLite connections into a shared DatabaseProvider factory
+**What I did:** Implemented full 14-task plan: (1) Created DatabaseProvider interface + SQLite/PostgreSQL implementations. (2) Created storage/database and storage/file providers. (3) Created audit/database provider. (4) Ported memoryfs ItemsStore and EmbeddingStore to Kysely. (5) Ported JobStore, FileStore, OrchestrationEventStore to shared DB. (6) Removed legacy sqlite/postgresql providers. (7) Extracted content-serialization utils. (8) Deleted dead code (db.ts, session-store.ts, conversation-store.ts, old migrations). (9) Updated 50+ test files and YAML configs.
+**Files touched:** ~80 files created/modified/deleted across src/providers/, src/host/, src/utils/, tests/, charts/
+**Outcome:** Success — 202 test files pass (2305 tests), only pre-existing k8s mock failure remains
+**Notes:** Union return types (`T | Promise<T>`) needed for interfaces supporting both sync MemoryJobStore and async KyselyJobStore. Provider-local migrations pattern (each consumer runs own migrations against shared Kysely) works well.
 
 ## [2026-03-03 21:45] — Fix PR #60: production dependency bumps (7 packages)
 
