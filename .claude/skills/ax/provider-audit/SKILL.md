@@ -1,11 +1,11 @@
 ---
 name: ax-provider-audit
-description: Use when modifying audit logging providers — JSONL file logs, queryable SQLite logs, or audit entry structure in src/providers/audit/
+description: Use when modifying audit logging providers — JSONL file logs, database-backed logs, or audit entry structure in src/providers/audit/
 ---
 
 ## Overview
 
-The audit provider records every IPC action, LLM call, and security event. Two implementations: append-only JSONL for simplicity, SQLite for indexed queries. The IPC dispatch wrapper calls `audit.log()` automatically after every handler.
+The audit provider records every IPC action, LLM call, and security event. Two implementations: append-only JSONL for simplicity, database-backed (SQLite/PostgreSQL via shared DatabaseProvider) for indexed queries. The IPC dispatch wrapper calls `audit.log()` automatically after every handler.
 
 ## Interface
 
@@ -41,10 +41,10 @@ The audit provider records every IPC action, LLM call, and security event. Two i
 
 ## Implementations
 
-| Provider | File        | Storage         | Queryable | Notes                                  |
-|----------|-------------|-----------------|-----------|----------------------------------------|
-| `file`   | `file.ts`   | JSONL append    | yes (scan)| Reads entire file for queries          |
-| `sqlite` | `sqlite.ts` | SQLite table    | yes (SQL) | Indexed on session_id and action       |
+| Provider   | File          | Storage           | Queryable | Notes                                  |
+|------------|---------------|-------------------|-----------|----------------------------------------|
+| `file`     | `file.ts`     | JSONL append      | yes (scan)| Reads entire file for queries          |
+| `database` | `database.ts` | Shared DatabaseProvider (SQLite/PostgreSQL) | yes (SQL) | Uses injected `DatabaseProvider`; indexed on session_id and action |
 
 ## File Provider Details
 
@@ -52,17 +52,18 @@ The audit provider records every IPC action, LLM call, and security event. Two i
 - Auto-creates parent directory on `ENOENT`.
 - `query()` reads and parses all lines, then filters in-memory. Not efficient for large logs.
 
-## SQLite Provider Details
+## Database Provider Details
 
-- Opens `dataFile('audit.db')` via `openDatabase()`.
-- Creates `audit_log` table with `id`, `timestamp`, `session_id`, `action`, `args` (JSON), `result`, `taint` (JSON), `duration_ms`, `token_input`, `token_output`.
+- Receives a shared `DatabaseProvider` via `create(config, name, { database })` — no standalone DB connection.
+- Uses Kysely query builder against `audit_log` table with `id`, `timestamp`, `session_id`, `action`, `args` (JSON), `result`, `taint` (JSON), `duration_ms`, `token_input`, `token_output`.
 - Indexes: `idx_audit_session` (session_id, timestamp), `idx_audit_action` (action, timestamp).
+- Migrations in `migrations.ts` — applied by the database provider during startup.
 - `limit` returns the last N entries (most recent), re-sorted ascending.
 
 ## Common Tasks
 
-- **Add a new audit field**: add to `AuditEntry` type, add column to SQLite schema, add to JSONL serialization, update `rowToEntry()` mapping.
-- **Add a new filter dimension**: add to `AuditFilter`, add SQL `WHERE` clause in `sqlite.ts`, add in-memory filter in `file.ts`.
+- **Add a new audit field**: add to `AuditEntry` type, add column via migration in `migrations.ts`, add to JSONL serialization, update `rowToEntry()` mapping.
+- **Add a new filter dimension**: add to `AuditFilter`, add SQL `WHERE` clause in `database.ts`, add in-memory filter in `file.ts`.
 - **Query audit in tests**: use `query({ action: 'your_action', limit: 10 })`.
 
 ## Gotchas

@@ -89,7 +89,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     llm:         tracedLlm,
     image,
     memory,
-    scanner:     await loadProvider('scanner', config.providers.scanner, config),
+    scanner:     await loadScanner(config, tracedLlm),
     channels,
     web:         await loadProvider('web', config.providers.web, config),
     browser:     await loadProvider('browser', config.providers.browser, config),
@@ -116,6 +116,12 @@ async function loadProvider(kind: string, name: string, config: Config) {
   }
 
   return mod.create(config, name);
+}
+
+async function loadScanner(config: Config, llm: import('../providers/llm/types.js').LLMProvider) {
+  const scannerModPath = resolveProviderPath('scanner', config.providers.scanner);
+  const scannerMod = await import(scannerModPath);
+  return scannerMod.create(config, config.providers.scanner, { llm });
 }
 
 async function loadScheduler(config: Config, database?: DatabaseProvider) {

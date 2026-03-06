@@ -1,6 +1,6 @@
 ---
 name: ax-provider-scanner
-description: Use when modifying input/output security scanners — regex patterns, canary tokens, or ML-based detection in src/providers/scanner/
+description: Use when modifying input/output security scanners — regex patterns, canary tokens, or LLM-based detection in src/providers/scanner/
 ---
 
 ## Overview
@@ -23,7 +23,7 @@ Scanners check inbound/outbound messages for prompt injection, data leakage, and
 |---|---|---|
 | basic | `src/providers/scanner/basic.ts` | Flat regex arrays (`INJECTION_PATTERNS`, `PII_PATTERNS`). Verdict is BLOCK (input) or FLAG (output). |
 | patterns | `src/providers/scanner/patterns.ts` | Structured `Pattern[]` with `{ regex, category, severity }`. Worst-severity-wins logic. Categories: `injection:direct`, `injection:persona`, `injection:extraction`, `injection:code`, `injection:shell`, `exfiltration`, `pii:*`, `credential:*`. |
-| promptfoo | `src/providers/scanner/promptfoo.ts` | Regex + ML feature analysis. Extracts 5 features (override density, role-switching, encoding markers, structural anomalies, length ratio), computes weighted score, applies configurable threshold (`AX_ML_THRESHOLD`, default 0.7). Regex BLOCK always wins; ML can escalate PASS to FLAG/BLOCK. |
+| guardian | `src/providers/scanner/guardian.ts` | Two-layer detection. Layer 1: regex patterns (same as patterns.ts). Layer 2: LLM-based classification using the configured fast model. Regex BLOCK skips LLM; LLM can escalate PASS to FLAG/BLOCK. Falls back to regex-only when LLM is unavailable. Accepts `CreateOptions { llm?: LLMProvider }`. |
 
 ## Pattern System (`patterns.ts`)
 
@@ -54,4 +54,5 @@ Generated via `randomBytes(16).toString('hex')` prefixed with `CANARY-`. The rou
 - **Multi-word sequences need optional groups**: "forget all your previous instructions" requires each intermediate word as `(all\s+)?(your\s+)?(previous\s+)?`, not a strict alternation.
 - **Strip punctuation before keyword matching**: Words like `"system:"` or `"instructions?"` won't match keyword lists. Use `w.replace(/[^a-z0-9]/g, '')`.
 - **`''.includes('')` is always true**: Empty canary tokens cause universal redaction. Always guard `token.length > 0`.
-- **ML threshold is env-configurable**: `AX_ML_THRESHOLD` overrides the default 0.7. Tests should set this explicitly.
+- **Guardian LLM fallback**: If no LLM is passed or the LLM call fails, guardian silently falls back to regex-only. Always test both paths.
+- **Output scanning is regex-only**: Even in guardian, output scanning doesn't use the LLM — credential/PII patterns are deterministic.

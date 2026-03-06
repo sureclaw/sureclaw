@@ -32,11 +32,11 @@ const _PROVIDER_MAP = {
     mock:       '../providers/image/mock.js',
   },
   memory: {
-    memoryfs: '../providers/memory/memoryfs/index.js',
+    cortex: '../providers/memory/cortex/index.js',
   },
   scanner: {
     patterns:  '../providers/scanner/patterns.js',
-    promptfoo: '../providers/scanner/promptfoo.js',
+    guardian: '../providers/scanner/guardian.js',
   },
   channel: {
     slack:     '../providers/channel/slack.js',

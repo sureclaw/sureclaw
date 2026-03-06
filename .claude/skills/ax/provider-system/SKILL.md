@@ -31,6 +31,9 @@ AX uses a **provider contract pattern**: every subsystem is a TypeScript interfa
 | sandbox       | `SandboxProvider`      | `src/providers/sandbox/`       |
 | scheduler     | `SchedulerProvider`    | `src/providers/scheduler/`     |
 | screener      | `SkillScreenerProvider`| `src/providers/screener/`      |
+| database      | `DatabaseProvider`     | `src/providers/database/`      |
+| storage       | `StorageProvider`      | `src/providers/storage/`       |
+| eventbus      | `EventBusProvider`     | `src/providers/eventbus/`      |
 
 ## Provider Map (SC-SEC-002)
 
@@ -46,8 +49,16 @@ AX uses a **provider contract pattern**: every subsystem is a TypeScript interfa
 `src/host/registry.ts` exports `loadProviders(config, opts?)` returning a `ProviderRegistry`:
 
 - Reads provider names from `config.providers.*`
-- Calls `loadProvider(kind, name, config)` for each
-- `loadProvider`: `resolveProviderPath` -> `await import()` -> validates `mod.create` -> `mod.create(config)`
+- **Three loading patterns** based on provider needs:
+  1. **Simple**: `loadProvider(kind, name, config)` — resolveProviderPath → import → `mod.create(config, name)`. Used by web, browser, credentials, sandbox, eventbus.
+  2. **Manual import with options**: resolve path, import, call `mod.create(config, name, { ...deps })`. Used by providers that need injected dependencies:
+     - **memory** gets `{ llm, database }`
+     - **scanner** gets `{ llm }` (via `loadScanner()`)
+     - **skills** gets `{ screener }`
+     - **storage** gets `{ database }`
+     - **audit** gets `{ database }`
+  3. **Custom**: `loadScheduler(config, database)` — scheduler has its own `create(config, { database })` shape.
+- **Loading order matters**: credentials → database → LLM → screener → skills → memory → storage → audit → scanner → everything else
 - Channels load as an array (`config.providers.channels` is `string[]`)
 - **Image provider**: Loaded only when `config.models.image` is configured
 - **Tracing wrapper**: LLM provider wrapped with `TracedLLMProvider` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
@@ -113,3 +124,5 @@ New provider category for image generation:
 - **Tracing is opt-in.** LLM provider only wrapped when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 - **Plugin providers need integrity verification.** Must pass SHA-512 hash check before registration.
 - **Don't import across provider categories.** Use `shared-types.ts` or `router-utils.ts` instead.
+- **Providers with deps use manual import.** Memory, scanner, skills, storage, audit all receive injected dependencies via the third `options` arg to `create()`. Simple providers (web, browser, etc.) go through `loadProvider()`.
+- **Scanner depends on LLM.** The guardian scanner uses the LLM for classification. It's loaded after LLM in `loadProviders()`. Other scanner implementations (patterns) ignore the extra args.
