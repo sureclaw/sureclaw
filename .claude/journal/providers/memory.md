@@ -24,6 +24,14 @@
 **Outcome:** Success — all 21 existing tests pass unchanged
 **Notes:** `memoryDir` is still needed for standalone SQLite DB paths (`_store.db`, `_vec.db`). `mkdirSync` is still used for those paths. `SUMMARY_ID_PREFIX` imported for use in a later task (Task 4: wire summaries into query).
 
+## [2026-03-06 11:42] — Add DbSummaryStore with cortex_summaries migration
+
+**Task:** Implement Task 2 of cortex summary storage plan — add DbSummaryStore class and cortex_summaries migration
+**What I did:** Added `memory_002_summaries` migration to `migrations.ts` creating `cortex_summaries` table with composite unique index on (category, user_id). Added `DbSummaryStore` class to `summary-store.ts` implementing the `SummaryStore` interface with Kysely queries, using `ON CONFLICT DO UPDATE` for upserts and `ON CONFLICT DO NOTHING` for idempotent initDefaults. Uses `__shared__` sentinel for NULL-free user_id (avoids NULL-in-unique-index issues). Added 10 tests for DbSummaryStore covering round-trip, upsert, list, initDefaults idempotency, user-scoped isolation, and readAll.
+**Files touched:** `src/providers/memory/cortex/migrations.ts`, `src/providers/memory/cortex/summary-store.ts`, `tests/providers/memory/cortex/summary-store.test.ts`
+**Outcome:** Success — all 20 tests pass (10 FileSummaryStore + 10 DbSummaryStore)
+**Notes:** Follows job-store pattern for ON CONFLICT upserts. The `__shared__` sentinel avoids SQLite/PostgreSQL NULL behavior differences in unique indexes.
+
 ## [2026-03-06 11:40] — Add SummaryStore interface and FileSummaryStore implementation
 
 **Task:** Extract existing file-based summary logic from summary-io.ts into a pluggable SummaryStore interface with a FileSummaryStore implementation (Task 1 of cortex summary storage plan)
