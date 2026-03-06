@@ -7,13 +7,13 @@ description: Use when testing a major feature against its design plan — design
 
 AX features were implemented from plan documents, and many have bugs, gaps, or design mismatches that unit tests don't catch because they use mocked LLMs and in-memory harnesses. Acceptance tests bridge this gap by validating features against their **original design goals** using a real running AX server with real LLM calls.
 
-This skill walks you through a 5-phase workflow: pick a feature, design tests from the plan's acceptance criteria, run them live, analyze failures, and produce a fix list.
+This skill walks you through a 5-phase workflow: pick a feature (or run all), design tests from the plan's acceptance criteria, run them live, analyze failures, and produce a fix list.
 
-Tests can run against two environments:
+Tests run against **both** environments **in parallel**:
 - **Local** — AX server on the host machine (seatbelt sandbox, inprocess eventbus)
 - **K8s** — AX server deployed to a kind cluster (subprocess sandbox, NATS eventbus, PostgreSQL storage)
 
-The same test plans work for both environments. Only the send commands and side-effect checks differ.
+All features are tested in parallel using separate agents. Each feature gets two agents (one local, one k8s) that run simultaneously. The same test plans work for both environments — only the send commands and side-effect checks differ.
 
 ## When to use this skill
 
@@ -21,64 +21,22 @@ The same test plans work for both environments. Only the send commands and side-
 - You suspect a feature has gaps between what the plan specified and what was built
 - You want to validate a subsystem before building on top of it
 - After a refactor, to confirm nothing regressed against original design intent
+- You want to run all acceptance tests across all features in parallel
 
 ## Phase 1: Feature Selection
 
-**Ask the user** which feature to test. Present this reference table of testable features grouped by area. If the user isn't sure, suggest starting with a feature they recently had trouble with.
+**Ask the user** which feature(s) to test:
 
-### Foundational / Reference Docs
+- **Single feature** — Pick one from the table below
+- **Run all** — Discover all feature directories in `tests/acceptance/` (skip `fixtures/`) and run them all in parallel
 
-| Feature | Plan File |
-|---------|-----------|
-| Core Architecture & Philosophy | `docs/plans/ax-prp.md` |
-| IPC & Provider Contracts | `docs/plans/ax-architecture-doc.md` |
-| Security Hardening (SC-SEC-*) | `docs/plans/ax-security-hardening-spec.md` |
-| Skills Security Model | `docs/plans/armorclaw-skills-security.md` |
+If the user says "run all" or "run everything", skip the feature table and go straight to discovery (see Phase 3: Feature Discovery).
 
-### Core Infrastructure (Design + Implementation pairs)
+If the user wants to pick a specific feature, present this reference table of testable features grouped by area. If the user isn't sure, suggest starting with a feature they recently had trouble with.
 
-| Feature | Design Doc | Implementation Doc |
-|---------|-----------|-------------------|
-| Client/Server Split | `2026-02-09-client-server-split-design.md` | `2026-02-09-client-server-split-implementation.md` |
-| Repo Restructure | `2026-02-10-repo-restructure-design.md` | `2026-02-10-repo-restructure-implementation.md` |
-| Agent Identity & Bootstrap | `2026-02-10-agent-bootstrap-soul-evolution-design.md` | `2026-02-10-agent-bootstrap-soul-evolution-implementation.md` |
-| Ink Chat UI | `2026-02-10-ink-chat-ui-design.md` | `2026-02-10-ink-chat-ui.md` |
-| Channel Providers | `2026-02-14-channel-provider-design.md` | `2026-02-14-channel-provider-impl.md` |
-| Logging & Telemetry | `2026-02-17-logging-telemetry-design.md` | `2026-02-17-logging-telemetry-impl.md` |
-| OpenAI LLM Provider | `2026-02-20-openai-provider-design.md` | `2026-02-20-openai-provider-impl.md` |
-| Slack Behavior | `2026-02-21-slack-behavior-design.md` | `2026-02-21-slack-behavior-impl.md` |
-| Agent Orchestration | `2026-02-28-agent-orchestration-architecture.md` | `2026-02-28-orchestration-enhancements.md` |
+### Foundational / Reference
 
-### Standalone Feature Plans
-
-| Feature | Plan File |
-|---------|-----------|
-| Onboarding Wizard | `2026-02-09-onboarding.md` |
-| Configurable Agent Type | `2026-02-09-configurable-agent-type.md` |
-| Taint Propagation | `2026-02-10-taint-propagation.md` |
-| Credential-Injecting Proxy | `2026-02-10-credential-injecting-proxy.md` |
-| Modular System Prompt | `2026-02-17-modular-system-prompt-architecture.md` |
-| Heartbeat & Scheduler IPC | `2026-02-18-heartbeat-md.md` |
-| Identity File Relocation | `2026-02-18-identity-file-relocation.md` |
-| Conversation History | `2026-02-19-conversation-history.md` |
-| Channel Assets (Images/Files) | `2026-02-20-channel-assets-implementation-plan.md` |
-| Skill Self-Authoring | `2026-02-21-agent-skill-self-authoring.md` |
-| LLM Router (Multi-Model) | `2026-02-21-llm-router-design.md` |
-| Outbound Delivery (Proactive) | `2026-02-21-outbound-delivery-design.md` |
-| PgBoss Scheduler | `2026-02-21-pgboss-scheduler.md` |
-| Config Hot Reload | `2026-02-22-config-hot-reload.md` |
-| Kysely DB Migrations | `2026-02-22-kysely-migrations.md` |
-| Skills Architecture Comparison | `2026-02-25-compare-skills-architecture.md` |
-| Plugin Framework | `2026-02-26-plugin-framework-design.md` |
-| Monorepo Split | `2026-02-27-monorepo-split-implementation.md` |
-| Streaming Event Bus | `2026-02-27-streaming-event-bus.md` |
-| Tool Consolidation | `2026-02-28-tool-consolidation.md` |
-| MemU Integration | `2026-02-28-memu-integration-plan.md` |
-| MemoryFS v1 | `2026-03-01-memoryfs-implementation.md` |
-| MemoryFS v2 | `2026-03-02-memoryfs-v2-plan.md` |
-| PlainJob Scheduler | `2026-03-02-plainjob-scheduler.md` |
-| LLM Webhook Transforms | `2026-03-02-llm-webhook-transforms.md` |
-| Skills Install Architecture | `2026-03-03-skills-install-architecture.md` |
+Use the "ax" skill to learn more about the system architecture and how it works
 
 All plan files live in `docs/plans/`. After the user picks a feature, **read the plan document(s)** — both design and implementation docs if they exist as a pair.
 
@@ -208,17 +166,73 @@ Write all test cases to `tests/acceptance/<feature-name>/test-plan.md` with this
 
 ## Phase 3: Test Execution
 
-### Environment selection
+### Parallel Execution Architecture
 
-After the test plan is approved, **ask the user** which environment(s) to test against:
+Tests run in parallel at two levels:
 
-| Option | Description |
-|--------|-------------|
-| **Local only** (default) | Run against a local AX server with seatbelt sandbox, inprocess eventbus, sqlite storage |
-| **K8s only** | Deploy to a kind cluster with subprocess sandbox, NATS eventbus, PostgreSQL storage |
-| **Both** | Run local first, then k8s — produces separate results files for comparison |
+1. **Across features** — Each feature directory gets its own pair of agents, all running simultaneously
+2. **Across environments** — Each feature's local and k8s tests run in parallel via two separate agents
 
-Structural tests are environment-independent and only run once regardless of environment selection.
+```
+Lead Agent (you)
+├── Shared K8s setup (build image once)
+├── Feature: memoryfs-v2
+│   ├── Agent: memoryfs-v2-local   (local env setup + structural + behavioral + integration)
+│   └── Agent: memoryfs-v2-k8s     (k8s env setup + behavioral + integration)
+├── Feature: plainjob-scheduler
+│   ├── Agent: plainjob-scheduler-local
+│   └── Agent: plainjob-scheduler-k8s
+├── Feature: llm-webhook-transforms
+│   ├── Agent: llm-webhook-transforms-local
+│   └── Agent: llm-webhook-transforms-k8s
+└── ... (all features in parallel)
+```
+
+**Key rules:**
+- Each local agent gets its own `TEST_HOME` (isolated `/tmp/` directory) — no shared state
+- Each k8s agent gets its own unique namespace — no shared state
+- Structural tests run **once per feature**, by the **local agent** only (they're environment-independent)
+- Behavioral and integration tests run **sequentially within each agent** (they share that agent's server/DB)
+- All agents across all features run **in parallel** (they don't share servers or databases)
+
+### Feature Discovery
+
+To discover all testable features:
+
+```bash
+# List all feature directories (skip fixtures)
+ls -d tests/acceptance/*/ | grep -v fixtures
+```
+
+Only features with a `test-plan.md` file are executable. Features without a test plan need Phase 2 first.
+
+When running all features, the lead agent:
+1. Discovers all feature directories with `test-plan.md` files
+2. Performs shared k8s setup once (image build + load)
+3. Spawns all agents in parallel via the Task tool
+4. Waits for all agents to complete
+5. Collects results and runs Phase 4 (failure analysis) and Phase 5 (fix list)
+
+### Shared K8s Prerequisites
+
+Before spawning any k8s agents, the **lead agent** performs these one-time steps:
+
+```bash
+# 1. Check for running kind cluster
+KIND_CLUSTER=$(kind get clusters 2>/dev/null | head -1)
+KUBE_CTX="kind-$KIND_CLUSTER"
+echo "Using kind cluster: $KIND_CLUSTER (context: $KUBE_CTX)"
+
+# 2. Build and load AX image (done once, shared by all k8s agents)
+npm run build
+docker build -t ax/host:test -f container/Dockerfile .
+kind load docker-image ax/host:test --name "$KIND_CLUSTER"
+
+# 3. Update Helm dependencies (done once)
+helm dependency update charts/ax
+```
+
+Pass `KIND_CLUSTER` and `KUBE_CTX` to each k8s agent in its prompt. Skip k8s agents entirely if no kind cluster is available.
 
 ### Test fixtures
 
@@ -245,21 +259,268 @@ cp tests/acceptance/fixtures/.env.test.example .env.test
 
 | Provider | Local (`ax.yaml`) | K8s (`ax-k8s.yaml`) |
 |----------|-------------------|---------------------|
-| sandbox | seatbelt | subprocess |
+| sandbox | seatbelt | k8s |
 | eventbus | inprocess | nats |
-| storage | sqlite | postgresql |
+| storage | file | database (postgresql) |
+| database | — | postgresql |
 | memory | memoryfs | memoryfs |
-| audit | sqlite | sqlite |
+| audit | file | database (postgresql) |
 | credentials | plaintext | plaintext |
 | skills | git | git |
 | scheduler | plainjob | plainjob |
 | screener | static | static |
-
-**Note:** K8s uses `subprocess` sandbox (not `k8s-pod`) because the k8s-pod sandbox requires the NATS IPC bridge which isn't yet integrated into agent runners (Phase 3 work). Memory and audit still use SQLite files on the pod's local filesystem. Only the `storage` provider (conversation history, sessions) uses PostgreSQL.
+| scanner | promptfoo | promptfoo |
+| browser | none | none |
+| web | none | none |
 
 ---
 
-### Local environment setup
+### Spawning agents
+
+Use the **Task tool** to spawn all agents in a single message (maximizing parallelism). Each agent is a `general-purpose` subagent with `mode: "bypassPermissions"` so it can run bash commands without prompts.
+
+#### Local agent prompt template
+
+For each feature, spawn one local agent with this prompt:
+
+```
+You are running LOCAL acceptance tests for the "<FEATURE_NAME>" feature.
+
+## Your job
+1. Set up an isolated local AX server
+2. Run ALL structural tests from the test plan (these only run in local, not k8s)
+3. Run ALL behavioral tests sequentially
+4. Run ALL integration tests sequentially
+5. Write results to tests/acceptance/<FEATURE_NAME>/results-local.md
+6. Tear down the server
+
+## Test plan
+Read the test plan from: tests/acceptance/<FEATURE_NAME>/test-plan.md
+
+## Environment setup
+
+FIXTURES="tests/acceptance/fixtures"
+TEST_HOME="/tmp/ax-acceptance-local-<FEATURE_NAME>-$(date +%s)"
+mkdir -p "$TEST_HOME/data"
+cp "$FIXTURES/ax.yaml" "$TEST_HOME/ax.yaml"
+cp .env.test "$TEST_HOME/.env"
+
+## Start server
+AX_HOME="$TEST_HOME" LOG_LEVEL=debug LOG_SYNC=1 NODE_NO_WARNINGS=1 \
+  tsx src/cli/index.ts serve > "$TEST_HOME/server-stdout.log" 2>&1 &
+SERVER_PID=$!
+
+# Wait for ready (poll up to 30s)
+for i in $(seq 1 30); do
+  curl -sf --unix-socket "$TEST_HOME/ax.sock" http://localhost/health && break
+  sleep 1
+done
+
+# Install test identity after server creates dirs
+sleep 3
+cp "$FIXTURES/IDENTITY.md" "$TEST_HOME/agents/main/agent/identity/IDENTITY.md"
+cp "$FIXTURES/SOUL.md" "$TEST_HOME/agents/main/agent/identity/SOUL.md"
+rm -f "$TEST_HOME/agents/main/agent/identity/BOOTSTRAP.md"
+rm -f "$TEST_HOME/agents/main/agent/BOOTSTRAP.md"
+
+## Sending messages
+AX_HOME="$TEST_HOME" NODE_NO_WARNINGS=1 tsx src/cli/index.ts send --no-stream --session "$SESSION" "$MESSAGE"
+
+## Session IDs — must have 3+ colon-separated segments
+Example: acceptance:<FEATURE_NAME>:bt1
+
+## Checking side effects
+- Memory DB (items): sqlite3 "$TEST_HOME/data/memory/_store.db" "..."
+- Memory DB (vectors): sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."
+- Memory files: Read "$TEST_HOME/data/memory/<filename>.md"
+- Audit log: cat "$TEST_HOME/data/audit/audit.jsonl" (JSONL, one JSON object per line)
+- Conversations: Files under "$TEST_HOME/data/conversations/" (JSONL per session)
+- Sessions: Files under "$TEST_HOME/data/sessions/" (JSON per agent)
+- Logs: Read "$TEST_HOME/data/ax.log"
+
+## Cleanup
+kill $SERVER_PID 2>/dev/null
+
+## Results format
+Write results to tests/acceptance/<FEATURE_NAME>/results-local.md using this format:
+
+# Acceptance Test Results: <Feature Name>
+**Date run:** <YYYY-MM-DD HH:MM>
+**Server version:** <git commit hash>
+**LLM provider:** <provider and model from ax.yaml>
+**Environment:** Local (seatbelt sandbox, inprocess eventbus, sqlite storage)
+
+## Summary
+| Test | Category | Result | Notes |
+|------|----------|--------|-------|
+(all tests)
+
+**Overall: X/Y passed**
+
+## Detailed Results
+(each test with evidence)
+
+## Failures
+(failures only, with full detail)
+```
+
+#### K8s agent prompt template
+
+For each feature, spawn one k8s agent with this prompt:
+
+```
+You are running K8S acceptance tests for the "<FEATURE_NAME>" feature.
+
+## Your job
+1. Deploy AX to a unique k8s namespace
+2. Run ALL behavioral tests sequentially (structural tests are handled by the local agent)
+3. Run ALL integration tests sequentially
+4. Write results to tests/acceptance/<FEATURE_NAME>/results-k8s.md
+5. Tear down the k8s deployment
+
+## Test plan
+Read the test plan from: tests/acceptance/<FEATURE_NAME>/test-plan.md
+Skip structural tests (ST-*) — those are environment-independent and run by the local agent.
+
+## K8s environment
+KIND_CLUSTER="<KIND_CLUSTER>"
+KUBE_CTX="<KUBE_CTX>"
+The Docker image is already built and loaded (done by lead agent).
+Helm dependencies are already updated (done by lead agent).
+
+## Setup
+
+K8S_NS="ax-test-<FEATURE_NAME>-$(openssl rand -hex 4)"
+PF_PORT=$(( 18080 + RANDOM % 10000 ))
+
+# Create namespace and secrets
+kubectl --context "$KUBE_CTX" create namespace "$K8S_NS"
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-api-credentials \
+  --from-literal=openrouter-api-key="$(grep OPENROUTER_API_KEY .env.test | cut -d= -f2-)" \
+  --from-literal=deepinfra-api-key="$(grep DEEPINFRA_API_KEY .env.test | cut -d= -f2-)"
+
+# Deploy via Helm
+HELM_RELEASE="ax-$K8S_NS"
+helm --kube-context "$KUBE_CTX" install "$HELM_RELEASE" charts/ax -n "$K8S_NS" \
+  -f tests/acceptance/fixtures/kind-values.yaml \
+  --set namespace.create=false \
+  --set namespace.name="$K8S_NS"
+
+# Delete unnecessary deployments
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
+  -l app.kubernetes.io/component=agent-runtime 2>/dev/null
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
+  -l app.kubernetes.io/component=pool-controller 2>/dev/null
+
+# Wait for pods
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/name=postgresql --timeout=120s
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/component=host --timeout=120s
+
+# Get pod names
+HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
+  -l app.kubernetes.io/component=host -o jsonpath='{.items[0].metadata.name}')
+PG_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
+  -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}')
+
+# Install test identity
+FIXTURES="tests/acceptance/fixtures"
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$HOST_POD" -- \
+  mkdir -p /home/agent/.ax/agents/main/agent/identity
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
+  "$FIXTURES/IDENTITY.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
+  "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
+
+# Port-forward on unique port
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host $PF_PORT:80 &
+PF_PID=$!
+sleep 3
+curl -sf http://localhost:$PF_PORT/health && echo "K8S_SERVER_READY"
+
+## Sending messages
+curl -sf http://localhost:$PF_PORT/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"agent:main","messages":[{"role":"user","content":"'"$MESSAGE"'"}],"stream":false,"session_id":"'"$SESSION"'"}' \
+  | jq -r '.choices[0].message.content'
+
+## Session IDs — must have 3+ colon-separated segments
+Example: acceptance:<FEATURE_NAME>:k8s:bt1
+
+## Checking side effects
+- Memory DB (items): kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."
+- Memory DB (vectors): kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."
+- Memory files: kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- cat /home/agent/.ax/data/memory/<filename>.md
+- Audit (PostgreSQL): kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 10;"
+- Conversations (PostgreSQL): kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM conversations;"
+- Sessions (PostgreSQL): kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM sessions;"
+- Logs: kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs $HOST_POD
+
+Note: If sqlite3 is not in the container for memory DB queries, use:
+kubectl exec $HOST_POD -- node -e "const db = require('better-sqlite3')('<path>'); console.log(JSON.stringify(db.prepare('<query>').all()))"
+
+## Teardown (ALWAYS do this)
+kill $PF_PID 2>/dev/null
+helm --kube-context "$KUBE_CTX" uninstall "$HELM_RELEASE" -n "$K8S_NS" 2>/dev/null
+kubectl --context "$KUBE_CTX" delete namespace "$K8S_NS"
+
+## Results format
+Write results to tests/acceptance/<FEATURE_NAME>/results-k8s.md using this format:
+
+# Acceptance Test Results: <Feature Name>
+**Date run:** <YYYY-MM-DD HH:MM>
+**Server version:** <git commit hash>
+**LLM provider:** <provider and model from ax-k8s.yaml>
+**Environment:** K8s/kind (subprocess sandbox, nats eventbus, postgresql storage)
+
+## Summary
+| Test | Category | Result | Notes |
+|------|----------|--------|-------|
+(behavioral and integration tests only — no structural)
+
+**Overall: X/Y passed**
+
+## Detailed Results
+(each test with evidence)
+
+## Failures
+(failures only, with full detail)
+```
+
+### Spawning example
+
+Here's how the lead agent spawns all agents for 3 features in a single message:
+
+```
+Use the Task tool 6 times in one message (all in parallel):
+
+Task 1: subagent_type="general-purpose", name="memoryfs-v2-local", mode="bypassPermissions"
+  prompt: <local agent prompt for memoryfs-v2>
+
+Task 2: subagent_type="general-purpose", name="memoryfs-v2-k8s", mode="bypassPermissions"
+  prompt: <k8s agent prompt for memoryfs-v2>
+
+Task 3: subagent_type="general-purpose", name="plainjob-scheduler-local", mode="bypassPermissions"
+  prompt: <local agent prompt for plainjob-scheduler>
+
+Task 4: subagent_type="general-purpose", name="plainjob-scheduler-k8s", mode="bypassPermissions"
+  prompt: <k8s agent prompt for plainjob-scheduler>
+
+Task 5: subagent_type="general-purpose", name="llm-webhook-transforms-local", mode="bypassPermissions"
+  prompt: <local agent prompt for llm-webhook-transforms>
+
+Task 6: subagent_type="general-purpose", name="llm-webhook-transforms-k8s", mode="bypassPermissions"
+  prompt: <k8s agent prompt for llm-webhook-transforms>
+```
+
+All 6 agents start simultaneously. Each manages its own environment setup, test execution, results recording, and teardown.
+
+---
+
+### Reference: Local environment setup
+
+This section is reference material for the local agent prompts. You do not need to run these commands yourself — the local agents handle everything.
 
 **CRITICAL**: Never run acceptance tests against the user's real `~/.ax` directory. Always create an isolated temporary home so tests don't pollute real data.
 
@@ -268,7 +529,7 @@ cp tests/acceptance/fixtures/.env.test.example .env.test
 ```bash
 # Create isolated test home
 FIXTURES="tests/acceptance/fixtures"
-TEST_HOME="/tmp/ax-acceptance-$(date +%s)"
+TEST_HOME="/tmp/ax-acceptance-local-<feature>-$(date +%s)"
 mkdir -p "$TEST_HOME/data"
 
 # Copy test config and credentials (from project, not from ~/.ax)
@@ -314,28 +575,23 @@ curl -sf --unix-socket "$TEST_HOME/ax.sock" http://localhost/health \
 
 If the server fails to start, check `$TEST_HOME/data/ax.log` and `$TEST_HOME/server-stdout.log` for errors. Do not proceed with behavioral/integration tests if the server is down.
 
-**User can tail logs in another terminal:**
-```bash
-tail -f /tmp/ax-acceptance-*/data/ax.log
-```
-
 #### Cleanup
 
 ```bash
-pkill -f "tsx src/cli/index.ts serve" 2>/dev/null
+kill $SERVER_PID 2>/dev/null
 # Optionally keep for debugging:
 # rm -rf "$TEST_HOME"
 ```
 
 ---
 
-### K8s environment setup
+### Reference: K8s environment setup
 
-Deploy AX to a kind cluster for testing with k8s-native providers (subprocess sandbox, NATS eventbus, PostgreSQL storage).
+This section is reference material for the k8s agent prompts. The lead agent only performs the shared steps (image build, helm dep update). Each k8s agent handles its own namespace, deployment, and teardown.
 
-**CRITICAL**: Always use a unique random namespace for each test run. This prevents collisions with other test runs or pre-existing deployments, and ensures clean teardown. Never use a hardcoded namespace like `ax-acceptance`.
+**CRITICAL**: Each k8s agent MUST use a unique random namespace. This prevents collisions between parallel test runs.
 
-#### Prerequisites
+#### Prerequisites (checked by lead agent)
 
 - A running kind cluster (check with `kind get clusters`)
 - `kubectl` CLI installed
@@ -343,23 +599,14 @@ Deploy AX to a kind cluster for testing with k8s-native providers (subprocess sa
 - `docker` running
 - `.env.test` with API keys at project root
 
-**Use an existing kind cluster** — don't create one per test run. Look for an existing cluster with `kind get clusters` and use its context (e.g., `kind-ax-test`). Set the context for all commands:
-```bash
-KIND_CLUSTER="ax-test"  # or whatever cluster exists
-KUBE_CTX="kind-$KIND_CLUSTER"
-```
-
-#### Setup
+#### Per-feature setup (done by each k8s agent)
 
 ```bash
-# 1. Generate a unique random namespace for this test run
-K8S_NS="ax-test-$(openssl rand -hex 4)"
-echo "Test namespace: $K8S_NS"
+# 1. Generate unique namespace for this feature's test run
+K8S_NS="ax-test-<feature>-$(openssl rand -hex 4)"
 
-# 2. Build and load AX image (skip if image is current)
-npm run build
-docker build -t ax/host:test -f container/Dockerfile .
-kind load docker-image ax/host:test --name "$KIND_CLUSTER"
+# 2. Pick a unique port for port-forwarding (avoid collisions with parallel agents)
+PF_PORT=$(( 18080 + RANDOM % 10000 ))
 
 # 3. Create namespace and secrets
 kubectl --context "$KUBE_CTX" create namespace "$K8S_NS"
@@ -368,19 +615,13 @@ kubectl --context "$KUBE_CTX" -n "$K8S_NS" create secret generic ax-api-credenti
   --from-literal=deepinfra-api-key="$(grep DEEPINFRA_API_KEY .env.test | cut -d= -f2-)"
 
 # 4. Deploy via Helm with a unique release name
-#    kind-values.yaml enables internal PostgreSQL (Bitnami subchart).
-#    The subchart auto-generates a secret with DATABASE_URL.
-#    The kind-values.yaml provides base overrides. Use --set to override
-#    the namespace and any feature-specific config (e.g., webhooks).
 HELM_RELEASE="ax-$K8S_NS"
-helm dependency update charts/ax
 helm --kube-context "$KUBE_CTX" install "$HELM_RELEASE" charts/ax -n "$K8S_NS" \
   -f tests/acceptance/fixtures/kind-values.yaml \
   --set namespace.create=false \
   --set namespace.name="$K8S_NS"
 
 # 5. Delete agent-runtime and pool-controller deployments
-#    (kind-values.yaml disables them, but templates may still render)
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
   -l app.kubernetes.io/component=agent-runtime 2>/dev/null
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
@@ -401,8 +642,6 @@ HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
 PG_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/name=postgresql \
   -o jsonpath='{.items[0].metadata.name}')
-echo "Host pod: $HOST_POD"
-echo "PostgreSQL pod: $PG_POD"
 
 # 9. Install test identity (copy into running pod)
 FIXTURES="tests/acceptance/fixtures"
@@ -413,24 +652,16 @@ kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
   "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
 
-# 10. Port-forward for test access
-pkill -f "port-forward.*18080" 2>/dev/null; sleep 1
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host 18080:80 &
+# 10. Port-forward on unique port
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host $PF_PORT:80 &
 PF_PID=$!
 
 # 11. Health check
 sleep 3
-curl -sf http://localhost:18080/health && echo "K8S_SERVER_READY"
+curl -sf http://localhost:$PF_PORT/health && echo "K8S_SERVER_READY"
 ```
 
-If the health check fails, check pod logs:
-```bash
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f "$HOST_POD"
-```
-
-**IMPORTANT**: Store `K8S_NS`, `KUBE_CTX`, `HELM_RELEASE`, `HOST_POD`, `PG_POD`, and `PF_PID` — they are needed for all subsequent commands and teardown.
-
-#### Teardown
+#### Per-feature teardown (done by each k8s agent)
 
 **Always tear down after tests complete**, regardless of pass/fail:
 
@@ -440,7 +671,7 @@ helm --kube-context "$KUBE_CTX" uninstall "$HELM_RELEASE" -n "$K8S_NS" 2>/dev/nu
 kubectl --context "$KUBE_CTX" delete namespace "$K8S_NS"
 ```
 
-Do NOT delete the kind cluster itself — it's shared across test runs.
+Do NOT delete the kind cluster itself — it's shared across all features and test runs.
 
 ---
 
@@ -454,29 +685,28 @@ AX requires session IDs with **3 or more colon-separated segments**. Two-segment
 
 # CORRECT — 3+ colon-separated segments
 --session "acceptance:memoryfs:bt1"
+--session "acceptance:memoryfs:k8s:bt1"  # k8s variant
 ```
 
 ### Running structural tests
 
-Execute directly using file reads and grep. For each structural test:
+Structural tests are run by the **local agent only** (they're environment-independent). Execute directly using file reads and grep. For each structural test:
 1. Read the specified files
 2. Check for the expected patterns, interfaces, exports
 3. Record **PASS** or **FAIL** with evidence (the actual content found or not found)
 
-Structural tests are environment-independent — run them once regardless of which environment is selected. They can be run in parallel via subagents since they only read source files and don't touch the server.
-
 ### Sending messages
 
-Use the correct send command for the target environment:
+Agents use the correct send command for their environment:
 
 | Environment | Send command |
 |-------------|-------------|
 | **Local** | `AX_HOME="$TEST_HOME" NODE_NO_WARNINGS=1 tsx src/cli/index.ts send --no-stream --session "$SESSION" "$MESSAGE"` |
-| **K8s** | `curl -sf http://localhost:18080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"agent:main","messages":[{"role":"user","content":"'"$MESSAGE"'"}],"stream":false,"session_id":"'"$SESSION"'"}'` |
+| **K8s** | `curl -sf http://localhost:$PF_PORT/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"agent:main","messages":[{"role":"user","content":"'"$MESSAGE"'"}],"stream":false,"session_id":"'"$SESSION"'"}'` |
 
 For k8s, extract the response text from the JSON:
 ```bash
-curl -sf http://localhost:18080/v1/chat/completions \
+curl -sf http://localhost:$PF_PORT/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"agent:main","messages":[{"role":"user","content":"'"$MESSAGE"'"}],"stream":false,"session_id":"'"$SESSION"'"}' \
   | jq -r '.choices[0].message.content'
@@ -484,34 +714,39 @@ curl -sf http://localhost:18080/v1/chat/completions \
 
 ### Checking side effects
 
-Use the correct commands for the target environment:
+Agents use the correct commands for their environment:
 
 | Check | Local | K8s |
 |-------|-------|-----|
-| Memory DB | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
-| Embedding DB | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
-| Audit DB | `sqlite3 "$TEST_HOME/data/audit.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db "..."` |
-| Conversation DB | `sqlite3 "$TEST_HOME/data/store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "..."` |
+| Memory DB (items) | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
+| Memory DB (vectors) | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
 | Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
+| Audit log | `cat "$TEST_HOME/data/audit/audit.jsonl"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 10;"` |
+| Conversations | Files under `$TEST_HOME/data/conversations/` (JSONL) | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM conversations;"` |
+| Sessions | Files under `$TEST_HOME/data/sessions/` (JSON) | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM sessions;"` |
 | Logs | `tail -f "$TEST_HOME/data/ax.log"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD` |
 
-**Note on k8s databases:** In k8s, the `storage: postgresql` provider stores conversations and sessions in PostgreSQL (query via `$PG_POD`). Memory (`memoryfs`) and audit (`sqlite`) still use SQLite files on the host pod's local filesystem. If the host pod has no `sqlite3` binary, use Node.js: `kubectl exec $HOST_POD -- node -e "const db = require('better-sqlite3')('/home/agent/.ax/data/memory/_store.db'); console.log(JSON.stringify(db.prepare('SELECT * FROM items').all()))"`
+**Local vs k8s data layout:**
+- **Local** uses file-based providers: audit is a JSONL file (`data/audit/audit.jsonl`), storage is flat files (`data/conversations/*.jsonl`, `data/sessions/*.json`). Memory (`memoryfs`) uses SQLite (`data/memory/_store.db`, `data/memory/_vec.db`) and markdown files (`data/memory/*.md`).
+- **K8s** uses the `database` provider backed by PostgreSQL for both storage and audit. Query via `$PG_POD` with `psql`. Memory (`memoryfs`) still uses SQLite files on the host pod's local filesystem. If the host pod has no `sqlite3` binary, use Node.js: `kubectl exec $HOST_POD -- node -e "const db = require('better-sqlite3')('/home/agent/.ax/data/memory/_store.db'); console.log(JSON.stringify(db.prepare('SELECT * FROM items').all()))"`
 
 ### Running behavioral tests
 
-**Run behavioral tests SEQUENTIALLY** (not in parallel) to avoid shared-DB interference. Multiple agents writing to the same SQLite memory store concurrently can corrupt assertions (e.g., one test checks "exactly 1 item" while another is inserting).
+**Run behavioral tests SEQUENTIALLY within each agent** to avoid shared-DB interference on that agent's server. Multiple concurrent requests to the same server can corrupt assertions (e.g., one test checks "exactly 1 item" while another is inserting).
+
+Tests across different features run in parallel because each feature has its own isolated server.
 
 For each behavioral test:
 1. Complete any setup steps
-2. Send each message using the appropriate send command for the environment (see "Sending messages" above)
+2. Send each message using the appropriate send command for the environment
 3. Capture the response
-4. Check the structural side effects using the appropriate commands for the environment (see "Checking side effects" above)
+4. Check the structural side effects
 5. Evaluate behavioral expectations using judgment (not exact string matching)
 6. Record PASS or FAIL with evidence
 
 ### Running integration tests
 
-Run integration tests SEQUENTIALLY for the same shared-DB reasons.
+Run integration tests SEQUENTIALLY within each agent for the same shared-DB reasons.
 
 For each integration test:
 1. Complete setup
@@ -521,12 +756,10 @@ For each integration test:
 
 ### Recording results
 
-Write results to environment-specific files:
+Each agent writes results to its environment-specific file:
 
-- **Local:** `tests/acceptance/<feature-name>/results-local.md`
-- **K8s:** `tests/acceptance/<feature-name>/results-k8s.md`
-
-If running in only one environment, you may use just `results.md` (without the suffix).
+- **Local agents:** `tests/acceptance/<feature-name>/results-local.md`
+- **K8s agents:** `tests/acceptance/<feature-name>/results-k8s.md`
 
 Use this format:
 
@@ -564,7 +797,7 @@ Use this format:
 
 ## Phase 4: Failure Analysis
 
-For each failing test, perform root cause analysis:
+After all agents complete, the **lead agent** reads all results files and performs root cause analysis for each failing test.
 
 ### Analysis steps
 
@@ -626,7 +859,9 @@ Use these to quickly find the relevant code when tracing failures:
 
 ## Phase 5: Fix List
 
-Create a prioritized list of fixes and save to `tests/acceptance/<feature-name>/fixes.md`:
+Create a **single consolidated** fix list from all features and save to `tests/acceptance/fixes.md`. Also create per-feature fix lists at `tests/acceptance/<feature-name>/fixes.md`.
+
+### Per-feature fix list format
 
 ```markdown
 # Fix List: <Feature Name>
@@ -662,38 +897,84 @@ Create a prioritized list of fixes and save to `tests/acceptance/<feature-name>/
 (continue)
 ```
 
+### Consolidated fix list format
+
+```markdown
+# Consolidated Fix List: All Acceptance Tests
+
+**Date:** <YYYY-MM-DD>
+**Features tested:** <list>
+**Total issues:** <count> (Critical: <n>, Major: <n>, Minor: <n>)
+
+## Results Summary
+
+| Feature | Local | K8s | Total Issues |
+|---------|-------|-----|-------------|
+| <feature> | X/Y passed | X/Y passed | <n> |
+(repeat for each feature)
+
+## All Fixes by Priority
+
+### Critical
+(all critical fixes across all features)
+
+### Major
+(all major fixes)
+
+### Minor
+(all minor fixes)
+
+## Suggested Fix Order
+(cross-feature prioritization)
+```
+
 Also add each fix to the **TaskCreate tool** so they're tracked in the current session.
 
 ## Workflow Summary
 
 ```
-1. User picks a feature (or you suggest one)
-2. Read the plan document(s)
-3. Extract acceptance criteria
-4. Design test cases (structural first, then behavioral, then integration)
-5. Save test plan to tests/acceptance/<feature>/test-plan.md
-6. Present test plan for user review
-7. Ask which environment(s) to test: Local (default), K8s, or Both
-8. Set up the selected environment(s)
-9. Execute structural tests (environment-independent, run once)
-10. Execute behavioral/integration tests sequentially in each environment
-11. Save results to tests/acceptance/<feature>/results-local.md and/or results-k8s.md
-12. For failures: trace to source, classify root cause, severity, and environment
-13. Save fix list to tests/acceptance/<feature>/fixes.md
-14. Add fixes to TaskCreate for tracking
-15. Tear down k8s environment if used
+SINGLE FEATURE:
+  1. User picks a feature
+  2. Read the plan document(s)
+  3. Extract acceptance criteria
+  4. Design test cases (structural first, then behavioral, then integration)
+  5. Save test plan to tests/acceptance/<feature>/test-plan.md
+  6. Present test plan for user review
+  7. Shared k8s setup (build image, load into kind, update helm deps)
+  8. Spawn 2 agents in parallel:
+     a. Local agent: setup → structural tests → behavioral tests → integration tests → results-local.md → cleanup
+     b. K8s agent: setup → behavioral tests → integration tests → results-k8s.md → teardown
+  9. Collect results from both agents
+  10. Failure analysis: trace to source, classify root cause, severity, and environment
+  11. Save fix list to tests/acceptance/<feature>/fixes.md
+  12. Add fixes to TaskCreate for tracking
+
+RUN ALL:
+  1. Discover all feature directories in tests/acceptance/ (skip fixtures/)
+  2. Filter to those with test-plan.md files
+  3. Shared k8s setup (build image, load into kind, update helm deps)
+  4. Spawn 2*N agents in parallel (one local + one k8s per feature):
+     - Each local agent: setup → structural tests → behavioral tests → integration tests → results-local.md → cleanup
+     - Each k8s agent: setup → behavioral tests → integration tests → results-k8s.md → teardown
+  5. Wait for all agents to complete
+  6. Read all results files
+  7. Failure analysis across all features
+  8. Save per-feature fix lists to tests/acceptance/<feature>/fixes.md
+  9. Save consolidated fix list to tests/acceptance/fixes.md
+  10. Add fixes to TaskCreate for tracking
 ```
 
 ## Tips
 
-- **Always use an isolated AX_HOME.** Never run acceptance tests against `~/.ax`. Create a temp directory, copy config files, and set `AX_HOME` on every command.
-- **Start with structural tests.** They're fast, deterministic, and catch the most common gaps (missing implementations, broken wiring). If structural tests show a feature isn't wired up, skip behavioral tests for that feature — they'll obviously fail.
-- **Run behavioral/integration tests sequentially.** They share databases (SQLite for memory/audit, PostgreSQL for storage on k8s). Parallel execution causes assertion failures from DB contention.
+- **Always use an isolated environment.** Local agents create temp directories. K8s agents create unique namespaces. Never run against `~/.ax`.
+- **Start with structural tests.** They're fast, deterministic, and catch the most common gaps (missing implementations, broken wiring). If structural tests show a feature isn't wired up, the behavioral tests for that feature will obviously fail — but let them run anyway for completeness.
+- **Behavioral/integration tests are sequential within each agent.** They share that agent's server and databases. Parallel execution within a single server causes assertion failures from DB contention.
+- **Features run in parallel across agents.** Each feature has its own isolated server, so there's no cross-feature interference.
 - **Use fresh sessions.** Each test run should use a unique session ID with 3+ colon-separated segments (e.g., `acceptance:feature:bt1`) to avoid pollution from prior conversations.
-- **Check audit logs.** The audit log (`$TEST_HOME/data/audit.db` locally, or via `kubectl exec $HOST_POD -- sqlite3 /home/agent/.ax/data/audit.db` on k8s) is the best ground truth for what the server actually did during a request. If a behavioral test is ambiguous, the audit log tells you exactly which IPC actions fired.
-- **Don't chase LLM wording.** The agent might phrase things differently each time. Focus on: did it call the right tools? Did the right data end up in the right place? Did it avoid doing the wrong thing?
-- **One feature at a time.** Don't try to test everything in one session. Pick a feature, run its tests, fix the issues, then move on.
-- **Tail logs for debugging.** Local: `tail -f $TEST_HOME/data/ax.log` (server must be started with `LOG_SYNC=1`). K8s: `kubectl --context "$KUBE_CTX" -n "$K8S_NS" logs -f $HOST_POD`.
-- **Compare environments.** When running both, look for environment-specific failures. A test that passes locally but fails on k8s likely indicates a provider-level bug (e.g., NATS eventbus doesn't fire the same events as inprocess). A test that fails in both points to a feature-level bug.
-- **K8s is optional.** Most features should be validated locally first. Use k8s testing when you specifically want to verify that k8s-native providers (NATS eventbus, PostgreSQL storage) behave identically to their local counterparts.
-- **K8s uses PostgreSQL for storage.** Conversation history, sessions, and other storage-layer data lives in PostgreSQL (deployed in-cluster via Bitnami subchart). Memory (memoryfs) and audit still use SQLite files on the host pod. Data in PostgreSQL persists across pod restarts; SQLite data on the host pod does not (no PVC).
+- **Check audit logs.** The audit log is the best ground truth for what the server actually did during a request.
+- **Don't chase LLM wording.** Focus on: did it call the right tools? Did the right data end up in the right place?
+- **Compare environments.** A test that passes locally but fails on k8s likely indicates a provider-level bug (e.g., NATS eventbus doesn't fire the same events as inprocess). A test that fails in both points to a feature-level bug.
+- **K8s agents use unique ports.** Each k8s agent picks a random port for port-forwarding to avoid collisions when running in parallel.
+- **Shared k8s setup is done once.** The lead agent builds the Docker image and loads it into kind before spawning any k8s agents. Don't rebuild per-feature.
+- **K8s uses PostgreSQL for storage.** Conversation history and sessions live in PostgreSQL (in-cluster). Memory and audit still use SQLite files on the host pod. Data in PostgreSQL persists across pod restarts; SQLite data on the host pod does not (no PVC).
+- **Skip k8s if no cluster.** If `kind get clusters` returns nothing, skip all k8s agents and only run local.
