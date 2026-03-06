@@ -9,6 +9,7 @@ import type { MemoryProvider, ConversationTurn } from '../../../../src/providers
 import type { Config } from '../../../../src/types.js';
 import type { LLMProvider, ChatChunk } from '../../../../src/providers/llm/types.js';
 import { dataFile } from '../../../../src/paths.js';
+import { SUMMARY_ID_PREFIX } from '../../../../src/providers/memory/cortex/summary-store.js';
 
 const config = {} as Config;
 
@@ -190,6 +191,42 @@ describe('cortex provider', () => {
     expect(entry2!.userId).toBe('bob');
   });
 
+  it('query() does not append summaries when limit is filled by items', async () => {
+    const mem = await create(config);
+
+    for (let i = 0; i < 5; i++) {
+      await mem.write({ scope: 'default', content: `Fact ${i} about TypeScript` });
+    }
+
+    const results = await mem.query({ scope: 'default', query: 'TypeScript', limit: 5 });
+    expect(results).toHaveLength(5);
+    expect(results.every(r => !r.id?.startsWith(SUMMARY_ID_PREFIX))).toBe(true);
+  });
+
+  it('query() does not append summaries for embedding queries', async () => {
+    const mem = await create(config);
+    await mem.write({ scope: 'default', content: 'Some fact' });
+
+    const fakeEmbedding = new Float32Array([0.1, 0.2, 0.3]);
+    const results = await mem.query({
+      scope: 'default',
+      embedding: fakeEmbedding,
+      limit: 10,
+    });
+    expect(results.every(r => !r.id?.startsWith(SUMMARY_ID_PREFIX))).toBe(true);
+  });
+
+  it('read() returns null for summary IDs', async () => {
+    const mem = await create(config);
+    const entry = await mem.read(`${SUMMARY_ID_PREFIX}preferences`);
+    expect(entry).toBeNull();
+  });
+
+  it('delete() is a no-op for summary IDs', async () => {
+    const mem = await create(config);
+    await mem.delete(`${SUMMARY_ID_PREFIX}preferences`);
+  });
+
   it('query() with embedding returns empty when no items exist, not unfiltered listing', async () => {
     // Write some items to the store (keyword-searchable)
     await memory.write({ scope: 'default', content: 'Some keyword-searchable fact' });
@@ -289,6 +326,22 @@ describe('cortex provider with LLM', () => {
       { role: 'user', content: 'Remember that I prefer TypeScript' },
     ];
     await expect(memory.memorize!(conversation)).rejects.toThrow('LLM extraction returned no JSON array');
+  });
+
+  it('query() appends summaries after items when slots remain', async () => {
+    const llmForSummary = mockLLM(['# knowledge\n## Facts\n- REST API']);
+    const mem = await create(config, undefined, { llm: llmForSummary });
+
+    await mem.write({ scope: 'default', content: 'Uses REST API' });
+    await new Promise(r => setTimeout(r, 50));
+
+    const results = await mem.query({ scope: 'default', query: 'REST', limit: 10 });
+    expect(results.length).toBeGreaterThan(1);
+    expect(results[0].content).toBe('Uses REST API');
+
+    const summaryResult = results.find(r => r.id?.startsWith(SUMMARY_ID_PREFIX));
+    expect(summaryResult).toBeDefined();
+    expect(summaryResult!.content).toContain('REST');
   });
 
   it('memorize() updates summary via LLM when available', async () => {

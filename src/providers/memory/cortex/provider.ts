@@ -342,16 +342,56 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
       }));
       ranked.sort((a, b) => b.score - a.score);
 
-      return ranked.slice(0, limit).map(({ item }) => toEntry(item));
+      // ── Build item results ──
+      const itemResults = ranked.slice(0, limit).map(({ item }) => toEntry(item));
+
+      // ── Append summaries to fill remaining limit slots ──
+      const remaining = limit - itemResults.length;
+      if (remaining <= 0) return itemResults;
+
+      const summaryEntries: MemoryEntry[] = [];
+      const seen = new Set<string>();
+
+      // Collect matching summaries: user-scoped first (if userId), then shared
+      const scopes: Array<string | undefined> = q.userId ? [q.userId, undefined] : [undefined];
+
+      for (const scopeUserId of scopes) {
+        if (summaryEntries.length >= remaining) break;
+        const allSummaries = await summaryStore.readAll(scopeUserId);
+
+        for (const [cat, content] of allSummaries) {
+          if (summaryEntries.length >= remaining) break;
+          const key = `${cat}:${scopeUserId ?? ''}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+
+          if (content.trim() === `# ${cat}`) continue; // skip empty defaults
+
+          // For keyword queries, only include summaries that match
+          if (q.query && !content.toLowerCase().includes(q.query.toLowerCase())) continue;
+
+          summaryEntries.push({
+            id: `${SUMMARY_ID_PREFIX}${cat}`,
+            scope: q.scope || 'default',
+            content,
+            createdAt: new Date(),
+            userId: scopeUserId,
+          });
+        }
+      }
+
+      return [...itemResults, ...summaryEntries];
     },
 
     async read(id: string): Promise<MemoryEntry | null> {
+      if (id.startsWith(SUMMARY_ID_PREFIX)) return null;
       const item = await store.getById(id);
       if (!item) return null;
       return toEntry(item);
     },
 
     async delete(id: string): Promise<void> {
+      if (id.startsWith(SUMMARY_ID_PREFIX)) return;
       await store.deleteById(id);
       await embeddingStore.delete(id).catch(() => {});
     },

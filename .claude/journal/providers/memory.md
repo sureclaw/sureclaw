@@ -1,5 +1,13 @@
 # Providers: Memory
 
+## [2026-03-06 12:00] — Wire summaries into query() as trailing results
+
+**Task:** Task 4 of cortex summary storage plan — make query() return summaries after item-level results when limit slots remain, and add guard clauses to read()/delete() for summary IDs
+**What I did:** (1) Added `if (id.startsWith(SUMMARY_ID_PREFIX)) return null` guard to read(), (2) Added `if (id.startsWith(SUMMARY_ID_PREFIX)) return` guard to delete(), (3) Replaced keyword path's final return with summary-appending logic that uses `summaryStore.readAll()` to fill remaining limit slots with matching category summaries. Summaries are skipped for embedding queries (precision search), when limit is filled by items, when content is just the empty default (`# ${category}`), and when keyword query doesn't match summary content. User-scoped queries get user summaries first, then shared summaries. (4) Added 5 new tests covering: summary appending with LLM, limit-filled items, embedding query exclusion, read() guard, delete() guard.
+**Files touched:** `src/providers/memory/cortex/provider.ts`, `tests/providers/memory/cortex/provider.test.ts`
+**Outcome:** Success — all 26 tests pass
+**Notes:** The embedding path's early return is kept as-is since we skip summaries for embedding queries anyway. Only the keyword path's final return was replaced with the summary-appending logic.
+
 ## [2026-03-06 11:50] — Wire SummaryStore into cortex provider
 
 **Task:** Replace direct summary-io.ts imports in cortex provider.ts with the new SummaryStore abstraction, choosing DbSummaryStore for non-sqlite databases and FileSummaryStore otherwise (Task 3 of cortex summary storage plan)
