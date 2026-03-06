@@ -246,7 +246,7 @@ Acceptance tests use dedicated config, identity, and credentials files — never
 |------|---------|
 | `tests/acceptance/fixtures/ax.yaml` | Local test config — seatbelt sandbox, inprocess eventbus, sqlite storage |
 | `tests/acceptance/fixtures/ax-k8s.yaml` | K8s test config — subprocess sandbox, nats eventbus, postgresql storage |
-| `tests/acceptance/fixtures/kind-values.yaml` | Helm overrides for kind cluster — simplified single-pod deployment |
+| `tests/acceptance/fixtures/kind-values.yaml` | Helm overrides for kind cluster — host + agent-runtime + PostgreSQL + NATS |
 | `tests/acceptance/fixtures/IDENTITY.md` | Deterministic agent identity (neutral, concise, no emojis) |
 | `tests/acceptance/fixtures/SOUL.md` | Deterministic agent personality (predictable, factual) |
 | `.env.test` (project root) | API keys for tests — copy from `tests/acceptance/fixtures/.env.test.example` |
@@ -263,7 +263,7 @@ cp tests/acceptance/fixtures/.env.test.example .env.test
 
 | Provider | Local (`ax.yaml`) | K8s (`ax-k8s.yaml`) |
 |----------|-------------------|---------------------|
-| sandbox | seatbelt | k8s |
+| sandbox | seatbelt | subprocess (in agent-runtime pod) |
 | eventbus | inprocess | nats |
 | storage | file | database (postgresql) |
 | database | — | postgresql |
@@ -414,32 +414,30 @@ helm --kube-context "$KUBE_CTX" install "$HELM_RELEASE" charts/ax -n "$K8S_NS" \
   -f tests/acceptance/fixtures/kind-values.yaml \
   --set namespace.create=false
 
-# Delete unnecessary deployments
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
-  -l app.kubernetes.io/component=agent-runtime 2>/dev/null
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
-  -l app.kubernetes.io/component=pool-controller 2>/dev/null
-
-# Wait for pods
+# Wait for all pods to be ready (PostgreSQL first, then host, then agent-runtime)
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=postgresql --timeout=120s
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/component=host --timeout=120s
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/component=agent-runtime --timeout=120s
 
 # Get pod names
 HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/component=host -o jsonpath='{.items[0].metadata.name}')
 PG_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].metadata.name}')
+AGENT_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
+  -l app.kubernetes.io/component=agent-runtime -o jsonpath='{.items[0].metadata.name}')
 
-# Install test identity
+# Install test identity on agent-runtime pod (where the agent process runs)
 FIXTURES="tests/acceptance/fixtures"
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$HOST_POD" -- \
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$AGENT_POD" -- \
   mkdir -p /home/agent/.ax/agents/main/agent/identity
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
-  "$FIXTURES/IDENTITY.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
+  "$FIXTURES/IDENTITY.md" "$AGENT_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
-  "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
+  "$FIXTURES/SOUL.md" "$AGENT_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
 
 # Port-forward on unique port
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host $PF_PORT:80 &
@@ -634,42 +632,39 @@ helm --kube-context "$KUBE_CTX" install "$HELM_RELEASE" charts/ax -n "$K8S_NS" \
   -f tests/acceptance/fixtures/kind-values.yaml \
   --set namespace.create=false
 
-# 5. Delete agent-runtime and pool-controller deployments
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
-  -l app.kubernetes.io/component=agent-runtime 2>/dev/null
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" delete deploy \
-  -l app.kubernetes.io/component=pool-controller 2>/dev/null
-
-# 6. Wait for PostgreSQL to be ready first (host depends on it)
+# 5. Wait for all pods to be ready (PostgreSQL first, then host, then agent-runtime)
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/name=postgresql --timeout=120s
-
-# 7. Wait for host pod to be ready
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
   -l app.kubernetes.io/component=host --timeout=120s
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/component=agent-runtime --timeout=120s
 
-# 8. Identify host and PostgreSQL pods
+# 6. Identify pods
 HOST_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/component=host \
   -o jsonpath='{.items[0].metadata.name}')
 PG_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
   -l app.kubernetes.io/name=postgresql \
   -o jsonpath='{.items[0].metadata.name}')
+AGENT_POD=$(kubectl --context "$KUBE_CTX" -n "$K8S_NS" get pod \
+  -l app.kubernetes.io/component=agent-runtime \
+  -o jsonpath='{.items[0].metadata.name}')
 
-# 9. Install test identity (copy into running pod)
+# 7. Install test identity on agent-runtime pod (where the agent process runs)
 FIXTURES="tests/acceptance/fixtures"
-kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$HOST_POD" -- \
+kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec "$AGENT_POD" -- \
   mkdir -p /home/agent/.ax/agents/main/agent/identity
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
-  "$FIXTURES/IDENTITY.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
+  "$FIXTURES/IDENTITY.md" "$AGENT_POD:/home/agent/.ax/agents/main/agent/identity/IDENTITY.md"
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" cp \
-  "$FIXTURES/SOUL.md" "$HOST_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
+  "$FIXTURES/SOUL.md" "$AGENT_POD:/home/agent/.ax/agents/main/agent/identity/SOUL.md"
 
-# 10. Port-forward on unique port
+# 8. Port-forward on unique port
 kubectl --context "$KUBE_CTX" -n "$K8S_NS" port-forward svc/"$HELM_RELEASE"-host $PF_PORT:80 &
 PF_PID=$!
 
-# 11. Health check
+# 9. Health check
 sleep 3
 curl -sf http://localhost:$PF_PORT/health && echo "K8S_SERVER_READY"
 ```
@@ -732,9 +727,9 @@ Agents use the correct commands for their environment:
 
 | Check | Local | K8s |
 |-------|-------|-----|
-| Memory DB (items) | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
-| Memory DB (vectors) | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
-| Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $HOST_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
+| Memory DB (items) | `sqlite3 "$TEST_HOME/data/memory/_store.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $AGENT_POD -- sqlite3 /home/agent/.ax/data/memory/_store.db "..."` |
+| Memory DB (vectors) | `sqlite3 "$TEST_HOME/data/memory/_vec.db" "..."` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $AGENT_POD -- sqlite3 /home/agent/.ax/data/memory/_vec.db "..."` |
+| Memory files | `cat "$TEST_HOME/data/memory/preferences.md"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $AGENT_POD -- cat /home/agent/.ax/data/memory/preferences.md` |
 | Audit log | `cat "$TEST_HOME/data/audit/audit.jsonl"` | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 10;"` |
 | Conversations | Files under `$TEST_HOME/data/conversations/` (JSONL) | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM conversations;"` |
 | Sessions | Files under `$TEST_HOME/data/sessions/` (JSON) | `kubectl --context "$KUBE_CTX" -n "$K8S_NS" exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM sessions;"` |
@@ -742,7 +737,7 @@ Agents use the correct commands for their environment:
 
 **Local vs k8s data layout:**
 - **Local** uses file-based providers: audit is a JSONL file (`data/audit/audit.jsonl`), storage is flat files (`data/conversations/*.jsonl`, `data/sessions/*.json`). Memory (`cortex`) uses SQLite (`data/memory/_store.db`, `data/memory/_vec.db`) and markdown files (`data/memory/*.md`).
-- **K8s** uses the `database` provider backed by PostgreSQL for both storage and audit. Query via `$PG_POD` with `psql`. Memory (`cortex`) still uses SQLite files on the host pod's local filesystem. If the host pod has no `sqlite3` binary, use Node.js: `kubectl exec $HOST_POD -- node -e "const db = require('better-sqlite3')('/home/agent/.ax/data/memory/_store.db'); console.log(JSON.stringify(db.prepare('SELECT * FROM items').all()))"`
+- **K8s** uses the `database` provider backed by PostgreSQL for both storage and audit. Query via `$PG_POD` with `psql`. Memory (`cortex`) uses SQLite files on the agent-runtime pod's local filesystem (where the agent process runs). If the pod has no `sqlite3` binary, use Node.js: `kubectl exec $AGENT_POD -- node -e "const db = require('better-sqlite3')('/home/agent/.ax/data/memory/_store.db'); console.log(JSON.stringify(db.prepare('SELECT * FROM items').all()))"`
 
 ### Running behavioral tests
 
@@ -990,5 +985,5 @@ RUN ALL:
 - **Compare environments.** A test that passes locally but fails on k8s likely indicates a provider-level bug (e.g., NATS eventbus doesn't fire the same events as inprocess). A test that fails in both points to a feature-level bug.
 - **K8s agents use unique ports.** Each k8s agent picks a random port for port-forwarding to avoid collisions when running in parallel.
 - **Shared k8s setup is done once.** The lead agent builds the Docker image and loads it into kind before spawning any k8s agents. Don't rebuild per-feature.
-- **K8s uses PostgreSQL for storage.** Conversation history and sessions live in PostgreSQL (in-cluster). Memory and audit still use SQLite files on the host pod. Data in PostgreSQL persists across pod restarts; SQLite data on the host pod does not (no PVC).
+- **K8s uses PostgreSQL for storage.** Conversation history and sessions live in PostgreSQL (in-cluster). Memory (cortex) uses SQLite files on the agent-runtime pod (where the agent process runs). Data in PostgreSQL persists across pod restarts; SQLite data on agent-runtime pods does not (no PVC).
 - **Skip k8s if no cluster.** If `kind get clusters` returns nothing, skip all k8s agents and only run local.
