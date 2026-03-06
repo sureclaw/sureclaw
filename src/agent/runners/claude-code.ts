@@ -2,12 +2,20 @@
  * claude-code agent runner — uses the Claude Agent SDK to run the full
  * Claude Code CLI experience inside the sandbox.
  *
- * Architecture:
+ * Architecture (local mode):
  *   agent-runner.ts → runClaudeCode()
  *     → Start TCP bridge on localhost:PORT (HTTP → Unix socket forwarder)
  *     → Agent SDK query() with ANTHROPIC_BASE_URL=http://127.0.0.1:PORT
  *       → Claude Code CLI subprocess
  *         → API calls → TCP bridge → Unix socket proxy → Anthropic API
+ *         → AX IPC tools via in-process MCP server (memory, web_search, audit)
+ *
+ * Architecture (k8s mode — NATS_URL set, no proxySocket):
+ *   agent-runner.ts → runClaudeCode()
+ *     → Start NATS bridge on localhost:PORT (HTTP → NATS request/reply)
+ *     → Agent SDK query() with ANTHROPIC_BASE_URL=http://127.0.0.1:PORT
+ *       → Claude Code CLI subprocess
+ *         → API calls → NATS bridge → ipc.llm.{sessionId} → agent runtime LLM proxy → Anthropic API
  *         → AX IPC tools via in-process MCP server (memory, web_search, audit)
  */
 
@@ -80,13 +88,28 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     ? rawMsg.filter(b => b.type === 'image_data')
     : [];
 
-  if (!config.proxySocket) {
-    logger.error('missing_proxy_socket', { message: 'claude-code agent requires --proxy-socket' });
+  // Detect k8s mode: NATS_URL is set and no proxySocket provided.
+  // In k8s sandbox pods, LLM calls go through NATS instead of a Unix socket proxy.
+  const useNATSBridge = !config.proxySocket && !!process.env.NATS_URL;
+
+  if (!config.proxySocket && !useNATSBridge) {
+    logger.error('missing_proxy_socket', { message: 'claude-code agent requires --proxy-socket or NATS_URL env var' });
     process.exit(1);
   }
 
-  // 1. Start TCP bridge (localhost:PORT → Unix socket proxy)
-  const bridge = await startTCPBridge(config.proxySocket);
+  // 1. Start bridge — TCP bridge for local mode, NATS bridge for k8s mode
+  let bridge: { port: number; stop: () => void | Promise<void> };
+  if (useNATSBridge) {
+    if (!config.sessionId) {
+      logger.error('missing_session_id', { message: 'claude-code NATS bridge requires sessionId' });
+      process.exit(1);
+    }
+    const { startNATSBridge } = await import('../nats-bridge.js');
+    bridge = await startNATSBridge({ sessionId: config.sessionId });
+    logger.info('nats_bridge_started', { port: bridge.port, sessionId: config.sessionId });
+  } else {
+    bridge = await startTCPBridge(config.proxySocket!);
+  }
 
   // 2. Connect IPC client for MCP tools
   const client = new IPCClient({ socketPath: config.ipcSocket, sessionId: config.sessionId, userId: config.userId, sessionScope: config.sessionScope });
@@ -166,8 +189,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     process.stderr.write(`Claude Code agent failed: ${message}\n`);
     process.exitCode = 1;
   } finally {
-    // 8. Cleanup
-    bridge.stop();
+    // 8. Cleanup — bridge.stop() may be async (NATS bridge) or sync (TCP bridge)
+    await Promise.resolve(bridge.stop());
     client.disconnect();
   }
 }

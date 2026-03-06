@@ -37,6 +37,7 @@ import {
 } from './nats-session-protocol.js';
 import type { EventBus } from './event-bus.js';
 import { createNATSSandboxDispatcher, type NATSSandboxDispatcher } from './nats-sandbox-dispatch.js';
+import { startNATSLLMProxy } from './nats-llm-proxy.js';
 
 const logger = getLogger().child({ component: 'agent-runtime' });
 
@@ -279,6 +280,16 @@ async function main(): Promise<void> {
     // can route all tool calls in a turn to the same sandbox pod.
     requestIdMap.set(sessionId, requestId);
 
+    // Start NATS LLM proxy for claude-code sessions in k8s mode.
+    // The claude-code sandbox pod uses a NATS bridge to send LLM requests;
+    // this proxy subscribes to ipc.llm.{sessionId} and forwards them to
+    // the Anthropic API with real credentials.
+    let llmProxy: { close: () => void } | undefined;
+    if (request.agentType === 'claude-code' && config.providers.sandbox === 'k8s') {
+      llmProxy = await startNATSLLMProxy({ sessionId });
+      logger.info('nats_llm_proxy_started', { sessionId, requestId });
+    }
+
     try {
       const result = await processCompletion(
         completionDeps,
@@ -318,6 +329,11 @@ async function main(): Promise<void> {
             error: (err as Error).message,
           });
         });
+      }
+      // Shut down the per-session NATS LLM proxy for claude-code.
+      if (llmProxy) {
+        llmProxy.close();
+        logger.info('nats_llm_proxy_closed', { sessionId, requestId });
       }
     }
   }

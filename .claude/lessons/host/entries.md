@@ -77,3 +77,9 @@
 **Context:** Webhook transforms were fully implemented in server.ts (local all-in-one) but the k8s host entry point (host-process.ts) was never updated. K8s acceptance tests returned 404 for all webhook routes.
 **Lesson:** AX has two HTTP server entry points: `server.ts` (local) and `host-process.ts` (k8s). Any new HTTP route or feature added to server.ts MUST also be ported to host-process.ts — or better, extract the shared route handling into a common module. The dispatch mechanism differs (direct processCompletion vs NATS publish), but route matching, auth, rate limiting, and response shaping should be shared. Always run acceptance tests in BOTH local and k8s environments to catch this class of gap.
 **Tags:** host-process, server, k8s, webhook, integration-gap, dual-entry-point
+
+### Per-session NATS LLM proxy must be started for claude-code in k8s mode
+**Date:** 2026-03-05
+**Context:** Phase 3 implementation had `startNATSLLMProxy()` written but not called in agent-runtime-process.ts. The claude-code runner also lacked k8s detection to switch from TCP bridge to NATS bridge.
+**Lesson:** When adding cross-pod communication (like LLM proxying via NATS), both sides must be wired: the proxy subscriber (agent-runtime) AND the publisher (sandbox pod/nats-bridge). The proxy is per-session (scoped to `ipc.llm.{sessionId}`) and must be cleaned up in `finally` blocks. Detection in the agent subprocess uses env vars (`NATS_URL`) since CLI args are set by the host.
+**Tags:** nats, llm-proxy, claude-code, k8s, agent-runtime, phase3
