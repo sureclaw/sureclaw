@@ -20,6 +20,10 @@
 - Helm subchart dependencies should be gitignored [infrastructure/entries.md](infrastructure/entries.md)
 - ConfigMap-mounted config reuses loadConfig() via AX_CONFIG_PATH [infrastructure/entries.md](infrastructure/entries.md)
 - Security contexts must stay hardcoded in k8s-client.ts [infrastructure/entries.md](infrastructure/entries.md)
+- Host deployment needs API credentials for memory recall and extraction [infrastructure/entries.md](infrastructure/entries.md)
+- Bitnami PostgreSQL needs explicit auth.password for custom users [infrastructure/entries.md](infrastructure/entries.md)
+- sqlite-vec is not available in the AX container image [infrastructure/entries.md](infrastructure/entries.md)
+- Keyword search LIKE bug: OR-joined terms treated as literal string [infrastructure/entries.md](infrastructure/entries.md)
 
 ### testing
 

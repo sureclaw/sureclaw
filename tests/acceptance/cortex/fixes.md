@@ -58,10 +58,50 @@
 **Estimated scope:** 1 file
 **Status:** FIXED — Changed to `reinforcementCount: 1` per plan spec. With read-path reinforcement now implemented (FIX-4), frequently accessed items naturally gain salience over time without an artificial initial boost.
 
+## K8s-Specific Issues (2026-03-06 run #2)
+
+### FIX-6: Helm chart does not inject API credentials into host deployment
+**Test:** IT-7, BT-8 (infrastructure blocker for multiple tests)
+**Environment:** K8s only
+**Root cause:** Incomplete
+**Location:** `charts/ax/templates/host-deployment.yaml`, `charts/ax/templates/_helpers.tpl`
+**What's wrong:** The Helm chart only mounts the `ax-api-credentials` secret as environment variables into the agent-runtime deployment. The host deployment does not receive OPENROUTER_API_KEY or DEEPINFRA_API_KEY. The host process needs these for LLM extraction (memory write path) and embedding API calls (memory read path). Currently requires manual `kubectl patch deployment` to work around.
+**What to fix:** Add the same `envFrom` / `env` secret references from the agent-runtime deployment template to the host deployment template. Both deployments need access to the API credentials secret.
+**Estimated scope:** 1-2 files (host-deployment.yaml, possibly _helpers.tpl)
+
+### FIX-7: sqlite-vec extension missing from container image
+**Test:** BT-8, IT-7, IT-8 (blocks all embedding/vector search tests)
+**Environment:** K8s only
+**Root cause:** Missing
+**Location:** `container/Dockerfile`
+**What's wrong:** The Docker image does not include the sqlite-vec native extension. The `EmbeddingStore` checks for sqlite-vec availability at startup and sets `available = false` when it can't load the extension. This disables all vector search functionality: write-time embedding generation, embedding backfill, and semantic recall.
+**What to fix:** Either (a) install sqlite-vec in the Dockerfile (npm package `sqlite-vec` or compile from source), or (b) implement a PostgreSQL-based vector store using pgvector for k8s deployments. Option (a) is simpler; option (b) is more architecturally sound for k8s.
+**Estimated scope:** 1 file for option (a), 3-5 files for option (b)
+
+### FIX-8: Keyword search treats OR-separated terms as literal substring
+**Test:** IT-7
+**Environment:** Both (affects local too, but masked by sqlite-vec availability locally)
+**Root cause:** Incorrect
+**Location:** `src/providers/memory/cortex/items-store.ts` (~line 157, `searchContent()` method)
+**What's wrong:** `searchContent()` builds a SQL query `WHERE content LIKE '%query%'` where `query` is the raw output of `extractQueryTerms()` (e.g., `"set OR deployment OR pipeline"`). This performs a literal substring match on the entire string including "OR", rather than splitting into separate terms and matching any of them. Keyword-based recall is effectively broken for multi-term queries.
+**What to fix:** Parse the OR-separated terms from `extractQueryTerms()` into individual terms, then build multiple `LIKE` conditions joined with SQL `OR`: `WHERE content LIKE '%set%' OR content LIKE '%deployment%' OR content LIKE '%pipeline%'`. Use parameterized queries to prevent SQL injection.
+**Estimated scope:** 1 file
+
+### FIX-9: PostgreSQL auth mismatch with Bitnami subchart defaults
+**Test:** Infrastructure setup (blocked all tests until manually fixed)
+**Environment:** K8s only
+**Root cause:** Integration gap
+**Location:** `charts/ax/values.yaml`, `charts/ax/templates/_helpers.tpl`
+**What's wrong:** When `postgresql.internal.auth.password` is not explicitly set, the Bitnami PostgreSQL subchart generates only a `postgres-password` key (superuser) in the secret. The chart's `_helpers.tpl` constructs a DATABASE_URL using the custom `ax` user, but that user doesn't have a matching password in the generated secret, causing authentication failure.
+**What to fix:** Either (a) explicitly set `postgresql.auth.username` and `postgresql.auth.password` in values.yaml defaults so the Bitnami chart creates the custom user, or (b) update `_helpers.tpl` to use the `postgres` superuser when a custom user password isn't available, or (c) add an init container/job that creates the `ax` database and user.
+**Estimated scope:** 1-2 files
+
 ## Suggested Fix Order
 
-1. **FIX-1** — Already fixed, just needs commit. Blocks k8s deployments.
-2. **FIX-2** — Embedding API key provisioning. Unblocks 5 k8s tests and cross-session recall.
-3. **FIX-3** — Taint exposure decision. Design question more than code fix.
-4. **FIX-4** — Read-path reinforcement. Low risk, improves salience accuracy over time.
-5. **FIX-5** — Write reinforcement count. May be intentional, needs design decision.
+1. **FIX-6** — API credentials in host deployment. Blocks memory extraction and embedding in k8s. Quick chart fix, high impact.
+2. **FIX-9** — PostgreSQL auth mismatch. Blocks fresh k8s deployments entirely. Small values.yaml change.
+3. **FIX-8** — Keyword search LIKE bug. Affects recall quality in both environments. Single file fix.
+4. **FIX-7** — sqlite-vec in container. Enables full vector search in k8s. Requires decision on approach (native extension vs pgvector).
+5. **FIX-1** — Already fixed, just needs commit. Blocks k8s deployments.
+6. **FIX-4** — Already fixed, needs commit.
+7. **FIX-5** — Already fixed, needs commit.

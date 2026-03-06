@@ -2,6 +2,22 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-06 20:30] -- Cortex Memory K8s-only acceptance tests (16/23 PASS, 5 SKIP, 2 PARTIAL)
+
+**Task:** Run k8s-only cortex acceptance tests (no local, no structural)
+**What I did:** Built Docker image, loaded into kind, spawned k8s agent. Agent deployed to ns ax-test-cortex-41c38415, ran 12 BT + 11 IT tests. Had to manually patch host deployment for API creds and fix PG auth.
+**Files touched:** `tests/acceptance/cortex/results-k8s.md` (overwritten), `tests/acceptance/cortex/fixes.md` (updated with FIX-6 through FIX-9)
+**Outcome:** 16/23 PASS, 5 SKIP, 2 PARTIAL. Same pattern as previous k8s run. Four new fix items: (1) FIX-6 host deployment missing API creds, (2) FIX-7 sqlite-vec missing from image, (3) FIX-8 keyword LIKE bug, (4) FIX-9 PG auth mismatch.
+**Notes:** Core memory CRUD, dedup, reinforcement, summaries, pod restart persistence all work. Gaps are infra (chart/image) and one code bug (keyword search).
+
+## [2026-03-06 15:40] -- Cortex Memory K8s acceptance tests rerun (16/23 PASS, 5 SKIP, 2 PARTIAL)
+
+**Task:** Run behavioral and integration acceptance tests for cortex memory provider on K8s/kind cluster with PostgreSQL storage (rerun after ef6da27)
+**What I did:** Deployed AX to kind cluster (ns: ax-test-cortex-41c38415). Fixed PostgreSQL auth (Bitnami subchart missing ax user password), patched host deployment to inject API credentials. Ran all 12 BT and 11 IT tests sequentially via chat API.
+**Files touched:** `tests/acceptance/cortex/results-k8s.md` (results overwritten)
+**Outcome:** 16 PASS, 5 SKIP (untestable via chat: BT-6 taint, BT-7 LLM failure, BT-8/BT-12 embedding, BT-11 summary ID rejection, IT-8 backfill), 2 PARTIAL (IT-7 recall limited by sqlite-vec absence + keyword LIKE bug). Key findings: (1) Chart needs API credentials on host deployment, not just agent-runtime. (2) Bitnami subchart needs explicit auth.password. (3) sqlite-vec missing from container image breaks embedding recall. (4) searchContent LIKE bug: OR-joined terms treated as literal string.
+**Notes:** Summaries in PostgreSQL (DbSummaryStore) work correctly. Pod restart preserves all data. Dedup and reinforcement verified. 10 default categories initialized.
+
 ## [2026-03-06 18:30] -- Cortex Memory K8s acceptance tests (15/23 PASS, 3 DEGRADED, 3 SKIP, 2 PARTIAL)
 
 **Task:** Run behavioral and integration acceptance tests for cortex memory provider on K8s/kind cluster with PostgreSQL storage

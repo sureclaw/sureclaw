@@ -100,6 +100,30 @@
 **Lesson:** In Go templates, `nil` (YAML null) has kind "invalid". Use `{{- if not (kindIs "invalid" .Values.foo) -}}` to detect user-provided values vs null defaults. This allows the pattern: null in values.yaml means "use preset or chart default", while any explicit value (including empty string or 0) is treated as a user override.
 **Tags:** helm, template, null-detection, presets
 
+### Host deployment needs API credentials for memory recall and extraction
+**Date:** 2026-03-06
+**Context:** Running k8s cortex acceptance tests -- memory recall and embedding calls returned empty because the host pod had no API keys
+**Lesson:** The Helm chart only injects `ax-api-credentials` secret into the agent-runtime deployment. The host deployment also needs API credentials for: (1) embedding-based memory recall (DEEPINFRA_API_KEY for embedding client), and (2) LLM-based memory extraction in the memorize pipeline. Until the chart is fixed, manually patch the host deployment to add envFrom/env referencing the api-credentials secret.
+**Tags:** k8s, helm, api-credentials, host, memory-recall, embeddings
+
+### Bitnami PostgreSQL needs explicit auth.password for custom users
+**Date:** 2026-03-06
+**Context:** Host pod CrashLoopBackOff with "password authentication failed for user ax"
+**Lesson:** The Bitnami PostgreSQL subchart only auto-generates `postgres-password` (superuser) in its secret. When using a custom username (e.g., `auth.username: ax`), you MUST also set `auth.password` explicitly, or the `ax` user will be created without a password while the chart's DATABASE_URL uses `postgres-password`. Fix: either set `postgresql.internal.auth.password` in values, or use `auth.username: postgres` to match the auto-generated password.
+**Tags:** k8s, helm, postgresql, bitnami, auth, password
+
+### sqlite-vec is not available in the AX container image
+**Date:** 2026-03-06
+**Context:** Embedding store returned available=false on host pod, preventing vector search
+**Lesson:** The AX Docker image does not include the sqlite-vec native extension. In k8s mode, the EmbeddingStore's `findSimilar()` returns empty arrays and `available` is false. This means embedding-based memory recall and semantic search do not work in k8s. Consider adding pgvector to PostgreSQL for k8s vector search, or bundling sqlite-vec in the container image.
+**Tags:** k8s, sqlite-vec, embeddings, container, vector-search
+
+### Keyword search LIKE bug: OR-joined terms treated as literal string
+**Date:** 2026-03-06
+**Context:** Memory recall keyword fallback produced zero results despite matching items existing
+**Lesson:** `items-store.ts:searchContent()` uses `WHERE content LIKE '%query%'` where query is the raw output of `extractQueryTerms()` (e.g., "set OR deployment OR pipeline"). This does a literal substring match for the entire string including " OR ". Fix: split on " OR " and generate multiple LIKE conditions joined with SQL OR.
+**Tags:** cortex, memory, keyword-search, bug, sql, like
+
 ### NATS nc.request() returns JetStream stream ack instead of worker reply
 **Date:** 2026-03-05
 **Context:** NATSSandboxDispatcher.claimPod() used `nc.request('tasks.sandbox.light', ...)` to claim a sandbox pod. The TASKS JetStream stream covers `tasks.sandbox.*`. The `nc.request()` returned a 27-byte JetStream publish ack (`{"stream":"TASKS","seq":N}`) instead of the worker's `claim_ack` response.
