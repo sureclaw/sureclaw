@@ -234,9 +234,18 @@ helm dependency update charts/ax
 # 4. Read API keys from .env.test (passed to each k8s agent)
 LLM_PROVIDER=$(grep -m1 'ANTHROPIC_API_KEY\|OPENROUTER_API_KEY\|OPENAI_API_KEY' .env.test | cut -d_ -f1 | tr '[:upper:]' '[:lower:]')
 API_KEY=$(grep -m1 '_API_KEY=' .env.test | cut -d= -f2-)
+
+# 5. Read embeddings API key from .env.test (used by cortex memory)
+EMBEDDINGS_PROVIDER=$(grep -m1 'DEEPINFRA_API_KEY\|OPENAI_API_KEY' .env.test | cut -d_ -f1 | tr '[:upper:]' '[:lower:]')
+EMBEDDINGS_API_KEY=$(grep -m1 'DEEPINFRA_API_KEY=' .env.test | cut -d= -f2-)
+# If no DeepInfra key, fall back to OpenAI key for embeddings
+if [ -z "$EMBEDDINGS_API_KEY" ]; then
+  EMBEDDINGS_PROVIDER="openai"
+  EMBEDDINGS_API_KEY=$(grep -m1 'OPENAI_API_KEY=' .env.test | cut -d= -f2-)
+fi
 ```
 
-Pass `KIND_CLUSTER`, `KUBE_CTX`, `LLM_PROVIDER`, and `API_KEY` to each k8s agent in its prompt. Skip k8s agents entirely if no kind cluster is available.
+Pass `KIND_CLUSTER`, `KUBE_CTX`, `LLM_PROVIDER`, `API_KEY`, `EMBEDDINGS_PROVIDER`, and `EMBEDDINGS_API_KEY` to each k8s agent in its prompt. Skip k8s agents entirely if no kind cluster is available.
 
 ### Test fixtures
 
@@ -403,6 +412,8 @@ tsx src/cli/index.ts k8s init \
   --preset small \
   --llm-provider "<LLM_PROVIDER>" \
   --api-key "<API_KEY>" \
+  --embeddings-provider "<EMBEDDINGS_PROVIDER>" \
+  --embeddings-api-key "<EMBEDDINGS_API_KEY>" \
   --database internal \
   --namespace "$K8S_NS" \
   --output "$K8S_NS-values.yaml"
@@ -621,6 +632,8 @@ tsx src/cli/index.ts k8s init \
   --preset small \
   --llm-provider "$LLM_PROVIDER" \
   --api-key "$API_KEY" \
+  --embeddings-provider "$EMBEDDINGS_PROVIDER" \
+  --embeddings-api-key "$EMBEDDINGS_API_KEY" \
   --database internal \
   --namespace "$K8S_NS" \
   --output "$K8S_NS-values.yaml"

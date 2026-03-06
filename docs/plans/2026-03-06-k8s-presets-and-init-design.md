@@ -80,6 +80,13 @@ LLM provider?
 > 1
 Anthropic API key: sk-ant-********
 
+Embeddings provider?
+  1. deepinfra
+  2. openai
+  3. none     — skip embeddings
+> 1
+DeepInfra API key: ********
+
 Database?
   1. internal  — chart provisions PostgreSQL for you
   2. external  — connect to existing PostgreSQL
@@ -91,6 +98,7 @@ PostgreSQL connection URL: postgresql://ax:secret@db.mycompany.com:5432/ax
 ✓ Created namespace ax
 ✓ Created secret ax/ax-registry-credentials (imagePullSecret)
 ✓ Created secret ax/ax-api-credentials
+✓ Created secret ax/ax-embeddings-credentials
 ✓ Created secret ax/ax-db-credentials
 ✓ Generated ax-values.yaml
 
@@ -121,6 +129,8 @@ postgresql:
 - `ax` namespace (if it doesn't exist)
 - `ax-registry-credentials` — docker-registry type secret
 - `ax-api-credentials` — with the appropriate key (e.g., `anthropic-api-key`)
+- `ax-embeddings-credentials` — with the appropriate key (e.g.,
+  `deepinfra-api-key`); only created when an embeddings provider is selected
 - `ax-db-credentials` — with `url` key (only for external DB)
 
 #### What the CLI Does NOT Do
@@ -141,6 +151,8 @@ ax k8s init \
   --registry-password "********" \
   --llm-provider anthropic \
   --api-key "sk-ant-********" \
+  --embeddings-provider deepinfra \
+  --embeddings-api-key "********" \
   --database internal \
   --namespace my-namespace \
   --output my-values.yaml
@@ -154,6 +166,8 @@ ax k8s init \
 | `--registry-password` | Registry password | Only with `--registry-url` |
 | `--llm-provider` | LLM provider prompt | Yes |
 | `--api-key` | API key prompt | Yes |
+| `--embeddings-provider` | Embeddings provider prompt | No (defaults to `none`) |
+| `--embeddings-api-key` | Embeddings API key prompt | Only with `--embeddings-provider` |
 | `--database` | Database prompt (`internal` or `external`) | Yes |
 | `--database-url` | PostgreSQL connection URL | Only with `--database external` |
 | `--namespace` | Target namespace | No (defaults to `ax`) |
