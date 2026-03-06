@@ -1,5 +1,13 @@
 # Providers: Memory
 
+## [2026-03-06 11:40] — Add SummaryStore interface and FileSummaryStore implementation
+
+**Task:** Extract existing file-based summary logic from summary-io.ts into a pluggable SummaryStore interface with a FileSummaryStore implementation (Task 1 of cortex summary storage plan)
+**What I did:** Created `summary-store.ts` with a `SummaryStore` interface (read/write/list/readAll/initDefaults) and `FileSummaryStore` class that encapsulates the same atomic-write, safePath-protected file operations from summary-io.ts but as instance methods on a class. Also created comprehensive test file with 10 tests covering round-trip, overwrite, listing, initDefaults, user-scoped isolation, path traversal sanitization, atomic writes, and readAll.
+**Files touched:** `src/providers/memory/cortex/summary-store.ts` (new), `tests/providers/memory/cortex/summary-store.test.ts` (new)
+**Outcome:** Success — all 10 tests pass
+**Notes:** The interface is designed for a later DbSummaryStore implementation (Task 2). The FileSummaryStore uses the same patterns as summary-io.ts (safePath, atomic temp-rename, wx flag for initDefaults) but packages them as a class. The unused `import type { Kysely }` and `SUMMARY_ID_PREFIX` constant are included for the upcoming DbSummaryStore.
+
 ## [2026-03-06 09:45] — Fix memory recall: wildcard scope, synchronous embeddings, observable fallback
 
 **Task:** Memory provider stores data correctly (visible in preferences.md) but agent can't retrieve it in new sessions
