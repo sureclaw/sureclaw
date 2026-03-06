@@ -1,16 +1,9 @@
 // src/migrations/jobs.ts — migration definitions for the jobs store
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { MigrationSet } from '../utils/migrator.js';
+import { type DbDialect, sqlEpoch } from './dialect.js';
 
-/**
- * Build jobs migrations for the given database dialect.
- * SQLite uses unixepoch(), PostgreSQL uses extract(epoch from now()).
- */
-export function buildJobsMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet {
-  const nowEpoch = dbType === 'postgresql'
-    ? sql`(EXTRACT(EPOCH FROM NOW())::integer)`
-    : sql`(unixepoch())`;
-
+export function buildJobsMigrations(dbType: DbDialect): MigrationSet {
   return {
     jobs_001_initial: {
       async up(db: Kysely<any>) {
@@ -28,7 +21,7 @@ export function buildJobsMigrations(dbType: 'sqlite' | 'postgresql'): MigrationS
           )
           .addColumn('run_at', 'text')
           .addColumn('created_at', 'integer', col =>
-            col.notNull().defaultTo(nowEpoch),
+            col.notNull().defaultTo(sqlEpoch(dbType)),
           )
           .execute();
 

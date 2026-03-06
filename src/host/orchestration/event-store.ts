@@ -11,7 +11,7 @@ import { mkdirSync } from 'node:fs';
 import type { Kysely } from 'kysely';
 import { createKyselyDb } from '../../utils/database.js';
 import { runMigrations } from '../../utils/migrator.js';
-import { orchestrationMigrations, buildOrchestrationMigrations } from '../../migrations/orchestration.js';
+import { buildOrchestrationMigrations } from '../../migrations/orchestration.js';
 import { dataFile, dataDir } from '../../paths.js';
 import { getLogger } from '../../logger.js';
 import type { EventBus, StreamEvent } from '../event-bus.js';
@@ -49,21 +49,13 @@ function streamEventToOrchEvent(event: StreamEvent): OrchestrationEvent | null {
 export async function createOrchestrationEventStore(
   database?: DatabaseProvider,
 ): Promise<OrchestrationEventStore> {
-  let db: Kysely<any>;
+  const dbType = database?.type ?? 'sqlite';
+  const db = database
+    ? database.db
+    : (mkdirSync(dataDir(), { recursive: true }),
+      createKyselyDb({ type: 'sqlite', path: dataFile('orchestration.db') }));
 
-  let dbType: 'sqlite' | 'postgresql' = 'sqlite';
-  if (database) {
-    db = database.db;
-    dbType = database.type;
-  } else {
-    mkdirSync(dataDir(), { recursive: true });
-    db = createKyselyDb({ type: 'sqlite', path: dataFile('orchestration.db') });
-  }
-
-  const migrations = dbType === 'postgresql'
-    ? buildOrchestrationMigrations('postgresql')
-    : orchestrationMigrations;
-  const migResult = await runMigrations(db, migrations, 'orchestration_migration');
+  const migResult = await runMigrations(db, buildOrchestrationMigrations(dbType), 'orchestration_migration');
   if (migResult.error) throw migResult.error;
 
   async function append(event: OrchestrationEvent): Promise<void> {

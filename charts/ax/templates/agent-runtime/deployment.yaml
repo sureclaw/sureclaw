@@ -35,21 +35,7 @@ spec:
               value: "0.0.0.0"
             - name: NATS_URL
               value: {{ include "ax.natsUrl" . | quote }}
-            {{- if .Values.postgresql.external.enabled }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgresql.external.existingSecret | default "ax-db-credentials" }}
-                  key: {{ .Values.postgresql.external.secretKey | default "url" }}
-            {{- else }}
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "ax.fullname" . }}-postgresql
-                  key: postgres-password
-            - name: DATABASE_URL
-              value: "postgresql://{{ .Values.postgresql.internal.auth.username | default "postgres" }}:$(PGPASSWORD)@{{ include "ax.fullname" . }}-postgresql:5432/{{ .Values.postgresql.internal.auth.database | default "ax" }}"
-            {{- end }}
+            {{- include "ax.databaseEnv" . | nindent 12 }}
             {{- range $envVar, $secretKey := .Values.apiCredentials.envVars }}
             {{- if $secretKey }}
             - name: {{ $envVar }}

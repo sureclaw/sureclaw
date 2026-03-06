@@ -1,16 +1,9 @@
 // src/migrations/orchestration.ts — migration definitions for the orchestration event store
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { MigrationSet } from '../utils/migrator.js';
+import { type DbDialect, sqlEpoch } from './dialect.js';
 
-/**
- * Build orchestration migrations for the given database dialect.
- * SQLite uses unixepoch(), PostgreSQL uses extract(epoch from now()).
- */
-export function buildOrchestrationMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet {
-  const nowEpoch = dbType === 'postgresql'
-    ? sql`(EXTRACT(EPOCH FROM NOW())::integer)`
-    : sql`(unixepoch())`;
-
+export function buildOrchestrationMigrations(dbType: DbDialect): MigrationSet {
   return {
     orch_001_events: {
       async up(db: Kysely<any>) {
@@ -26,7 +19,7 @@ export function buildOrchestrationMigrations(dbType: 'sqlite' | 'postgresql'): M
           .addColumn('parent_id', 'text')
           .addColumn('payload_json', 'text', (col) => col.notNull())
           .addColumn('created_at', 'integer', (col) =>
-            col.notNull().defaultTo(nowEpoch),
+            col.notNull().defaultTo(sqlEpoch(dbType)),
           )
           .execute();
 

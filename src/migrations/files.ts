@@ -1,15 +1,8 @@
-import { sql, type Kysely } from 'kysely';
+import type { Kysely } from 'kysely';
 import type { MigrationSet } from '../utils/migrator.js';
+import { type DbDialect, sqlNow } from './dialect.js';
 
-/**
- * Build files migrations for the given database dialect.
- * SQLite uses datetime('now'), PostgreSQL uses NOW().
- */
-export function buildFilesMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet {
-  const nowDefault = dbType === 'postgresql'
-    ? sql`NOW()`
-    : sql`(datetime('now'))`;
-
+export function buildFilesMigrations(dbType: DbDialect): MigrationSet {
   return {
     files_001_initial: {
       async up(db: Kysely<any>) {
@@ -21,7 +14,7 @@ export function buildFilesMigrations(dbType: 'sqlite' | 'postgresql'): Migration
           .addColumn('user_id', 'text', col => col.notNull())
           .addColumn('mime_type', 'text', col => col.notNull())
           .addColumn('created_at', 'text', col =>
-            col.notNull().defaultTo(nowDefault),
+            col.notNull().defaultTo(sqlNow(dbType)),
           )
           .execute();
       },

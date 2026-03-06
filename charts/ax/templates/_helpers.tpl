@@ -83,13 +83,24 @@ nats://{{ include "ax.fullname" . }}-nats.{{ .Release.Namespace }}.svc.cluster.l
 {{- end }}
 
 {{/*
-Database secret reference.
+DATABASE_URL env block — renders the correct env vars for external or internal PostgreSQL.
+Include with: {{ include "ax.databaseEnv" . | nindent <N> }}
 */}}
-{{- define "ax.databaseSecretRef" -}}
-{{- if .Values.postgresql.external.enabled -}}
-{{ .Values.postgresql.external.existingSecret | default "ax-db-credentials" }}
-{{- else -}}
-{{ include "ax.fullname" . }}-postgresql
+{{- define "ax.databaseEnv" -}}
+{{- if .Values.postgresql.external.enabled }}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.external.existingSecret | default "ax-db-credentials" }}
+      key: {{ .Values.postgresql.external.secretKey | default "url" }}
+{{- else }}
+- name: PGPASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "ax.fullname" . }}-postgresql
+      key: postgres-password
+- name: DATABASE_URL
+  value: "postgresql://{{ .Values.postgresql.internal.auth.username | default "postgres" }}:$(PGPASSWORD)@{{ include "ax.fullname" . }}-postgresql:5432/{{ .Values.postgresql.internal.auth.database | default "ax" }}"
 {{- end -}}
 {{- end }}
 

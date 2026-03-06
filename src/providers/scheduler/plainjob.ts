@@ -8,7 +8,7 @@ import type { Config } from '../../types.js';
 import type { DatabaseProvider } from '../database/types.js';
 import { createKyselyDb } from '../../utils/database.js';
 import { runMigrations } from '../../utils/migrator.js';
-import { jobsMigrations, buildJobsMigrations } from '../../migrations/jobs.js';
+import { buildJobsMigrations } from '../../migrations/jobs.js';
 import { dataDir, dataFile } from '../../paths.js';
 import {
   type ActiveHours,
@@ -33,7 +33,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     // Standalone fallback: create own Kysely instance
     mkdirSync(dataDir(), { recursive: true });
     const db = createKyselyDb({ type: 'sqlite', path: dataFile('scheduler.db') });
-    const result = await runMigrations(db, jobsMigrations, 'scheduler_migration');
+    const result = await runMigrations(db, buildJobsMigrations('sqlite'), 'scheduler_migration');
     if (result.error) throw result.error;
     jobs = new KyselyJobStore(db);
   }
