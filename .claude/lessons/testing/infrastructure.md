@@ -27,11 +27,23 @@
 **Lesson:** The `charts/ax/values.yaml` defaults include `storage: postgresql` and other production settings. The `kind-values.yaml` fixture must include a complete `config:` block to override ALL config values, not just a partial overlay. Without it, the host tries to connect to PostgreSQL which doesn't exist in the kind cluster. Always verify the rendered config with `helm template ... | grep -A 50 'ax.yaml'`.
 **Tags:** helm, kind, config, postgresql, acceptance
 
+### Avoid tokens with ! character in acceptance test configs (zsh history expansion)
+**Date:** 2026-03-05
+**Context:** Webhook acceptance tests failed with 401 because zsh escaped `!` to `\!` in curl headers
+**Lesson:** zsh's history expansion treats `!` specially even in some quoting contexts. When setting tokens in `ax.yaml` for acceptance tests, avoid `!` and other shell-special characters (`$`, backticks). The token `acceptance-test-webhook-token-32chars!` silently became `acceptance-test-webhook-token-32chars\!` in curl headers, causing timing-safe comparison to fail. Use alphanumeric-only tokens for test fixtures. If you must use special chars, write the curl command to a script file instead of inline shell.
+**Tags:** acceptance, zsh, shell-escaping, tokens, webhooks, auth
+
 ### Use curl -d @file for multi-turn JSON payloads in acceptance tests
 **Date:** 2026-03-05
 **Context:** IT-1 acceptance test appeared to fail — curl returned empty response for multi-turn conversation
 **Lesson:** The Bash tool's shell can mangle inline JSON in `curl -d '...'` arguments, producing invalid escape sequences the server rejects with HTTP 400. `curl -sf` silently hides 400 errors (returns empty, exit code 22). Always write JSON payloads to a temp file and use `curl -d @/tmp/file.json`. When debugging empty curl responses, use `curl -v` (verbose) instead of `-sf` (silent+fail).
 **Tags:** acceptance, curl, json, shell-escaping, debugging
+
+### Bitnami PostgreSQL subchart image tags must be fully qualified
+**Date:** 2026-03-05
+**Context:** K8s acceptance test PostgreSQL pod stuck in ImagePullBackOff with `bitnami/postgresql:17`
+**Lesson:** The Bitnami PostgreSQL subchart defaults to a fully qualified image tag like `17.6.0-debian-12-r4`. When overriding `postgresql.image.tag` in kind-values.yaml, short tags like `"17"` don't exist in Bitnami's registry. Either: (1) don't override the tag (let the subchart default apply), (2) use the exact tag from the subchart's values.yaml, or (3) pre-pull and tag the image locally (`docker tag bitnami/postgresql:latest bitnami/postgresql:17 && kind load docker-image ...`). For kind clusters, option (1) is safest but requires internet access during the pull.
+**Tags:** k8s, helm, postgresql, bitnami, image-tag, kind, acceptance
 
 ### Tool count tests are scattered across many test files
 **Date:** 2026-02-26
