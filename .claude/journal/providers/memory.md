@@ -1,5 +1,13 @@
 # Providers: Memory
 
+## [2026-03-06 12:10] — Remove dead summary-io code and make tests storage-agnostic
+
+**Task:** Tasks 5 and 6 of cortex summary storage plan: delete orphaned summary-io module and update provider tests to assert via query() instead of reading .md files from disk
+**What I did:** (1) Verified no src/ files import summary-io.ts (only summary-io.ts itself). Deleted `src/providers/memory/cortex/summary-io.ts` and `tests/providers/memory/cortex/summary-io.test.ts`. (2) Updated two provider tests that used `readFile(join(memoryDir, 'knowledge.md'))` and `readFile(join(memoryDir, 'work_life.md'))` to instead use `memory.query()` and find results with `SUMMARY_ID_PREFIX`. (3) Removed unused `readFile` and `dataFile` imports from provider test. (4) Fixed pre-existing integration test failure where dedup assertion counted 2 instead of 1 — the summary-appending from Task 4 added a summary result. Fixed by filtering out summary IDs before the count assertion.
+**Files touched:** `src/providers/memory/cortex/summary-io.ts` (deleted), `tests/providers/memory/cortex/summary-io.test.ts` (deleted), `tests/providers/memory/cortex/provider.test.ts` (modified), `tests/providers/memory/cortex/integration.test.ts` (modified)
+**Outcome:** Success — all 143 tests pass across 12 cortex test files
+**Notes:** The integration test failure was caused by Task 4's summary-appending behavior — query() now returns items + summaries, so tests that assert exact result counts need to filter by ID prefix.
+
 ## [2026-03-06 12:00] — Wire summaries into query() as trailing results
 
 **Task:** Task 4 of cortex summary storage plan — make query() return summaries after item-level results when limit slots remain, and add guard clauses to read()/delete() for summary IDs

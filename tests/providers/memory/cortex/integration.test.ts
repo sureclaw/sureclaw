@@ -8,6 +8,7 @@ import { create } from '../../../../src/providers/memory/cortex/provider.js';
 import type { MemoryProvider, ConversationTurn } from '../../../../src/providers/memory/types.js';
 import type { Config } from '../../../../src/types.js';
 import type { LLMProvider, ChatChunk } from '../../../../src/providers/llm/types.js';
+import { SUMMARY_ID_PREFIX } from '../../../../src/providers/memory/cortex/summary-store.js';
 
 const config = {} as Config;
 
@@ -89,7 +90,9 @@ describe('Cortex integration', () => {
     await memory.memorize!(conv2);
 
     const results = await memory.query({ scope: 'default', query: 'PostgreSQL' });
-    expect(results).toHaveLength(1);
+    // Filter out appended summaries — this test only cares about item dedup
+    const items = results.filter(r => !r.id?.startsWith(SUMMARY_ID_PREFIX));
+    expect(items).toHaveLength(1);
   });
 
   it('write + read + delete round-trip', async () => {

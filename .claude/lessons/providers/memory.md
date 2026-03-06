@@ -1,5 +1,11 @@
 # Provider Lessons: Memory
 
+### Tests asserting exact query() result counts must account for appended summaries
+**Date:** 2026-03-06
+**Context:** After wiring summaries into query() as trailing results (Task 4), a pre-existing integration test (`dedup: same fact mentioned twice -> one entry reinforced`) failed because it expected `toHaveLength(1)` but got 2 — the second result was an appended summary.
+**Lesson:** When `query()` appends summary entries after item results, any test that asserts an exact result count (`toHaveLength(N)`) will break. Filter out summary entries before count assertions: `results.filter(r => !r.id?.startsWith(SUMMARY_ID_PREFIX))`. Only test summary-specific behavior in dedicated summary tests. This is especially important when modifying the query() return shape — run ALL tests, not just the ones you changed.
+**Tags:** cortex, testing, query, summaries, result-count, breaking-change
+
 ### Wildcard scope '*' must be handled explicitly in SQL queries — it's not a SQL pattern
 **Date:** 2026-03-06
 **Context:** Memory recall was returning empty results despite data existing in SQLite. The `memory_recall_scope` config defaults to `'*'`, but `listByScope()` and `searchContent()` used `WHERE scope = '*'` (literal string match), which matched nothing since items are stored with scope `'default'`.

@@ -1,6 +1,6 @@
 // tests/providers/memory/cortex/provider.test.ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -8,7 +8,6 @@ import { create } from '../../../../src/providers/memory/cortex/provider.js';
 import type { MemoryProvider, ConversationTurn } from '../../../../src/providers/memory/types.js';
 import type { Config } from '../../../../src/types.js';
 import type { LLMProvider, ChatChunk } from '../../../../src/providers/llm/types.js';
-import { dataFile } from '../../../../src/paths.js';
 import { SUMMARY_ID_PREFIX } from '../../../../src/providers/memory/cortex/summary-store.js';
 
 const config = {} as Config;
@@ -288,10 +287,11 @@ describe('cortex provider with LLM', () => {
     await new Promise(r => setTimeout(r, 50));
 
     expect(llm.chat).toHaveBeenCalled();
-    // Verify summary file was updated with LLM content
-    const memoryDir = dataFile('memory');
-    const summary = await readFile(join(memoryDir, 'knowledge.md'), 'utf-8');
-    expect(summary).toContain('REST');
+    // Verify summary is available via query() (storage-agnostic)
+    const results = await memory.query({ scope: 'default', query: 'REST', limit: 20 });
+    const summaryResult = results.find(r => r.id?.startsWith(SUMMARY_ID_PREFIX));
+    expect(summaryResult).toBeDefined();
+    expect(summaryResult!.content).toContain('REST');
   });
 
   it('memorize() uses LLM extraction when LLM available', async () => {
@@ -357,8 +357,10 @@ describe('cortex provider with LLM', () => {
     ];
     await memory.memorize!(conversation);
 
-    const memoryDir = dataFile('memory');
-    const summary = await readFile(join(memoryDir, 'work_life.md'), 'utf-8');
-    expect(summary).toContain('Acme Corp');
+    // Verify summary is available via query() (storage-agnostic)
+    const results = await memory.query({ scope: 'default', query: 'Acme', limit: 20 });
+    const summaryResult = results.find(r => r.id?.startsWith(SUMMARY_ID_PREFIX));
+    expect(summaryResult).toBeDefined();
+    expect(summaryResult!.content).toContain('Acme Corp');
   });
 });
