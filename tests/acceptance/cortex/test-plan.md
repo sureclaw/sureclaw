@@ -1,20 +1,20 @@
-# Acceptance Tests: MemoryFS v2
+# Acceptance Tests: Cortex Memory Provider
 
-**Plan document(s):** `docs/plans/2026-03-02-memoryfs-v2-plan.md`
-**Date designed:** 2026-03-03
-**Total tests:** 41 (ST: 24, BT: 9, IT: 8)
+**Plan document(s):** `docs/plans/2026-03-02-memoryfs-v2-plan.md`, `docs/plans/2026-03-06-cortex-summary-storage.md`
+**Date designed:** 2026-03-03 (updated 2026-03-06 with summary storage tests)
+**Total tests:** 51 (ST: 28, BT: 12, IT: 11)
 
 ## Summary of Acceptance Criteria
 
 Extracted from the v2 plan's design decisions, data flow diagrams, security checklist, task specifications, and the implemented embedding/recall system:
 
 ### Architecture & Data Model
-1. Two complementary stores: markdown files for category summaries, SQLite for atomic items
+1. Two complementary stores: pluggable SummaryStore for category summaries, SQLite/PostgreSQL for atomic items
 2. Six memory types: profile, event, knowledge, behavior, skill, tool
 3. Ten default categories matching memU: personal_info, preferences, relationships, activities, goals, experiences, knowledge, opinions, habits, work_life
 4. Items stored as SQLite rows with 15 columns matching the plan's schema
-5. Category summaries stored as flat `.md` files matching memU format (`# category`, `## sub-topic`, `- bullet`)
-6. On-disk layout: `memory/` directory with `.md` files + `_store.db` + `_vec.db`
+5. **Summary storage is pluggable:** FileSummaryStore (local dev / SQLite) writes `.md` files; DbSummaryStore (k8s / PostgreSQL) writes to `cortex_summaries` table
+6. On-disk layout (local): `memory/` directory with `.md` files + `_store.db` + `_vec.db`; (k8s): summaries in database, items in shared database
 
 ### Write Path
 7. Conversation -> Extract -> Dedup/Reinforce -> Categorize -> Write items to SQLite -> Update category summary .md files
@@ -27,8 +27,11 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 12. Retrieval uses memU's salience formula: `similarity * log(reinforcement + 1) * recency_decay`
 13. Recency factor: `exp(-0.693 * days / half_life)` with 30-day default half-life
 14. Query results ranked by salience score
-15. **Embedding-based semantic search** when `q.embedding` is provided -- preferred path
+15. **Embedding-based semantic search** when `q.embedding` is provided -- preferred path (summaries NOT appended for embedding queries)
 16. **Keyword fallback** when no embedding available -- graceful degradation
+16a. **Summaries appended after items** in keyword/listing queries to fill remaining `limit` slots
+16b. **Summary IDs** use `summary:` prefix -- `read()` and `delete()` reject them gracefully
+16c. **User-scoped summaries** appear before shared summaries; empty defaults (content = `# category`) are skipped
 
 ### Context Injection (Long-Term Memory Recall)
 17. **On every user message**, the host process embeds the user's prompt and queries memory for semantically similar entries
@@ -183,21 +186,21 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ---
 
-### ST-7: Summary files use safePath for all path construction
+### ST-7: Summary store uses safePath for all path construction
 
 **Criterion:** "All file paths use safePath() -- no raw path.join() with user input" (Plan, Security Checklist)
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Security Checklist
 
 **Verification steps:**
-1. Read `src/providers/memory/memoryfs/summary-io.ts`
+1. Read `src/providers/memory/cortex/summary-store.ts`
 2. Grep for `safePath` usage -- every function that takes a `category` parameter must use `safePath(memoryDir, ...)`
 3. Grep for raw `path.join` with user-controlled input (should be none)
-4. Verify `writeSummary`, `readSummary`, `categoryExists` all call `safePath`
+4. Verify `FileSummaryStore.read`, `FileSummaryStore.write`, `FileSummaryStore.initDefaults` all call `safePath`
 
 **Expected outcome:**
-- [ ] `writeSummary` uses `safePath(memoryDir, ...)` for file path
-- [ ] `readSummary` uses `safePath(memoryDir, ...)` for file path
-- [ ] `categoryExists` uses `safePath(memoryDir, ...)` for file path
+- [ ] `FileSummaryStore.read()` uses `safePath(memoryDir, ...)` for file path
+- [ ] `FileSummaryStore.write()` uses `safePath(memoryDir, ...)` for file path
+- [ ] `FileSummaryStore.initDefaults()` uses `safePath(memoryDir, ...)` for file path
 - [ ] No raw `join()` with user-controlled `category` parameter
 
 **Pass/Fail:** _pending_
@@ -584,6 +587,101 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ---
 
+### ST-25: SummaryStore interface and dual implementations
+
+**Criterion:** Pluggable summary storage — FileSummaryStore for local/SQLite, DbSummaryStore for PostgreSQL/k8s
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Verification steps:**
+1. Read `src/providers/memory/cortex/summary-store.ts`
+2. Check `SummaryStore` interface exports: `read`, `write`, `list`, `readAll`, `initDefaults`
+3. Check `SUMMARY_ID_PREFIX` is exported as `'summary:'`
+4. Check `FileSummaryStore` implements `SummaryStore` using `safePath` for all paths
+5. Check `DbSummaryStore` implements `SummaryStore` using `cortex_summaries` table
+6. Check `DbSummaryStore` uses `'__shared__'` sentinel for non-user-scoped summaries (avoids NULL in unique index)
+7. Check `DbSummaryStore.write()` uses `ON CONFLICT DO UPDATE` (race-free upsert)
+8. Check `DbSummaryStore.initDefaults()` uses `ON CONFLICT DO NOTHING` (idempotent)
+
+**Expected outcome:**
+- [ ] `SummaryStore` interface has 5 methods
+- [ ] `SUMMARY_ID_PREFIX = 'summary:'` exported
+- [ ] `FileSummaryStore` uses `safePath` for all file operations
+- [ ] `DbSummaryStore` uses `__shared__` default, not NULL
+- [ ] `DbSummaryStore.write()` is upsert (ON CONFLICT DO UPDATE)
+- [ ] `DbSummaryStore.initDefaults()` is idempotent (ON CONFLICT DO NOTHING)
+
+**Pass/Fail:** _pending_
+
+---
+
+### ST-26: cortex_summaries migration creates table with correct schema
+
+**Criterion:** Database migration creates `cortex_summaries` table for k8s summary persistence
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Verification steps:**
+1. Read `src/providers/memory/cortex/migrations.ts`
+2. Check `memory_002_summaries` migration exists
+3. Check table has columns: `category` (TEXT NOT NULL), `user_id` (TEXT NOT NULL DEFAULT '__shared__'), `content` (TEXT NOT NULL), `updated_at` (TEXT NOT NULL)
+4. Check unique index `idx_summaries_pk` on `(category, user_id)`
+
+**Expected outcome:**
+- [ ] `memory_002_summaries` migration exists
+- [ ] Table name is `cortex_summaries`
+- [ ] `user_id` defaults to `'__shared__'` (NOT NULL)
+- [ ] Unique composite index on `(category, user_id)` exists
+
+**Pass/Fail:** _pending_
+
+---
+
+### ST-27: Provider selects SummaryStore based on database type
+
+**Criterion:** Provider uses DbSummaryStore for non-SQLite databases, FileSummaryStore for SQLite/standalone
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Verification steps:**
+1. Read `src/providers/memory/cortex/provider.ts`
+2. Check `create()` function: `database && database.type !== 'sqlite' ? new DbSummaryStore(database.db) : new FileSummaryStore(memoryDir)`
+3. Check `updateCategorySummary()` takes `SummaryStore` (not `memoryDir: string`)
+4. Verify no remaining imports from `summary-io.ts` (file was deleted)
+
+**Expected outcome:**
+- [ ] Provider uses `DbSummaryStore` when `database.type !== 'sqlite'`
+- [ ] Provider uses `FileSummaryStore` when database is SQLite or absent
+- [ ] `updateCategorySummary` uses `SummaryStore` interface
+- [ ] No references to deleted `summary-io.ts`
+
+**Pass/Fail:** _pending_
+
+---
+
+### ST-28: query() appends summaries after items and guards summary IDs
+
+**Criterion:** Summaries appear as trailing results in keyword/listing queries; embedding queries skip summaries; read()/delete() reject summary IDs
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Verification steps:**
+1. Read `src/providers/memory/cortex/provider.ts`, `query()` function
+2. Check keyword path: items ranked by salience first, then summaries appended filling remaining `limit` slots
+3. Check embedding path: returns items only, no summaries
+4. Check summary entries use `SUMMARY_ID_PREFIX + category` as ID
+5. Check summaries with content matching `# ${category}` (empty defaults) are skipped
+6. Check `read()`: returns `null` for IDs starting with `SUMMARY_ID_PREFIX`
+7. Check `delete()`: returns early (no-op) for IDs starting with `SUMMARY_ID_PREFIX`
+
+**Expected outcome:**
+- [ ] Keyword queries return `[...itemResults, ...summaryEntries]` (items first)
+- [ ] Embedding queries return items only (no summary append)
+- [ ] Summary entries have `id: 'summary:<category>'`
+- [ ] Empty default summaries (`# category`) are skipped
+- [ ] `read('summary:knowledge')` returns `null`
+- [ ] `delete('summary:knowledge')` is a no-op
+
+**Pass/Fail:** _pending_
+
+---
+
 ### ST-16-old: Query results ranked by salience score
 
 **Criterion:** "Rank by salience --> Reinforce accessed items --> return" (Plan, lines 56-58)
@@ -661,7 +759,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Task 6
 
 **Setup:**
-- AX server running with `memory: memoryfs` configured
+- AX server running with `memory: cortex` configured
 - LLM provider available (required for extraction)
 - Fresh session ID
 
@@ -691,7 +789,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Data flow
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Fresh session ID
 
 **Chat script:**
@@ -719,7 +817,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Security Checklist
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Two different scope values
 
 **Chat script:**
@@ -744,24 +842,26 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ---
 
-### BT-4: Summary file creation on memorize
+### BT-4: Summary creation on memorize
 
-**Criterion:** "Update category summary .md files" (Plan, data flow line 45-46)
-**Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Data flow
+**Criterion:** Memorize pipeline must update category summaries via LLM
+**Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Data flow; updated by `2026-03-06-cortex-summary-storage.md`
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Fresh memory directory
 
 **Chat script:**
 1. Send: `Remember that I prefer VS Code with vim keybindings`
    Expected behavior: Agent stores the preference
-   Structural check: A summary `.md` file in the memory directory contains the preference
+   Structural check (local): A summary `.md` file in the memory directory contains the preference
+   Structural check (k8s): `cortex_summaries` table has a row with content about vim keybindings
+   Structural check (either): Query `{ scope: "default" }` returns a summary entry (ID starts with `summary:`) with relevant content
 
 **Expected outcome:**
-- [ ] Memory directory exists at `~/.ax/data/memory/`
-- [ ] At least one `.md` file contains content about vim keybindings or VS Code
-- [ ] The `.md` file follows memU format: `# category_name` heading with bullet items
+- [ ] Summary contains content about vim keybindings or VS Code
+- [ ] Summary follows memU format: `# category_name` heading with bullet items
+- [ ] Summary visible in query results (see BT-10 for full verification)
 
 **Pass/Fail:** _pending_
 
@@ -773,7 +873,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Task 8
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 
 **Chat script:**
 1. Write via API: `{ scope: "test", content: "Test fact for round-trip" }`
@@ -801,7 +901,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Security Checklist
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 
 **Chat script:**
 1. Write via API: `{ scope: "test", content: "External fact", taint: { source: "web", trust: "external", timestamp: "2026-03-03T00:00:00Z" } }`
@@ -825,7 +925,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** Updated design decision -- no regex fallback
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - LLM provider configured but made to fail (e.g., invalid API key, model unavailable, or mock that throws)
 
 **Chat script:**
@@ -854,7 +954,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** Implementation requirement
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - OPENAI_API_KEY set (embedding client available)
 
 **Chat script:**
@@ -884,7 +984,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `src/host/memory-recall.ts`, `src/host/server-completions.ts`
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - `memory_recall: true` in config
 - OPENAI_API_KEY set (for embedding)
 - Previously stored memories about a specific topic (e.g., "The user prefers Python for data science")
@@ -914,6 +1014,98 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ---
 
+### BT-10: Summaries appear in query results after items
+
+**Criterion:** Keyword/listing queries must return items first, then summaries filling remaining `limit` slots
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- LLM provider available (required for summary generation)
+- Session ID: `acceptance:cortex:bt10`
+
+**Chat script:**
+1. Store a specific fact via chat: `"Remember that my favorite programming language is Rust"`
+   Wait for memorize to complete (check log for `memorize` entry)
+
+2. Query via memory tool or API: `{ scope: "default", query: "programming language" }`
+   Expected: Results include item(s) about Rust AND at least one summary entry
+   Structural check: Item results appear first (no `summary:` prefix in ID), summary results appear after (ID starts with `summary:`)
+
+3. Query with very small limit: `{ scope: "default", query: "programming language", limit: 1 }`
+   Expected: Returns only the item (the most specific hit), not a summary
+   Rationale: Items take priority over summaries when limit is tight
+
+**Expected outcome:**
+- [ ] Query returns items before summaries
+- [ ] Summary entries have IDs starting with `summary:`
+- [ ] Summary content is human-readable markdown (not raw JSON)
+- [ ] Limit=1 returns the most relevant item, not a summary
+- [ ] Empty default summaries (just `# category_name`) are NOT returned
+
+**Pass/Fail:** _pending_
+
+---
+
+### BT-11: Summary IDs rejected by read() and delete()
+
+**Criterion:** `read()` and `delete()` must gracefully handle synthetic summary IDs
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- At least one summary exists (from prior memorization)
+
+**Chat script:**
+1. Query to get a summary entry: `{ scope: "default" }`
+   Find an entry with ID starting with `summary:` (e.g., `summary:knowledge`)
+
+2. Attempt to read it: `read("summary:knowledge")`
+   Expected: Returns `null` (not an error)
+
+3. Attempt to delete it: `delete("summary:knowledge")`
+   Expected: No error, no crash, no-op
+
+4. Re-query: summaries still appear in results (delete was a no-op)
+
+**Expected outcome:**
+- [ ] `read()` returns `null` for summary IDs (not an error)
+- [ ] `delete()` is a no-op for summary IDs (not an error)
+- [ ] Summaries persist after attempted delete
+
+**Pass/Fail:** _pending_
+
+---
+
+### BT-12: Embedding queries skip summaries
+
+**Criterion:** Embedding-based semantic search returns only items, not summaries
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- OPENAI_API_KEY or equivalent set (embedding client available)
+- Existing items and summaries in memory
+
+**Chat script:**
+1. Store facts via chat: `"Remember that we use Docker for containerization"`
+   Wait for memorize + embedding storage
+
+2. Embed query text "containerization" and pass vector: `query({ scope: "default", embedding: <vector> })`
+   Expected: Returns item(s) about Docker -- NO summary entries in results
+
+3. Same query without embedding: `query({ scope: "default", query: "containerization" })`
+   Expected: Returns items AND summaries (keyword path appends summaries)
+
+**Expected outcome:**
+- [ ] Embedding query returns items only (no `summary:` IDs in results)
+- [ ] Keyword query for same term returns items + summaries
+- [ ] Embedding path is not degraded by summary logic
+
+**Pass/Fail:** _pending_
+
+---
+
 ## Integration Tests
 
 ### IT-1: Full memorize -> query -> reinforcement lifecycle
@@ -922,7 +1114,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Data flow (lines 39-58)
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - LLM provider available (required for extraction)
 - Session ID: `acceptance-memoryfs-v2-IT-1`
 
@@ -951,15 +1143,16 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
    ```
    Verify: No new item created; existing item's reinforcement_count incremented
 
-5. [Check on-disk state]
-   Action: Read memory directory files
-   Verify: Summary `.md` files updated with new content
+5. [Check summary state]
+   Action: Query with broad keyword to retrieve summaries: `{ scope: "default" }`
+   Verify: At least one summary entry (ID starts with `summary:`) contains relevant content
+   Alternative: For local env, read summary `.md` files in memory directory
 
 **Expected final state:**
 - [ ] SQLite contains exactly 2 unique items (not 3, due to dedup)
 - [ ] Dark mode item has reinforcement_count >= 2
-- [ ] At least one summary `.md` file contains relevant content
-- [ ] Default category files exist (all 10)
+- [ ] Summaries contain relevant content (visible in query results as `summary:*` entries)
+- [ ] Default categories initialized (all 10)
 
 **Pass/Fail:** _pending_
 
@@ -971,7 +1164,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Security Checklist
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Session ID: `acceptance-memoryfs-v2-IT-2`
 
 **Sequence:**
@@ -1014,7 +1207,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Design Decisions
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Session ID: `acceptance-memoryfs-v2-IT-3`
 
 **Sequence:**
@@ -1049,34 +1242,38 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ### IT-4: Default category initialization on provider create
 
-**Criterion:** "initDefaultCategories creates empty files for all 10 defaults" (Plan, lines 739-747)
-**Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Task 4
+**Criterion:** `initDefaults()` creates defaults for all 10 categories via the active SummaryStore
+**Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Task 4; updated by `2026-03-06-cortex-summary-storage.md`
 
 **Setup:**
 - Fresh memory directory (no prior state)
-- AX server starts with `memory: memoryfs`
+- AX server starts with `memory: cortex`
 
 **Sequence:**
 1. [Provider creates default categories]
    Action: Start provider (or verify post-startup)
-   Verify: Memory directory exists
+   Verify: Memory directory exists (local) or `cortex_summaries` table has rows (k8s)
 
-2. [Check category files]
+2. [Check category defaults — local env]
    Action: List `.md` files in memory directory
    Verify: Exactly 10 `.md` files exist (excluding _store.db and _vec.db)
 
-3. [Check file content]
-   Action: Read each `.md` file
+3. [Check category defaults — k8s env (if applicable)]
+   Action: Query `cortex_summaries` table: `SELECT category FROM cortex_summaries WHERE user_id = '__shared__'`
+   Verify: Exactly 10 rows, one per default category
+
+4. [Check content]
+   Action: Read each summary (file or DB row)
    Verify: Each contains `# category_name\n` as initial content
 
-4. [Verify idempotence]
-   Action: Call initDefaultCategories again
-   Verify: No files overwritten, existing content preserved
+5. [Verify idempotence]
+   Action: Restart provider (calls `initDefaults()` again)
+   Verify: No content overwritten, existing content preserved
 
 **Expected final state:**
-- [ ] 10 `.md` files: personal_info.md, preferences.md, relationships.md, activities.md, goals.md, experiences.md, knowledge.md, opinions.md, habits.md, work_life.md
-- [ ] Each file starts with `# category_name`
-- [ ] _store.db and _vec.db exist but are not `.md` files
+- [ ] 10 default categories initialized (FileSummaryStore: `.md` files; DbSummaryStore: DB rows)
+- [ ] Each starts with `# category_name`
+- [ ] `initDefaults()` is idempotent (FileSummaryStore: `wx` flag; DbSummaryStore: `ON CONFLICT DO NOTHING`)
 
 **Pass/Fail:** _pending_
 
@@ -1088,7 +1285,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `2026-03-02-memoryfs-v2-plan.md`, Task 5 + Task 8
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - Session ID: `acceptance-memoryfs-v2-IT-5`
 
 **Sequence:**
@@ -1123,7 +1320,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** Implementation requirement for robustness
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - No OPENAI_API_KEY set (embedding client unavailable)
 
 **Sequence:**
@@ -1159,7 +1356,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `src/host/memory-recall.ts`, `src/host/server-completions.ts`
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - OPENAI_API_KEY set
 - `memory_recall: true` in config
 - Two separate session IDs
@@ -1200,7 +1397,7 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 **Plan reference:** `src/providers/memory/memoryfs/provider.ts`, `backfillEmbeddings()`
 
 **Setup:**
-- AX server running with `memory: memoryfs`
+- AX server running with `memory: cortex`
 - OPENAI_API_KEY set
 
 **Sequence:**
@@ -1230,6 +1427,134 @@ Extracted from the v2 plan's design decisions, data flow diagrams, security chec
 
 ---
 
+### IT-9: Summaries survive provider restart and appear in queries
+
+**Criterion:** Summaries written via LLM must persist across provider restarts and be retrievable in subsequent queries
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- LLM provider available
+- Session ID: `acceptance:cortex:it9`
+
+**Sequence:**
+1. [Store facts to trigger summary generation]
+   Action: Send messages that will be memorized:
+   ```
+   "Remember that our API uses GraphQL with Apollo Server"
+   "Remember that we use Redis for caching"
+   ```
+   Wait for memorize to complete (check log for `memorize` entries)
+
+2. [Verify summaries exist in query results]
+   Action: Query `{ scope: "default" }`
+   Verify: Results include summary entries (ID starts with `summary:`)
+   Capture summary content for comparison
+
+3. [Restart server]
+   Action: Stop and restart the AX server (same AX_HOME)
+
+4. [Verify summaries survive restart]
+   Action: Query `{ scope: "default" }` again
+   Verify: Summary entries still present with same content as step 2
+   Verify: Items still present (SQLite persistence)
+
+**Expected final state:**
+- [ ] Summaries persist after server restart
+- [ ] Summary content matches pre-restart content
+- [ ] Items also survive restart (existing behavior)
+- [ ] No data loss from restart
+
+**Pass/Fail:** _pending_
+
+---
+
+### IT-10: Memorize updates summaries visible in query results
+
+**Criterion:** The full memorize -> summarize -> query path must work end-to-end, with LLM-generated summaries visible as query results
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- LLM provider available
+- Session ID: `acceptance:cortex:it10`
+
+**Sequence:**
+1. [First conversation: store initial facts]
+   Action: Chat about a topic:
+   ```
+   user: "I'm working on a machine learning project using PyTorch"
+   assistant: "That sounds great!"
+   user: "We're training a transformer model for text classification"
+   ```
+   Wait for memorize to complete
+
+2. [Query and check summary content]
+   Action: Query `{ scope: "default", query: "machine learning" }`
+   Verify: Results include items about PyTorch/transformer AND summary entry containing synthesized overview
+
+3. [Second conversation: add more facts on same topic]
+   Action: Chat more:
+   ```
+   user: "We switched from PyTorch to JAX for better TPU support"
+   ```
+   Wait for memorize to complete
+
+4. [Query again and verify summary was updated]
+   Action: Query `{ scope: "default", query: "machine learning" }`
+   Verify: Summary entry now reflects BOTH conversations (mentions JAX, not just PyTorch)
+   Verify: Summary is a coherent synthesis, not a raw concatenation
+
+**Expected final state:**
+- [ ] Summary content reflects information from multiple conversations
+- [ ] Summary is coherent (LLM-synthesized), not raw concatenation
+- [ ] Items from both conversations present in results
+- [ ] Summary appears after items in result ordering
+
+**Pass/Fail:** _pending_
+
+---
+
+### IT-11: User-scoped summaries separate from shared summaries
+
+**Criterion:** Summaries for user-scoped writes must be stored separately and both scopes must appear in query results
+**Plan reference:** `docs/plans/2026-03-06-cortex-summary-storage.md`
+
+**Setup:**
+- AX server running with `memory: cortex`
+- LLM provider available
+- Session ID: `acceptance:cortex:it11`
+
+**Sequence:**
+1. [Write shared fact]
+   Action: Write `{ scope: "default", content: "Project uses Node.js 20" }` (no userId)
+   Wait for summary update
+
+2. [Write user-scoped fact]
+   Action: Write `{ scope: "default", content: "I prefer vim as my editor", userId: "user-alice" }`
+   Wait for summary update
+
+3. [Query without userId]
+   Action: Query `{ scope: "default" }`
+   Verify: Returns shared items + shared summaries
+   Verify: Does NOT return user-alice's summary
+
+4. [Query with userId]
+   Action: Query `{ scope: "default", userId: "user-alice" }`
+   Verify: Returns user-alice's items + user-alice's summaries + shared summaries
+   Verify: User summaries appear before shared summaries in the summary section
+
+**Expected final state:**
+- [ ] Shared writes produce shared summaries
+- [ ] User-scoped writes produce user-scoped summaries
+- [ ] Query with userId returns both user and shared summaries
+- [ ] Query without userId returns only shared summaries
+- [ ] User summaries listed before shared summaries
+
+**Pass/Fail:** _pending_
+
+---
+
 ## Plan Deviation Checklist
 
 These are areas where the implementation may deviate from the plan document. Each should be explicitly verified during test execution:
@@ -1247,11 +1572,10 @@ These are areas where the implementation may deviate from the plan document. Eac
 **Check:** Does `write()` use reinforcementCount of 1 or some other value?
 **Impact:** Higher initial reinforcement (implementation uses 10) makes explicit writes more salient than memorize-extracted items.
 
-### DEV-3: Summary search in read path
+### DEV-3: Summary search in read path — RESOLVED
 
 **Plan says (data flow, lines 51-55):** "query --> Search summaries (grep .md files) --> sufficient? return; not enough? --> Search items"
-**Check:** Does `query()` search summary `.md` files first, or go straight to SQLite?
-**Impact:** If summary search is skipped, the summary files are write-only (never used in provider retrieval directly). They may still serve as the source of truth for human-readable memory snapshots.
+**Resolution (2026-03-06):** Summaries are now wired into `query()`. Implementation uses items-first ordering (not summaries-first as originally planned): items ranked by salience fill the primary results, then summaries fill remaining `limit` slots. This was a deliberate design choice — items provide precise hits while summaries provide broad context. Embedding queries skip summaries entirely. See `docs/plans/2026-03-06-cortex-summary-storage.md` for rationale.
 
 ### DEV-4: Read does not reinforce
 
