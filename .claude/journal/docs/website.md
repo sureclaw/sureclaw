@@ -2,6 +2,14 @@
 
 README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment.
 
+## [2026-03-05 22:30] — Add Kubernetes deployment instructions to README.md
+
+**Task:** Add step-by-step K8s deployment instructions to README.md
+**What I did:** Added a comprehensive "Deploying to Kubernetes" section between Configuration and CLI sections, covering: prerequisites, building/pushing images, creating secrets, values file, helm install, verification, architecture overview table, key configuration reference, ingress exposure, kind local dev, and FluxCD GitOps.
+**Files touched:** README.md
+**Outcome:** Success — README now has actionable deployment guide matching the Helm chart configuration
+**Notes:** Followed project voice guidelines (warm, self-deprecating). Instructions reference actual values from charts/ax/values.yaml.
+
 ## [2026-03-05 21:00] — Update README.md with changes since last update
 
 **Task:** Update README.md to reflect all changes made since the last update (commit c143cbd, 68 commits ago)

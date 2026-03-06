@@ -303,6 +303,266 @@ providers:
 
 See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details.
 
+## Deploying to Kubernetes
+
+AX ships with a production-ready Helm chart. Here's how to get it running on your cluster.
+
+### Prerequisites
+
+- Kubernetes cluster (GKE, EKS, AKS, kind, minikube — we're not picky)
+- Helm 3.x
+- `kubectl` configured for your cluster
+- A PostgreSQL database (Cloud SQL, RDS, self-hosted, whatever you've got)
+- Container images built and pushed to a registry your cluster can pull from
+
+### 1. Build and Push the Container Image
+
+```bash
+# Build the project first
+npm run build
+
+# Build the container image
+docker build -f container/Dockerfile -t your-registry/ax:latest .
+
+# Push to your registry
+docker push your-registry/ax:latest
+```
+
+The same image is used for all pod types — host, agent-runtime, pool-controller, and sandbox workers. The entrypoint is overridden per deployment via the Helm chart.
+
+### 2. Create Kubernetes Secrets
+
+AX needs up to three secrets: a registry pull secret (if your images are in a private registry), a database credential, and your LLM API keys.
+
+#### Registry Pull Secret (Private Registries)
+
+If your container images live in a private registry (GitLab, GitHub Container Registry, AWS ECR, etc.), Kubernetes needs credentials to pull them. For GitLab, create a [deploy token](https://docs.gitlab.com/ee/user/project/deploy_tokens/) with `read_registry` scope, then:
+
+```bash
+kubectl create secret docker-registry ax-registry-credentials \
+  --namespace ax \
+  --docker-server=registry.gitlab.com \
+  --docker-username=<deploy-token-name> \
+  --docker-password=<deploy-token-password> \
+  --docker-email=<your-email>
+```
+
+For other registries, swap out `--docker-server`:
+
+| Registry | Server |
+|----------|--------|
+| GitLab | `registry.gitlab.com` |
+| GitHub | `ghcr.io` |
+| AWS ECR | `<account-id>.dkr.ecr.<region>.amazonaws.com` |
+| Google GCR | `gcr.io` |
+| Docker Hub | `https://index.docker.io/v1/` |
+
+Then tell Kubernetes to use it for every pod in the namespace by patching the default service account:
+
+```bash
+kubectl patch serviceaccount default -n ax \
+  -p '{"imagePullSecrets": [{"name": "ax-registry-credentials"}]}'
+```
+
+This way you don't need to add `imagePullSecrets` to every pod spec — any pod in the `ax` namespace will automatically use the credentials. If you're using a public registry, skip this step entirely.
+
+#### Database Credentials
+
+If you're using an **external PostgreSQL** (Cloud SQL, RDS, etc.), create a secret with the connection URL:
+
+```bash
+kubectl create secret generic ax-db-credentials \
+  --namespace ax \
+  --from-literal=url="postgresql://ax:yourpassword@your-db-host:5432/ax"
+```
+
+If you're using the **internal Bitnami PostgreSQL** subchart (`postgresql.internal.enabled: true`), skip this — the chart automatically constructs `DATABASE_URL` from the subchart's generated password secret.
+
+#### API Credentials
+
+```bash
+# Add whichever providers you use — missing keys won't crash pods
+kubectl create secret generic ax-api-credentials \
+  --namespace ax \
+  --from-literal=anthropic-api-key="sk-ant-..." \
+  --from-literal=openrouter-api-key="sk-or-..." \
+  --from-literal=openai-api-key="sk-..."
+```
+
+API credential keys are optional — if you only use Anthropic, you don't need to include the others. Credentials never enter sandbox containers — they're injected server-side into the agent-runtime pods only.
+
+### 3. Create a Values File
+
+Create a `my-values.yaml` to override the defaults. At minimum, point the images at your registry:
+
+```yaml
+# my-values.yaml
+
+# Set image tag once for all components (host, agent-runtime, pool-controller)
+global:
+  imageTag: "latest"
+
+host:
+  image:
+    repository: your-registry/ax
+
+agentRuntime:
+  image:
+    repository: your-registry/ax
+
+poolController:
+  image:
+    repository: your-registry/ax
+
+sandbox:
+  image:
+    repository: your-registry/ax
+    tag: latest
+  # Set to "" if your cluster doesn't have gVisor (kind, minikube, etc.)
+  runtimeClass: "gvisor"
+
+# AX application config (rendered as ax.yaml ConfigMap)
+config:
+  profile: paranoid
+  models:
+    default: ["anthropic/claude-sonnet-4-20250514"]
+  providers:
+    sandbox: k8s
+    database: postgresql
+    storage: database
+    eventbus: nats
+    audit: database
+    scanner: patterns
+
+# PostgreSQL — external database (or set internal.enabled: true for Bitnami subchart)
+postgresql:
+  external:
+    enabled: true
+    existingSecret: "ax-db-credentials"
+    secretKey: "url"
+  internal:
+    enabled: false
+
+# API credentials secret
+apiCredentials:
+  existingSecret: "ax-api-credentials"
+  envVars:
+    ANTHROPIC_API_KEY: "anthropic-api-key"
+```
+
+### 4. Install with Helm
+
+```bash
+# Update Helm dependencies (pulls NATS subchart)
+helm dependency update ./charts/ax
+
+# Install
+helm install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace
+```
+
+### 5. Verify the Deployment
+
+```bash
+# Check that all pods are running
+kubectl get pods -n ax
+
+# You should see:
+#   ax-host-xxx          — HTTP ingress (x2)
+#   ax-agent-runtime-xxx — conversation layer (x3)
+#   ax-pool-controller-xxx — sandbox pool manager (x1)
+#   ax-nats-xxx          — NATS JetStream (x3)
+#   ax-sandbox-light-xxx — warm sandbox pods (x2, managed by pool controller)
+
+# Verify the host is healthy
+kubectl port-forward -n ax svc/ax-host 8080:80 &
+curl http://localhost:8080/health
+
+# Check NATS streams were created
+kubectl exec -n ax ax-nats-0 -- nats stream ls
+# Should show: SESSIONS, TASKS, RESULTS, EVENTS, IPC
+```
+
+### Architecture Overview
+
+The Helm chart deploys a three-layer architecture:
+
+| Layer | Pods | Role |
+|-------|------|------|
+| **Ingress** | `host` | Stateless HTTP API. Routes requests, streams SSE events. No LLM calls, no credentials. |
+| **Conversation** | `agent-runtime` | Runs agent sessions, makes LLM calls, dispatches tools to sandbox pods via NATS. |
+| **Execution** | `sandbox` (ephemeral) | Isolated tool execution. No network, no credentials, no host filesystem. gVisor runtime. |
+
+Communication between layers flows through **NATS JetStream**. PostgreSQL provides shared persistent state. The pool controller maintains a warm pool of sandbox pods so tool execution doesn't wait for cold starts.
+
+### Key Configuration
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `host.replicas` | 2 | Host pod count (stateless, scale freely) |
+| `agentRuntime.replicas` | 3 | Agent runtime pods (each handles multiple sessions) |
+| `sandbox.runtimeClass` | `"gvisor"` | Set to `""` for clusters without gVisor |
+| `sandbox.tiers.light.minReady` | 2 | Warm sandbox pods kept ready |
+| `sandbox.tiers.light.maxReady` | 10 | Maximum warm sandbox pods |
+| `sandbox.tiers.heavy.minReady` | 0 | Heavy-tier pods (on-demand by default) |
+| `networkPolicies.enabled` | true | Enforce zero-egress on sandbox pods |
+| `nats.config.cluster.replicas` | 3 | NATS cluster size |
+| `host.autoscaling.enabled` | false | Enable HPA for host pods |
+| `agentRuntime.autoscaling.enabled` | false | Enable HPA for agent-runtime pods |
+
+### Exposing AX
+
+By default the host Service is `ClusterIP`. To expose it externally:
+
+```yaml
+# my-values.yaml — enable Ingress
+host:
+  ingress:
+    enabled: true
+    className: "nginx"  # or your ingress class
+    host: "ax.yourdomain.com"
+    tls:
+      - secretName: ax-tls
+        hosts:
+          - ax.yourdomain.com
+```
+
+Or use a LoadBalancer service, port-forward, or whatever your cluster setup prefers. We don't judge.
+
+### Local Development with kind
+
+For local testing without a cloud cluster:
+
+```bash
+# Create a kind cluster
+kind create cluster --name ax-dev
+
+# Load images directly (skip the registry)
+kind load docker-image your-registry/ax:latest --name ax-dev
+
+# Install with local-friendly settings
+helm install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace \
+  --set sandbox.runtimeClass="" \
+  --set nats.config.cluster.replicas=1 \
+  --set host.replicas=1 \
+  --set agentRuntime.replicas=1
+```
+
+Note: kind doesn't support gVisor, so sandbox pods run without runtime isolation. Fine for development — not recommended for production.
+
+### FluxCD GitOps
+
+For GitOps deployments, AX includes FluxCD overlays in `flux/`:
+
+```
+flux/
+├── sources/          # GitRepository + HelmRepository
+├── base/             # Base HelmRelease
+├── staging/          # Staging overrides (1 replica, relaxed profile)
+└── production/       # Production overrides (HPA, TLS, paranoid profile)
+```
+
+Secrets are encrypted with SOPS (age-based). See `flux/README.md` for setup instructions.
+
 ## CLI
 
 ```bash
