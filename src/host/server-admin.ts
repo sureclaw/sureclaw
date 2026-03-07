@@ -115,13 +115,13 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 function resolveAdminUIDir(): string {
-  // In development: src/admin-ui/
-  // At runtime (after tsc): dist/admin-ui/
-  const devDir = resolve(import.meta.dirname, '../admin-ui');
-  if (existsSync(devDir)) return devDir;
-  const distDir = resolve(import.meta.dirname, '../../src/admin-ui');
-  if (existsSync(distDir)) return distDir;
-  return devDir; // Will show "not built" error
+  // Sibling of host/ in both src/ and dist/: {src,dist}/admin-ui/
+  const siblingDir = resolve(import.meta.dirname, '../admin-ui');
+  if (existsSync(siblingDir)) return siblingDir;
+  // Fallback: src/admin-ui/ when running from dist/host/
+  const srcDir = resolve(import.meta.dirname, '../../src/admin-ui');
+  if (existsSync(srcDir)) return srcDir;
+  return siblingDir; // Will show "not built" error
 }
 
 // ── Types ──
