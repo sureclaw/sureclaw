@@ -2,6 +2,14 @@
 
 Configuration wizard, model selection, API key flow, task-type model routing.
 
+## [2026-03-06 22:10] — Refactor k8s init: --model/--embeddings-model flags
+
+**Task:** Replace `--llm-provider` and `--embeddings-provider` flags with `--model` and `--embeddings-model` that accept compound `provider/model` IDs
+**What I did:** Refactored `src/cli/k8s-init.ts` to derive provider from compound model IDs (e.g. `anthropic/claude-sonnet-4-20250514`). Replaced hardcoded provider lists and lookup maps with generic `extractProvider()`, `secretKeyForProvider()`, `envVarForProvider()` helpers. Generated values now include `config.models.default` and `config.history.embedding_model`. Exported `parseArgs` and `generateValuesYaml` for testability. Rewrote tests.
+**Files touched:** `src/cli/k8s-init.ts`, `tests/cli/k8s-init.test.ts`
+**Outcome:** Success — 15 tests pass, full suite (2368) green
+**Notes:** Any provider that follows the `PROVIDER_API_KEY` convention now works automatically — no hardcoded allowlist needed.
+
 ## [2026-03-02 22:30] — Fix OAuth refresh token persistence bugs
 
 **Task:** OAuth `invalid_grant` error persists even after re-authenticating via `ax configure`

@@ -1,13 +1,7 @@
 // tests/cli/k8s-init.test.ts
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { routeCommand } from '../../src/cli/index.js';
-
-// We test the CLI's pure functions (arg parsing, values generation) by importing
-// the module and testing its exports. The kubectl integration is tested via
-// acceptance tests against a real cluster.
-
-// For unit testing, we extract and test the values generation logic.
-// The runK8sInit function itself requires kubectl + readline, so we test routing only here.
+import { parseArgs, generateValuesYaml } from '../../src/cli/k8s-init.js';
 
 describe('CLI Router — k8s command', () => {
   it('should route k8s command with args', async () => {
@@ -23,91 +17,139 @@ describe('CLI Router — k8s command', () => {
   });
 });
 
-// Test values generation by dynamically importing the module's internals.
-// We do this to test the pure generateValuesYaml function without needing kubectl.
-describe('k8s init — values generation', () => {
-  // Import the module to access generateValuesYaml
-  // Since it's not exported, we test via the generated output by calling runK8sInit
-  // with mocked execFileSync and readline. For now, we test the output format expectations.
+describe('k8s init — parseArgs', () => {
+  it('parses --model flag as compound provider/model ID', () => {
+    const opts = parseArgs(['--model', 'anthropic/claude-sonnet-4-20250514']);
+    expect(opts.model).toBe('anthropic/claude-sonnet-4-20250514');
+  });
 
-  it('should generate valid YAML with small preset', async () => {
-    // We'll test the expected output structure
-    const expectedLines = [
-      'preset: small',
-      'postgresql:',
-      'nats:',
-    ];
-    // This is a structural test — the actual generation is tested via the module
-    for (const line of expectedLines) {
-      expect(line).toBeTruthy();
-    }
+  it('parses --embeddings-model flag as compound provider/model ID', () => {
+    const opts = parseArgs(['--embeddings-model', 'deepinfra/qwen/qwen3-embedding-0.6b']);
+    expect(opts.embeddingsModel).toBe('deepinfra/qwen/qwen3-embedding-0.6b');
+  });
+
+  it('parses all flags together', () => {
+    const opts = parseArgs([
+      '--preset', 'medium',
+      '--model', 'openai/gpt-4o',
+      '--api-key', 'sk-test',
+      '--embeddings-model', 'openai/text-embedding-3-small',
+      '--embeddings-api-key', 'sk-emb',
+      '--database', 'internal',
+      '--namespace', 'prod',
+      '--output', 'custom.yaml',
+    ]);
+    expect(opts.preset).toBe('medium');
+    expect(opts.model).toBe('openai/gpt-4o');
+    expect(opts.apiKey).toBe('sk-test');
+    expect(opts.embeddingsModel).toBe('openai/text-embedding-3-small');
+    expect(opts.embeddingsApiKey).toBe('sk-emb');
+    expect(opts.database).toBe('internal');
+    expect(opts.namespace).toBe('prod');
+    expect(opts.output).toBe('custom.yaml');
+  });
+
+  it('does not have --llm-provider or --embeddings-provider flags', () => {
+    const opts = parseArgs(['--llm-provider', 'anthropic', '--embeddings-provider', 'openai']);
+    expect(opts).not.toHaveProperty('llmProvider');
+    expect(opts).not.toHaveProperty('embeddingsProvider');
   });
 });
 
-describe('k8s init — argument parsing', () => {
-  // Test that the CLI flag names match the design spec
-  const expectedFlags = [
-    '--preset',
-    '--registry-url',
-    '--registry-user',
-    '--registry-password',
-    '--llm-provider',
-    '--api-key',
-    '--embeddings-provider',
-    '--embeddings-api-key',
-    '--database',
-    '--database-url',
-    '--namespace',
-    '--output',
-  ];
-
-  it('all flags from design spec are supported', async () => {
-    // Read the source to verify all flags are handled
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(
-      new URL('../../src/cli/k8s-init.ts', import.meta.url),
-      'utf-8',
-    );
-    for (const flag of expectedFlags) {
-      expect(source).toContain(`'${flag}'`);
-    }
+describe('k8s init — generateValuesYaml', () => {
+  it('includes config.models.default from model ID', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'internal',
+    });
+    expect(yaml).toContain('config:');
+    expect(yaml).toContain('models:');
+    expect(yaml).toContain('default: ["anthropic/claude-sonnet-4-20250514"]');
   });
 
-  it('LLM provider secret key mapping covers all providers', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(
-      new URL('../../src/cli/k8s-init.ts', import.meta.url),
-      'utf-8',
-    );
-    // Verify all three LLM providers have secret key mappings
-    expect(source).toContain("anthropic: 'anthropic-api-key'");
-    expect(source).toContain("openai: 'openai-api-key'");
-    expect(source).toContain("openrouter: 'openrouter-api-key'");
+  it('includes config.history.embedding_model from embeddings model ID', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      embeddingsModel: 'deepinfra/qwen/qwen3-embedding-0.6b',
+      database: 'internal',
+    });
+    expect(yaml).toContain('history:');
+    expect(yaml).toContain('embedding_model: "deepinfra/qwen/qwen3-embedding-0.6b"');
   });
 
-  it('embeddings credentials use single ax-api-credentials secret', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(
-      new URL('../../src/cli/k8s-init.ts', import.meta.url),
-      'utf-8',
-    );
-    // Embeddings keys go into apiCredentials.envVars, not a separate secret
-    expect(source).not.toContain("'ax-embeddings-credentials'");
-    // Both deepinfra and openai embeddings providers have env var mappings
-    expect(source).toContain("deepinfra: 'DEEPINFRA_API_KEY'");
-    expect(source).toContain("openai: 'OPENAI_API_KEY'");
+  it('derives provider from model ID for apiCredentials env var', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'openrouter/gpt-4.1',
+      database: 'internal',
+    });
+    expect(yaml).toContain('OPENROUTER_API_KEY');
   });
 
-  it('uses execFileSync not execSync for security', async () => {
+  it('derives provider from embeddings model ID for apiCredentials env var', () => {
+    const yaml = generateValuesYaml({
+      preset: 'medium',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      embeddingsModel: 'deepinfra/qwen/qwen3-embedding-0.6b',
+      database: 'internal',
+    });
+    expect(yaml).toContain('ANTHROPIC_API_KEY');
+    expect(yaml).toContain('DEEPINFRA_API_KEY');
+  });
+
+  it('omits embeddings config when no embeddings model', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'internal',
+    });
+    expect(yaml).not.toContain('embedding_model');
+    expect(yaml).not.toContain('DEEPINFRA_API_KEY');
+  });
+
+  it('does not duplicate env var when LLM and embeddings share a provider', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'openai/gpt-4o',
+      embeddingsModel: 'openai/text-embedding-3-small',
+      database: 'internal',
+    });
+    // OPENAI_API_KEY should appear exactly once in envVars
+    const matches = yaml.match(/OPENAI_API_KEY/g);
+    expect(matches).toHaveLength(1);
+  });
+
+  it('generates secret key name from provider', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'internal',
+    });
+    expect(yaml).toContain('anthropic-api-key');
+  });
+
+  it('still generates postgresql and nats config', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'external',
+    });
+    expect(yaml).toContain('postgresql:');
+    expect(yaml).toContain('nats:');
+  });
+});
+
+describe('k8s init — security', () => {
+  it('uses execFileSync not execSync', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(
       new URL('../../src/cli/k8s-init.ts', import.meta.url),
       'utf-8',
     );
-    // Verify we import execFileSync (safe) not the shell-based variant
     expect(source).toContain("import { execFileSync } from 'node:child_process'");
     expect(source).not.toContain("import { execSync }");
-    // No bare shell-based exec calls
-    expect(source).not.toMatch(/[^e]execSync\s*\(/)
+    expect(source).not.toMatch(/[^e]execSync\s*\(/);
   });
 });
