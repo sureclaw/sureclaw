@@ -40,3 +40,6 @@ charts/*/Chart.lock
 # Logs / crashes
 *.log
 npm-debug.log*
+
+# tests
+test-results/
