@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-08 13:39] — Design hybrid Wasm + pod sandbox strategy for GKE Autopilot
+
+**Task:** Propose a more secure low-latency execution architecture for common tool calls in GKE Autopilot where nsjail/bwrap are unavailable.
+**What I did:** Wrote a new architecture plan that introduces policy-routed execution lanes: Wasm capsules for the fast 80% path, warm gVisor sandbox pods for full POSIX fallback, and heavy dedicated pods for long-running tasks. Included routing intent model, capsule signing/provenance, rollout phases, SLOs, risks, and concrete AX implementation steps.
+**Files touched:** docs/plans/2026-03-08-autopilot-fast-sandbox-architecture.md (new)
+**Outcome:** Success — design gives a practical way to improve UX in Autopilot without weakening existing security invariants.
+**Notes:** Recommended shadow-mode telemetry first, then canary rollout for read-only capsules before enabling write/network capsules.
+
 ## [2026-03-06 14:00] — Design plan: K8s Helm presets + ax k8s init CLI
 
 **Task:** Evaluate whether to build a K8s operator for AX, and design a simpler alternative
