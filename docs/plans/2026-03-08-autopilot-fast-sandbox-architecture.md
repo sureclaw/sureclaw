@@ -133,6 +133,107 @@ Do not attempt full bash compatibility first. Start with explicit subcommands an
 
 Unknown flags/subcommands are rejected or escalated to Lane B.
 
+### 4.4 Hostcall API for untrusted capsules (concrete implementation)
+
+Capsules run as **untrusted code**. They do not get direct OS syscalls, raw network, or arbitrary Node.js bindings. Instead, AX exposes a tiny hostcall surface under a namespaced ABI:
+
+- `ax.fs.read`
+- `ax.fs.write`
+- `ax.fs.list`
+- `ax.proc.exec` (optional, for tightly-scoped helper execution)
+- `ax.http.fetch` (optional, policy-gated)
+- `ax.log.emit` (structured audit breadcrumbs)
+
+Everything else is denied by default.
+
+#### 4.4.1 Runtime wiring
+
+Implementation pattern in agent-runtime:
+
+1. Create a per-invocation `Store` with hard limits (`maxMemoryMb`, `maxTimeMs`, stdout/stderr byte caps).
+2. Mount a virtual workspace root (`/workspace`) mapped to the session filesystem view.
+3. Register host functions under a single `ax` import module.
+4. Pass a signed capability token to the capsule at startup (claims below).
+5. Enforce cancellation with deadline + cooperative interrupt.
+
+No hostcall receives raw absolute host paths; all paths are resolved relative to `/workspace` and validated with AX path safety checks.
+
+#### 4.4.2 Capability token (least privilege per call)
+
+Before launching a capsule, AX mints an invocation-scoped token with explicit permissions:
+
+```json
+{
+  "invocationId": "uuid",
+  "sessionId": "...",
+  "capsule": "git-lite@1.2.0",
+  "expiresAt": 1773000000000,
+  "permissions": {
+    "fs": { "read": ["/workspace"], "write": ["/workspace"] },
+    "http": { "enabled": false, "allowHosts": [] },
+    "proc": { "enabled": false, "allow": [] }
+  },
+  "limits": { "maxBytesRead": 8388608, "maxBytesWrite": 8388608, "maxFetchBytes": 0 }
+}
+```
+
+Each hostcall validates the token + scope before execution. If scope does not match, the runtime returns a typed permission error and records an audit event.
+
+#### 4.4.3 Hostcall contracts
+
+**`ax.fs.read`**
+- Input: `{ path, offset?, length? }`
+- Policy checks: path allowlist, max bytes, taint metadata propagation
+- Output: `{ content, encoding, bytesRead, taintTags }`
+
+**`ax.fs.write`**
+- Input: `{ path, content, encoding, mode: "overwrite" | "append" }`
+- Policy checks: write allowlist, max bytes, extension/path policy
+- Output: `{ bytesWritten, contentHash }`
+
+**`ax.fs.list`**
+- Input: `{ path, recursive?, maxEntries? }`
+- Policy checks: read allowlist + entry count cap
+- Output: `{ entries: [{ path, type, size }] }`
+
+**`ax.http.fetch` (disabled unless route policy enables it)**
+- Input: `{ url, method, headers, body? }`
+- Policy checks: host allowlist, scheme (`https` only by default), method allowlist, response size/time caps
+- Output: `{ status, headers, body, taintTags }`
+
+**`ax.proc.exec` (normally off for Lane A)**
+- Input: `{ command, args }`
+- Policy checks: exact binary allowlist + arg grammar + timeout
+- Output: `{ exitCode, stdout, stderr }`
+
+#### 4.4.4 Policy enforcement flow
+
+For every hostcall:
+
+1. Decode input via strict schema (`z.strictObject`).
+2. Validate capability token and deadline.
+3. Enforce lane policy (path/network/process constraints).
+4. Execute bounded operation.
+5. Attach taint tags to external content (`ax.http.fetch`, optional external fs mirrors).
+6. Emit audit record with `{ invocationId, lane, capsule, hostcall, decision, durationMs }`.
+
+This gives us a single chokepoint for security controls instead of relying on tool code discipline.
+
+#### 4.4.5 Failure and fallback semantics
+
+- Permission denied / schema violation / runtime trap in Lane A ⇒ immediate fallback to Lane B **only** if policy marks command as fallback-safe.
+- Deterministic policy failures (e.g., blocked host) do **not** fallback; they fail closed and return actionable error text.
+- All fallback transitions emit a route attestation event so operators can tune capsule coverage.
+
+#### 4.4.6 Minimal implementation milestones
+
+1. Implement read-only ABI: `ax.fs.read`, `ax.fs.list`, `ax.log.emit`.
+2. Add write ABI: `ax.fs.write` with strict path + byte quotas.
+3. Add optional `ax.http.fetch` with host allowlists and taint tags.
+4. Keep `ax.proc.exec` disabled until explicit security review proves need.
+
+This sequence gives fast wins while keeping the initial trusted surface as small as possible.
+
 ---
 
 ## 5) Security model updates

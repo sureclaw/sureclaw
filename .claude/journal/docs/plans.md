@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-08 14:08] — Specify concrete Wasm hostcall ABI for capsules
+
+**Task:** Address feedback requesting implementation-level detail for running untrusted code in Wasm capsules.
+**What I did:** Expanded the fast-sandbox architecture plan with a concrete hostcall design (`ax.fs.read`, `ax.fs.write`, optional policy-gated `ax.http.fetch`), capability-token model, strict schema/policy enforcement flow, audit/fallback semantics, and phased implementation milestones.
+**Files touched:** docs/plans/2026-03-08-autopilot-fast-sandbox-architecture.md (updated)
+**Outcome:** Success — plan now describes exactly how untrusted capsules interact with trusted host services while preserving least privilege.
+**Notes:** Kept `ax.proc.exec` disabled by default to minimize trusted surface for initial rollout.
+
 ## [2026-03-08 13:39] — Design hybrid Wasm + pod sandbox strategy for GKE Autopilot
 
 **Task:** Propose a more secure low-latency execution architecture for common tool calls in GKE Autopilot where nsjail/bwrap are unavailable.
