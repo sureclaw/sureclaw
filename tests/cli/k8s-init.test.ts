@@ -1,7 +1,10 @@
 // tests/cli/k8s-init.test.ts
 import { describe, it, expect, vi } from 'vitest';
 import { routeCommand } from '../../src/cli/index.js';
-import { parseArgs, generateValuesYaml, defaultWasmMode } from '../../src/cli/k8s-init.js';
+import { parseArgs, generateValuesYaml, defaultWasmMode, loadPreviousValues } from '../../src/cli/k8s-init.js';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 describe('CLI Router — k8s command', () => {
   it('should route k8s command with args', async () => {
@@ -226,6 +229,71 @@ describe('k8s init — WASM values generation', () => {
     const apiCredIdx = yaml.indexOf('apiCredentials:');
     expect(wasmIdx).toBeGreaterThan(configIdx);
     expect(wasmIdx).toBeLessThan(apiCredIdx);
+  });
+});
+
+describe('k8s init — loadPreviousValues', () => {
+  const testDir = join(tmpdir(), `ax-k8s-init-test-${process.pid}`);
+  const testFile = join(testDir, 'test-values.yaml');
+
+  beforeAll(() => mkdirSync(testDir, { recursive: true }));
+  afterAll(() => rmSync(testDir, { recursive: true, force: true }));
+
+  it('returns empty object for nonexistent file', () => {
+    expect(loadPreviousValues('/no/such/file.yaml')).toEqual({});
+  });
+
+  it('returns empty object for invalid YAML', () => {
+    writeFileSync(testFile, ':: not valid yaml :::', 'utf-8');
+    expect(loadPreviousValues(testFile)).toEqual({});
+  });
+
+  it('extracts all values from a full generated values file', () => {
+    const yaml = generateValuesYaml({
+      preset: 'medium',
+      registryUrl: 'registry.example.com',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      embeddingsModel: 'deepinfra/qwen/qwen3-embedding-0.6b',
+      database: 'external',
+      wasm: 'shadow',
+    });
+    writeFileSync(testFile, yaml, 'utf-8');
+    const prev = loadPreviousValues(testFile);
+    expect(prev.preset).toBe('medium');
+    expect(prev.registryUrl).toBe('registry.example.com');
+    expect(prev.model).toBe('anthropic/claude-sonnet-4-20250514');
+    expect(prev.embeddingsModel).toBe('deepinfra/qwen/qwen3-embedding-0.6b');
+    expect(prev.database).toBe('external');
+    expect(prev.wasm).toBe('shadow');
+  });
+
+  it('extracts values from a minimal generated values file', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'openai/gpt-4o',
+      database: 'internal',
+      wasm: 'enabled',
+    });
+    writeFileSync(testFile, yaml, 'utf-8');
+    const prev = loadPreviousValues(testFile);
+    expect(prev.preset).toBe('small');
+    expect(prev.registryUrl).toBeUndefined();
+    expect(prev.model).toBe('openai/gpt-4o');
+    expect(prev.embeddingsModel).toBeUndefined();
+    expect(prev.database).toBe('internal');
+    expect(prev.wasm).toBe('enabled');
+  });
+
+  it('returns wasm undefined when wasm section is absent (disabled mode)', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      model: 'openai/gpt-4o',
+      database: 'internal',
+      wasm: 'disabled',
+    });
+    writeFileSync(testFile, yaml, 'utf-8');
+    const prev = loadPreviousValues(testFile);
+    expect(prev.wasm).toBeUndefined();
   });
 });
 

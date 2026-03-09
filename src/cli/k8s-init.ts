@@ -8,7 +8,8 @@
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -46,6 +47,62 @@ function secretKeyForProvider(provider: string): string {
 /** Derive the environment variable name from a provider (e.g. `anthropic` → `ANTHROPIC_API_KEY`). */
 function envVarForProvider(provider: string): string {
   return `${provider.toUpperCase()}_API_KEY`;
+}
+
+// ─── Previous Values Loading ────────────────────────────────────
+
+/** Values previously saved by `ax k8s init`, extracted from an existing values YAML file. */
+export interface PreviousValues {
+  preset?: string;
+  registryUrl?: string;
+  model?: string;
+  embeddingsModel?: string;
+  database?: string;
+  wasm?: string;
+}
+
+/** Try to load previously saved values from an existing values YAML file. */
+export function loadPreviousValues(filePath: string): PreviousValues {
+  if (!existsSync(filePath)) return {};
+
+  try {
+    const raw = readFileSync(filePath, 'utf-8');
+    const doc = parseYaml(raw);
+    if (!doc || typeof doc !== 'object') return {};
+
+    const prev: PreviousValues = {};
+
+    if (typeof doc.preset === 'string') prev.preset = doc.preset;
+    if (doc.imageDefaults?.registry) prev.registryUrl = doc.imageDefaults.registry;
+
+    const defaultModels = doc.config?.models?.default;
+    if (Array.isArray(defaultModels) && defaultModels.length > 0) {
+      prev.model = defaultModels[0];
+    }
+
+    if (doc.config?.history?.embedding_model) {
+      prev.embeddingsModel = doc.config.history.embedding_model;
+    }
+
+    // Derive database choice from postgresql config
+    if (doc.postgresql?.external?.enabled === true) {
+      prev.database = 'external';
+    } else if (doc.postgresql?.internal?.enabled === true) {
+      prev.database = 'internal';
+    }
+
+    // Derive WASM mode from config.wasm
+    const wasmCfg = doc.config?.wasm;
+    if (wasmCfg) {
+      if (wasmCfg.shadow_mode === true) prev.wasm = 'shadow';
+      else if (wasmCfg.enabled === true) prev.wasm = 'enabled';
+      else prev.wasm = 'disabled';
+    }
+
+    return prev;
+  } catch {
+    return {};
+  }
 }
 
 // ─── CLI Argument Parsing ───────────────────────────────────────
@@ -86,13 +143,18 @@ async function askChoice(
   rl: ReadlineInterface,
   label: string,
   choices: { value: string; description: string }[],
+  defaultValue?: string,
 ): Promise<string> {
+  const defaultIdx = defaultValue ? choices.findIndex(c => c.value === defaultValue) : -1;
   console.log(`\n${label}`);
   for (let i = 0; i < choices.length; i++) {
-    console.log(`  ${i + 1}. ${choices[i].value.padEnd(12)} — ${choices[i].description}`);
+    const marker = i === defaultIdx ? ' (current)' : '';
+    console.log(`  ${i + 1}. ${choices[i].value.padEnd(12)} — ${choices[i].description}${marker}`);
   }
   while (true) {
-    const answer = await ask(rl, '> ');
+    const prompt = defaultIdx >= 0 ? `> [${defaultIdx + 1}] ` : '> ';
+    const answer = await ask(rl, prompt);
+    if (answer === '' && defaultIdx >= 0) return choices[defaultIdx].value;
     const idx = parseInt(answer, 10) - 1;
     if (idx >= 0 && idx < choices.length) return choices[idx].value;
     console.log(`  Please enter a number between 1 and ${choices.length}.`);
@@ -268,6 +330,13 @@ export async function runK8sInit(args: string[]): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
+    // Load previous values from existing output file (if any)
+    const outputFile = opts.output ?? 'ax-values.yaml';
+    const prev = loadPreviousValues(outputFile);
+    if (Object.keys(prev).length > 0) {
+      console.log(`\nLoaded previous values from ${outputFile} (press Enter to keep).`);
+    }
+
     console.log('\n── AX Kubernetes Setup ──────────────────────────');
 
     // 1. Preset
@@ -275,7 +344,7 @@ export async function runK8sInit(args: string[]): Promise<void> {
       { value: 'small', description: 'single team, low volume' },
       { value: 'medium', description: 'production, moderate load' },
       { value: 'large', description: 'high-scale, autoscaling' },
-    ]);
+    ], prev.preset);
     if (!VALID_PRESETS.includes(preset)) {
       console.error(`Invalid preset: ${preset}. Must be one of: ${VALID_PRESETS.join(', ')}`);
       process.exit(1);
@@ -286,7 +355,10 @@ export async function runK8sInit(args: string[]): Promise<void> {
     let registryUser = opts.registryUser;
     let registryPassword = opts.registryPassword;
     if (registryUrl === undefined) {
-      registryUrl = await ask(rl, '\nDocker registry URL [ghcr.io/ax] (leave empty to skip): ');
+      const regDefault = prev.registryUrl ?? '';
+      const regHint = regDefault ? ` [${regDefault}]` : '';
+      registryUrl = await ask(rl, `\nDocker registry URL${regHint} (leave empty to skip): `);
+      if (registryUrl === '' && regDefault) registryUrl = regDefault;
       if (registryUrl === '') registryUrl = undefined;
     }
     if (registryUrl) {
@@ -295,7 +367,11 @@ export async function runK8sInit(args: string[]): Promise<void> {
     }
 
     // 3. Model (compound provider/model ID)
-    const model = opts.model ?? await ask(rl, '\nModel (provider/model, e.g. anthropic/claude-sonnet-4-20250514): ');
+    const modelDefault = prev.model ?? '';
+    const modelHint = modelDefault ? ` [${modelDefault}]` : '';
+    let modelInput = opts.model ?? await ask(rl, `\nModel (provider/model, e.g. anthropic/claude-sonnet-4-20250514)${modelHint}: `);
+    if (modelInput === '' && modelDefault) modelInput = modelDefault;
+    const model = modelInput;
     if (!model || !model.includes('/')) {
       console.error(`Invalid model: "${model}". Must be a compound provider/model ID (e.g. "anthropic/claude-sonnet-4-20250514")`);
       process.exit(1);
@@ -307,7 +383,10 @@ export async function runK8sInit(args: string[]): Promise<void> {
     let embeddingsModel = opts.embeddingsModel;
     let embeddingsApiKey = opts.embeddingsApiKey;
     if (embeddingsModel === undefined) {
-      embeddingsModel = await ask(rl, '\nEmbeddings model (provider/model, leave empty to skip): ');
+      const embDefault = prev.embeddingsModel ?? '';
+      const embHint = embDefault ? ` [${embDefault}]` : '';
+      embeddingsModel = await ask(rl, `\nEmbeddings model (provider/model, leave empty to skip)${embHint}: `);
+      if (embeddingsModel === '' && embDefault) embeddingsModel = embDefault;
       if (embeddingsModel === '') embeddingsModel = undefined;
     }
     if (embeddingsModel) {
@@ -325,21 +404,21 @@ export async function runK8sInit(args: string[]): Promise<void> {
     const database = opts.database ?? await askChoice(rl, 'Database?', [
       { value: 'internal', description: 'chart provisions PostgreSQL for you' },
       { value: 'external', description: 'connect to existing PostgreSQL' },
-    ]);
+    ], prev.database);
     let databaseUrl = opts.databaseUrl;
     if (database === 'external') {
       databaseUrl = databaseUrl ?? await ask(rl, 'PostgreSQL connection URL: ');
     }
 
     // 6. WASM fast path
-    const wasmDefault = defaultWasmMode(preset);
+    const wasmDefault = prev.wasm ?? defaultWasmMode(preset);
     let wasm = opts.wasm;
     if (wasm === undefined) {
       wasm = await askChoice(rl, `WASM fast path? (preset default: ${wasmDefault})`, [
         { value: 'enabled', description: 'route safe tool calls through WASM (fastest)' },
         { value: 'shadow', description: 'log WASM-eligible calls but use containers (safe rollout)' },
         { value: 'disabled', description: 'all tool calls use containers' },
-      ]);
+      ], prev.wasm);
     }
     if (!VALID_WASM_MODES.includes(wasm)) {
       console.error(`Invalid WASM mode: ${wasm}. Must be one of: ${VALID_WASM_MODES.join(', ')}`);
@@ -348,7 +427,6 @@ export async function runK8sInit(args: string[]): Promise<void> {
 
     // 7. Namespace + output
     const namespace = opts.namespace ?? 'ax';
-    const outputFile = opts.output ?? 'ax-values.yaml';
 
     // ── Create resources ──────────────────────────────────────
     console.log('\n── Results ──────────────────────────────────────\n');
