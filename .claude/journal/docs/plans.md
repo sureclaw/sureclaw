@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-08 12:00] — Design plan: WASM agent platform with direct HTTP proxy
+
+**Task:** Write up the WASM agent platform design, incorporating the insight that worker pods should reach the host pod's credential-injecting proxy via direct HTTP (not NATS)
+**What I did:** Created a comprehensive design doc covering: revised three-layer architecture (host/NATS/worker with WASM sandboxes), the HTTP vs NATS communication split (HTTP for LLM proxy, NATS for IPC), WASI capability model, three options for running agent code in WASM, bash/file tool execution strategies, security model, scaling approach, and phased migration path. Key architectural insight: the proxy is stateless HTTP — wrapping it in NATS adds complexity for zero benefit. Worker pods already need host-reachable network for NATS, so adding HTTP proxy access requires no new network policy.
+**Files touched:** docs/plans/2026-03-08-wasm-agent-platform-design.md (new)
+**Outcome:** Success — design document written
+**Notes:** Recommends hybrid approach (Option C): WASM for isolation boundary, subprocess for agent execution, HTTP for LLM proxy, NATS for IPC. Phase 1 (HTTP proxy extraction) is valuable independently of WASM adoption. Open questions around WASM runtime choice, JS-in-WASM, and WASI-HTTP maturity.
+
 ## [2026-03-06 14:00] — Design plan: K8s Helm presets + ax k8s init CLI
 
 **Task:** Evaluate whether to build a K8s operator for AX, and design a simpler alternative
