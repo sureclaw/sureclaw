@@ -86,6 +86,8 @@ export interface IPCHandlerOptions {
   natsDispatcher?: NATSSandboxDispatcher;
   /** Maps sessionId → requestId for per-turn pod affinity tracking. */
   requestIdMap?: Map<string, string>;
+  /** WASM sandbox configuration. Controls the Tier 1/Tier 2 routing behavior. */
+  wasmConfig?: { enabled: boolean; shadow_mode: boolean; compare_mode?: boolean };
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -123,6 +125,11 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       workspaceMap: opts.workspaceMap,
       natsDispatcher: opts.natsDispatcher,
       requestIdMap: opts.requestIdMap,
+      routerConfig: opts.wasmConfig ? {
+        wasmEnabled: opts.wasmConfig.enabled,
+        shadowMode: opts.wasmConfig.shadow_mode,
+        compareMode: opts.wasmConfig.compare_mode,
+      } : undefined,
     }) : {}),
   };
 

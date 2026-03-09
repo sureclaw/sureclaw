@@ -2,6 +2,35 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-03-08 22:35] — Add compare mode for canary validation
+
+**Task:** Implement dual-execution comparison mode for WASM canary validation
+**What I did:** Added compare mode logic to dispatch function in sandbox-tools.ts — when `compareMode=true` and route is Tier 1, runs both wasm and default executors via `Promise.allSettled`, serves Tier 2 result, logs mismatches. Extended audit result type with `fallback`, `compare_match`, `compare_mismatch`, `compare_error`. Added 4 tests covering match, mismatch, Tier 2 bypass, and error handling.
+**Files touched:** `src/host/ipc-handlers/sandbox-tools.ts`, `src/providers/audit/types.ts`, `src/providers/audit/database.ts`, `tests/host/ipc-handlers/sandbox-tools.test.ts`
+**Outcome:** Success — all 2492 tests pass, TypeScript compiles clean
+**Notes:** WASM executor returns protected-path policy errors as response objects (not throws), so `.env` write produces compare_mismatch not compare_error.
+
+## [2026-03-08 22:00] — Implement unified WASM sandbox architecture (Phase 0)
+
+**Task:** Implement the unified WASM sandbox plan: extract execution seam, add shadow router, bash classifier, WASM executor with hostcall API, and kill switch config
+**What I did:**
+1. Created `src/host/sandbox-tools/` module with shared types, executor contract, and barrel export
+2. Extracted local executor from sandbox-tools.ts into `local-executor.ts` implementing `SandboxToolExecutor`
+3. Extracted NATS executor into `nats-executor.ts` implementing `SandboxToolExecutor`
+4. Built shadow router (`router.ts`) with deterministic Tier 1/Tier 2 classification, kill switch, and shadow mode
+5. Built strict bash classifier (`bash-classifier.ts`) with allowlisted read-only commands (pwd, ls, cat, head, tail, wc, rg, grep, find, git read-only, echo, basename, dirname, stat, tree, du, df)
+6. Refactored `sandbox-tools.ts` to use normalize→route→execute→audit dispatch pattern
+7. Added `wasm` config type with `enabled` (kill switch) and `shadow_mode` fields
+8. Built WASM executor (`wasm-executor.ts`) with ToolInvocationContext, HostcallAPI (ax.fs.read, ax.fs.write, ax.fs.list, ax.log.emit), protected file enforcement, quota enforcement, deadline checking
+9. Added 115 new tests (local executor, bash classifier golden tests, router, WASM executor security)
+**Files touched:**
+  - Created: src/host/sandbox-tools/{types,local-executor,nats-executor,router,bash-classifier,wasm-executor,index}.ts
+  - Modified: src/host/ipc-handlers/sandbox-tools.ts, src/types.ts, src/config.ts
+  - Created: tests/host/sandbox-tools/{local-executor,bash-classifier,router,wasm-executor}.test.ts
+  - Modified: tests/host/ipc-handlers/sandbox-tools.test.ts (audit args format)
+**Outcome:** Success — all 2483 tests pass, zero regressions. Phase 0 complete: execution seam extracted, shadow router active, WASM executor functional with hostcall validation layer.
+**Notes:** Phase 1 (actual WASM module compilation) deferred until WASM toolchain selected. The hostcall API layer validates security invariants regardless of whether operations run natively or through WASM modules.
+
 ## [2026-03-05 13:00] — Wire NATS sandbox dispatch into agent-runtime IPC pipeline
 
 **Task:** Connect NATSSandboxDispatcher to the IPC tool handler pipeline so sandbox tools dispatch via NATS to remote sandbox pods in k8s mode

@@ -70,6 +70,11 @@ const ConfigSchema = z.strictObject({
     timeout_sec: z.number().int().min(1).max(3600),
     memory_mb: z.number().int().min(64).max(8192),
   }),
+  wasm: z.strictObject({
+    enabled: z.boolean().default(false),
+    shadow_mode: z.boolean().default(true),
+    compare_mode: z.boolean().default(false).optional(),
+  }).optional(),
   scheduler: z.strictObject({
     active_hours: z.strictObject({
       start: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM format'),

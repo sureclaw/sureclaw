@@ -306,9 +306,160 @@ describe('Sandbox tool IPC handlers', () => {
         expect.objectContaining({
           action: 'sandbox_bash',
           result: 'success',
-          args: expect.objectContaining({ dispatchMode: 'nats' }),
+          args: expect.objectContaining({ executor: 'nats' }),
         }),
       );
+    });
+  });
+
+  // ── Tier 1 (WASM) with fallback ──
+
+  describe('Tier 1 with fallback', () => {
+    test('routes to wasm executor when wasm enabled', async () => {
+      writeFileSync(join(workspace, 'tier1.txt'), 'tier1 content');
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false },
+      });
+      const result = await handlers.sandbox_read_file({ path: 'tier1.txt' }, ctx);
+      expect(result.content).toBe('tier1 content');
+      // Audit should show wasm executor
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'sandbox_read_file',
+          result: 'success',
+          args: expect.objectContaining({ executor: 'wasm', tier: 1 }),
+        }),
+      );
+    });
+
+    test('wasm executor blocks protected file writes', async () => {
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false },
+      });
+      const result = await handlers.sandbox_write_file(
+        { path: '.env', content: 'SECRET=bad' },
+        ctx,
+      );
+      // Protected path policy error should come back as error response, not throw
+      expect(result.error).toContain('Policy error');
+      expect(result.error).toContain('protected');
+    });
+
+    test('shadow mode routes to default executor even when wasm enabled', async () => {
+      writeFileSync(join(workspace, 'shadow.txt'), 'shadow content');
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: true },
+      });
+      const result = await handlers.sandbox_read_file({ path: 'shadow.txt' }, ctx);
+      expect(result.content).toBe('shadow content');
+      // Shadow mode uses local executor (Tier 2)
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: expect.objectContaining({ executor: 'local', tier: 2 }),
+        }),
+      );
+    });
+
+    test('wasm bash routes simple commands to Tier 1', async () => {
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false },
+      });
+      const result = await handlers.sandbox_bash({ command: 'pwd' }, ctx);
+      expect(result.output).toContain(workspace);
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: expect.objectContaining({ tier: 1 }),
+        }),
+      );
+    });
+
+    test('wasm bash routes complex commands to Tier 2', async () => {
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false },
+      });
+      const result = await handlers.sandbox_bash({ command: 'echo hello | cat' }, ctx);
+      expect(result.output).toContain('hello');
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          args: expect.objectContaining({ tier: 2 }),
+        }),
+      );
+    });
+  });
+
+  // ── Compare mode ──
+
+  describe('Compare mode', () => {
+    test('runs both executors and serves Tier 2 result on match', async () => {
+      writeFileSync(join(workspace, 'cmp.txt'), 'compare content');
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false, compareMode: true },
+      });
+      const result = await handlers.sandbox_read_file({ path: 'cmp.txt' }, ctx);
+      // Should return the content (from Tier 2)
+      expect(result.content).toBe('compare content');
+      // Audit should log a compare_match result
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: 'compare_match',
+          args: expect.objectContaining({ compareMode: true, match: true }),
+        }),
+      );
+    });
+
+    test('logs mismatch when executors produce different results', async () => {
+      // Use .env which is protected by wasm executor but not by local executor.
+      // Wasm returns { error: 'Policy error: ...' }, local returns { written: true }.
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false, compareMode: true },
+      });
+      const result = await handlers.sandbox_write_file(
+        { path: '.env', content: 'SECRET=test' },
+        ctx,
+      );
+      // Should serve the Tier 2 result (local executor succeeds)
+      expect(result.written).toBe(true);
+      // Both executors returned successfully (wasm returns error in response, not throw),
+      // but the responses differ → compare_mismatch
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          result: 'compare_mismatch',
+          args: expect.objectContaining({ compareMode: true, match: false }),
+        }),
+      );
+    });
+
+    test('compare mode only applies to Tier 1 candidates', async () => {
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false, compareMode: true },
+      });
+      // Piped bash goes to Tier 2 — should bypass compare mode
+      const result = await handlers.sandbox_bash({ command: 'echo hello | cat' }, ctx);
+      expect(result.output).toContain('hello');
+      // Should NOT have a compare_match/compare_mismatch audit entry
+      const auditCalls = (providers.audit.log as any).mock.calls;
+      const compareAudit = auditCalls.find(
+        (c: any[]) => c[0]?.result === 'compare_match' || c[0]?.result === 'compare_mismatch' || c[0]?.result === 'compare_error',
+      );
+      expect(compareAudit).toBeUndefined();
+    });
+
+    test('serves Tier 2 result even when Tier 1 fails in compare mode', async () => {
+      writeFileSync(join(workspace, 'ok.txt'), 'some content');
+      const handlers = createSandboxToolHandlers(providers, {
+        workspaceMap,
+        routerConfig: { wasmEnabled: true, shadowMode: false, compareMode: true },
+      });
+      const result = await handlers.sandbox_read_file({ path: 'ok.txt' }, ctx);
+      expect(result.content).toBe('some content');
     });
   });
 });

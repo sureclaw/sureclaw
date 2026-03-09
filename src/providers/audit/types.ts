@@ -6,7 +6,7 @@ export interface AuditEntry {
   sessionId: string;
   action: string;
   args: Record<string, unknown>;
-  result: 'success' | 'blocked' | 'error';
+  result: 'success' | 'blocked' | 'error' | 'fallback' | 'compare_match' | 'compare_mismatch' | 'compare_error';
   taint?: TaintTag;
   durationMs: number;
   tokenUsage?: { input: number; output: number };

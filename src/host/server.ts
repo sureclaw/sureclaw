@@ -384,6 +384,7 @@ export async function createServer(
     orchestrator,
     agentRegistry,
     workspaceMap,
+    wasmConfig: config.wasm,
   });
 
   // Webhook path prefix (configurable, defaults to '/webhooks/')

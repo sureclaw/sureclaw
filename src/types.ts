@@ -92,6 +92,14 @@ export interface Config {
     timeout_sec: number;
     memory_mb: number;
   };
+  wasm?: {
+    /** Master kill switch: when false, all tool calls go to Tier 2 (container/local). Default: false. */
+    enabled: boolean;
+    /** Shadow mode: log would-have-been-tier-1 decisions but still route to Tier 2. Default: true. */
+    shadow_mode: boolean;
+    /** Compare mode: run both tiers and log mismatches for canary validation. Default: false. */
+    compare_mode?: boolean;
+  };
   scheduler: {
     active_hours: {
       start: string;

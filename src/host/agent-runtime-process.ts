@@ -189,6 +189,7 @@ async function main(): Promise<void> {
     workspaceMap,
     natsDispatcher: sandboxDispatcher,
     requestIdMap,
+    wasmConfig: config.wasm,
   });
 
   const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };

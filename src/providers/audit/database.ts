@@ -16,7 +16,7 @@ function rowToEntry(row: Record<string, unknown>): AuditEntry {
     sessionId: row.session_id as string,
     action: row.action as string,
     args: row.args ? JSON.parse(row.args as string) : {},
-    result: row.result as 'success' | 'blocked' | 'error',
+    result: row.result as AuditEntry['result'],
     taint: row.taint ? JSON.parse(row.taint as string) : undefined,
     durationMs: (row.duration_ms as number) ?? 0,
     tokenUsage: row.token_input != null

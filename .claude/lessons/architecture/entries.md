@@ -1,5 +1,11 @@
 # Architecture
 
+### safePath strips leading dots from filenames
+**Date:** 2026-03-08
+**Context:** Writing WASM executor tests for protected file enforcement. The edit_file test for `.env` failed because safePath sanitizes `.env` → `env` (it trims leading/trailing dots from segments). The read operation failed with ENOENT before the protected path check could fire.
+**Lesson:** safePath's dot-trimming means files like `.env`, `.gitignore`, `.npmrc` can't be accessed through the hostcall layer. When enforcing protected path checks for operations that involve both read and write (like edit_file), check protected paths BEFORE any file I/O, not just at the write step.
+**Tags:** security, safepath, wasm, hostcall
+
 ### Anchor fast-path designs at the existing IPC seam
 **Date:** 2026-03-08
 **Context:** Reviewing the unified WASM sandbox plan against AX's current host, IPC, and sandbox implementation.
