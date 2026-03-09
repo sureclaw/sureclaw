@@ -30,6 +30,8 @@
 
 ### testing
 
+- macOS temp paths resolve differently with realpathSync [testing/patterns.md](testing/patterns.md)
+- Shell-dependent behavior varies across /bin/sh implementations [testing/patterns.md](testing/patterns.md)
 - Sandbox providers use source-level test assertions (read source, check patterns) [testing/patterns.md](testing/patterns.md)
 - Regex tests on source code are fragile — prefer semantic assertions [testing/patterns.md](testing/patterns.md)
 - Retry tests with real backoff delays need careful design [testing/patterns.md](testing/patterns.md)
@@ -142,6 +144,7 @@
 
 - import.meta.resolve() is the secure way to resolve package names [security/entries.md](security/entries.md)
 - Static allowlist (SC-SEC-002) can point to package names, not just relative paths [security/entries.md](security/entries.md)
+- safePath() sanitizes '.' segments to '_empty_' — filter them out first [security/entries.md](security/entries.md)
 - safePath() treats its arguments as individual path segments, not relative paths [security/entries.md](security/entries.md)
 
 ### filesystem

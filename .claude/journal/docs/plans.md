@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-08 23:30] — Fast gVisor pods implementation plan
+
+**Task:** Design an alternative to WASM sandbox: make existing gvisor k8s pods faster via session affinity, workspace persistence, git-sync, and pre-warming.
+**What I did:** Deep-read the full k8s sandbox stack: k8s.ts (direct pod creation), pool-controller (warm pods), sandbox-worker (NATS tool dispatch + workspace provisioning), nats-sandbox-dispatch (per-turn pod affinity), nats-session-protocol, agent-runtime-process, network policies, and Helm chart. Identified 4 key latency bottlenecks: per-turn pod claiming, per-turn workspace re-provisioning, network policy blocking git/GCS, no pre-warming. Wrote 7-task implementation plan promoting affinity from per-turn to per-session, adding pause/resume protocol, configurable HTTPS egress, workspace pre-warming, Helm config, metrics, and integration tests.
+**Files touched:** docs/plans/2026-03-08-fast-gvisor-pods.md (new)
+**Outcome:** Success — plan leverages existing pool controller + sandbox worker + NATS dispatch infrastructure. Not a greenfield build.
+**Notes:** Key architectural insight: the codebase already has warm pod pools, GCS caching, and per-turn affinity. The main gap is session-level persistence — each turn re-claims and re-provisions. NetworkPolicy tradeoff documented: sandbox workers have no conversation context or credentials, so HTTPS egress is acceptable for git/GCS with gvisor syscall filtering.
+
 ## [2026-03-08 22:00] — Produce unified WASM sandbox architecture plan
 
 **Task:** Analyze two overlapping WASM design documents (autopilot fast sandbox + WASM agent platform), identify strengths/weaknesses, resolve tensions, and produce a single unified plan.

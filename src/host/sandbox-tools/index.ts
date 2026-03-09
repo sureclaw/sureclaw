@@ -23,3 +23,5 @@ export { classifyBashCommand } from './bash-classifier.js';
 export type { BashClassification } from './bash-classifier.js';
 export { createWasmExecutor, HostcallError } from './wasm-executor.js';
 export type { ToolInvocationContext } from './wasm-executor.js';
+export { getNativeHandler, execValidated } from './bash-handlers.js';
+export type { BashHandler, BashHandlerResult, BashHandlerContext, HostcallsForBash } from './bash-handlers.js';

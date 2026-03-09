@@ -375,4 +375,138 @@ describe('BashClassifier', () => {
       }
     });
   });
+
+  // ── Phase 2 golden tests: every allowlisted command shape ──
+  // Acceptance criteria #3: classifier has golden tests for every allowlisted
+  // command shape and rejects ambiguous shell constructs by default.
+
+  describe('golden tests: all Tier 1 command shapes', () => {
+    // Each test verifies tier1=true, the correct module, and presence of a reason
+    const goldenTier1: Array<[string, string, string]> = [
+      // [command, expectedModule, description]
+      ['pwd', 'coreutils', 'bare pwd'],
+      ['ls', 'coreutils', 'bare ls'],
+      ['ls -la', 'coreutils', 'ls long+all'],
+      ['ls -R src/', 'coreutils', 'ls recursive'],
+      ['ls -1', 'coreutils', 'ls one-per-line'],
+      ['cat file.txt', 'coreutils', 'cat single file'],
+      ['cat a.txt b.txt', 'coreutils', 'cat multiple files'],
+      ['cat -n file.txt', 'coreutils', 'cat with line numbers'],
+      ['head file.txt', 'coreutils', 'bare head'],
+      ['head -n 20 file.txt', 'coreutils', 'head with line count'],
+      ['head -5 file.txt', 'coreutils', 'head short flag'],
+      ['tail file.txt', 'coreutils', 'bare tail'],
+      ['tail -n 50 file.txt', 'coreutils', 'tail with line count'],
+      ['wc file.txt', 'coreutils', 'bare wc'],
+      ['wc -l file.txt', 'coreutils', 'wc lines only'],
+      ['wc -w file.txt', 'coreutils', 'wc words only'],
+      ['wc -c file.txt', 'coreutils', 'wc bytes only'],
+      ['rg pattern', 'ripgrep', 'bare rg'],
+      ['rg -i pattern src/', 'ripgrep', 'rg case-insensitive'],
+      ['rg --type ts pattern', 'ripgrep', 'rg with type filter'],
+      ['grep -r pattern .', 'coreutils', 'grep recursive'],
+      ['grep -rn pattern src/', 'coreutils', 'grep with line numbers'],
+      ['find . -name "*.ts"', 'coreutils', 'find by name'],
+      ['find . -type f', 'coreutils', 'find files only'],
+      ['echo hello', 'coreutils', 'echo simple'],
+      ['echo hello world', 'coreutils', 'echo multiple words'],
+      ['basename /foo/bar.txt', 'coreutils', 'basename'],
+      ['basename /foo/bar.txt .txt', 'coreutils', 'basename with suffix'],
+      ['dirname /foo/bar.txt', 'coreutils', 'dirname'],
+      ['realpath file.txt', 'coreutils', 'realpath'],
+      ['stat file.txt', 'coreutils', 'stat'],
+      ['file script.sh', 'coreutils', 'file'],
+      ['tree', 'coreutils', 'bare tree'],
+      ['tree src/', 'coreutils', 'tree with dir'],
+      ['tree -L 2', 'coreutils', 'tree with depth'],
+      ['du -sh .', 'coreutils', 'du summary'],
+      ['du -h src/', 'coreutils', 'du human-readable'],
+      ['df -h', 'coreutils', 'df human-readable'],
+      ['git status', 'git-readonly', 'git status'],
+      ['git log --oneline', 'git-readonly', 'git log oneline'],
+      ['git log -10', 'git-readonly', 'git log with count'],
+      ['git diff', 'git-readonly', 'git diff'],
+      ['git diff --cached', 'git-readonly', 'git diff cached'],
+      ['git show HEAD', 'git-readonly', 'git show'],
+      ['git branch', 'git-readonly', 'git branch'],
+      ['git branch -a', 'git-readonly', 'git branch all'],
+      ['git tag', 'git-readonly', 'git tag'],
+      ['git ls-files', 'git-readonly', 'git ls-files'],
+      ['git ls-tree HEAD', 'git-readonly', 'git ls-tree'],
+      ['git rev-parse HEAD', 'git-readonly', 'git rev-parse'],
+      ['git describe', 'git-readonly', 'git describe'],
+      ['git shortlog', 'git-readonly', 'git shortlog'],
+      ['git blame file.ts', 'git-readonly', 'git blame'],
+      ['git cat-file -p HEAD', 'git-readonly', 'git cat-file'],
+      ['git --no-pager log', 'git-readonly', 'git with --no-pager'],
+    ];
+
+    for (const [command, expectedModule, description] of goldenTier1) {
+      test(`Tier 1: ${description} (${command})`, () => {
+        const r = classifyBashCommand(command);
+        expect(r.tier1).toBe(true);
+        expect(r.module).toBe(expectedModule);
+        expect(r.reason).toBeTruthy();
+      });
+    }
+  });
+
+  describe('golden tests: all Tier 2 rejection patterns', () => {
+    const goldenTier2: Array<[string, string]> = [
+      // [command, reason-must-contain]
+      ['', 'empty'],
+      ['   ', 'empty'],
+      ['cat file | head', 'pipe'],
+      ['cat file | grep pattern | wc -l', 'pipe'],
+      ['echo hello > out.txt', 'redirection'],
+      ['echo hello >> out.txt', 'redirection'],
+      ['cat < input.txt', 'redirection'],
+      ['ls && echo done', 'chaining'],
+      ['ls || echo failed', 'pipe'],
+      ['ls; echo done', 'chaining'],
+      ['echo $HOME', 'variable'],
+      ['echo ${USER}', 'variable'],
+      ['echo $(date)', 'variable'],
+      ['echo `date`', 'subshell'],
+      ['sleep 10 &', 'not in Tier 1 allowlist'],
+      ['(cd src && ls)', 'chaining'],
+      ['echo hello\necho world', 'multi-line'],
+      ['rm file.txt', 'not in Tier 1 allowlist'],
+      ['mv old new', 'not in Tier 1 allowlist'],
+      ['cp src dst', 'not in Tier 1 allowlist'],
+      ['npm test', 'not in Tier 1 allowlist'],
+      ['npm install', 'not in Tier 1 allowlist'],
+      ['python script.py', 'not in Tier 1 allowlist'],
+      ['node index.js', 'not in Tier 1 allowlist'],
+      ['curl https://example.com', 'not in Tier 1 allowlist'],
+      ['wget https://example.com', 'not in Tier 1 allowlist'],
+      ['chmod 755 file', 'not in Tier 1 allowlist'],
+      ['chown user file', 'not in Tier 1 allowlist'],
+      ['mkdir -p dir', 'not in Tier 1 allowlist'],
+      ['git commit -m "fix"', 'not in read-only allowlist'],
+      ['git push origin main', 'not in read-only allowlist'],
+      ['git checkout -b branch', 'not in read-only allowlist'],
+      ['git merge main', 'not in read-only allowlist'],
+      ['git rebase main', 'not in read-only allowlist'],
+      ['git reset --hard', 'not in read-only allowlist'],
+      ['git add .', 'not in read-only allowlist'],
+      ['git stash', 'not in read-only allowlist'],
+      ['git pull', 'not in read-only allowlist'],
+      ['git', 'no subcommand'],
+      ['cat', 'stdin'],
+      ['tail -f log', 'follow'],
+      ['tail --follow log', 'follow'],
+      ['find . -exec rm {} +', 'exec'],
+      ['find . -delete', 'mutating'],
+      ['find . -execdir cmd', 'mutating'],
+    ];
+
+    for (const [command, mustContain] of goldenTier2) {
+      test(`Tier 2: rejects "${command.slice(0, 40)}"`, () => {
+        const r = classifyBashCommand(command);
+        expect(r.tier1).toBe(false);
+        expect(r.reason.toLowerCase()).toContain(mustContain.toLowerCase());
+      });
+    }
+  });
 });

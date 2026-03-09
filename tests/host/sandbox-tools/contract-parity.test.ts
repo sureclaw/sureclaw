@@ -211,6 +211,106 @@ describe('Contract parity: Local vs WASM executor', () => {
     });
   });
 
+  // ── Phase 2: bash parity for native handlers ──
+
+  describe('bash (Phase 2 native handlers)', () => {
+    test('cat: both return same file content', async () => {
+      writeFileSync(join(workspace, 'cat-local.txt'), 'cat content\nline2\n');
+      writeFileSync(join(workspace, 'cat-wasm.txt'), 'cat content\nline2\n');
+      const localResult = await local.execute({ type: 'bash', command: 'cat cat-local.txt' }, ctx);
+      const wasmResult = await wasm.execute({ type: 'bash', command: 'cat cat-wasm.txt' }, ctx);
+      if (localResult.type === 'bash' && wasmResult.type === 'bash') {
+        // Both should contain the same file content
+        expect(localResult.output).toBe('cat content\nline2\n');
+        expect(wasmResult.output).toBe('cat content\nline2\n');
+      }
+    });
+
+    test('head: both return first N lines', async () => {
+      const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join('\n') + '\n';
+      writeFileSync(join(workspace, 'head-test.txt'), lines);
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'head -n 3 head-test.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toContain('line1');
+        expect(w.output).toContain('line1');
+        expect(l.output).toContain('line3');
+        expect(w.output).toContain('line3');
+        expect(l.output).not.toContain('line4');
+        expect(w.output).not.toContain('line4');
+      }
+    });
+
+    test('tail: both return last N lines', async () => {
+      const lines = Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join('\n') + '\n';
+      writeFileSync(join(workspace, 'tail-test.txt'), lines);
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'tail -n 3 tail-test.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toContain('line18');
+        expect(w.output).toContain('line18');
+        expect(l.output).toContain('line20');
+        expect(w.output).toContain('line20');
+      }
+    });
+
+    test('wc -l: both return same line count', async () => {
+      writeFileSync(join(workspace, 'wc-test.txt'), 'a\nb\nc\n');
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'wc -l wc-test.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toContain('3');
+        expect(w.output).toContain('3');
+      }
+    });
+
+    test('ls: both list same files', async () => {
+      writeFileSync(join(workspace, 'alpha.txt'), 'a');
+      writeFileSync(join(workspace, 'beta.txt'), 'b');
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'ls' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toContain('alpha.txt');
+        expect(w.output).toContain('alpha.txt');
+        expect(l.output).toContain('beta.txt');
+        expect(w.output).toContain('beta.txt');
+      }
+    });
+
+    test('basename: both extract filename', async () => {
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'basename /foo/bar.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output.trim()).toBe('bar.txt');
+        expect(w.output.trim()).toBe('bar.txt');
+      }
+    });
+
+    test('dirname: both extract directory', async () => {
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'dirname /foo/bar.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output.trim()).toBe('/foo');
+        expect(w.output.trim()).toBe('/foo');
+      }
+    });
+
+    test('echo with multiple args: both contain all args', async () => {
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'echo hello world test' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toContain('hello');
+        expect(w.output).toContain('hello');
+        expect(l.output).toContain('world');
+        expect(w.output).toContain('world');
+      }
+    });
+
+    test('cat missing file: both return error', async () => {
+      const { local: l, wasm: w } = await runBoth({ type: 'bash', command: 'cat nonexistent.txt' });
+      if (l.type === 'bash' && w.type === 'bash') {
+        expect(l.output).toBeTruthy();
+        expect(w.output).toBeTruthy();
+        // Both should indicate failure
+        expect(l.exitCode ?? 1).not.toBe(0);
+        expect(w.exitCode ?? 1).not.toBe(0);
+      }
+    });
+  });
+
   // ── Response shape consistency ──
 
   describe('response shape', () => {

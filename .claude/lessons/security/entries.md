@@ -18,6 +18,12 @@
 **Lesson:** When guarding with an allowlist, always check for the case where the value is absent, not just when it's present but wrong. Pattern: `if (allowlist) { if (!value || !allowlist.includes(value)) reject(); }` — check the allowlist existence first (outer), then require the value to be present AND in the list (inner).
 **Tags:** security, allowlist, authorization, webhook, defense-in-depth
 
+### safePath() sanitizes '.' segments to '_empty_' — filter them out first
+**Date:** 2026-03-08
+**Context:** WASM executor's `validatePath` was passing `.` as a segment to safePath, which sanitized it to `_empty_` (dots are trimmed, empty becomes `_empty_`). This broke `ls .` and `fsList('.')`.
+**Lesson:** Always filter out `.` segments before calling safePath: `segments.filter(s => Boolean(s) && s !== '.')`. If all segments are filtered away, return the workspace root directly. This also applies to any code that receives user paths that might contain `.` components.
+**Tags:** safePath, security, SC-SEC-004, path-traversal, wasm-sandbox
+
 ### safePath() treats its arguments as individual path segments, not relative paths
 **Date:** 2026-02-22
 **Context:** Workspace handler was producing flat filenames like `deep_nested_file.txt` instead of nested paths

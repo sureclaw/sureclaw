@@ -1,5 +1,17 @@
 # Testing Patterns
 
+### macOS temp paths resolve differently with realpathSync
+**Date:** 2026-03-08
+**Context:** Native `pwd` handler output didn't match `mkdtempSync` path because macOS `/var` is a symlink to `/private/var`. `pwd` (and `realpathSync`) resolve the symlink; `mkdtempSync` returns the unresolved path.
+**Lesson:** In tests comparing native handler output with temp directory paths on macOS, use `realpathSync(workspace)` when comparing against commands that resolve symlinks (like `pwd`, `realpath`). Use `toContain` instead of strict `toBe` for cross-platform safety.
+**Tags:** testing, macOS, symlinks, realpathSync, temp-directories
+
+### Shell-dependent behavior varies across /bin/sh implementations
+**Date:** 2026-03-08
+**Context:** Parity test for `echo -n` failed because macOS `/bin/sh` outputs `-n hello` literally while bash suppresses the newline. `execSync` uses `/bin/sh` by default.
+**Lesson:** Don't write parity tests that rely on shell-specific behavior (like `echo -n`). Use `toContain` for semantic assertions rather than strict equality when comparing native handler output with shell output. Some behaviors are inherently shell-dependent.
+**Tags:** testing, parity, shell, echo, bash, sh
+
 ### Sandbox providers use source-level test assertions (read source, check patterns)
 **Date:** 2026-03-01
 **Context:** Updating sandbox-isolation.test.ts after changing seatbelt/subprocess env construction

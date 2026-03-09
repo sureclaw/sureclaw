@@ -4,6 +4,8 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-08 22:56 — Implement Phase 2: Restricted bash fast path [wasm-sandbox.md](wasm-sandbox.md)
+- 2026-03-08 21:00 — Implement Phase 0+1: Unified WASM sandbox architecture [wasm-sandbox.md](wasm-sandbox.md)
 - 2026-03-05 07:30 — Add network policies and Cloud SQL proxy Helm templates [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 07:00 — Add NATS JetStream stream init hook job [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 06:15 — Add agent runtime deployment and RBAC Helm templates [k8s-deployment.md](k8s-deployment.md)

@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 112 entries across 10 categories.
+Category-based organization of all journal entries. Total: 113 entries across 10 categories.
 
 ## Entries
 
+- 2026-03-08 23:30 — Fast gVisor pods implementation plan [docs/plans.md](docs/plans.md)
 - 2026-03-06 17:15 — K8s acceptance: verify cortex infrastructure fixes (FIX-10/11/12) [testing/acceptance.md](testing/acceptance.md)
 - 2026-03-06 14:00 — Design plan: K8s Helm presets + ax k8s init CLI [docs/plans.md](docs/plans.md)
 - 2026-03-06 00:00 — Helm chart deployment improvements (5 fixes) [infrastructure/helm-deploy-fixes.md](infrastructure/helm-deploy-fixes.md)

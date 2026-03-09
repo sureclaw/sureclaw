@@ -10,10 +10,11 @@
 // isolation boundary.
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
+import { getNativeHandler, execValidated } from './bash-handlers.js';
+import type { BashHandlerContext, HostcallsForBash } from './bash-handlers.js';
 import type {
   SandboxToolExecutor,
   SandboxToolRequest,
@@ -82,7 +83,9 @@ function validatePath(
   operation: string,
 ): string {
   // safePath handles traversal protection
-  const segments = relativePath.split(/[/\\]/).filter(Boolean);
+  // Filter out '.' segments — safePath sanitizes them to '_empty_'
+  const segments = relativePath.split(/[/\\]/).filter(s => Boolean(s) && s !== '.');
+  if (segments.length === 0) return workspace;
   const abs = safePath(workspace, ...segments);
 
   // Check against allowed prefixes (if any are specified)
@@ -409,22 +412,45 @@ function executeViaHostcalls(
     }
 
     case 'bash': {
-      // Read-only bash commands — the classifier has already verified safety
-      try {
-        // nosemgrep: javascript.lang.security.detect-child-process — Tier 1 bash: classifier-verified read-only commands only
-        const out = execSync(request.command, {
-          cwd: workspace,
-          encoding: 'utf-8',
-          timeout: invCtx.limits.maxTimeMs,
-          maxBuffer: invCtx.limits.maxOutputBytes,
-          stdio: ['pipe', 'pipe', 'pipe'],
+      // Phase 2: Route classified bash commands through native handlers where
+      // possible. Native handlers use the hostcall API for file access (validation,
+      // quotas, audit) and avoid process spawning for simple commands.
+      // Commands without native handlers use validated execSync (workspace-contained,
+      // timeout-enforced, output-limited).
+      const parts = request.command.trim().split(/\s+/);
+      const cmd = parts[0];
+      const args = parts.slice(1);
+
+      const hostcallsForBash: HostcallsForBash = {
+        fsRead: (path: string) => hostcalls.fsRead(path),
+        fsList: (path: string, recursive?: boolean, maxEntries?: number) =>
+          hostcalls.fsList(path, recursive, maxEntries),
+      };
+
+      const handlerCtx: BashHandlerContext = {
+        workspace,
+        invocationCtx: invCtx,
+        hostcalls: hostcallsForBash,
+      };
+
+      const handler = getNativeHandler(cmd);
+      if (handler) {
+        logger.debug('bash_native_handler', {
+          invocationId: invCtx.invocationId,
+          command: cmd,
         });
-        return { type: 'bash', output: out, exitCode: 0 };
-      } catch (err: unknown) {
-        const e = err as { stdout?: string; stderr?: string; status?: number };
-        const output = [e.stdout, e.stderr].filter(Boolean).join('\n') || 'Command failed';
-        return { type: 'bash', output: `Exit code ${e.status ?? 1}\n${output}`, exitCode: e.status ?? 1 };
+        const result = handler(args, handlerCtx);
+        return { type: 'bash', output: result.output, exitCode: result.exitCode };
       }
+
+      // No native handler — use validated execSync for binary commands
+      // (rg, grep, find, git, file, tree, du, df)
+      logger.debug('bash_validated_exec', {
+        invocationId: invCtx.invocationId,
+        command: cmd,
+      });
+      const result = execValidated(request.command, handlerCtx);
+      return { type: 'bash', output: result.output, exitCode: result.exitCode };
     }
   }
 }
