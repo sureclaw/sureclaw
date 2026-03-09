@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-03-08 22:38] — Add contract parity tests and complete plan implementation
+
+**Task:** Add acceptance criteria tests proving local and WASM executors produce identical responses
+**What I did:** Created contract-parity.test.ts with 14 tests running the same requests through both local and WASM executors and comparing response shapes, content, error behavior, and edge cases (path traversal, binary content, nested dirs). Total sandbox-tools test count: 162 (129 unit + 33 integration).
+**Files touched:** `tests/host/sandbox-tools/contract-parity.test.ts`
+**Outcome:** Success — all acceptance criteria from the plan are now covered: contract parity (14 tests), security (20 tests), classifier (64 golden tests), operational/concurrency (2 tests)
+**Notes:** Actual .wasm binary compilation deferred to Phase 1 per plan exit criteria — runtime spike shows native hostcall layer works correctly, WASM toolchain selection is next decision point.
+
 ## [2026-03-08 22:35] — Add compare mode for canary validation
 
 **Task:** Implement dual-execution comparison mode for WASM canary validation
