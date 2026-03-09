@@ -2,6 +2,14 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-09 12:42] -- K8s acceptance: cortex memory provider (re-run on wasm branch)
+
+**Task:** Run all behavioral and integration acceptance tests for cortex memory provider on k8s
+**What I did:** Deployed AX to kind cluster (namespace ax-test-cortex-ccec96b9), ran 23 BT/IT tests via chat completions API, verified DB state via psql, tore down deployment
+**Files touched:** tests/acceptance/cortex/results-k8s.md
+**Outcome:** 18/23 passed, 5 skipped, 0 partial (up from 16/23, 5 skip, 2 partial in previous run)
+**Notes:** Major improvement: embeddings now stored in PostgreSQL embedding_meta table (no sqlite-vec needed), so BT-8 (SKIP->PASS) and IT-7 (PARTIAL->PASS) both upgraded. Semantic recall across sessions fully functional. Bitnami PG required fresh PVCs to avoid stale password mismatch. imageDefaults.registry/tag needed overrides for local kind images.
+
 ## [2026-03-06 17:15] -- K8s acceptance: verify cortex infrastructure fixes (FIX-10/11/12)
 
 **Task:** Deploy AX to kind cluster with custom PG username "ax" and verify 3 infrastructure fixes work automatically: pgvector auto-enabled (FIX-10), custom user/database created (FIX-11), advisory lock prevents duplicate backfill (FIX-12). Run BT-8, IT-7, IT-8.
