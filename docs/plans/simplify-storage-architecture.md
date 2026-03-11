@@ -37,13 +37,13 @@ This creates a lot of moving parts for what is conceptually simple: "give the ag
 | Skills loading | `loadSkills()` reads `readdirSync` + `readFileSync` from mounted dir | Host loads from DB, sends merged skill list via stdin payload |
 | Skill merging | overlayfs (Linux) or fallback (macOS) | DB query with user-level keys shadowing agent-level keys |
 | Identity writes | IPC handler → writes to filesystem | IPC handler → writes to DocumentStore (already exists) |
-| SandboxConfig | 7+ path fields | Remove `skills`, `agentDir`, `agentWorkspace`, `userWorkspace` |
-| Canonical paths | 6 mounts | 2 mounts: `/workspace` (scratch) + IPC socket |
+| SandboxConfig | 7+ path fields | Remove `skills`, `agentDir`; keep `agentWorkspace`, `userWorkspace` as object-store-backed mounts |
+| Canonical paths | 6 mounts | 4 mounts: `/workspace` (scratch), `/workspace/agent` (ro), `/workspace/user` (ro), IPC socket |
 
 #### Key files to modify
 
 - **`src/providers/storage/database.ts`** — No changes needed, DocumentStore already supports this
-- **`src/host/server-completions.ts`** — Load identity + skills from DB, include in stdin payload. Remove `mergeSkillsOverlay` call, remove `agentDir`/`agentWorkspace`/`userWorkspace` from SandboxConfig
+- **`src/host/server-completions.ts`** — Load identity + skills from DB, include in stdin payload. Remove `mergeSkillsOverlay` call, remove `agentDir` from SandboxConfig (keep `agentWorkspace`/`userWorkspace` — these hold large binary artifacts)
 - **`src/agent/identity-loader.ts`** — Read from stdin payload instead of filesystem. Accept `IdentityFiles` object directly
 - **`src/agent/stream-utils.ts`** — `loadSkills()` reads from stdin payload instead of filesystem
 - **`src/agent/agent-setup.ts`** — Accept pre-loaded identity and skills instead of directory paths
@@ -212,7 +212,7 @@ interface SandboxSession {
 
 ### Phase 4: Simplify Canonical Paths
 
-**Goal:** With identity/skills served via DB and lightweight turns skipping sandbox entirely, the mount table collapses.
+**Goal:** With identity/skills served via DB and lightweight turns skipping sandbox entirely, the mount table shrinks significantly.
 
 #### Before (6 mounts)
 ```
@@ -224,26 +224,34 @@ interface SandboxSession {
 /workspace/user      — Per-user persistent storage
 ```
 
-#### After (2 mounts)
+#### After (4 mounts)
 ```
 /workspace           — CWD/HOME + scratch
+/workspace/agent     — Agent shared workspace (ro, object-store-backed)
+/workspace/user      — Per-user persistent storage (ro, writes via IPC)
 /workspace/ipc       — IPC socket (or via env var)
 ```
 
-Identity, skills, agent workspace, and user workspace are all served via the stdin payload or IPC calls. No filesystem mounting needed.
+Identity and skills are served via the stdin payload — no filesystem mounting needed for those. Agent and user workspaces remain as filesystem mounts because they hold large binary artifacts (images up to 10MB, generated files up to 20MB) that don't belong in a database or stdin payload.
+
+> **Why agent/user workspaces stay as mounts:** These directories store uploaded images, agent-generated image artifacts, and other binary files. The current IPC write handlers (`workspace_write`, `workspace_write_file`) enforce size limits (500KB text, 20MB binary) and run content scanning before writing. The agent reads these files directly from the mounted filesystem — no IPC round-trip needed for reads.
+>
+> **Future consideration:** For K8s deployments, the backing store for these workspaces should migrate from local filesystem (`~/.ax/agents/...`) to an object store (GCS bucket, S3) or a git-backed repo. The mount path inside the sandbox stays the same — only the host-side backing changes. This is orthogonal to this plan and can be addressed separately via a `WorkspaceProvider` interface.
 
 #### SandboxConfig (simplified)
 ```typescript
 interface SandboxConfig {
-  workspace: string;      // scratch directory (rw)
-  ipcSocket: string;      // IPC socket path
-  command: string[];      // agent command
+  workspace: string;        // scratch directory (rw)
+  agentWorkspace?: string;  // agent-level shared workspace (ro)
+  userWorkspace?: string;   // per-user persistent workspace (ro)
+  ipcSocket: string;        // IPC socket path
+  command: string[];        // agent command
   timeoutSec?: number;
   memoryMB?: number;
 }
 ```
 
-Down from 9+ fields to 5.
+Down from 9+ fields to 7 (or 5 for lightweight turns that skip workspace mounts entirely).
 
 ## Implementation Order
 
@@ -265,12 +273,12 @@ Phases 1 and 2 can be done together. Phase 4 is a natural consequence of Phase 1
 |-----------|--------|
 | `src/providers/storage/file.ts` | Deleted |
 | `mergeSkillsOverlay()` (overlayfs) | Deleted |
-| `createCanonicalSymlinks()` | Simplified (2 mounts) |
+| `createCanonicalSymlinks()` | Simplified (4 mounts, down from 6) |
 | `symlinkEnv()` | Simplified |
 | `canonicalEnv()` | Simplified |
 | Identity filesystem paths (`agentIdentityDir`, etc.) | Deprecated |
 | Skills filesystem paths | Deprecated |
-| 4 of 6 canonical mount paths | Removed |
+| 2 of 6 canonical mount paths (skills, identity) | Removed |
 | Dual storage backend branching | Removed |
 | Sandbox-per-turn overhead for chat turns | Eliminated |
 
@@ -278,6 +286,7 @@ Phases 1 and 2 can be done together. Phase 4 is a natural consequence of Phase 1
 
 - **Security invariants**: No credentials in containers, taint tagging, audit logging
 - **Provider contract pattern**: SandboxProvider, StorageProvider interfaces unchanged (just simplified implementations)
+- **Agent/user workspaces**: Remain as filesystem mounts (ro in sandbox, writes via IPC). These hold large binary artifacts (images, generated files) that don't belong in a DB. Backing store migration to GCS/S3 is a future concern, not part of this plan.
 - **IPC protocol**: Identity/skills reads and writes still go through IPC handlers
 - **All sandbox providers**: nsjail, bwrap, docker, k8s, seatbelt, subprocess — they just get simpler configs
 - **Conversation history**: Unchanged (already DB-backed)

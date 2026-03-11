@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-11 13:00] — Keep agent/user workspaces as filesystem mounts in storage plan
+
+**Task:** Fix plan that incorrectly proposed moving agent/user workspace artifacts to DB
+**What I did:** Updated Phase 1, Phase 4, SandboxConfig, elimination/preservation tables. Agent/user workspaces stay as filesystem mounts (ro in sandbox, writes via IPC) because they hold large binary artifacts (images up to 10MB, files up to 20MB). Added future consideration note about migrating backing store to GCS/S3 for K8s. Mount count changed from "2 after" to "4 after".
+**Files touched:** docs/plans/simplify-storage-architecture.md
+**Outcome:** Success — plan now correctly scopes DB migration to identity + skills only
+**Notes:** Only identity (small markdown) and skills (small markdown) move to DB. Workspace artifacts stay on filesystem with a future path to object storage.
+
 ## [2026-03-11 12:30] — Add subdirectory support to skills key scheme in storage plan
 
 **Task:** Update simplify-storage-architecture.md to explicitly support subdirectories in skill keys
