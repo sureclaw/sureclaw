@@ -21,11 +21,13 @@ import type { ImageMimeType } from '../types.js';
 import { IMAGE_MIME_TYPES } from '../types.js';
 import { getLogger } from '../logger.js';
 import type { FileStore } from '../file-store.js';
+import type { WorkspaceSyncProvider } from '../providers/workspace-sync/types.js';
 
 const logger = getLogger().child({ component: 'files' });
 
 export interface FileDeps {
   fileStore?: FileStore;
+  workspaceSync?: WorkspaceSyncProvider;
 }
 
 /** Max upload size: 10 MB. */
@@ -120,6 +122,14 @@ export async function handleFileUpload(
   mkdirSync(filesDir, { recursive: true });
   const filePath = safePath(filesDir, filename);
   writeFileSync(filePath, body);
+
+  // Fire-and-forget sync to remote backing store
+  if (deps?.workspaceSync) {
+    const remotePrefix = `workspaces/${agent}/users/${user}/`;
+    void deps.workspaceSync
+      .uploadFile(wsDir, remotePrefix, `files/${filename}`)
+      .catch(() => {}); // Errors logged inside provider
+  }
 
   const fileId = `files/${filename}`;
   deps?.fileStore?.register(fileId, agent, user, contentType);

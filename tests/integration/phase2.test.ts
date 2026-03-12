@@ -195,7 +195,7 @@ describe('Phase 2 Provider Map', () => {
     for (const [kind, map] of Object.entries(PROVIDER_MAP)) {
       for (const [name, path] of Object.entries(map as Record<string, string>)) {
         expect(path).toMatch(
-          /^\.\.\/providers\/[a-z]+\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\.js$/,
+          /^\.\.\/providers\/[a-z][a-z0-9-]*\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\.js$/,
           `${kind}/${name} path "${path}" doesn't match format`,
         );
       }

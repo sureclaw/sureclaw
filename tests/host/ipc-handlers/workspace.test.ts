@@ -83,6 +83,69 @@ describe('Workspace IPC handlers', () => {
     expect(result.error).toContain('blocked');
   });
 
+  test('workspace_write calls workspaceSync.uploadFile after write', async () => {
+    const uploadFile = vi.fn().mockResolvedValue(undefined);
+    const providers = stubProviders();
+    (providers as any).workspaceSync = {
+      uploadFile,
+      pull: vi.fn(),
+      pushAll: vi.fn(),
+      deleteFile: vi.fn(),
+    };
+    const handlers = createWorkspaceHandlers(providers, { agentName: 'main', profile: 'balanced' });
+
+    await handlers.workspace_write(
+      { tier: 'user', path: 'synced.md', content: 'sync me' },
+      ctx,
+    );
+
+    // Fire-and-forget: give microtask a tick to resolve
+    await new Promise(r => setTimeout(r, 10));
+    expect(uploadFile).toHaveBeenCalledWith(
+      userWsDir,
+      'workspaces/main/users/testuser/',
+      'synced.md',
+    );
+  });
+
+  test('workspace_write_file calls workspaceSync.uploadFile after write', async () => {
+    const uploadFile = vi.fn().mockResolvedValue(undefined);
+    const providers = stubProviders();
+    (providers as any).workspaceSync = {
+      uploadFile,
+      pull: vi.fn(),
+      pushAll: vi.fn(),
+      deleteFile: vi.fn(),
+    };
+    const handlers = createWorkspaceHandlers(providers, { agentName: 'main', profile: 'balanced' });
+
+    const data = Buffer.from('binary data').toString('base64');
+    await handlers.workspace_write_file(
+      { tier: 'agent', path: 'file.bin', data, mimeType: 'application/octet-stream' },
+      ctx,
+    );
+
+    await new Promise(r => setTimeout(r, 10));
+    expect(uploadFile).toHaveBeenCalledWith(
+      agentWsDir,
+      'workspaces/main/agent/',
+      'file.bin',
+    );
+  });
+
+  test('workspace_write works without workspaceSync configured', async () => {
+    const providers = stubProviders();
+    // No workspaceSync set — should not crash
+    const handlers = createWorkspaceHandlers(providers, { agentName: 'main', profile: 'balanced' });
+
+    const result = await handlers.workspace_write(
+      { tier: 'user', path: 'no-sync.md', content: 'no sync provider' },
+      ctx,
+    );
+
+    expect(result.written).toBe(true);
+  });
+
   test('workspace_write creates nested directories', async () => {
     const providers = stubProviders();
     const handlers = createWorkspaceHandlers(providers, { agentName: 'main', profile: 'balanced' });

@@ -71,6 +71,16 @@ export function createWorkspaceHandlers(providers: ProviderRegistry, opts: Works
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, req.content, 'utf-8');
 
+      // Fire-and-forget sync to remote backing store
+      if (providers.workspaceSync) {
+        const remotePrefix = req.tier === 'agent'
+          ? `workspaces/${agentName}/agent/`
+          : `workspaces/${agentName}/users/${ctx.userId ?? 'default'}/`;
+        void providers.workspaceSync
+          .uploadFile(tierDir, remotePrefix, req.path)
+          .catch(() => {}); // Errors logged inside provider
+      }
+
       await providers.audit.log({
         action: 'workspace_write',
         sessionId: ctx.sessionId,
@@ -104,6 +114,16 @@ export function createWorkspaceHandlers(providers: ProviderRegistry, opts: Works
       // Ensure parent directory exists
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, data);
+
+      // Fire-and-forget sync to remote backing store
+      if (providers.workspaceSync) {
+        const remotePrefix = req.tier === 'agent'
+          ? `workspaces/${agentName}/agent/`
+          : `workspaces/${agentName}/users/${ctx.userId ?? 'default'}/`;
+        void providers.workspaceSync
+          .uploadFile(tierDir, remotePrefix, req.path)
+          .catch(() => {}); // Errors logged inside provider
+      }
 
       await providers.audit.log({
         action: 'workspace_write_file',

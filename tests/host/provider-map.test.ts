@@ -43,7 +43,7 @@ describe('Provider allowlist (SC-SEC-002)', () => {
     for (const [_kind, names] of Object.entries(PROVIDER_MAP)) {
       for (const [_name, path] of Object.entries(names)) {
         // Allow relative paths (current) or scoped package names (Phase 2)
-        const isRelative = /^\.\.\/providers\/[a-z]+\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\.js$/.test(path);
+        const isRelative = /^\.\.\/providers\/[a-z][a-z0-9-]*\/[a-z0-9-]+(?:\/[a-z0-9-]+)?\.js$/.test(path);
         const isPackage  = /^@ax\/provider-[a-z]+-[a-z]+$/.test(path);
         expect(isRelative || isPackage).toBe(true);
       }

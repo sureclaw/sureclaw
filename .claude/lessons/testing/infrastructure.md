@@ -1,5 +1,11 @@
 # Testing Infrastructure
 
+### Provider-map path regex tests must allow hyphens in category directory names
+**Date:** 2026-03-12
+**Context:** Adding workspace-sync provider with hyphenated directory name broke path format tests
+**Lesson:** When adding a new provider category with a hyphenated name (e.g. `workspace-sync`), update the provider-map path regex in both `tests/host/provider-map.test.ts` and `tests/integration/phase2.test.ts`. The regex for the category directory segment should be `[a-z][a-z0-9-]*` not `[a-z]+`.
+**Tags:** provider-map, regex, test-fix, naming
+
 ### K8s acceptance tests require multiple workarounds for single-process mode
 **Date:** 2026-03-05
 **Context:** Running plainjob scheduler and memoryfs-v2 acceptance tests in k8s kind cluster

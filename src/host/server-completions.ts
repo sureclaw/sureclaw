@@ -445,6 +445,20 @@ export async function processCompletion(
     mkdirSync(enterpriseAgentWs, { recursive: true });
     mkdirSync(enterpriseUserWs, { recursive: true });
 
+    // Pull latest workspace state from remote backing store before mounting
+    if (providers.workspaceSync) {
+      await Promise.all([
+        providers.workspaceSync.pull(
+          enterpriseAgentWs,
+          `workspaces/${agentName}/agent/`,
+        ),
+        providers.workspaceSync.pull(
+          enterpriseUserWs,
+          `workspaces/${agentName}/users/${currentUserId}/`,
+        ),
+      ]);
+    }
+
     // Read USER_BOOTSTRAP.md from the config dir (not in sandbox mount) to pass via stdin
     let userBootstrapContent: string | undefined;
     try {
@@ -647,6 +661,14 @@ export async function processCompletion(
             await deps.fileStore.register(ef.fileId, agentName, currentUserId, ef.mimeType);
           }
         }
+        // Sync extracted image files to remote backing store
+        if (providers.workspaceSync) {
+          for (const ef of extracted.extractedFiles) {
+            void providers.workspaceSync
+              .uploadFile(enterpriseUserWs, `workspaces/${agentName}/users/${currentUserId}/`, ef.fileId)
+              .catch(() => {});
+          }
+        }
       }
     }
 
@@ -671,6 +693,12 @@ export async function processCompletion(
           mkdirSync(join(filePath, '..'), { recursive: true });
           writeFileSync(filePath, img.data);
           deps.fileStore?.register(img.fileId, agentName, currentUserId, img.mimeType);
+          // Fire-and-forget sync to remote backing store
+          if (providers.workspaceSync) {
+            void providers.workspaceSync
+              .uploadFile(enterpriseUserWs, `workspaces/${agentName}/users/${currentUserId}/`, img.fileId)
+              .catch(() => {});
+          }
           reqLogger.info('image_persisted', { fileId: img.fileId, path: filePath, bytes: img.data.length });
         } catch (err) {
           reqLogger.warn('image_persist_failed', { fileId: img.fileId, workspace: enterpriseUserWs, error: (err as Error).message });

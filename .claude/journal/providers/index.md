@@ -1,9 +1,10 @@
 # Providers
 
-Provider implementations: image, channel, skills, sandbox, memory, LLM.
+Provider implementations: image, channel, skills, sandbox, memory, LLM, workspace-sync.
 
 ## Entries
 
+- 2026-03-12 21:05 — Implement GCS workspace sync provider [workspace-sync.md](workspace-sync.md)
 - 2026-03-05 21:00 — Rename promptfoo scanner to guardian + add LLM-based injection detection [scanner.md](scanner.md)
 - 2026-03-06 11:50 — Wire SummaryStore into cortex provider [memory.md](memory.md)
 - 2026-03-05 00:00 — Rename MemoryFS types to Cortex in cortex provider [memory.md](memory.md)

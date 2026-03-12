@@ -15,12 +15,14 @@ import type { SchedulerProvider, CronDelivery } from './providers/scheduler/type
 import type { StorageProvider } from './providers/storage/types.js';
 import type { EventBusProvider } from './providers/eventbus/types.js';
 import type { DatabaseProvider } from './providers/database/types.js';
+import type { WorkspaceSyncProvider } from './providers/workspace-sync/types.js';
 import type {
   MemoryProviderName, ScannerProviderName, ChannelProviderName,
   WebProviderName, BrowserProviderName, CredentialProviderName,
   SkillsProviderName, AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
   DatabaseProviderName,
+  WorkspaceSyncProviderName,
 } from './host/provider-map.js';
 
 /** Allowed image MIME types (matches Anthropic vision API). */
@@ -86,6 +88,11 @@ export interface Config {
     database?: DatabaseProviderName;
     eventbus: EventBusProviderName;
     screener?: string;
+    'workspace-sync'?: WorkspaceSyncProviderName;
+  };
+  workspace_sync?: {
+    bucket: string;
+    prefix?: string;
   };
   channel_config?: Record<string, Partial<ChannelAccessConfig>>;
   sandbox: {
@@ -153,4 +160,5 @@ export interface ProviderRegistry {
   database?: DatabaseProvider;
   eventbus: EventBusProvider;
   screener?: SkillScreenerProvider;
+  workspaceSync?: WorkspaceSyncProvider;
 }
