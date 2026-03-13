@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-13 — Update acceptance test plan for GCS backend (ST-9 added, 17 total tests) [workspace.md](workspace.md)
 - 2026-03-13 — Add GCS workspace backend with 20 tests (TDD, mock GCS bucket) [workspace.md](workspace.md)
 - 2026-03-13 — Design workspace provider acceptance test plan (16 tests: ST/BT/IT, local+k8s) [workspace.md](workspace.md)
 - 2026-03-13 — Add comprehensive workspace provider tests (52 tests: none, shared, local) [workspace.md](workspace.md)

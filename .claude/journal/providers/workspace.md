@@ -1,5 +1,13 @@
 # Workspace Provider Journal
 
+## [2026-03-13] — Update acceptance test plan for GCS backend
+
+**Task:** Update workspace acceptance test plan now that gcs.ts backend is implemented.
+**What I did:** Added ST-9 (GCS backend structural verification: createGcsBackend export, lazy SDK import, mount downloads from GCS, commit uploads to GCS, GcsBucketLike interface, safePath usage, bucket config requirement). Updated ST-3 to verify all three source files exist on disk. Updated k8s environment notes to distinguish kind (uses local backend) from GKE production (uses gcs backend). Added GKE production environment section. Updated acceptance criteria list (now 19 items, was 18). Corrected "GCS not yet implemented" language throughout. Test count: 17 (ST: 9, BT: 5, IT: 3).
+**Files touched:** Modified tests/acceptance/workspace/test-plan.md
+**Outcome:** Success — test plan reflects current implementation state.
+**Notes:** K8s kind tests still use `workspace: local` since kind clusters don't have GCS. The GCS backend is verified structurally (ST-9) and via its 20 unit tests, but not via behavioral acceptance tests (would require a real GCS bucket).
+
 ## [2026-03-13 11:42] — Add GCS workspace backend
 
 **Task:** Implement GCS workspace backend per the design plan section 9 (`gcs` — Google Cloud Storage).
