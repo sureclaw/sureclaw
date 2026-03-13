@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer, type Server } from 'node:net';
@@ -36,17 +36,14 @@ function createMockIPCServer(
 describe('agent-runner', () => {
   let tmpDir: string;
   let workspace: string;
-  let skillsDir: string;
   let socketPath: string;
   let server: Server;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'agent-runner-test-'));
     workspace = join(tmpDir, 'workspace');
-    skillsDir = join(tmpDir, 'skills');
     socketPath = join(tmpDir, 'test.sock');
     mkdirSync(workspace);
-    mkdirSync(skillsDir);
   });
 
   afterEach(() => {
@@ -81,7 +78,6 @@ describe('agent-runner', () => {
       await run({
         ipcSocket: socketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'Say hello',
       });
     } finally {
@@ -116,7 +112,6 @@ describe('agent-runner', () => {
       await run({
         ipcSocket: socketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'Do you remember?',
         history: [
           { role: 'user', content: 'My name is Alice' },
@@ -135,9 +130,7 @@ describe('agent-runner', () => {
     expect(nonSystemMsgs[2]).toEqual({ role: 'user', content: 'Do you remember?' });
   });
 
-  test('run() loads skills from skills directory', async () => {
-    writeFileSync(join(skillsDir, 'greeting.md'), '# Greeting Skill\nAlways greet politely.');
-
+  test('run() loads skills from payload', async () => {
     let receivedMessages: any[] = [];
     server = createMockIPCServer(socketPath, (req) => {
       if (req.action === 'llm_call') {
@@ -161,7 +154,9 @@ describe('agent-runner', () => {
       await run({
         ipcSocket: socketPath,
         workspace,
-        skills: skillsDir,
+        skills: [
+          { name: 'Greeting Skill', path: 'greeting.md', description: 'Always greet politely.', content: '# Greeting Skill\nAlways greet politely.', scope: 'agent' },
+        ],
         userMessage: 'Test',
       });
     } finally {
@@ -178,7 +173,6 @@ describe('agent-runner', () => {
     await run({
       ipcSocket: socketPath,
       workspace,
-      skills: skillsDir,
       userMessage: '   ',
     });
     // If we get here without error, it worked
@@ -243,6 +237,46 @@ describe('parseStdinPayload with taint state', () => {
     });
     const result = parseStdinPayload(payload);
     expect(result.replyOptional).toBe(false);
+  });
+
+  test('extracts identity and skills from payload', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      taintRatio: 0,
+      taintThreshold: 0.3,
+      profile: 'balanced',
+      sandboxType: 'subprocess',
+      identity: {
+        agents: '# Agents',
+        soul: '# Soul',
+        identity: '# Identity',
+        user: '',
+        bootstrap: '',
+        userBootstrap: '',
+        heartbeat: '',
+      },
+      skills: [
+        { name: 'TestSkill', path: 'test.md', description: 'A test skill', content: '# TestSkill\nDoes stuff.', scope: 'agent' },
+      ],
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.identity).toBeDefined();
+    expect(result.identity!.soul).toBe('# Soul');
+    expect(result.identity!.agents).toBe('# Agents');
+    expect(result.skills).toHaveLength(1);
+    expect(result.skills![0].name).toBe('TestSkill');
+    expect(result.skills![0].scope).toBe('agent');
+  });
+
+  test('defaults identity and skills to undefined when absent', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.identity).toBeUndefined();
+    expect(result.skills).toBeUndefined();
   });
 });
 

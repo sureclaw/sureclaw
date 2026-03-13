@@ -7,6 +7,7 @@ import type {
 import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
+import type { IdentityFiles, SkillSummary } from './prompt/types.js';
 
 const logger = getLogger().child({ component: 'runner' });
 
@@ -25,12 +26,20 @@ export interface ConversationTurn {
 
 export type AgentType = 'pi-coding-agent' | 'claude-code';
 
+/** A skill loaded from the host (via stdin payload or filesystem). */
+export interface SkillPayload {
+  name: string;
+  path: string;
+  description: string;
+  content: string;
+  scope: 'agent' | 'user';
+}
+
 export interface AgentConfig {
   agent?: AgentType;
   model?: string;          // e.g. 'moonshotai/kimi-k2-instruct-0905' (provider prefix already stripped)
   ipcSocket: string;
   workspace: string;
-  skills: string;
   proxySocket?: string;
   maxTokens?: number;
   verbose?: boolean;
@@ -52,8 +61,10 @@ export interface AgentConfig {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
-  /** USER_BOOTSTRAP.md content from host (not in sandbox mount). */
-  userBootstrapContent?: string;
+  /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
+  identity?: IdentityFiles;
+  /** Pre-loaded skills from host (via stdin payload). Skips filesystem reads when present. */
+  skills?: SkillPayload[];
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -194,11 +205,10 @@ function parseArgs(): AgentConfig {
     }
   }
 
-  // Workspace, skills, and agentDir are set via canonical env vars by the sandbox
-  // provider (e.g. AX_WORKSPACE=/workspace). No CLI arg fallback.
+  // Workspace is set via canonical env var by the sandbox provider
+  // (e.g. AX_WORKSPACE=/workspace). Skills and identity come via stdin payload now.
   ipcSocket = ipcSocket || process.env.AX_IPC_SOCKET || '';
   const workspace = process.env.AX_WORKSPACE || '';
-  const skills = process.env.AX_SKILLS || '';
   const agentDir = process.env.AX_AGENT_DIR || '';
 
   if (!ipcSocket || !workspace) {
@@ -207,7 +217,7 @@ function parseArgs(): AgentConfig {
   }
 
   return {
-    agent, ipcSocket, workspace, skills,
+    agent, ipcSocket, workspace,
     model: model || undefined,
     proxySocket: proxySocket || undefined,
     maxTokens: maxTokens || undefined,
@@ -242,8 +252,10 @@ export interface StdinPayload {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
-  /** USER_BOOTSTRAP.md content from host (not in sandbox mount). */
-  userBootstrapContent?: string;
+  /** Pre-loaded identity files from host (loaded from DocumentStore). */
+  identity?: Partial<IdentityFiles>;
+  /** Pre-loaded skills from host (loaded from DocumentStore). */
+  skills?: SkillPayload[];
 }
 
 /**
@@ -284,7 +296,9 @@ export function parseStdinPayload(data: string): StdinPayload {
         agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
         agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
         userWorkspace: typeof parsed.userWorkspace === 'string' ? parsed.userWorkspace : undefined,
-        userBootstrapContent: typeof parsed.userBootstrapContent === 'string' ? parsed.userBootstrapContent : undefined,
+        // Identity and skills from host (loaded from DocumentStore)
+        identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
+        skills: Array.isArray(parsed.skills) ? parsed.skills as SkillPayload[] : undefined,
       };
     }
   } catch {
@@ -347,7 +361,19 @@ if (isMain) {
     config.agentId = payload.agentId;
     config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
     config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
-    config.userBootstrapContent = payload.userBootstrapContent;
+    // Identity and skills from host (loaded from DocumentStore)
+    if (payload.identity) {
+      config.identity = {
+        agents: payload.identity.agents ?? '',
+        soul: payload.identity.soul ?? '',
+        identity: payload.identity.identity ?? '',
+        user: payload.identity.user ?? '',
+        bootstrap: payload.identity.bootstrap ?? '',
+        userBootstrap: payload.identity.userBootstrap ?? '',
+        heartbeat: payload.identity.heartbeat ?? '',
+      };
+    }
+    config.skills = payload.skills;
     return run(config);
   }).catch((err) => {
     logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });

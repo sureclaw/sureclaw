@@ -116,6 +116,28 @@ describe('loadIdentityFiles', () => {
     expect(files.agents.length).toBe(65536);
   });
 
+  test('returns preloaded identity data directly (no filesystem reads)', () => {
+    // Even though agentDir has files on disk, preloaded data takes precedence
+    writeFileSync(join(agentDir, 'SOUL.md'), '# Disk Soul');
+
+    const preloaded = {
+      agents: '# DB Agents',
+      soul: '# DB Soul',
+      identity: '# DB Identity',
+      user: '# DB User',
+      bootstrap: '# DB Bootstrap',
+      userBootstrap: '',
+      heartbeat: '# DB Heartbeat',
+    };
+
+    const files = loadIdentityFiles({ agentDir, preloaded });
+    expect(files.soul).toBe('# DB Soul');
+    expect(files.agents).toBe('# DB Agents');
+    expect(files.identity).toBe('# DB Identity');
+    expect(files.user).toBe('# DB User');
+    expect(files.heartbeat).toBe('# DB Heartbeat');
+  });
+
   test('reads all identity files from single directory', () => {
     writeFileSync(join(agentDir, 'AGENTS.md'), '# Agents');
     writeFileSync(join(agentDir, 'BOOTSTRAP.md'), '# Bootstrap');

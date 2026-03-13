@@ -43,13 +43,20 @@ export interface IdentityLoadOptions {
    */
   userDir?: string;
   /**
-   * USER_BOOTSTRAP.md content from host via stdin payload.
-   * When provided, skips reading USER_BOOTSTRAP.md from disk (it's not in the sandbox mount).
+   * Pre-loaded identity data from host via stdin payload (loaded from DocumentStore).
+   * When provided, returns this data directly without filesystem reads.
    */
-  userBootstrapContent?: string;
+  preloaded?: IdentityFiles;
 }
 
 export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
+  // When pre-loaded identity data is provided (from host via stdin payload),
+  // return it directly — no filesystem reads needed.
+  if (opts.preloaded) {
+    return opts.preloaded;
+  }
+
+  // Filesystem fallback for backward compatibility (local dev without DB)
   const { agentDir, userId } = opts;
 
   // Enterprise paths take precedence over legacy agentDir layout
@@ -65,15 +72,9 @@ export function loadIdentityFiles(opts: IdentityLoadOptions): IdentityFiles {
   }
 
   // USER_BOOTSTRAP.md is shown when the user has no USER.md yet.
-  // Prefer host-provided content (via stdin payload) over disk read — the file
-  // lives in agentConfigDir which is not in the sandbox mount.
   let userBootstrap = '';
-  if (!user) {
-    if (opts.userBootstrapContent) {
-      userBootstrap = capContent(opts.userBootstrapContent, 'USER_BOOTSTRAP.md');
-    } else if (idDir) {
-      userBootstrap = capContent(readFile(idDir, 'USER_BOOTSTRAP.md'), 'USER_BOOTSTRAP.md');
-    }
+  if (!user && idDir) {
+    userBootstrap = capContent(readFile(idDir, 'USER_BOOTSTRAP.md'), 'USER_BOOTSTRAP.md');
   }
 
   return {

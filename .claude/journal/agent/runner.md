@@ -2,6 +2,20 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-13 09:00] — Phase 1C: Agent reads identity/skills from stdin payload
+
+**Task:** Modify agent-side code to read identity and skills from the stdin payload (sent by the host) instead of from the filesystem.
+**What I did:**
+- Updated `StdinPayload` and `AgentConfig` in runner.ts: added `identity` (IdentityFiles) and `skills` (SkillPayload[]), removed `userBootstrapContent` and `skills: string`
+- Updated `parseStdinPayload` to parse identity and skills objects from JSON
+- Updated `parseArgs` to stop reading `AX_SKILLS` env var
+- Updated `identity-loader.ts` to accept `preloaded` identity data (skips filesystem reads)
+- Updated `agent-setup.ts` to use payload skills/identity directly, with filesystem fallback
+- Updated all tests (dispatch, runner, identity-loader) to match new types
+**Files touched:** src/agent/runner.ts, src/agent/identity-loader.ts, src/agent/agent-setup.ts, tests/agent/runner.test.ts, tests/agent/runners/dispatch.test.ts, tests/agent/identity-loader.test.ts
+**Outcome:** Success — TypeScript compiles, all 2394 tests pass (206 test files)
+**Notes:** `loadSkills()` in stream-utils.ts kept for backward compat but no longer called when payload skills are available. `AX_AGENT_DIR` env var still read for filesystem fallback.
+
 ## [2026-02-27 12:30] — Remove pi-agent-core as a user-facing agent type
 
 **Task:** Collapse pi-agent-core and pi-coding-agent into a single agent type, retire runPiCore(), make pi-coding-agent the default

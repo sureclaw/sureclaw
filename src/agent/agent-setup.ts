@@ -31,11 +31,18 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  const skills = loadSkills(config.skills);
+  // When skills come via stdin payload (array), map to SkillSummary[] directly.
+  // Filesystem fallback: load from agentDir (for local dev without DB).
+  const skills: import('./prompt/types.js').SkillSummary[] = Array.isArray(config.skills)
+    ? config.skills.map(s => ({ name: s.name, description: s.description, path: s.path }))
+    : loadSkills(config.agentDir ?? '');
+
+  // When identity is pre-loaded from host (via stdin payload), pass directly.
+  // Filesystem fallback: load from agentDir (for local dev without DB).
   const identityFiles = loadIdentityFiles({
     agentDir: config.agentDir,
     userId: config.userId,
-    userBootstrapContent: config.userBootstrapContent,
+    preloaded: config.identity,
   });
 
   const hasWorkspaceTiers = !!(config.agentWorkspace || config.userWorkspace);

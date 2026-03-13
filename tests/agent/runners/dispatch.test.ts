@@ -9,7 +9,6 @@ describe('agent-runner dispatch', () => {
         agent,
         ipcSocket: '/tmp/test.sock',
         workspace: '/tmp/workspace',
-        skills: '/tmp/skills',
       };
       expect(config.agent).toBe(agent);
     }
@@ -19,7 +18,6 @@ describe('agent-runner dispatch', () => {
     const config: AgentConfig = {
       ipcSocket: '/tmp/test.sock',
       workspace: '/tmp/workspace',
-      skills: '/tmp/skills',
     };
     expect(config.agent).toBeUndefined();
   });
@@ -30,7 +28,6 @@ describe('agent-runner dispatch', () => {
     await run({
       ipcSocket: '/tmp/nonexistent.sock',
       workspace: '/tmp/nonexistent',
-      skills: '/tmp/nonexistent',
       userMessage: '   ',
     });
   });
@@ -44,7 +41,6 @@ describe('agent-runner dispatch', () => {
         agent,
         ipcSocket: '/tmp/nonexistent.sock',
         workspace: '/tmp/nonexistent',
-        skills: '/tmp/nonexistent',
         userMessage: '',
       });
     }
