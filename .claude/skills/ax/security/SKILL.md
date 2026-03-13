@@ -76,10 +76,16 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 
 ## Sandbox Isolation (SC-SEC-001)
 
-- **No network** -- Agent containers deny all TCP/IP. Unix sockets allowed only for IPC.
+- **No network** -- Agent containers deny all TCP/IP. Unix sockets allowed only for IPC (local). NATS messaging for K8s pods.
 - **No credentials** -- API keys and OAuth tokens never enter the container.
-- **Mount-only** -- workspace (rw), skills (ro), IPC socket, agentDir (ro).
-- Providers: seatbelt (macOS), bwrap (Linux), nsjail (Linux), Docker, subprocess (dev fallback).
+- **4 canonical mounts**: `/workspace` (root/CWD), `/workspace/scratch` (rw), `/workspace/agent` (ro), `/workspace/user` (ro). Identity files and skills are sent via stdin payload from DocumentStore, not mounted as filesystem directories.
+- **Sandbox tools via IPC** -- bash, read_file, write_file, edit_file route through IPC to host-side handlers (`src/host/ipc-handlers/sandbox-tools.ts`), enforcing `safePath()` containment.
+- Providers: seatbelt (macOS), bwrap (Linux), nsjail (Linux), Docker, K8s pods (NATS), subprocess (dev fallback).
+
+## Install Validation
+
+- **`src/utils/install-validator.ts`**: Validates skill install commands against prefix allowlist (npm, brew, pip, cargo). Hard-rejects privilege escalation (sudo/su/doas/pkexec). Blocks shell operators.
+- **`src/utils/bin-exists.ts`**: Cross-platform binary lookup with strict regex validation (`[a-zA-Z0-9_.-]+`). Rejects paths and shell metacharacters.
 
 ## Common Tasks
 

@@ -19,6 +19,8 @@ AX supports multiple agent runners that execute inside the sandbox. Each runner 
 | `src/agent/stream-utils.ts` | Message conversion, stream events, helpers | `convertPiMessages()`, `emitStreamEvents()`, `createSocketFetch()`, `createLazyAnthropicClient()` |
 | `src/agent/ipc-transport.ts` | IPC-based LLM streaming adapter with image block injection | `createIPCStreamFn()` |
 | `src/agent/tool-catalog.ts` | Single source of truth for tool metadata and context-aware filtering | `TOOL_CATALOG`, `filterTools()`, `ToolFilterContext` |
+| `src/agent/nats-bridge.ts` | HTTP-to-NATS bridge for K8s claude-code sandbox pods | `NATSBridge` |
+| `src/agent/identity-loader.ts` | Loads identity files from preloaded stdin payload (or filesystem fallback) | `loadIdentityFiles()` |
 
 ## Runner Dispatch
 
@@ -72,9 +74,11 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 **Image support via `buildSDKPrompt()`**: When the user message contains `image_data` content blocks, `buildSDKPrompt()` returns an `AsyncIterable<SDKUserMessage>` with structured content blocks (text + base64 images) instead of a plain string.
 
-**TCP Bridge** (`tcp-bridge.ts`): HTTP server on localhost:0 forwarding to Unix socket proxy. Strips encoding headers.
+**TCP Bridge** (`tcp-bridge.ts`): HTTP server on localhost:0 forwarding to Unix socket proxy. Strips encoding headers. Used for local deployments.
 
-**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_*, skill_import, skill_search, agent_delegate, image_generate, workspace_*.
+**NATS Bridge** (`nats-bridge.ts`): HTTP-to-NATS bridge for K8s sandbox pods. Instead of TCP bridge -> Unix socket, publishes NATS requests to `ipc.llm.{sessionId}` for LLM calls and `ipc.request.{sessionId}` for tool calls. Used when `--nats-url` is provided.
+
+**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_*, skill_import, skill_search, skill_install, agent_delegate, image_generate, workspace_write, workspace_write_file, sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file.
 
 ## Common Tasks
 
@@ -107,3 +111,5 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 - **claude-code disallows WebFetch/WebSearch/Skill**: Replaced by AX's IPC-routed equivalents for taint tracking.
 - **Image blocks via `buildSDKPrompt()`**: Structured content blocks only generated when `image_data` blocks are present in user message.
 - **Context-aware filtering**: Both runners now use `ToolFilterContext` from `buildSystemPrompt()` to automatically exclude tools based on missing prompt modules.
+- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
+- **NATS bridge for K8s**: claude-code uses NATS bridge instead of TCP bridge when `--nats-url` is provided. Same HTTP interface for Claude Code CLI, but NATS transport underneath.

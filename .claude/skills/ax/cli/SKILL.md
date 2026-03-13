@@ -12,11 +12,14 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | File | Responsibility |
 |---|---|
 | `src/cli/index.ts` | Command router, `main()` entry point, `runServe()`, help text, --port flag, tracing init |
-| `src/cli/chat.ts` | Interactive chat client (Ink/React TUI), persistent sessions |
 | `src/cli/send.ts` | One-shot message sender, streaming + JSON output |
 | `src/cli/bootstrap.ts` | Agent identity reset (deletes SOUL.md/IDENTITY.md, copies templates) |
 | `src/cli/plugin.ts` | Plugin management: add, remove, list, verify |
-| `src/cli/components/App.ts` | Ink React component for the chat UI |
+| `src/cli/k8s-init.ts` | `ax k8s init` wizard — generates Helm values and K8s secrets for deployment |
+| `src/cli/setup-server.ts` | Server setup utilities (config loading, provider initialization) |
+| `src/cli/reload.ts` | Hot-reload config/skills without restart |
+| `src/cli/utils/commands.ts` | Command parsing helpers |
+| `src/cli/utils/markdown.ts` | Markdown rendering for terminal output |
 
 ## Commands
 
@@ -28,6 +31,8 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `ax configure` | `runConfigure(axHome)` | First-time setup wizard (onboarding) |
 | `ax bootstrap [agent]` | `runBootstrap(args)` | Reset agent identity; prompts confirmation if SOUL.md exists |
 | `ax plugin <cmd>` | `runPlugin(args)` | Plugin management: add, remove, list, verify |
+| `ax k8s init` | `runK8sInit(args)` | Interactive wizard for Kubernetes deployment setup |
+| `ax reload` | `runReload(args)` | Hot-reload config and skills |
 
 ## Server Flags
 
@@ -77,6 +82,18 @@ Format: colon-separated segments with minimum 3 parts.
 4. Create `src/cli/mycommand.ts` with `runMyCommand(args)` export
 5. Add dynamic import in `main()` command handlers
 6. Update `showHelp()` text
+
+## K8s Init Command (`k8s-init.ts`)
+
+Interactive wizard for generating Kubernetes deployment configuration:
+
+- **Presets**: `small`, `medium`, `large` — control resource allocation
+- **Compound model IDs**: Supports `provider/model` format (e.g., `anthropic/claude-sonnet-4-20250514`)
+- **`extractProvider(compoundId)`** — Splits on first `/` to get provider name
+- **`secretKeyForProvider(provider)`** — e.g., `anthropic` → `anthropic-api-key`
+- **`envVarForProvider(provider)`** — e.g., `anthropic` → `ANTHROPIC_API_KEY`
+- **Output**: Generates Helm values YAML and creates K8s secrets via `kubectl`
+- **Security**: Uses `execFileSync` (not `execSync`) to prevent shell injection
 
 ## Gotchas
 

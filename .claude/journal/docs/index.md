@@ -4,6 +4,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-03-13 15:00 — Sync all ax/* skills with codebase changes [website.md](website.md)
 - 2026-03-08 20:41 — Harden unified WASM sandbox plan against current AX seams [plans.md](plans.md)
 - 2026-03-08 20:23 — Review and consolidate WASM sandbox architecture plans [plans.md](plans.md)
 - 2026-03-08 14:08 — Specify concrete Wasm hostcall ABI for capsules [plans.md](plans.md)

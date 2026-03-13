@@ -25,75 +25,185 @@ tests/
     prompt/
       modules/         # Per-module tests (identity, security, delegation, etc.)
       builder.test.ts  # PromptBuilder integration
+      budget.test.ts   # Token budget allocation
+      base-module.test.ts
+      integration.test.ts
+      types.test.ts
+      enterprise-runtime.test.ts
     runners/           # Runner-specific tests
       claude-code.test.ts
       pi-session.test.ts
+      dispatch.test.ts       # Runner dispatch logic
     runner.test.ts
+    runner-history.test.ts   # History compaction
+    runner-images.test.ts    # Image block handling
     ipc-client.test.ts
+    ipc-client-reconnect.test.ts  # Reconnection logic
     ipc-transport.test.ts
-    local-tools.test.ts
     ipc-tools.test.ts
     mcp-server.test.ts
     tool-catalog.test.ts
     tool-catalog-sync.test.ts
+    identity-loader.test.ts  # Identity loading from stdin payload
+    session.test.ts
+    tcp-bridge.test.ts       # TCP-to-Unix socket bridge
+    heartbeat-state.test.ts
+    stream-utils.test.ts
+    nats-bridge.test.ts      # NATS bridge for K8s
   host/
     server.test.ts
+    server-admin.test.ts         # Admin API endpoints
+    server-channels.test.ts
+    server-completions-db.test.ts # DB-backed completions
+    server-completions-images.test.ts
+    server-files.test.ts         # File upload/download
+    server-history.test.ts       # History API
+    server-multimodal.test.ts    # Image pipeline
+    server-userid.test.ts
+    server-webhooks.test.ts
+    streaming-completions.test.ts
     router.test.ts
     ipc-server.test.ts
+    ipc-delegation.test.ts
     taint-budget.test.ts
     proxy.test.ts
+    proxy-oauth-refresh.test.ts
+    oauth.test.ts
     registry.test.ts
-    event-bus.test.ts              # Streaming event bus
-    event-bus-sse.test.ts          # SSE event streaming
-    plugin-host.test.ts            # Plugin lifecycle
-    plugin-lock.test.ts            # Plugin integrity
-    plugin-manifest.test.ts        # Plugin capability schema
-    plugin-provider-map.test.ts    # Plugin provider registration
-    delegation-hardening.test.ts   # Subagent delegation edge cases
-    server-files.test.ts           # File upload/download
-    server-multimodal.test.ts      # Image pipeline
-    server-completions-images.test.ts
+    agent-registry.test.ts      # Database-backed agent registry
+    admin-gate.test.ts
+    provider-map.test.ts
+    delivery.test.ts
+    memory-recall.test.ts
+    history-summarizer.test.ts
+    file-store.test.ts
+    channel-reconnect.test.ts
+    fault-tolerance.test.ts      # Circuit breaker / retry
+    webhook-transform.test.ts
+    event-bus.test.ts            # Streaming event bus
+    event-bus-sse.test.ts        # SSE event streaming
+    event-console.test.ts        # Event console UI
+    plugin-host.test.ts          # Plugin lifecycle
+    plugin-lock.test.ts          # Plugin integrity
+    plugin-manifest.test.ts      # Plugin capability schema
+    plugin-provider-map.test.ts  # Plugin provider registration
+    delegation-hardening.test.ts # Subagent delegation edge cases
+    nats-session-protocol.test.ts  # NATS session protocol
+    nats-sandbox-dispatch.test.ts  # NATS sandbox dispatch
+    nats-llm-proxy.test.ts        # NATS LLM proxy
     ipc-handlers/
-      image.test.ts                # Image generation handler
-      llm-events.test.ts           # LLM streaming events
+      image.test.ts              # Image generation handler
+      llm-events.test.ts         # LLM streaming events
+      orchestration.test.ts      # Agent orchestration
+      workspace.test.ts          # Workspace management
+      workspace-file.test.ts     # Workspace file ops
+      memory.test.ts             # Memory handlers
+      governance.test.ts         # Governance proposals
+      sandbox-tools.test.ts      # Sandbox tool routing
+      identity.test.ts           # Identity IPC handlers
+      skills-install.test.ts     # Skills installation
   providers/
     llm/               # Per-provider tests (anthropic, openai, router, traced)
     image/             # Image provider tests (router, openrouter)
     memory/
+      cortex/          # Cortex memory provider tests
+        provider.test.ts
+        extractor.test.ts
+        types.test.ts
+        prompts.test.ts
+        llm-helpers.test.ts
+        content-hash.test.ts
+        salience.test.ts
+        embedding-store.test.ts
+        semantic-dedup.test.ts
+        integration.test.ts
+        summary-store.test.ts
+        items-store.test.ts
     scanner/
+      guardian.test.ts  # Two-layer scanner (regex + LLM)
+      patterns.test.ts  # Pattern matching
     channel/
     web/
     browser/
     credentials/
     skills/
+      git.test.ts       # Git-based skills provider
+      readonly.test.ts  # Read-only skills provider
     screener/          # Static screener tests
     audit/
     sandbox/
+      k8s.test.ts      # Kubernetes sandbox provider
     scheduler/
+    storage/
+      database.test.ts     # Database-backed StorageProvider
+      migrate-to-db.test.ts # Filesystem-to-DocumentStore migration
+  sandbox-worker/        # NATS-based sandbox worker tests
+    tool-handlers.test.ts
+    worker.test.ts
+    workspace.test.ts
   provider-sdk/        # Provider SDK harness and interface tests
+    harness.test.ts
+    interfaces.test.ts
   clawhub/             # Registry client tests
+    registry-client.test.ts
   cli/
+    index.test.ts
+    send.test.ts
+    bootstrap.test.ts
+    reload.test.ts
+    k8s-init.test.ts     # K8s deployment wizard
   onboarding/
+    configure.test.ts
+    wizard.test.ts
+  utils/
+    safe-path.test.ts
+    disabled-provider.test.ts
+    circuit-breaker.test.ts
+    database.test.ts
+    migrator.test.ts
+    retry.test.ts
+    embedding-client.test.ts
+    bin-exists.test.ts
+    install-validator.test.ts
+    manifest-generator.test.ts
+    skill-format-parser.test.ts
   integration/         # End-to-end and smoke tests
+    smoke.test.ts
+    phase1.test.ts
+    phase2.test.ts
+    cross-component.test.ts
+    e2e.test.ts
+    history-smoke.test.ts
   e2e/
     scenarios/
-      delegation-stress.test.ts    # Delegation depth/concurrency stress tests
-  acceptance/              # Feature acceptance tests (live LLM)
-    fixtures/              # Shared test fixtures
-    cortex/                # Cortex acceptance tests
-    plainjob-scheduler/    # PlainJob scheduler acceptance tests
-    llm-webhook-transforms/ # Webhook transform acceptance tests
-    skills-install/        # Skills installation acceptance tests
+      delegation-stress.test.ts    # Delegation depth/concurrency stress
+      agent-delegation.test.ts
+      browser-interaction.test.ts
+      error-handling.test.ts
+      full-pipeline.test.ts
+      governance-proposals.test.ts
+      identity-update.test.ts
+      memory-lifecycle.test.ts
+      multi-turn-tool-use.test.ts
+      scheduled-task.test.ts
+      skill-creation.test.ts
+      slack-message.test.ts
+      web-search.test.ts
+      workspace-ops.test.ts
   migrations/              # Database migration tests
+    jobs.test.ts
   sandbox-isolation.test.ts  # Tool count assertions
   ipc-fuzz.test.ts
-  conversation-store.test.ts
-  conversation-store-structured.test.ts  # ContentBlock[] serialization
-  conversation-store-summary.test.ts     # History summarization tests
+  ipc-schemas.test.ts              # IPC schema validation
+  ipc-schemas-delivery.test.ts     # Delivery IPC schemas
+  ipc-schemas-enterprise.test.ts   # Enterprise IPC schemas
   config.test.ts
-  config-history.test.ts                 # History config validation
-  job-store.test.ts                      # Scheduler job persistence
-  session-store.test.ts                  # Session/channel tracking
+  config-history.test.ts           # History config validation
+  job-store.test.ts                # Scheduler job persistence
+  errors.test.ts                   # Error types
+  logger.test.ts                   # Logging
+  dotenv.test.ts                   # .env loading
+  paths.test.ts                    # Path utilities
 ```
 
 ## Test Patterns
@@ -152,20 +262,24 @@ For LLM tests, use the `mock` provider that returns fixed responses.
 
 `tests/sandbox-isolation.test.ts` asserts the exact number of tools registered for each runner. **Security invariant** -- catches accidentally exposed tools. Update the expected count when adding new IPC tools.
 
-## New Test Categories
+## Test Categories
 
-Since the skills were created, several new test categories have been added:
-
-- **Event bus tests**: `event-bus.test.ts`, `event-bus-sse.test.ts` -- test streaming observability
-- **Plugin tests**: `plugin-host.test.ts`, `plugin-lock.test.ts`, `plugin-manifest.test.ts` -- test plugin lifecycle and integrity
-- **Delegation stress tests**: `delegation-stress.test.ts` -- test depth/concurrency limits and zombie prevention
-- **Image pipeline tests**: `server-multimodal.test.ts`, `server-completions-images.test.ts`, image handler tests
+- **NATS / K8s tests**: `nats-session-protocol.test.ts`, `nats-sandbox-dispatch.test.ts`, `nats-llm-proxy.test.ts`, `sandbox-worker/` -- NATS messaging and K8s pod sandbox
+- **IPC handler tests**: `host/ipc-handlers/` -- per-handler tests for sandbox-tools, workspace, identity, governance, memory, orchestration, skills-install
+- **Event bus tests**: `event-bus.test.ts`, `event-bus-sse.test.ts`, `event-console.test.ts` -- streaming observability
+- **Plugin tests**: `plugin-host.test.ts`, `plugin-lock.test.ts`, `plugin-manifest.test.ts` -- plugin lifecycle and integrity
+- **Delegation tests**: `delegation-hardening.test.ts`, `delegation-stress.test.ts`, `ipc-delegation.test.ts` -- depth/concurrency limits, zombie prevention
+- **Image pipeline tests**: `server-multimodal.test.ts`, `server-completions-images.test.ts`, `ipc-handlers/image.test.ts` -- image handling
+- **Cortex memory tests**: `providers/memory/cortex/` -- 12+ tests covering extraction, salience, dedup, embeddings, summary store, items store
 - **Provider SDK tests**: `provider-sdk/harness.test.ts`, `interfaces.test.ts`
-- **Screener tests**: `providers/screener/static.test.ts` -- 5-layer static analysis
+- **Screener tests**: `providers/screener/` -- static analysis patterns
 - **Tool catalog sync tests**: `tool-catalog-sync.test.ts` -- verifies ipc-tools.ts and mcp-server.ts stay in sync
-- **Acceptance tests**: `tests/acceptance/` -- feature-level tests against live AX server with real LLM calls. Covers Cortex, plainjob scheduler, webhook transforms, and skills installation
-- **History/memory tests**: `conversation-store-summary.test.ts`, `config-history.test.ts` -- conversation summarization and memory recall
-- **Persistence tests**: `job-store.test.ts`, `session-store.test.ts` -- scheduler jobs and session tracking
+- **IPC schema tests**: `ipc-schemas.test.ts`, `ipc-schemas-delivery.test.ts`, `ipc-schemas-enterprise.test.ts` -- schema validation
+- **E2E scenario tests**: `e2e/scenarios/` -- 14 scenario tests covering delegation, governance, workspace ops, memory lifecycle, etc.
+- **Fault tolerance tests**: `fault-tolerance.test.ts`, `channel-reconnect.test.ts`, `ipc-client-reconnect.test.ts` -- resilience patterns
+- **Storage tests**: `providers/storage/database.test.ts`, `migrate-to-db.test.ts` -- database-backed StorageProvider and migration
+- **Utils tests**: `utils/` -- 11 test files covering safe-path, migrator, circuit-breaker, embedding-client, bin-exists, install-validator, etc.
+- **CLI tests**: `cli/` -- send, bootstrap, reload, k8s-init, index routing
 
 ## Common Tasks
 
@@ -195,6 +309,8 @@ Since the skills were created, several new test categories have been added:
 - **Vitest and Bun differences**: Both supported. Test with `npm test` as primary.
 - **Don't mock what you don't own**: Prefer `mock` provider implementations over mocking interfaces.
 - **Integration tests are slow**: Tests in `tests/integration/` spawn real processes. Use `--bail` to fail fast.
-- **Conversation store tests need cleanup**: Tests inserting turns should call `store.clear()` in cleanup.
+- **StorageProvider tests need cleanup**: Tests using StorageProvider should close the database and clean up `AX_HOME` in afterEach.
 - **Parallel CI robustness**: Integration smoke tests must handle timing variations. Use retry loops and generous timeouts for process spawning.
+- **Cortex tests need DB isolation**: Each cortex test needs its own temp database. Use the `AX_HOME` isolation pattern.
+- **IPC schema tests are strict**: Adding an IPC action requires updating the corresponding `ipc-schemas.test.ts` file or tests fail.
 - **Tool catalog sync test**: Validates that ipc-tools.ts and mcp-server.ts expose the same tools. Fails if you add a tool to one but not the other.

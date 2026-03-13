@@ -49,10 +49,8 @@ Shared validators: `safeString(maxLen)`, `scopeName`, `uuid`, `pathSegment`.
 | Skills      | `skill_propose`        | `skill`, `content`, `reason?`                             | (proposal result)             |
 | Skills      | `skill_import`         | `source`, `autoApprove?`                                  | (import result)               |
 | Skills      | `skill_search`         | `query`, `limit?`                                         | (search results)              |
-| Workspace   | `workspace_write`      | `tier` (agent/user/scratch), `path`, `content`            | `ok`                          |
-| Workspace   | `workspace_read`       | `tier`, `path`                                            | `content`                     |
-| Workspace   | `workspace_list`       | `tier`, `path?`                                           | `entries`                     |
-| Workspace   | `workspace_write_file` | `tier`, `path`, `data` (base64), `mimeType`               | `ok`                          |
+| Workspace   | `workspace_write`      | `tier` (agent/user), `path`, `content`                    | `ok`                          |
+| Workspace   | `workspace_write_file` | `tier` (agent/user), `path`, `data` (base64), `mimeType`  | `ok`                          |
 | Audit       | `audit_query`          | `filter?` (action, sessionId, since, until, limit)        | `entries`                     |
 | Delegation  | `agent_delegate`       | `task`, `context?`, `runner?`, `model?`, `maxTokens?`, `timeoutSec?` | `response`             |
 | Delegation  | `agent_collect`        | `delegationId`                                            | `response`                    |
@@ -75,6 +73,12 @@ Shared validators: `safeString(maxLen)`, `scopeName`, `uuid`, `pathSegment`.
 | Scheduler   | `scheduler_run_at`     | `datetime`, `prompt`, `maxTokenBudget?`, `delivery?`      | `jobId`                       |
 | Scheduler   | `scheduler_remove_cron`| `jobId`                                                   | `removed`                     |
 | Scheduler   | `scheduler_list_jobs`  | (none)                                                    | `jobs`                        |
+| Skills      | `skill_install`        | `skill`, `phase` (inspect/execute), `stepIndex?`, `inspectToken?` | (install result)       |
+| Skills      | `skill_install_status` | `skill`                                                   | (install status)              |
+| Sandbox     | `sandbox_bash`         | `command`                                                 | (exec result)                 |
+| Sandbox     | `sandbox_read_file`    | `path`                                                    | `content`                     |
+| Sandbox     | `sandbox_write_file`   | `path`, `content`                                         | `ok`                          |
+| Sandbox     | `sandbox_edit_file`    | `path`, `old_string`, `new_string`                        | `ok`                          |
 | Plugin      | `plugin_list`          | (none)                                                    | `plugins`                     |
 | Plugin      | `plugin_status`        | `packageName`                                             | (status result)               |
 
@@ -109,7 +113,19 @@ Messages support multiple block types:
 
 ### Workspace operations
 
-Three workspace tiers: `agent` (sandboxed), `user` (cross-agent readable), `scratch` (auto-cleaned). Use `workspace_write_file` for binary (base64), `workspace_write` for text.
+Two IPC workspace tiers for writes: `agent` (persistent), `user` (cross-agent). Reading/listing is done via local sandbox tools since tiers are mounted in the sandbox. Use `workspace_write_file` for binary (base64), `workspace_write` for text.
+
+### Sandbox tool operations
+
+Sandbox tools (`sandbox_bash`, `sandbox_read_file`, `sandbox_write_file`, `sandbox_edit_file`) route through IPC to host-side handlers in `src/host/ipc-handlers/sandbox-tools.ts`. All file paths are validated with `safePath()` for workspace containment.
+
+## NATS Transport (K8s)
+
+In Kubernetes deployments, IPC is bridged over NATS instead of Unix sockets:
+
+- **Agent-side**: `src/agent/nats-bridge.ts` provides a local HTTP server that claude-code hits via `ANTHROPIC_BASE_URL`. Publishes NATS requests to `ipc.llm.{sessionId}` for LLM calls and `ipc.request.{sessionId}` for tool calls.
+- **Host-side**: `src/host/nats-llm-proxy.ts` subscribes to LLM subjects, proxies to Anthropic API. `src/host/nats-sandbox-dispatch.ts` handles sandbox tool dispatch with per-turn pod affinity.
+- **Same schema validation**: NATS payloads use the same Zod schemas as Unix socket IPC.
 
 ## Gotchas
 

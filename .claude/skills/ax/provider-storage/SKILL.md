@@ -94,17 +94,41 @@ storage: {
 3. Add entry to `PROVIDER_MAP` in `src/host/provider-map.ts`.
 4. Add tests in `tests/providers/storage/<name>.test.ts`.
 
+## DocumentStore
+
+Key-value document storage for identity files, skills, config, etc. Documents are organized by `collection` (e.g. 'identity', 'skills', 'config') and keyed by a unique string within each collection. Used by identity/skills IPC handlers and the migration utility.
+
+## Migration Utility (`migrate-to-db.ts`)
+
+One-time migration of filesystem-based identity/skills files into DocumentStore:
+- **`migrateFilesToDb(documents, axHomePath, log?)`** — Scans `~/.ax/agents/` for identity files, bootstrap files, skills, and user data.
+- **Idempotent**: Writes `_meta/migrated_storage_v1` flag to prevent re-running.
+- **Collections**: `identity` (SOUL.md, IDENTITY.md, BOOTSTRAP.md, USER.md), `skills` (agent and user skills).
+- **Key format**: `{agentId}/{filename}` for identity, `{agentId}/{skillPath}` for skills.
+
+## Content Serialization
+
+Uses `src/utils/content-serialization.ts`:
+- **`serializeContent(content)`** — Strings stored as-is, ContentBlock[] JSON-stringified. Strips `image_data` blocks before persisting.
+- **`deserializeContent(raw)`** — Detects JSON arrays by checking if string starts with `[`.
+
 ## Gotchas
 
 - **Database requires injected DatabaseProvider**: Don't create standalone DB connections — use the shared `DatabaseProvider` from `CreateOptions`.
 - **SQLite autoincrement IDs**: After delete+insert, IDs don't respect logical ordering. Don't rely on ID order for conversation turn ordering.
 - **Creating a MessageQueueStore in tests**: Requires full storage provider setup, not just the sub-store.
 - **Structured content serialization**: Uses JSON detection on load — content can be string or structured object.
-- **Legacy file-storage warning**: On startup, if old `~/.ax/data/messages/`, `conversations/`, or `sessions/` directories exist, a deprecation warning is logged.
+- **Legacy file-storage warning**: On startup, if old `~/.ax/data/messages/`, `conversations/`, or `sessions/` directories exist, a deprecation warning is logged. File-based storage has been completely removed.
+- **Migration idempotency**: `migrateFilesToDb` checks for `_meta/migrated_storage_v1` flag. Don't call `documents.put` on the meta key manually.
+- **Per-subsystem migration tables**: Each subsystem using the shared DatabaseProvider MUST pass a unique `migrationTableName` to `runMigrations()` to avoid history collisions (e.g. `'storage_migration'`).
 
 ## Key Files
 
-- `src/providers/storage/types.ts` — Interface definitions
-- `src/providers/storage/database.ts` — Database-backed implementation
+- `src/providers/storage/types.ts` — Interface definitions (StorageProvider, MessageQueueStore, ConversationStoreProvider, SessionStoreProvider, DocumentStore)
+- `src/providers/storage/database.ts` — Database-backed implementation (SQLite + PostgreSQL via Kysely)
 - `src/providers/storage/migrations.ts` — Database schema migrations
+- `src/providers/storage/migrate-to-db.ts` — One-time filesystem-to-DocumentStore migration utility
+- `src/utils/content-serialization.ts` — Content serialization/deserialization helpers
+- `src/utils/migrator.ts` — Shared DB-agnostic migration runner
 - `tests/providers/storage/database.test.ts`
+- `tests/providers/storage/migrate-to-db.test.ts`

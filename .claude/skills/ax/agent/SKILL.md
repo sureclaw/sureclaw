@@ -16,7 +16,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 | `src/agent/tool-catalog.ts` | Single source of truth for tool metadata and context-aware filtering | `TOOL_CATALOG`, `filterTools()`, `ToolFilterContext`, `normalizeOrigin()`, `normalizeIdentityFile()` |
 | `src/agent/ipc-tools.ts` | Tools that proxy to host via IPC (pi-session runner) | `createIPCTools(client, opts)` |
 | `src/host/ipc-handlers/sandbox-tools.ts` | IPC handlers for bash/file ops (host-side) | `createSandboxToolHandlers()` |
-| `src/agent/identity-loader.ts` | Reads SOUL.md, IDENTITY.md, etc. from agentDir | `loadIdentityFiles(opts)` |
+| `src/agent/identity-loader.ts` | Loads identity files from preloaded stdin payload (or filesystem fallback) | `loadIdentityFiles(opts)` |
 | `src/agent/agent-setup.ts` | Shared setup: prompt building, event subscription, tool filtering | `buildSystemPrompt()`, `subscribeAgentEvents()` |
 | `src/agent/prompt/builder.ts` | Assembles system prompt from ordered modules | `PromptBuilder`, `PromptResult` |
 | `src/agent/prompt/types.ts` | PromptContext, PromptModule interface, IdentityFiles | `PromptContext`, `PromptModule`, `IdentityFiles` |
@@ -28,12 +28,13 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 
 ## Agent Boot Sequence
 
-1. `runner.ts` parses CLI args (`--agent`, `--ipc-socket`, `--workspace`, `--skills`, `--proxy-socket`, etc.)
-2. Reads stdin as JSON (`{message, history, taintRatio, profile, sessionId, ...}`) via `parseStdinPayload()`
+1. `runner.ts` parses CLI args (`--agent`, `--ipc-socket`, `--workspace`, `--proxy-socket`, etc.)
+2. Reads stdin as JSON (`{message, history, taintRatio, profile, sessionId, identity, skills, ...}`) via `parseStdinPayload()`
 3. Dispatches to runner: `runPiSession()` or `runClaudeCode()`
 4. Runner connects `IPCClient` to host Unix socket
-5. Loads identity files from `agentDir` via `loadIdentityFiles()`
-6. `buildSystemPrompt()` builds both the system prompt AND a `ToolFilterContext` for context-aware tool filtering
+5. Loads identity files from stdin payload (preloaded from DocumentStore by host) via `loadIdentityFiles({ preloaded: config.identity })`
+6. Skills loaded from stdin payload (array of `{name, description, path}`)
+7. `buildSystemPrompt()` builds both the system prompt AND a `ToolFilterContext` for context-aware tool filtering
 7. Creates IPC tools (catalog-based, filtered) — sandbox tools (bash, read_file, write_file, edit_file) route through IPC to host-side handlers
 8. Optionally compacts history if exceeding 75% of context window via IPC LLM summarization
 9. Creates agent (pi-coding-agent AgentSession or Claude Code query) with tools, prompt, history, and stream function
@@ -84,7 +85,7 @@ Budget allocation (`budget.ts`) can drop `optional` modules or switch to `render
 | `USER.md` | Per-user preferences (stored at `agentDir/users/<userId>/USER.md`) |
 | `HEARTBEAT.md` | Periodic self-check schedule and health definitions |
 
-`loadIdentityFiles()` reads all from `agentDir`. Returns empty strings for missing files (never throws).
+`loadIdentityFiles()` reads from `preloaded` identity data (sent via stdin payload from DocumentStore). Falls back to filesystem `agentDir` if preloaded data unavailable. Returns empty strings for missing files (never throws).
 
 ## Runner Variants
 
@@ -144,5 +145,6 @@ Supports inline image blocks via `buildSDKPrompt()` which returns either a plain
 - **`safePath()` is mandatory**: Every sandbox tool file operation must go through `safePath()` to prevent workspace escape. Sandbox tools now route through IPC to host-side handlers in `src/host/ipc-handlers/sandbox-tools.ts`.
 - **Strict IPC schemas reject unknown fields**: Adding a field to an IPC call without updating the Zod schema silently fails (`{ok: false}`).
 - **Identity loader never throws**: Missing files return `''`. Check content length, not for exceptions.
+- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts.
 - **Context-aware tool filtering**: Excluded prompt modules must have corresponding category filters in `filterTools()`.
 - **Delegation module**: Priority 75, optional, excluded during bootstrap. Includes guidance on `agent_delegate` and runner selection.

@@ -21,9 +21,10 @@ Scanners check inbound/outbound messages for prompt injection, data leakage, and
 
 | Name | File | Detection Method |
 |---|---|---|
-| basic | `src/providers/scanner/basic.ts` | Flat regex arrays (`INJECTION_PATTERNS`, `PII_PATTERNS`). Verdict is BLOCK (input) or FLAG (output). |
 | patterns | `src/providers/scanner/patterns.ts` | Structured `Pattern[]` with `{ regex, category, severity }`. Worst-severity-wins logic. Categories: `injection:direct`, `injection:persona`, `injection:extraction`, `injection:code`, `injection:shell`, `exfiltration`, `pii:*`, `credential:*`. |
-| guardian | `src/providers/scanner/guardian.ts` | Two-layer detection. Layer 1: regex patterns (same as patterns.ts). Layer 2: LLM-based classification using the configured fast model. Regex BLOCK skips LLM; LLM can escalate PASS to FLAG/BLOCK. Falls back to regex-only when LLM is unavailable. Accepts `CreateOptions { llm?: LLMProvider }`. |
+| guardian | `src/providers/scanner/guardian.ts` | Two-layer detection. Layer 1: regex patterns (same structure as patterns.ts). Layer 2: LLM-based classification using the configured fast model. Regex BLOCK skips LLM; LLM can escalate PASS to FLAG/BLOCK. Falls back to regex-only when LLM is unavailable. Accepts `CreateOptions { llm?: LLMProvider }`. |
+
+Note: The `basic` scanner was removed. Use `patterns` for regex-only or `guardian` for regex + LLM.
 
 ## Pattern System (`patterns.ts`)
 

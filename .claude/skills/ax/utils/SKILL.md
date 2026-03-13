@@ -1,6 +1,6 @@
 ---
 name: utils
-description: Use when working with path validation (safePath), SQLite adapter selection, disabled provider stubs, tracing, asset resolution, embedding client, OpenAI-compat helpers, or skill format utilities in src/utils/
+description: Use when working with path validation (safePath), SQLite adapter, disabled provider stubs, tracing, asset resolution, embedding client, OpenAI-compat helpers, skill format utilities, DB migrator, content serialization, binary lookup, or install validation in src/utils/
 ---
 
 ## Overview
@@ -18,8 +18,11 @@ The utilities module provides critical cross-cutting concerns: path traversal de
 | `src/utils/assets.ts` | Dev/prod mode detection, runner/template path resolution | `DEV_MODE`, `getRunnerPath()`, `getTemplatesDir()` |
 | `src/utils/retry.ts` | Retry with backoff | `retry()` |
 | `src/utils/circuit-breaker.ts` | Fault tolerance circuit breaker pattern | `CircuitBreaker` |
-| `src/utils/database.ts` | Database utilities wrapper | `openDatabase()` wrappers |
-| `src/utils/migrator.ts` | Database migration runner | `runMigrations()` |
+| `src/utils/database.ts` | Kysely database creation utility | `createKyselyDb()` |
+| `src/utils/migrator.ts` | DB-agnostic migration runner using Kysely Migrator | `runMigrations()`, `MigrationSet`, `MigrationResult` |
+| `src/utils/content-serialization.ts` | Serialize/deserialize content for storage | `serializeContent()`, `deserializeContent()` |
+| `src/utils/bin-exists.ts` | Cross-platform binary lookup in PATH | `binExists()`, `BIN_NAME_REGEX` |
+| `src/utils/install-validator.ts` | Install command validation and environment scrubbing | `validateRunCommand()`, `scrubbedEnv()` |
 | `src/utils/embedding-client.ts` | Text embedding generation via OpenAI-compatible APIs | `EmbeddingClient`, `EmbeddingClientConfig` |
 | `src/utils/openai-compat.ts` | Shared OpenAI-compatible provider constants/helpers | `DEFAULT_BASE_URLS`, `envKey()`, `resolveBaseUrl()` |
 | `src/utils/manifest-generator.ts` | Skill manifest generation from parsed SKILL.md | `generateManifest()`, `hashExecutables()` |
@@ -105,6 +108,45 @@ Validates an already-resolved path is within `baseDir`.
 - **`envKey(providerName)`** -- Returns the expected `${PROVIDER}_API_KEY` env var name
 - **`resolveBaseUrl(providerName)`** -- Resolves the correct base URL from env vars or defaults
 - Used by LLM providers (`src/providers/llm/openai.ts`) and the embedding client
+
+## Database Migrator
+
+`src/utils/migrator.ts`:
+
+- **`runMigrations(db, migrations, migrationTableName?)`** — Runs all pending Kysely migrations against a DB instance.
+- **Per-subsystem isolation**: Each subsystem passes a unique `migrationTableName` (e.g. `'storage_migration'`, `'cortex_migration'`) so migration histories don't collide when sharing the same database.
+- **Database-level locking**: Concurrent calls are safe.
+- **Returns**: `{ error?, applied, names }` — check `result.error` before proceeding.
+
+## Content Serialization
+
+`src/utils/content-serialization.ts`:
+
+- **`serializeContent(content)`** — Strings stored as-is. `ContentBlock[]` arrays are JSON-stringified. Strips `image_data` blocks (transient base64) before persisting.
+- **`deserializeContent(raw)`** — Detects JSON arrays by checking if string starts with `[`. Falls back to plain string.
+
+## Binary Lookup
+
+`src/utils/bin-exists.ts`:
+
+- **`binExists(name)`** — Cross-platform binary lookup via `command -v` (POSIX) or `where` (Windows).
+- **Security**: Input validated against strict regex `BIN_NAME_RE` (`[a-zA-Z0-9_.-]+`) — rejects paths, shell operators, metacharacters.
+- Used by skill install validation to check prerequisite binaries.
+
+## Install Validator
+
+`src/utils/install-validator.ts`:
+
+- **`validateRunCommand(cmd)`** — Validates install commands against prefix allowlist (npm, brew, pip, cargo, etc.). Hard-rejects privilege escalation (sudo/su/doas/pkexec). Blocks shell operators (`;|&`$><`).
+- **`scrubbedEnv()`** — Returns minimal environment for install commands (no credentials).
+- Used by skill install flow for defense-in-depth.
+
+## Shared Migrations
+
+`src/migrations/`:
+
+- **`dialect.ts`** — Shared SQL dialect helpers: `sqlNow(dbType)`, `sqlEpoch(dbType)` for SQLite/PostgreSQL compatibility.
+- **`files.ts`**, **`jobs.ts`**, **`orchestration.ts`** — Per-subsystem migration definitions.
 
 ## Disabled Provider
 

@@ -1,6 +1,27 @@
 # Docs: Website
 
-README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment.
+README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment, skill syncs.
+
+## [2026-03-13 15:00] — Sync all ax/* skills with codebase changes
+
+**Task:** Update all .claude/skills/ax/ skills to reflect codebase changes since last sync
+**What I did:** Updated 12 skill files across all subsystems:
+- provider-storage: Added DocumentStore, migrate-to-db, content serialization
+- provider-memory: Complete rewrite — only cortex remains with SummaryStore, embeddings
+- provider-scanner: Removed basic scanner references
+- provider-sandbox: Rewrote for canonical paths, K8s/NATS sandbox, sandbox-worker
+- host: Added NATS subsystem, agent registry, admin API, new IPC handler files
+- agent: Updated boot sequence for stdin payload identity/skills loading
+- cli: Added k8s-init, reload, setup-server
+- utils: Added migrator, content-serialization, bin-exists, install-validator
+- persistence: Complete rewrite for unified StorageProvider architecture
+- testing: Full directory structure rewrite (removed stale files, added 60+ new tests)
+- security: Updated sandbox isolation for canonical mounts, added install validation
+- ipc: Added sandbox tools, skill_install, NATS transport, removed workspace_read/list
+- runners: Added NATS bridge, identity-loader, stdin payload gotchas
+- parent ax: Added admin-dashboard-ui category
+**Files touched:** 14 files under .claude/skills/ax/
+**Outcome:** Success — all skills now accurate with current codebase state
 
 ## [2026-03-05 22:30] — Add Kubernetes deployment instructions to README.md
 

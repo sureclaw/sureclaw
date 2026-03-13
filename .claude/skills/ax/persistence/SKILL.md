@@ -1,104 +1,110 @@
 ---
 name: persistence
-description: Use when modifying data persistence — conversation history (SQLite), message queue, file store, job store, session store, or SQLite wrapper utilities in conversation-store.ts, file-store.ts, db.ts, job-store.ts, session-store.ts, or utils/sqlite.ts
+description: Use when modifying data persistence — StorageProvider (database-backed), conversation history, message queue, session store, document store, file store, job store, or database migration utilities
 ---
 
 ## Overview
 
-AX persists data using two patterns: (1) standalone SQLite databases under `~/.ax/data/` for conversation history, message queue, and file metadata, and (2) a shared `DatabaseProvider` (SQLite or PostgreSQL) for storage, audit, and memory. `ConversationStore` holds conversation history per session. `MessageQueue` tracks inbound messages through the scan/process/complete lifecycle. `FileStore` tracks uploaded file metadata. Standalone stores use the runtime-agnostic SQLite wrapper in `utils/sqlite.ts`. Provider-backed stores use Kysely via `src/utils/database.ts`.
+AX persists data using a unified `StorageProvider` backed by the shared `DatabaseProvider` (SQLite for local dev, PostgreSQL for k8s). The StorageProvider provides four sub-stores: MessageQueue, ConversationStore, SessionStore, and DocumentStore. Additional standalone stores exist for file metadata and scheduler jobs.
+
+## Architecture
+
+All persistence now flows through database-backed providers:
+
+```
+DatabaseProvider (SQLite or PostgreSQL)
+  └── StorageProvider (src/providers/storage/database.ts)
+        ├── MessageQueueStore — inbound message lifecycle
+        ├── ConversationStoreProvider — conversation history per session
+        ├── SessionStoreProvider — session/channel tracking
+        └── DocumentStore — identity files, skills, config (key-value)
+  └── Cortex MemoryProvider — knowledge items, embeddings, summaries
+  └── AuditProvider — audit trail
+  └── AgentRegistryDb — agent registry (PostgreSQL only)
+```
+
+Standalone stores (outside StorageProvider):
+- `src/file-store.ts` — File metadata (fileId → agent, user, mimeType)
+- `src/job-store.ts` — Scheduler job persistence for `plainjob` provider
 
 ## Key Files
 
 | File | Responsibility |
 |---|---|
-| `src/conversation-store.ts` | Conversation history CRUD (append, load, prune, count, clear) with image_data filtering |
-| `src/file-store.ts` | File metadata store (fileId -> agentName, userId, mimeType) |
-| `src/db.ts` | Message queue with status-based lifecycle (pending/processing/done/error) |
-| `src/utils/sqlite.ts` | Runtime-agnostic SQLite adapter: bun:sqlite, node:sqlite (22.5+), better-sqlite3 |
-| `src/job-store.ts` | Scheduler job persistence (cron, one-shot jobs) |
-| `src/session-store.ts` | Session/channel history tracking for delivery resolution |
-| `src/migrations/files.ts` | Files table migration |
+| `src/providers/storage/types.ts` | StorageProvider interface with all sub-store interfaces |
+| `src/providers/storage/database.ts` | Database-backed implementation (SQLite + PostgreSQL via Kysely) |
+| `src/providers/storage/migrations.ts` | Storage schema migrations |
+| `src/providers/storage/migrate-to-db.ts` | One-time filesystem-to-DocumentStore migration |
+| `src/providers/database/types.ts` | DatabaseProvider interface (shared Kysely instance) |
+| `src/providers/database/sqlite.ts` | SQLite DatabaseProvider |
+| `src/providers/database/postgres.ts` | PostgreSQL DatabaseProvider |
+| `src/utils/migrator.ts` | DB-agnostic migration runner |
+| `src/utils/content-serialization.ts` | Content serialization for structured blocks |
+| `src/utils/database.ts` | Kysely instance creation utility |
+| `src/migrations/dialect.ts` | Shared SQL dialect helpers (sqlNow, sqlEpoch) |
+| `src/file-store.ts` | File metadata store |
+| `src/job-store.ts` | Scheduler job persistence |
 
-## ConversationStore
+## StorageProvider Sub-Stores
 
-- **DB**: `~/.ax/data/conversations.db`
-- **Table**: `turns` (id INTEGER PK, session_id TEXT, role TEXT, sender TEXT, content TEXT, created_at INTEGER)
-- **Index**: `idx_turns_session` on (session_id, id)
+### MessageQueueStore
+- **Table**: `messages` (id UUID PK, session_id, channel, sender, content, status, created_at, processed_at)
+- **Statuses**: pending → processing → done | error
+- **PostgreSQL**: Uses `FOR UPDATE SKIP LOCKED` for concurrent dequeue
+- **SQLite**: Simple atomic `UPDATE...RETURNING`
 
-| Method | Signature | Notes |
-|---|---|---|
-| `append` | `(sessionId, role, content, sender?)` | Inserts a turn; content can be string or ContentBlock[] |
-| `load` | `(sessionId, maxTurns?)` | Returns last N turns oldest-first |
-| `prune` | `(sessionId, keep)` | Deletes all but last `keep` turns |
-| `count` | `(sessionId)` | Returns turn count for session |
-| `clear` | `(sessionId)` | Deletes all turns for session |
-| `close` | `()` | Closes the database connection |
+### ConversationStoreProvider
+- **Table**: `turns` (id INTEGER PK, session_id, role, sender, content, created_at, is_summary, summarized_up_to)
+- **Content serialization**: `serializeContent()` handles both string and ContentBlock[]. Strips `image_data` blocks before persisting.
+- **History summarization**: `replaceTurnsWithSummary()` is transactional — deletes old turns, inserts summary + retained turns atomically.
+- **Retention**: Controlled by `config.history.max_turns` (default 50)
 
-**Content serialization**: `serializeContent()` handles both string and `ContentBlock[]` content. Transient `image_data` blocks are **filtered out** before persistence (defense-in-depth -- they must never be stored). Only `text`, `tool_use`, `tool_result`, and `image` (file reference) blocks are persisted.
+### SessionStoreProvider
+- **Table**: `last_sessions` (agent_id PK, provider, scope, identifiers JSON, updated_at)
+- **Purpose**: Tracks last channel session per agent for delivery resolution
 
-Retention: controlled by `config.history.max_turns` (default 50) and `config.history.thread_context_turns` (default 5).
+### DocumentStore
+- **Table**: `documents` (collection + key composite PK, content, updated_at)
+- **Collections**: `identity` (SOUL.md, IDENTITY.md, etc.), `skills`, `config`, `_meta`
+- **Key format**: `{agentId}/{filename}` for identity, `{agentId}/{skillPath}` for skills
+- **Used by**: Identity/skills IPC handlers, host stdin payload construction, migration utility
 
-## FileStore
+## Migration System
 
-- **DB**: `~/.ax/data/files.db`
-- **Table**: `files` (file_id TEXT PK, agent_name TEXT, user_id TEXT, mime_type TEXT, created_at INTEGER)
-- **Purpose**: Maps fileId to metadata for downloads without query parameters (e.g., `GET /v1/files/<fileId>` resolves agent/user from DB)
+- **`src/utils/migrator.ts`**: Shared `runMigrations(db, migrations, migrationTableName?)` using Kysely Migrator.
+- **Per-subsystem isolation**: Each subsystem uses a unique migration table name to avoid collisions:
+  - Storage: `'storage_migration'`
+  - Cortex: `'cortex_migration'`
+  - Agent Registry: `'registry_migration'`
+- **`src/migrations/dialect.ts`**: SQL dialect helpers for SQLite/PostgreSQL compatibility.
 
-| Method | Signature | Notes |
-|---|---|---|
-| `register` | `(fileId, agentName, userId, mimeType)` | Store file metadata |
-| `lookup` | `(fileId)` | Returns metadata or null |
-| `close` | `()` | Closes the database connection |
+## Standalone Stores
 
-## Message Queue
+### FileStore (`src/file-store.ts`)
+- **DB**: `~/.ax/data/files.db` (standalone SQLite)
+- **Table**: `files` (file_id TEXT PK, agent_name, user_id, mime_type, created_at)
+- **Purpose**: Maps fileId to metadata for file downloads
 
-- **DB**: `~/.ax/data/messages.db`
-- **Table**: `messages` (id TEXT PK [UUID], session_id, channel, sender, content, status, created_at, processed_at)
-- **Statuses**: pending -> processing -> done | error
-
-| Method | Signature | Notes |
-|---|---|---|
-| `enqueue` | `({sessionId, channel, sender, content})` | Returns UUID; status = pending |
-| `dequeue` | `()` | FIFO by created_at; atomically sets status = processing |
-| `dequeueById` | `(id)` | Dequeue specific message by UUID; preferred over FIFO |
-| `complete` | `(id)` | Sets status = done |
-| `fail` | `(id)` | Sets status = error |
-| `pending` | `()` | Returns count of pending messages |
-| `close` | `()` | Closes the database connection |
-
-## JobStore
-
-- **DB**: `~/.ax/data/job-store.db`
+### JobStore (`src/job-store.ts`)
+- **DB**: `~/.ax/data/job-store.db` (standalone SQLite)
 - **Purpose**: Persists scheduled jobs for the `plainjob` scheduler provider
-- **Used by**: `src/providers/scheduler/plainjob.ts`
-
-## SessionStore
-
-- **DB**: `~/.ax/data/sessions.db`
-- **Purpose**: Tracks session/channel history for delivery resolution (CronDelivery routing)
-- **Used by**: `src/host/delivery.ts`
-
-## SQLite Wrapper (`utils/sqlite.ts`)
-
-- **Priority**: bun:sqlite -> node:sqlite (22.5+) -> better-sqlite3
-- **Interfaces**: `SQLiteDatabase` (exec, prepare, close), `SQLiteStatement` (run, get, all)
-- **PRAGMAs set automatically**: `journal_mode = WAL`, `foreign_keys = ON`
 
 ## Common Tasks
 
-**Adding a new persistent store:**
-1. Create `src/my-store.ts` with a class wrapping `openDatabase(dataFile('my-store.db'))`
-2. Add `migrate()` in constructor with `CREATE TABLE IF NOT EXISTS` + indexes
-3. Export typed interface for rows
-4. Add `close()` method and wire it into server shutdown
-5. Consider adding a migration file in `src/migrations/` for complex schemas
+**Adding a new sub-store to StorageProvider:**
+1. Define the interface in `src/providers/storage/types.ts`
+2. Implement in `src/providers/storage/database.ts`
+3. Add migration in `src/providers/storage/migrations.ts`
+4. Expose on `StorageProvider` interface
+5. Add tests in `tests/providers/storage/database.test.ts`
 
 ## Gotchas
 
-- **Always `mkdirSync` before opening SQLite**: The `~/.ax/data/` directory may not exist on first run.
-- **Clean WAL/SHM in tests**: SQLite WAL mode creates `-wal` and `-shm` sidecar files. Remove all three.
-- **Dequeue by ID, not FIFO**: The server uses `dequeueById(messageId)` to avoid session ID mismatches.
-- **Close store on shutdown**: All stores expose `close()`. Wire into server shutdown.
-- **`node:sqlite` uses `DatabaseSync`**: Synchronous API matching better-sqlite3.
-- **image_data blocks are transient**: ConversationStore filters them out before persisting. Never store base64 image data in conversation history.
-- **ContentBlock[] content**: `append()` accepts both string and structured content. Serialization handles both formats.
+- **No standalone conversation/message/session stores**: These were consolidated into StorageProvider. The old `src/conversation-store.ts`, `src/db.ts`, `src/session-store.ts` no longer exist.
+- **Always use shared DatabaseProvider**: Don't create standalone DB connections for new sub-stores. Inject via `CreateOptions`.
+- **Per-subsystem migration tables**: Always pass a unique `migrationTableName` to `runMigrations()`.
+- **SQLite autoincrement IDs**: After delete+insert, IDs don't respect logical ordering. Don't rely on ID order.
+- **Content serialization**: `serializeContent()` strips `image_data` blocks. `deserializeContent()` detects JSON arrays by checking `[` prefix.
+- **PostgreSQL dialect differences**: Use `sqlNow(dbType)` and `sqlEpoch(dbType)` from `src/migrations/dialect.ts` for cross-DB compatibility in migrations.
+- **Legacy file-storage warning**: `database.ts` logs warnings if old filesystem storage directories exist.
+- **Close store on shutdown**: Standalone stores expose `close()`. Wire into server shutdown.
