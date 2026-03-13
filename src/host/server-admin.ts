@@ -115,12 +115,12 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 function resolveAdminUIDir(): string {
-  // Sibling of host/ in both src/ and dist/: {src,dist}/admin-ui/
+  // Sibling of host/ when running from dist/: dist/admin-ui/
   const siblingDir = resolve(import.meta.dirname, '../admin-ui');
   if (existsSync(siblingDir)) return siblingDir;
-  // Fallback: src/admin-ui/ when running from dist/host/
-  const srcDir = resolve(import.meta.dirname, '../../src/admin-ui');
-  if (existsSync(srcDir)) return srcDir;
+  // Fallback: dist/admin-ui/ when running from src/host/ (dev mode with tsx)
+  const distDir = resolve(import.meta.dirname, '../../dist/admin-ui');
+  if (existsSync(distDir)) return distDir;
   return siblingDir; // Will show "not built" error
 }
 
