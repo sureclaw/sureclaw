@@ -143,7 +143,6 @@ async function main(): Promise<void> {
     sessionCanaries,
     ipcSocketPath,
     ipcSocketDir,
-    agentDir: identityFilesDir,
     logger,
     verbose: process.env.AX_VERBOSE === '1',
     fileStore,

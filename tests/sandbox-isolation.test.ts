@@ -98,60 +98,58 @@ describe('seatbelt sandbox env isolation', () => {
     expect(source).not.toContain('TAVILY_API_KEY');
   });
 
-  test('seatbelt provider passes AGENT_DIR for identity file access', async () => {
+  test('seatbelt provider does not pass AGENT_DIR (identity comes via stdin)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/seatbelt.ts'), 'utf-8');
 
-    // The seatbelt provider must pass AGENT_DIR so the agent can read
-    // identity files (BOOTSTRAP.md, SOUL.md, IDENTITY.md, etc.)
-    expect(source).toContain('AGENT_DIR');
+    // Identity files are now sent via stdin payload from DocumentStore —
+    // no AGENT_DIR mount needed in the sandbox.
+    expect(source).not.toContain('AGENT_DIR');
   });
 
-  test('seatbelt policy allows read access to AGENT_DIR', async () => {
+  test('seatbelt policy does not reference AGENT_DIR (identity comes via stdin)', async () => {
     const { readFileSync } = await import('node:fs');
     const policy = readFileSync(resolve('policies/agent.sb'), 'utf-8');
 
-    // The policy must allow read access to the agent identity directory
-    expect(policy).toContain('AGENT_DIR');
-    expect(policy).toContain('(allow file-read*');
-    // Verify it's read-only (no file-write* for AGENT_DIR)
-    expect(policy).not.toMatch(/file-write\*.*AGENT_DIR/);
+    // The policy should no longer reference AGENT_DIR since identity
+    // files are sent via stdin payload from DocumentStore.
+    expect(policy).not.toContain('AGENT_DIR');
   });
 });
 
-// ── Agent Dir Passed to All Sandbox Providers ────────────────────────
+// ── Identity Mount Removed From All Sandbox Providers ────────────────
 
-describe('sandbox providers accept agentDir for identity files', () => {
-  test('server passes agentDir to sandbox.spawn()', async () => {
+describe('sandbox providers do not mount identity (now via stdin payload)', () => {
+  test('server does not pass agentDir to sandbox config', async () => {
     const { readFileSync } = await import('node:fs');
-    // processCompletion (and thus sandbox.spawn) is now in server-completions.ts
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
-    // processCompletion must include agentDir in the sandbox config
-    // (may be inline or via a separate sandboxConfig variable)
-    expect(source).toContain('agentDir');
+    // Identity files are sent via stdin payload from DocumentStore.
+    // The sandboxConfig object should not include agentDir.
+    const sandboxSection = source.slice(source.indexOf('sandboxConfig'));
+    expect(sandboxSection).not.toMatch(/agentDir/);
     expect(source).toMatch(/sandbox\.spawn/);
   });
 
-  test('bwrap provider mounts agentDir read-only', async () => {
+  test('bwrap provider does not mount identity directory', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/bwrap.ts'), 'utf-8');
-    expect(source).toContain('agentDir');
-    expect(source).toContain('--ro-bind');
+    expect(source).not.toContain('agentDir');
+    expect(source).not.toContain('CANONICAL.identity');
   });
 
-  test('nsjail provider mounts agentDir read-only', async () => {
+  test('nsjail provider does not mount identity directory', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/nsjail.ts'), 'utf-8');
-    expect(source).toContain('agentDir');
-    expect(source).toContain('bindmount_ro');
+    expect(source).not.toContain('agentDir');
+    expect(source).not.toContain('CANONICAL.identity');
   });
 
-  test('docker provider mounts agentDir read-only', async () => {
+  test('docker provider does not mount identity directory', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/docker.ts'), 'utf-8');
-    expect(source).toContain('agentDir');
-    expect(source).toMatch(/:ro/);
+    expect(source).not.toContain('agentDir');
+    expect(source).not.toContain('CANONICAL.identity');
   });
 });
 
@@ -274,8 +272,8 @@ describe('server workspace isolation', () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
-    // Workspace, skills, and agentDir are NOT passed as CLI args — they're
-    // set via canonical env vars by the sandbox provider.
+    // Workspace is NOT passed as a CLI arg — it's set via canonical env
+    // vars by the sandbox provider. Identity and skills come via stdin payload.
     const spawnSection = source.slice(source.indexOf('spawnCommand'));
     expect(spawnSection).not.toContain("'--workspace'");
     expect(spawnSection).not.toContain("'--skills'");

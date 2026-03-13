@@ -314,7 +314,6 @@ export async function createServer(
     sessionCanaries,
     ipcSocketPath,
     ipcSocketDir,
-    agentDir: identityFilesDir,
     logger,
     verbose: opts.verbose,
     fileStore,

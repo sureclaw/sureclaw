@@ -39,9 +39,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '--bindmount', `${config.workspace}:${CANONICAL.scratch}`,
         '--cwd', CANONICAL.root,
 
-        // Mount agent identity directory (read-only) — SOUL.md, etc.
-        ...(config.agentDir ? ['--bindmount_ro', `${config.agentDir}:${CANONICAL.identity}`] : []),
-
         // Enterprise mounts — canonical paths
         ...(config.agentWorkspace ? ['--bindmount_ro', `${config.agentWorkspace}:${CANONICAL.agent}`] : []),
         ...(config.userWorkspace ? ['--bindmount_ro', `${config.userWorkspace}:${CANONICAL.user}`] : []),

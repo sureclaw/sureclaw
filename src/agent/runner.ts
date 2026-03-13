@@ -45,7 +45,6 @@ export interface AgentConfig {
   verbose?: boolean;
   userMessage?: string | ContentBlock[];
   history?: ConversationTurn[];
-  agentDir?: string;
   userId?: string;
   // Taint state from host (via stdin payload)
   taintRatio?: number;
@@ -206,10 +205,9 @@ function parseArgs(): AgentConfig {
   }
 
   // Workspace is set via canonical env var by the sandbox provider
-  // (e.g. AX_WORKSPACE=/workspace). Skills and identity come via stdin payload now.
+  // (e.g. AX_WORKSPACE=/workspace). Identity and skills come via stdin payload now.
   ipcSocket = ipcSocket || process.env.AX_IPC_SOCKET || '';
   const workspace = process.env.AX_WORKSPACE || '';
-  const agentDir = process.env.AX_AGENT_DIR || '';
 
   if (!ipcSocket || !workspace) {
     logger.error('missing_args', { message: 'Usage: agent-runner --agent <type> --ipc-socket <path> (AX_WORKSPACE env var required)' });
@@ -222,7 +220,6 @@ function parseArgs(): AgentConfig {
     proxySocket: proxySocket || undefined,
     maxTokens: maxTokens || undefined,
     verbose,
-    agentDir: agentDir || undefined,
   };
 }
 

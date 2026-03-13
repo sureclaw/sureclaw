@@ -165,8 +165,8 @@ export function agentUserDir(agentName: string, userId: string): string {
  * Path to an agent's config directory:
  * ~/.ax/agents/<agentId>/agent/
  *
- * Contains BOOTSTRAP.md, USER_BOOTSTRAP.md, capabilities.yaml,
- * the identity/ subdirectory, and the shared workspace.
+ * @deprecated Identity files are now stored in DocumentStore and sent via stdin payload.
+ * This path helper remains for governance handler backward compatibility only.
  */
 export function agentIdentityDir(agentId: string): string {
   validatePathSegment(agentId, 'agent ID');
@@ -177,9 +177,8 @@ export function agentIdentityDir(agentId: string): string {
  * Path to an agent's identity files directory:
  * ~/.ax/agents/<agentId>/agent/identity/
  *
- * Contains only the files mounted into the sandbox as /workspace/identity:
- * AGENTS.md, SOUL.md, IDENTITY.md, HEARTBEAT.md.
- * Also includes copies of BOOTSTRAP.md and USER_BOOTSTRAP.md for agent-side reading.
+ * @deprecated Identity files are now stored in DocumentStore and sent via stdin payload.
+ * This path helper remains for governance handler backward compatibility only.
  */
 export function agentIdentityFilesDir(agentId: string): string {
   return join(agentIdentityDir(agentId), 'identity');
@@ -193,12 +192,16 @@ export function agentWorkspaceDir(agentId: string): string {
   return join(agentIdentityDir(agentId), 'workspace');
 }
 
-/** Path to an agent's skills directory (agent-level, shared): ~/.ax/agents/<agentId>/agent/skills/ */
+/**
+ * @deprecated Skills are now stored in DocumentStore and sent via stdin payload.
+ * Path to an agent's skills directory (agent-level, shared): ~/.ax/agents/<agentId>/agent/skills/
+ */
 export function agentSkillsDir(agentId: string): string {
   return join(agentIdentityDir(agentId), 'skills');
 }
 
 /**
+ * @deprecated Skills are now stored in DocumentStore and sent via stdin payload.
  * Path to a user's skills directory (user-level, private):
  * ~/.ax/agents/<agentId>/users/<userId>/skills/
  */

@@ -2,6 +2,19 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-03-13 09:40] — Remove identity mount from sandbox (Phase 4)
+
+**Task:** Remove the /workspace/identity mount from the sandbox. Identity files now come via stdin payload from DocumentStore.
+**What I did:** (1) Removed `CANONICAL.identity` from canonical-paths.ts, `AX_AGENT_DIR` from canonicalEnv/symlinkEnv, identity symlink from createCanonicalSymlinks. (2) Removed `agentDir` from SandboxConfig, CompletionDeps, AgentConfig, parseArgs(). (3) Removed identity mount from all 4 sandbox providers (docker, bwrap, nsjail, seatbelt). (4) Updated seatbelt policy (policies/agent.sb) to remove AGENT_DIR parameter and read rule. (5) Updated agent-setup.ts to remove agentDir fallback. (6) Deprecated path helpers (agentIdentityDir, agentIdentityFilesDir, agentSkillsDir, userSkillsDir). (7) Updated sandbox-isolation tests and canonical-paths tests. (8) Fixed pi-session test to use preloaded identity instead of agentDir.
+**Files touched:**
+  - Modified: src/providers/sandbox/canonical-paths.ts, types.ts, seatbelt.ts, docker.ts, bwrap.ts, nsjail.ts
+  - Modified: src/host/server-completions.ts, server.ts, agent-runtime-process.ts
+  - Modified: src/agent/runner.ts, agent-setup.ts
+  - Modified: src/paths.ts, policies/agent.sb
+  - Modified: tests/providers/sandbox/canonical-paths.test.ts, tests/sandbox-isolation.test.ts, tests/agent/runners/pi-session.test.ts
+**Outcome:** Success — build passes, all 2377 tests pass
+**Notes:** The host-side `agentDir` in IPCHandlerOptions/GovernanceHandlerOptions remains unchanged — it's the host-side path for governance proposals, not the sandbox mount.
+
 ## [2026-03-05 13:00] — Wire NATS sandbox dispatch into agent-runtime IPC pipeline
 
 **Task:** Connect NATSSandboxDispatcher to the IPC tool handler pipeline so sandbox tools dispatch via NATS to remote sandbox pods in k8s mode

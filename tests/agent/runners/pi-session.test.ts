@@ -534,10 +534,8 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
   test('LLM request includes scheduler, identity, and user_write tools', async () => {
     const port = nextPort++;
 
-    // Create agentDir with a HEARTBEAT.md so scheduler tools are included
-    const agentDir = join(tempDir, 'agent-dir');
-    mkdirSync(agentDir, { recursive: true });
-    writeFileSync(join(agentDir, 'HEARTBEAT.md'), '# Checks\n- check stuff');
+    // Provide identity with HEARTBEAT.md so scheduler tools are included
+    const heartbeatContent = '# Checks\n- check stuff';
 
     const receivedRequests: Array<{ url: string; body: Record<string, unknown> }> = [];
 
@@ -562,8 +560,11 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         ipcSocket: ipcSocketPath,
         proxySocket: proxySocketPath,
         workspace,
-        skills: skillsDir,
-        agentDir,
+        identity: {
+          agents: '', soul: '', identity: '', user: '',
+          bootstrap: '', userBootstrap: '',
+          heartbeat: heartbeatContent,
+        },
         userMessage: 'hello',
       });
     } finally {

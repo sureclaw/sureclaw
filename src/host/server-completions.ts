@@ -43,7 +43,6 @@ export interface CompletionDeps {
   sessionCanaries: Map<string, string>;
   ipcSocketPath: string;
   ipcSocketDir: string;
-  agentDir: string;
   logger: Logger;
   verbose?: boolean;
   fileStore?: FileStore;
@@ -341,7 +340,7 @@ export async function processCompletion(
   replyOptional?: boolean,
   sessionScope?: 'dm' | 'channel' | 'thread' | 'group',
 ): Promise<CompletionResult> {
-  const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, agentDir, logger, eventBus } = deps;
+  const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, logger, eventBus } = deps;
   const sessionId = preProcessed?.sessionId ?? randomUUID();
   const reqLogger = logger.child({ reqId: requestId.slice(-8) });
 
@@ -579,9 +578,9 @@ export async function processCompletion(
 
     const maxTokens = config.max_tokens ?? 8192;
 
-    // Workspace/skills/agentDir are NOT passed as CLI args — they're set via
-    // canonical env vars by the sandbox provider (e.g. AX_WORKSPACE=/workspace).
-    // This avoids conflicts between host paths (CLI args) and canonical paths (env vars).
+    // Workspace is NOT passed as a CLI arg — it's set via canonical env vars
+    // by the sandbox provider (e.g. AX_WORKSPACE=/workspace).
+    // Identity and skills come via stdin payload from DocumentStore.
     const spawnCommand = [process.execPath,
       // Dev mode: load tsx ESM loader so the .ts runner source is compiled on
       // the fly. Production: run compiled dist/agent/runner.js directly.
@@ -644,7 +643,6 @@ export async function processCompletion(
     const sandboxConfig = {
       workspace,
       ipcSocket: ipcSocketPath,
-      agentDir,
       timeoutSec: config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
       command: spawnCommand,

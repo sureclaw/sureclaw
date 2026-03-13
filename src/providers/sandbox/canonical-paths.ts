@@ -9,12 +9,11 @@
  * Canonical mount table (all under /workspace, which is the CWD):
  *   /workspace          — CWD/HOME (mount root)
  *   /workspace/scratch  — Session working files (rw, lost when session ends)
- *   /workspace/identity — Agent identity files: SOUL.md, etc. (ro)
  *   /workspace/agent    — Agent workspace, persistent shared files (ro)
  *   /workspace/user     — Per-user persistent storage (ro, writes via IPC)
  *
- * Skills are now sent via stdin payload (loaded from DocumentStore), not
- * mounted as a filesystem directory.
+ * Identity files and skills are now sent via stdin payload (loaded from
+ * DocumentStore), not mounted as filesystem directories.
  *
  * Providers that support filesystem remapping (Docker, bwrap, nsjail) mount
  * directly to canonical paths. Providers that don't (seatbelt, subprocess)
@@ -30,7 +29,6 @@ import type { SandboxConfig } from './types.js';
 export const CANONICAL = {
   root:     '/workspace',
   scratch:  '/workspace/scratch',
-  identity: '/workspace/identity',
   agent:    '/workspace/agent',
   user:     '/workspace/user',
 } as const;
@@ -43,7 +41,6 @@ export function canonicalEnv(config: SandboxConfig): Record<string, string> {
   return {
     AX_IPC_SOCKET: config.ipcSocket,
     AX_WORKSPACE: CANONICAL.root,
-    ...(config.agentDir        ? { AX_AGENT_DIR: CANONICAL.identity } : {}),
     ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
     ...(config.userWorkspace   ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),
     // Redirect caches to /tmp so they don't pollute workspace
@@ -68,11 +65,6 @@ export function createCanonicalSymlinks(config: SandboxConfig): {
 
   // scratch → real workspace (session cwd/HOME)
   symlinkSync(config.workspace, join(mountRoot, 'scratch'));
-
-  // identity → real agentDir (identity files)
-  if (config.agentDir) {
-    symlinkSync(config.agentDir, join(mountRoot, 'identity'));
-  }
 
   // agent → agent workspace (read-only)
   if (config.agentWorkspace) {
@@ -106,7 +98,6 @@ export function symlinkEnv(config: SandboxConfig, mountRoot: string): Record<str
   return {
     AX_IPC_SOCKET: config.ipcSocket,
     AX_WORKSPACE: mountRoot,
-    ...(config.agentDir        ? { AX_AGENT_DIR: join(mountRoot, 'identity') } : {}),
     ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: join(mountRoot, 'agent') } : {}),
     ...(config.userWorkspace   ? { AX_USER_WORKSPACE: join(mountRoot, 'user') } : {}),
     npm_config_cache: '/tmp/.ax-npm-cache',

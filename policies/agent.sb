@@ -1,5 +1,5 @@
 ;; policies/agent.sb — Seatbelt sandbox for agent containers
-;; Parameters: WORKSPACE, SKILLS, IPC_SOCKET_DIR, PROJECT_DIR, NODE_DIR, AGENT_DIR,
+;; Parameters: WORKSPACE, SKILLS, IPC_SOCKET_DIR, PROJECT_DIR, NODE_DIR,
 ;;             AGENT_WORKSPACE, USER_WORKSPACE
 (version 1)
 (deny default)
@@ -11,11 +11,11 @@
 (deny network-bind (remote ip))
 (deny network-bind (remote tcp))
 
-;; ── Agent data (read-write workspace, read-only skills, read-only identity) ──
+;; ── Agent data (read-write workspace, read-only skills) ──
+;; Identity files are now sent via stdin payload from DocumentStore.
 (allow file-read* (subpath (param "WORKSPACE")))
 (allow file-write* (subpath (param "WORKSPACE")))
 (allow file-read* (subpath (param "SKILLS")))
-(allow file-read* (subpath (param "AGENT_DIR")))
 
 ;; ── Enterprise workspace tiers (read-only — writes go through IPC) ──
 (allow file-read* (subpath (param "AGENT_WORKSPACE")))

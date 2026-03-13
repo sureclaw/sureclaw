@@ -3,7 +3,6 @@
 export interface SandboxConfig {
   workspace: string;
   ipcSocket: string;
-  agentDir?: string;
   timeoutSec?: number;
   memoryMB?: number;
   command: string[];

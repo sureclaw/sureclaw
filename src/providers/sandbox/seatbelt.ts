@@ -31,7 +31,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '-D', `IPC_SOCKET_DIR=${dirname(config.ipcSocket)}`,
         '-D', `PROJECT_DIR=${projectDir}`,
         '-D', `NODE_DIR=${nodeDir}`,
-        '-D', `AGENT_DIR=${config.agentDir ?? config.workspace}`,
         // Use /dev/null as safe no-op path when workspace tiers are absent —
         // (subpath "/dev/null") matches nothing useful, avoiding (subpath "") which
         // could match root and blow the sandbox wide open.
