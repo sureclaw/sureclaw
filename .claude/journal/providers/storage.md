@@ -1,5 +1,14 @@
 # Storage Provider Journal
 
+## [2026-03-13 08:30] -- Phase 1A: Migration utility for filesystem to DocumentStore
+
+**Task:** Create a one-time migration utility that imports filesystem-based identity and skills files into the DocumentStore (SQLite documents table) on first boot after upgrade.
+**What I did:** Implemented `migrateFilesToDb()` function that scans `~/.ax/agents/` for identity files (identity/*.md, BOOTSTRAP.md, USER_BOOTSTRAP.md), agent skills (skills/**/*.md), user identity (USER.md), and user skills. Each file is stored via `documents.put()` with appropriate collection ('identity' or 'skills') and key format. Skills keys strip the .md extension. A `_meta/migrated_storage_v1` flag ensures idempotency. Wrote 19 comprehensive tests using real SQLite-backed DocumentStore with temp directories.
+**Files touched:**
+  - Created: src/providers/storage/migrate-to-db.ts, tests/providers/storage/migrate-to-db.test.ts
+**Outcome:** Success. All 19 tests pass. Existing database storage tests (18) still pass.
+**Notes:** Used async fs operations (readdir, readFile from node:fs/promises) for the migration. The `collectMdFiles()` helper recursively walks directories and returns relative paths. Error handling logs warnings for unreadable files but continues migration.
+
 ## [2026-03-04 21:00] -- PostgreSQL StorageProvider + async interface migration
 
 **Task:** Implement PostgreSQL StorageProvider (Phase 2 Task 4). Migrate all storage interfaces from sync to async to support PostgreSQL's async API.
