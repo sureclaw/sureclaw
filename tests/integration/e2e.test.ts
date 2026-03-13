@@ -142,6 +142,18 @@ function createTestProviders(tmpDir: string) {
       async start() {},
       async stop() {},
     },
+    storage: {
+      documents: {
+        async get() { return undefined; },
+        async put() {},
+        async delete() { return false; },
+        async list() { return []; },
+      },
+      messages: {} as any,
+      conversations: {} as any,
+      sessions: {} as any,
+      close() {},
+    },
   } as ProviderRegistry;
 
   return { providers, auditLog, memoryStore, mockLLM, getCanaryToken: () => canaryToken };

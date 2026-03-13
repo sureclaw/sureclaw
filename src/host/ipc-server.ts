@@ -66,7 +66,7 @@ export interface IPCHandlerOptions {
   delegation?: DelegationConfig;
   /** Called when an agent_delegate request is received. Returns agent response. */
   onDelegate?: (req: DelegateRequest, ctx: IPCContext) => Promise<string>;
-  /** Path to identity files directory (~/.ax/agents/{name}/agent/identity/) for identity_write target. */
+  /** Path to identity files directory (~/.ax/agents/{name}/agent/identity/) for governance handler. */
   agentDir?: string;
   /** Agent name (e.g. 'main') for resolving per-user directories. */
   agentName?: string;
@@ -102,7 +102,6 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...createBrowserHandlers(providers),
     ...createSkillsHandlers(providers),
     ...createIdentityHandlers(providers, {
-      agentDir: opts?.agentDir,
       agentName,
       profile,
       taintBudget,

@@ -425,8 +425,13 @@ export class TestHarness {
     return [...this.memoryStore.values()].filter(e => e.scope === scope);
   }
 
-  /** Read an identity file (SOUL.md or IDENTITY.md). */
-  readIdentityFile(file: 'SOUL.md' | 'IDENTITY.md'): string | null {
+  /** Read an identity file (SOUL.md or IDENTITY.md). Checks DocumentStore first, falls back to filesystem. */
+  async readIdentityFile(file: 'SOUL.md' | 'IDENTITY.md'): Promise<string | null> {
+    // Check DocumentStore first (identity_write handler writes here)
+    const key = `main/${file}`;
+    const content = await this.providers.storage.documents.get('identity', key);
+    if (content !== undefined) return content;
+    // Fall back to filesystem (governance handler still writes here)
     const path = join(this.agentDir, file);
     if (!existsSync(path)) return null;
     return readFileSync(path, 'utf-8');
@@ -665,6 +670,27 @@ export class TestHarness {
           self.schedulerJobs.push(job);
         },
       },
+
+      storage: (() => {
+        const docStore = new Map<string, Map<string, string>>();
+        function getCol(col: string) {
+          let c = docStore.get(col);
+          if (!c) { c = new Map(); docStore.set(col, c); }
+          return c;
+        }
+        return {
+          documents: {
+            async get(col: string, key: string) { return getCol(col).get(key); },
+            async put(col: string, key: string, content: string) { getCol(col).set(key, content); },
+            async delete(col: string, key: string) { return getCol(col).delete(key); },
+            async list(col: string) { return [...getCol(col).keys()]; },
+          },
+          messages: {} as any,
+          conversations: {} as any,
+          sessions: {} as any,
+          close() {},
+        };
+      })(),
     } as ProviderRegistry;
   }
 }

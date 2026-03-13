@@ -136,6 +136,18 @@ function mockRegistry(skillContent?: Record<string, string>): ProviderRegistry {
       listJobs() { return []; },
       scheduleOnce() {},
     },
+    storage: {
+      documents: {
+        async get() { return undefined; },
+        async put() {},
+        async delete() { return false; },
+        async list() { return []; },
+      },
+      messages: {} as any,
+      conversations: {} as any,
+      sessions: {} as any,
+      close() {},
+    },
   } as ProviderRegistry;
 }
 

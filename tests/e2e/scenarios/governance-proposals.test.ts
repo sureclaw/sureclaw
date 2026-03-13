@@ -159,7 +159,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
     expect(reviewResult.decision).toBe('approved');
 
     // Identity file should be written
-    const soulContent = harness.readIdentityFile('SOUL.md');
+    const soulContent = await harness.readIdentityFile('SOUL.md');
     expect(soulContent).toContain('thoughtful and careful');
   });
 
@@ -183,7 +183,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
     expect(reviewResult.decision).toBe('rejected');
 
     // Identity file should NOT be written
-    const soulContent = harness.readIdentityFile('SOUL.md');
+    const soulContent = await harness.readIdentityFile('SOUL.md');
     expect(soulContent).toBeNull();
   });
 
@@ -389,7 +389,7 @@ describe('E2E Scenario: Governance & Proposals', () => {
     expect(reviewResult.reviewed).toBe(true);
 
     // Step 4: Verify applied
-    const identity = harness.readIdentityFile('IDENTITY.md');
+    const identity = await harness.readIdentityFile('IDENTITY.md');
     expect(identity).toContain('Research Assistant');
 
     // Step 5: List should now show approved

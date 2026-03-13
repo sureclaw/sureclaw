@@ -196,7 +196,7 @@ describe('E2E Scenario: Full Pipeline', () => {
     const result = await harness.runAgentLoop('Can you be a bit warmer and nerdy?');
 
     expect(result.toolCalls[0]!.name).toBe('identity_write');
-    const soul = harness.readIdentityFile('SOUL.md');
+    const soul = await harness.readIdentityFile('SOUL.md');
     expect(soul).toContain('nerdy');
   });
 

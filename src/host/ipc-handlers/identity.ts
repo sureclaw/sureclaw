@@ -1,37 +1,32 @@
 /**
  * IPC handlers: identity_read, identity_write, and user_write.
  * These have custom taint handling (queues instead of hard-blocking).
+ *
+ * All identity/user data is stored via DocumentStore (providers.storage.documents).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
-import { agentDir as agentDirPath, agentIdentityDir, agentUserDir } from '../../paths.js';
+import { agentDir as agentDirPath } from '../../paths.js';
 import { isAgentBootstrapMode, isAdmin } from '../server.js';
 
 export interface IdentityHandlerOptions {
-  agentDir?: string;
   agentName: string;
   profile: string;
   taintBudget?: TaintBudget;
 }
 
 export function createIdentityHandlers(providers: ProviderRegistry, opts: IdentityHandlerOptions) {
-  const { agentDir, agentName, profile, taintBudget } = opts;
+  const { agentName, profile, taintBudget } = opts;
 
   const topDir = agentDirPath(agentName);
+  const documents = providers.storage.documents;
 
   return {
     identity_read: async (req: any, _ctx: IPCContext) => {
-      if (!agentDir) {
-        return { content: '', file: req.file };
-      }
-      const filePath = join(agentDir, req.file);
-      if (!existsSync(filePath)) {
-        return { content: '', file: req.file };
-      }
-      return { content: readFileSync(filePath, 'utf-8'), file: req.file };
+      const key = `${agentName}/${req.file}`;
+      const content = await documents.get('identity', key);
+      return { content: content ?? '', file: req.file };
     },
 
     identity_write: async (req: any, ctx: IPCContext) => {
@@ -83,21 +78,13 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
         return { queued: true, file: req.file, reason: req.reason };
       }
 
-      // 3. Auto-apply (balanced + clean, or yolo)
-      if (!agentDir) {
-        return { ok: false, error: 'agentDir not configured' };
-      }
-      mkdirSync(agentDir, { recursive: true });
-      const filePath = join(agentDir, req.file);
-      writeFileSync(filePath, req.content, 'utf-8');
+      // 3. Auto-apply (balanced + clean, or yolo) — write to DocumentStore
+      const key = `${agentName}/${req.file}`;
+      await documents.put('identity', key, req.content);
 
       // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
       if ((req.file === 'SOUL.md' || req.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentName)) {
-        const configDir = agentIdentityDir(agentName);
-        const topDir = agentDirPath(agentName);
-        try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-        try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist — agent-readable copy */ }
-        try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+        await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
       }
 
       await providers.audit.log({
@@ -161,10 +148,9 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
         return { queued: true, reason: req.reason };
       }
 
-      // 3. Write to per-user dir
-      const userDir = agentUserDir(agentName, req.userId);
-      mkdirSync(userDir, { recursive: true });
-      writeFileSync(join(userDir, 'USER.md'), req.content, 'utf-8');
+      // 3. Write to DocumentStore under per-user key
+      const key = `${agentName}/users/${req.userId}/USER.md`;
+      await documents.put('identity', key, req.content);
 
       await providers.audit.log({
         action: 'user_write',

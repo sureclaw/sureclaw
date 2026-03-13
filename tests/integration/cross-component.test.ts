@@ -145,6 +145,26 @@ function createMockProviders(tmpDir: string, overrides?: {
         schedulerJobs.push(job); // Also track in main list for lookup
       },
     },
+    storage: (() => {
+      const docStore = new Map<string, Map<string, string>>();
+      function getCol(col: string) {
+        let c = docStore.get(col);
+        if (!c) { c = new Map(); docStore.set(col, c); }
+        return c;
+      }
+      return {
+        documents: {
+          async get(col: string, key: string) { return getCol(col).get(key); },
+          async put(col: string, key: string, content: string) { getCol(col).set(key, content); },
+          async delete(col: string, key: string) { return getCol(col).delete(key); },
+          async list(col: string) { return [...getCol(col).keys()]; },
+        },
+        messages: {} as any,
+        conversations: {} as any,
+        sessions: {} as any,
+        close() {},
+      };
+    })(),
   } as ProviderRegistry;
 
   return {
@@ -494,10 +514,10 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
 });
 
 // ═══════════════════════════════════════════════════════
-// 4. Identity Write → File System → Taint Gate
+// 4. Identity Write → DocumentStore → Taint Gate
 // ═══════════════════════════════════════════════════════
 
-describe('Identity Write → File System → Taint Gate', () => {
+describe('Identity Write → DocumentStore → Taint Gate', () => {
   let tmpDir: string;
   const ctx = { sessionId: 'identity-test', agentId: 'main' };
 
@@ -509,11 +529,10 @@ describe('Identity Write → File System → Taint Gate', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('identity_write in balanced profile with clean session applies to filesystem', async () => {
-    const agentDir = join(tmpDir, 'agents', 'main');
+  test('identity_write in balanced profile with clean session applies to DocumentStore', async () => {
     const mocks = createMockProviders(tmpDir);
+    const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentDir,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -530,10 +549,9 @@ describe('Identity Write → File System → Taint Gate', () => {
     expect(result.applied).toBe(true);
     expect(result.file).toBe('SOUL.md');
 
-    // Verify file was actually written to filesystem
-    const filePath = join(agentDir, 'SOUL.md');
-    expect(existsSync(filePath)).toBe(true);
-    expect(readFileSync(filePath, 'utf-8')).toBe('# My Soul\nI am a helpful assistant.');
+    // Verify document was written to DocumentStore
+    const stored = await docs.get('identity', 'main/SOUL.md');
+    expect(stored).toBe('# My Soul\nI am a helpful assistant.');
 
     // Verify audit trail
     const auditEntry = mocks.auditLog.find(
@@ -543,10 +561,9 @@ describe('Identity Write → File System → Taint Gate', () => {
   });
 
   test('identity_write in paranoid profile queues instead of applying', async () => {
-    const agentDir = join(tmpDir, 'agents', 'paranoid');
     const mocks = createMockProviders(tmpDir);
+    const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentDir,
       agentName: 'main',
       profile: 'paranoid',
     });
@@ -563,9 +580,9 @@ describe('Identity Write → File System → Taint Gate', () => {
     expect(result.queued).toBe(true);
     expect(result.file).toBe('IDENTITY.md');
 
-    // File must NOT be written
-    const filePath = join(agentDir, 'IDENTITY.md');
-    expect(existsSync(filePath)).toBe(false);
+    // Document must NOT be written
+    const stored = await docs.get('identity', 'main/IDENTITY.md');
+    expect(stored).toBeUndefined();
 
     // Audit should record queued_paranoid decision
     const auditEntry = mocks.auditLog.find(
@@ -575,10 +592,9 @@ describe('Identity Write → File System → Taint Gate', () => {
   });
 
   test('identity_write blocked by scanner is audited and rejected', async () => {
-    const agentDir = join(tmpDir, 'agents', 'main');
     const mocks = createMockProviders(tmpDir, { scannerBlock: true });
+    const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentDir,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -594,9 +610,9 @@ describe('Identity Write → File System → Taint Gate', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('blocked by scanner');
 
-    // File must NOT be written
-    const filePath = join(agentDir, 'SOUL.md');
-    expect(existsSync(filePath)).toBe(false);
+    // Document must NOT be written
+    const stored = await docs.get('identity', 'main/SOUL.md');
+    expect(stored).toBeUndefined();
 
     // Audit should record scanner_blocked decision
     const auditEntry = mocks.auditLog.find(

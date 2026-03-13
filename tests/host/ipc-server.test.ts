@@ -7,11 +7,42 @@ import { connect } from 'node:net';
 import { createIPCHandler, createIPCServer, HEARTBEAT_INTERVAL_MS, type IPCContext } from '../../src/host/ipc-server.js';
 import { TaintBudget } from '../../src/host/taint-budget.js';
 import type { ProviderRegistry } from '../../src/types.js';
+import type { DocumentStore } from '../../src/providers/storage/types.js';
 
 const ctx: IPCContext = { sessionId: 'test-session', agentId: 'test-agent' };
 
+/** In-memory DocumentStore for testing. */
+function createMockDocumentStore(): DocumentStore {
+  const store = new Map<string, Map<string, string>>();
+
+  function getCollection(collection: string): Map<string, string> {
+    let col = store.get(collection);
+    if (!col) {
+      col = new Map();
+      store.set(collection, col);
+    }
+    return col;
+  }
+
+  return {
+    async get(collection: string, key: string): Promise<string | undefined> {
+      return getCollection(collection).get(key);
+    },
+    async put(collection: string, key: string, content: string): Promise<void> {
+      getCollection(collection).set(key, content);
+    },
+    async delete(collection: string, key: string): Promise<boolean> {
+      return getCollection(collection).delete(key);
+    },
+    async list(collection: string): Promise<string[]> {
+      return [...getCollection(collection).keys()];
+    },
+  };
+}
+
 // Minimal mock registry with just enough to test dispatch
-function mockRegistry(): ProviderRegistry {
+function mockRegistry(documents?: DocumentStore): ProviderRegistry {
+  const docs = documents ?? createMockDocumentStore();
   return {
     llm: {
       name: 'mock',
@@ -76,6 +107,13 @@ function mockRegistry(): ProviderRegistry {
       removeCron(jobId: string) { (this as any)._jobs?.delete(jobId); },
       listJobs() { return [...((this as any)._jobs?.values() ?? [])]; },
       scheduleOnce(job: any, _fireAt: Date) { (this as any)._jobs = (this as any)._jobs || new Map(); (this as any)._jobs.set(job.id, job); (this as any)._lastScheduleOnce = { job, fireAt: _fireAt }; },
+    },
+    storage: {
+      documents: docs,
+      messages: {} as any,
+      conversations: {} as any,
+      sessions: {} as any,
+      close() {},
     },
   } as ProviderRegistry;
 }
@@ -297,11 +335,8 @@ describe('IPC Handler', () => {
 
 describe('unified identity_write', () => {
   test('auto-applies in balanced profile with clean session', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir,
+    const documents = createMockDocumentStore();
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
       // No taint budget → clean session
     });
@@ -316,23 +351,18 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-    const written = readFileSync(join(agentDir, 'SOUL.md'), 'utf-8');
+    const written = await documents.get('identity', 'main/SOUL.md');
     expect(written).toBe('# Soul\nI am curious and helpful.');
-
-    rmSync(agentDir, { recursive: true });
   });
 
   test('queues in balanced profile when session is tainted', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
+    const documents = createMockDocumentStore();
     const taintBudget = new TaintBudget({ threshold: 0.30 });
     // Simulate a tainted session: ~67% taint
     taintBudget.recordContent('test-session', 'user message', false);
     taintBudget.recordContent('test-session', 'external email content', true);
 
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir,
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
       taintBudget,
     });
@@ -348,15 +378,13 @@ describe('unified identity_write', () => {
     expect(result.ok).toBe(true);
     expect(result.queued).toBe(true);
     expect(result.applied).toBeUndefined();
-    // File should NOT have been written
-    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(false);
-
-    rmSync(agentDir, { recursive: true });
+    // Document should NOT have been written
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBeUndefined();
   });
 
   test('always queues in paranoid profile even when clean', async () => {
     const handle = createIPCHandler(mockRegistry(), {
-      agentDir: tmpdir(),
       profile: 'paranoid',
     });
 
@@ -373,14 +401,11 @@ describe('unified identity_write', () => {
   });
 
   test('auto-applies in yolo profile even when tainted', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
+    const documents = createMockDocumentStore();
     const taintBudget = new TaintBudget({ threshold: 0.30 });
     taintBudget.recordContent('test-session', 'external content', true);
 
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir,
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'yolo',
       taintBudget,
     });
@@ -395,16 +420,11 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-
-    rmSync(agentDir, { recursive: true });
   });
 
   test('same rules apply to SOUL.md and IDENTITY.md', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir,
+    const documents = createMockDocumentStore();
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
@@ -418,8 +438,6 @@ describe('unified identity_write', () => {
       }), ctx));
       expect(result.applied).toBe(true);
     }
-
-    rmSync(agentDir, { recursive: true });
   });
 
   test('does not delete BOOTSTRAP.md when only SOUL.md is written (IDENTITY.md still missing)', async () => {
@@ -432,8 +450,11 @@ describe('unified identity_write', () => {
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
 
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir: identityDir,
+    const documents = createMockDocumentStore();
+    // Seed BOOTSTRAP.md in DocumentStore
+    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
+
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
@@ -445,9 +466,11 @@ describe('unified identity_write', () => {
       origin: 'agent_initiated',
     }), ctx);
 
-    // Bootstrap not yet complete — IDENTITY.md still missing
+    // Bootstrap not yet complete — IDENTITY.md still missing (isAgentBootstrapMode checks filesystem)
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
-    expect(existsSync(join(identityDir, 'SOUL.md'))).toBe(true);
+    // SOUL.md was written to DocumentStore
+    const soulContent = await documents.get('identity', 'main/SOUL.md');
+    expect(soulContent).toBe('# Soul\nI am helpful.');
 
     rmSync(axHome, { recursive: true, force: true });
     if (savedAxHome !== undefined) process.env.AX_HOME = savedAxHome;
@@ -464,8 +487,10 @@ describe('unified identity_write', () => {
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap');
 
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir: identityDir,
+    const documents = createMockDocumentStore();
+    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap');
+
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
@@ -479,13 +504,16 @@ describe('unified identity_write', () => {
 
     // Bootstrap not yet complete — SOUL.md still missing
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
+    // BOOTSTRAP.md should still be in DocumentStore too (not deleted because isAgentBootstrapMode returns true)
+    const bootstrapContent = await documents.get('identity', 'main/BOOTSTRAP.md');
+    expect(bootstrapContent).toBe('# Bootstrap');
 
     rmSync(axHome, { recursive: true, force: true });
     if (savedAxHome !== undefined) process.env.AX_HOME = savedAxHome;
     else delete process.env.AX_HOME;
   });
 
-  test('deletes BOOTSTRAP.md and .bootstrap-admin-claimed when both SOUL.md and IDENTITY.md exist', async () => {
+  test('deletes BOOTSTRAP.md from DocumentStore when both SOUL.md and IDENTITY.md exist on filesystem', async () => {
     const savedAxHome = process.env.AX_HOME;
     const axHome = mkdtempSync(join(tmpdir(), 'ax-test-home-'));
     process.env.AX_HOME = axHome;
@@ -496,15 +524,20 @@ describe('unified identity_write', () => {
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
     writeFileSync(join(topDir, '.bootstrap-admin-claimed'), 'U12345');
-    // SOUL.md already exists from a previous write
+    // Both SOUL.md and IDENTITY.md exist on filesystem (from migration)
+    // so isAgentBootstrapMode() returns false → bootstrap completion triggers
     writeFileSync(join(identityDir, 'SOUL.md'), '# Soul\nI am helpful.');
+    writeFileSync(join(identityDir, 'IDENTITY.md'), '# Identity\nPrevious version.');
 
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir: identityDir,
+    const documents = createMockDocumentStore();
+    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
+
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
-    // Writing IDENTITY.md completes bootstrap (both SOUL.md + IDENTITY.md now exist)
+    // Writing IDENTITY.md triggers bootstrap completion check
+    // isAgentBootstrapMode checks filesystem — both files exist → returns false → completion fires
     await handle(JSON.stringify({
       action: 'identity_write',
       file: 'IDENTITY.md',
@@ -513,11 +546,12 @@ describe('unified identity_write', () => {
       origin: 'agent_initiated',
     }), ctx);
 
-    expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(false);
-    expect(existsSync(join(identityDir, 'BOOTSTRAP.md'))).toBe(false);
-    expect(existsSync(join(topDir, '.bootstrap-admin-claimed'))).toBe(false);
-    expect(existsSync(join(identityDir, 'SOUL.md'))).toBe(true);
-    expect(existsSync(join(identityDir, 'IDENTITY.md'))).toBe(true);
+    // BOOTSTRAP.md deleted from DocumentStore
+    const bootstrapContent = await documents.get('identity', 'main/BOOTSTRAP.md');
+    expect(bootstrapContent).toBeUndefined();
+    // IDENTITY.md written to DocumentStore
+    const identityContent = await documents.get('identity', 'main/IDENTITY.md');
+    expect(identityContent).toBe('# Identity\nName: Crabby');
 
     rmSync(axHome, { recursive: true, force: true });
     if (savedAxHome !== undefined) process.env.AX_HOME = savedAxHome;
@@ -525,9 +559,6 @@ describe('unified identity_write', () => {
   });
 
   test('audits the mutation with file and reason', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
     const auditEntries: any[] = [];
     const registry = mockRegistry();
     registry.audit = {
@@ -536,7 +567,6 @@ describe('unified identity_write', () => {
     } as any;
 
     const handle = createIPCHandler(registry, {
-      agentDir,
       profile: 'balanced',
     });
 
@@ -555,13 +585,10 @@ describe('unified identity_write', () => {
     expect(handlerAudit.args.reason).toBe('Learned from conversation');
     expect(handlerAudit.args.origin).toBe('user_request');
     expect(handlerAudit.args.decision).toBe('applied');
-
-    rmSync(agentDir, { recursive: true });
   });
 
   test('rejects invalid file name', async () => {
     const handle = createIPCHandler(mockRegistry(), {
-      agentDir: tmpdir(),
       profile: 'balanced',
     });
 
@@ -577,10 +604,8 @@ describe('unified identity_write', () => {
   });
 
   test('rejects content flagged by scanner', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
-    const registry = mockRegistry();
+    const documents = createMockDocumentStore();
+    const registry = mockRegistry(documents);
     registry.scanner = {
       ...registry.scanner,
       async scanInput() {
@@ -589,7 +614,6 @@ describe('unified identity_write', () => {
     };
 
     const handle = createIPCHandler(registry, {
-      agentDir,
       profile: 'yolo', // Even yolo can't bypass scanner
     });
 
@@ -603,21 +627,17 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('blocked');
-    // File should NOT have been written
-    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(false);
-
-    rmSync(agentDir, { recursive: true });
+    // Document should NOT have been written
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBeUndefined();
   });
 
   test('allows clean content through scanner', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
-    const registry = mockRegistry();
+    const documents = createMockDocumentStore();
+    const registry = mockRegistry(documents);
     // Mock scanner already returns PASS by default
 
     const handle = createIPCHandler(registry, {
-      agentDir,
       profile: 'balanced',
     });
 
@@ -631,102 +651,72 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-
-    rmSync(agentDir, { recursive: true });
   });
 
-  test('identity_write writes to agentDir', async () => {
-    const agentDir = join(tmpdir(), `ax-test-agent-${randomUUID()}`);
-    mkdirSync(agentDir, { recursive: true });
-
-    const handle = createIPCHandler(mockRegistry(), {
-      agentDir,
+  test('identity_write writes to DocumentStore', async () => {
+    const documents = createMockDocumentStore();
+    const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'identity_write',
       file: 'SOUL.md',
-      content: '# Soul\nWritten to agent dir.',
+      content: '# Soul\nWritten to document store.',
       reason: 'Test',
       origin: 'agent_initiated',
     }), ctx));
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-    expect(existsSync(join(agentDir, 'SOUL.md'))).toBe(true);
-
-    rmSync(agentDir, { recursive: true });
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBe('# Soul\nWritten to document store.');
   });
 });
 
 describe('user_write', () => {
-  test('writes USER.md to per-user dir', async () => {
-    const originalAxHome = process.env.AX_HOME;
-    const axHome = join(tmpdir(), `ax-test-home-${randomUUID()}`);
-    process.env.AX_HOME = axHome;
+  test('writes USER.md to DocumentStore', async () => {
+    const documents = createMockDocumentStore();
+    const handle = createIPCHandler(mockRegistry(documents), {
+      profile: 'balanced',
+    });
 
-    try {
-      const handle = createIPCHandler(mockRegistry(), {
-        profile: 'balanced',
-      });
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'user_write',
+      userId: 'U12345',
+      content: '# User prefs\nLikes TypeScript',
+      reason: 'Learned from chat',
+      origin: 'agent_initiated',
+    }), ctx));
 
-      const result = JSON.parse(await handle(JSON.stringify({
-        action: 'user_write',
-        userId: 'U12345',
-        content: '# User prefs\nLikes TypeScript',
-        reason: 'Learned from chat',
-        origin: 'agent_initiated',
-      }), ctx));
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(true);
 
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(true);
-
-      // Verify file was written to per-user dir
-      const userFile = readFileSync(join(axHome, 'agents', 'main', 'users', 'U12345', 'USER.md'), 'utf-8');
-      expect(userFile).toContain('Likes TypeScript');
-    } finally {
-      if (originalAxHome !== undefined) {
-        process.env.AX_HOME = originalAxHome;
-      } else {
-        delete process.env.AX_HOME;
-      }
-      rmSync(axHome, { recursive: true, force: true });
-    }
+    // Verify written to DocumentStore under per-user key
+    const stored = await documents.get('identity', 'main/users/U12345/USER.md');
+    expect(stored).toContain('Likes TypeScript');
   });
 
-  test('uses agentName from options for per-user dir', async () => {
-    const originalAxHome = process.env.AX_HOME;
-    const axHome = join(tmpdir(), `ax-test-home-${randomUUID()}`);
-    process.env.AX_HOME = axHome;
+  test('uses agentName from options for DocumentStore key', async () => {
+    const documents = createMockDocumentStore();
+    const handle = createIPCHandler(mockRegistry(documents), {
+      profile: 'balanced',
+      agentName: 'custom-agent',
+    });
 
-    try {
-      const handle = createIPCHandler(mockRegistry(), {
-        profile: 'balanced',
-        agentName: 'custom-agent',
-      });
+    const result = JSON.parse(await handle(JSON.stringify({
+      action: 'user_write',
+      userId: 'U99999',
+      content: '# Custom agent user',
+      reason: 'Test',
+      origin: 'agent_initiated',
+    }), ctx));
 
-      const result = JSON.parse(await handle(JSON.stringify({
-        action: 'user_write',
-        userId: 'U99999',
-        content: '# Custom agent user',
-        reason: 'Test',
-        origin: 'agent_initiated',
-      }), ctx));
+    expect(result.ok).toBe(true);
+    expect(result.applied).toBe(true);
 
-      expect(result.ok).toBe(true);
-      expect(result.applied).toBe(true);
-
-      const userFile = readFileSync(join(axHome, 'agents', 'custom-agent', 'users', 'U99999', 'USER.md'), 'utf-8');
-      expect(userFile).toContain('Custom agent user');
-    } finally {
-      if (originalAxHome !== undefined) {
-        process.env.AX_HOME = originalAxHome;
-      } else {
-        delete process.env.AX_HOME;
-      }
-      rmSync(axHome, { recursive: true, force: true });
-    }
+    const stored = await documents.get('identity', 'custom-agent/users/U99999/USER.md');
+    expect(stored).toContain('Custom agent user');
   });
 
   test('fails without userId in payload', async () => {

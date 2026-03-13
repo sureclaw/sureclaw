@@ -1,21 +1,17 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createIdentityHandlers } from '../../../src/host/ipc-handlers/identity.js';
 import type { IPCContext } from '../../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../../src/types.js';
+import type { DocumentStore } from '../../../src/providers/storage/types.js';
 
 let tmpDir: string;
-let agentDirPath: string;
 let agentTopDirPath: string;
-let agentConfigDirPath: string;
 
 vi.mock('../../../src/paths.js', () => ({
   agentDir: () => agentTopDirPath,
-  agentIdentityDir: () => agentConfigDirPath,
-  agentIdentityFilesDir: () => agentDirPath,
-  agentUserDir: (_agent: string, userId: string) => join(agentTopDirPath, 'users', userId),
 }));
 
 vi.mock('../../../src/host/server.js', async () => {
@@ -32,10 +28,47 @@ vi.mock('../../../src/host/server.js', async () => {
   };
 });
 
-function stubProviders(): ProviderRegistry {
+/** In-memory DocumentStore for testing. */
+function createMockDocumentStore(): DocumentStore {
+  const store = new Map<string, Map<string, string>>();
+
+  function getCollection(collection: string): Map<string, string> {
+    let col = store.get(collection);
+    if (!col) {
+      col = new Map();
+      store.set(collection, col);
+    }
+    return col;
+  }
+
+  return {
+    async get(collection: string, key: string): Promise<string | undefined> {
+      return getCollection(collection).get(key);
+    },
+    async put(collection: string, key: string, content: string): Promise<void> {
+      getCollection(collection).set(key, content);
+    },
+    async delete(collection: string, key: string): Promise<boolean> {
+      return getCollection(collection).delete(key);
+    },
+    async list(collection: string): Promise<string[]> {
+      return [...getCollection(collection).keys()];
+    },
+  };
+}
+
+function stubProviders(documents?: DocumentStore): ProviderRegistry {
+  const docs = documents ?? createMockDocumentStore();
   return {
     audit: { log: vi.fn() },
     scanner: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
+    storage: {
+      documents: docs,
+      messages: {} as any,
+      conversations: {} as any,
+      sessions: {} as any,
+      close: vi.fn(),
+    },
   } as any;
 }
 
@@ -45,10 +78,6 @@ describe('Identity IPC handlers', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-id-test-'));
     agentTopDirPath = join(tmpDir, 'top');
-    agentConfigDirPath = join(tmpDir, 'config');
-    agentDirPath = join(tmpDir, 'agent');
-    mkdirSync(agentDirPath, { recursive: true });
-    mkdirSync(agentConfigDirPath, { recursive: true });
     mkdirSync(agentTopDirPath, { recursive: true });
 
     ctx = { sessionId: 'sess-1', agentId: 'main', userId: 'alice' };
@@ -60,11 +89,11 @@ describe('Identity IPC handlers', () => {
 
   // ── identity_read ──
 
-  test('identity_read returns file content when file exists', async () => {
-    writeFileSync(join(agentDirPath, 'SOUL.md'), '# My Soul', 'utf-8');
-    const providers = stubProviders();
+  test('identity_read returns file content when document exists', async () => {
+    const documents = createMockDocumentStore();
+    await documents.put('identity', 'main/SOUL.md', '# My Soul');
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -75,10 +104,9 @@ describe('Identity IPC handlers', () => {
     expect(result.file).toBe('SOUL.md');
   });
 
-  test('identity_read returns empty string for missing file', async () => {
+  test('identity_read returns empty string for missing document', async () => {
     const providers = stubProviders();
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -89,28 +117,15 @@ describe('Identity IPC handlers', () => {
     expect(result.file).toBe('IDENTITY.md');
   });
 
-  test('identity_read returns empty string when agentDir not configured', async () => {
-    const providers = stubProviders();
-    const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
-      profile: 'balanced',
-    });
-
-    const result = await handlers.identity_read({ file: 'SOUL.md' }, ctx);
-
-    expect(result.content).toBe('');
-    expect(result.file).toBe('SOUL.md');
-  });
-
   // ── identity_write admin gate ──
 
   test('identity_write rejects non-admin users', async () => {
     // Create admins file WITHOUT alice
     writeFileSync(join(agentTopDirPath, 'admins'), 'bob\n', 'utf-8');
 
-    const providers = stubProviders();
+    const documents = createMockDocumentStore();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -122,17 +137,18 @@ describe('Identity IPC handlers', () => {
 
     expect(result.queued).toBe(true);
     expect(result.reason).toContain('Non-admin');
-    // File should NOT be written
-    expect(existsSync(join(agentDirPath, 'SOUL.md'))).toBe(false);
+    // Document should NOT be written
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBeUndefined();
   });
 
   test('identity_write allows admin users', async () => {
     // Create admins file WITH alice
     writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
 
-    const providers = stubProviders();
+    const documents = createMockDocumentStore();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -143,13 +159,14 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    expect(readFileSync(join(agentDirPath, 'SOUL.md'), 'utf-8')).toBe('# My Soul');
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBe('# My Soul');
   });
 
   test('identity_write allows when no userId (system context)', async () => {
-    const providers = stubProviders();
+    const documents = createMockDocumentStore();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -163,6 +180,8 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
+    const stored = await documents.get('identity', 'main/SOUL.md');
+    expect(stored).toBe('# System Soul');
   });
 
   // ── user_write admin gate ──
@@ -172,7 +191,6 @@ describe('Identity IPC handlers', () => {
 
     const providers = stubProviders();
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -189,9 +207,9 @@ describe('Identity IPC handlers', () => {
   test('user_write allows non-admin writing their own user file', async () => {
     writeFileSync(join(agentTopDirPath, 'admins'), 'bob\n', 'utf-8');
 
-    const providers = stubProviders();
+    const documents = createMockDocumentStore();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -202,14 +220,16 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
+    const stored = await documents.get('identity', 'main/users/alice/USER.md');
+    expect(stored).toBe('# Alice prefs');
   });
 
   test('user_write allows admin writing another user file', async () => {
     writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
 
-    const providers = stubProviders();
+    const documents = createMockDocumentStore();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentDir: agentDirPath,
       agentName: 'main',
       profile: 'balanced',
     });
@@ -220,5 +240,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
+    const stored = await documents.get('identity', 'main/users/bob/USER.md');
+    expect(stored).toBe('# Bob prefs');
   });
 });

@@ -30,7 +30,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
     expect(result.applied).toBe(true);
 
     // Verify file was written
-    const content = harness.readIdentityFile('SOUL.md');
+    const content = await harness.readIdentityFile('SOUL.md');
     expect(content).toBe('# My Soul\n\nI am a helpful assistant who loves puns.');
   });
 
@@ -47,7 +47,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
 
-    const content = harness.readIdentityFile('IDENTITY.md');
+    const content = await harness.readIdentityFile('IDENTITY.md');
     expect(content).toContain('TestBot');
   });
 
@@ -65,7 +65,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
     expect(result.queued).toBe(true);
 
     // File should NOT exist on disk
-    const content = harness.readIdentityFile('SOUL.md');
+    const content = await harness.readIdentityFile('SOUL.md');
     expect(content).toBeNull();
   });
 
@@ -121,7 +121,7 @@ describe('E2E Scenario: Identity & Soul Updates', () => {
     expect(result.toolCalls[0]!.name).toBe('identity_write');
 
     // File should be written
-    const soul = harness.readIdentityFile('SOUL.md');
+    const soul = await harness.readIdentityFile('SOUL.md');
     expect(soul).toContain('sarcastic');
   });
 

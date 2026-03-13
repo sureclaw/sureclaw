@@ -87,6 +87,18 @@
 **Lesson:** Always run `npm test -- --run` (full suite) before committing, not just the test files you touched. The tool-catalog-sync, sandbox-isolation, and ipc-server tests verify cross-module consistency (tool catalog ↔ MCP server ↔ IPC schemas ↔ handlers). These sync tests catch issues that per-module tests miss. Running only host/ tests after adding IPC schemas will miss the agent/ sync tests that verify those schemas have handlers.
 **Tags:** testing, ci, sync-tests, full-suite, workflow
 
+### Mock provider registries must include all sub-providers accessed at handler construction time
+**Date:** 2026-03-13
+**Context:** Migrating identity handlers from filesystem to DocumentStore caused 211 test failures. The handler now accesses `providers.storage.documents` in its constructor (not just at call time). All mock registries across 8+ test files lacked a `storage` property.
+**Lesson:** When a handler accesses a provider sub-property at construction time (e.g., `const documents = providers.storage.documents` in the factory function body), every mock registry that creates that handler must include that sub-property. Search for ALL test files that call the handler factory (or `createIPCHandler`) and add the required mock. The pattern is: `storage: { documents: createMockDocumentStore(), messages: {} as any, conversations: {} as any, sessions: {} as any, close() {} }`.
+**Tags:** testing, mocks, providers, storage, constructor-time-access, blast-radius
+
+### When migrating writes from filesystem to a store, update ALL read-back helpers in tests
+**Date:** 2026-03-13
+**Context:** After migrating `identity_write` to DocumentStore, e2e scenario tests failed because `harness.readIdentityFile()` still read from filesystem. The writes went to DocumentStore but the assertions checked filesystem.
+**Lesson:** When migrating a write path from filesystem to a different store (DB, DocumentStore, etc.), search for ALL test helpers and assertions that read back the written data. In particular, check e2e harness helpers, integration test utilities, and any custom read functions. The write-side migration is only half the job — the read-side verification in tests must also be updated. Use `grep -r 'readIdentityFile\|readFileSync.*SOUL\|readFileSync.*IDENTITY' tests/` to find all read-back sites.
+**Tags:** testing, migration, filesystem-to-db, e2e, harness, readIdentityFile
+
 ### Always disable pino file transport in tests that set AX_HOME to a temp dir
 **Date:** 2026-03-01
 **Context:** The phase1 integration test set `AX_HOME` to a temp dir, called `loadProviders()`, then deleted the temp dir. Pino's async worker thread raced with the cleanup and threw an unhandled ENOENT for `data/ax.log`.

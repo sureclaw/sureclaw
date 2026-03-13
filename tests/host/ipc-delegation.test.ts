@@ -60,6 +60,18 @@ function mockProviders(): ProviderRegistry {
       start: vi.fn(),
       stop: vi.fn(),
     },
+    storage: {
+      documents: {
+        get: vi.fn(async () => undefined),
+        put: vi.fn(),
+        delete: vi.fn(async () => false),
+        list: vi.fn(async () => []),
+      },
+      messages: {} as any,
+      conversations: {} as any,
+      sessions: {} as any,
+      close: vi.fn(),
+    },
   } as unknown as ProviderRegistry;
 }
 

@@ -1,13 +1,14 @@
 # Storage Provider Journal
 
-## [2026-03-13 08:30] -- Phase 1A: Migration utility for filesystem to DocumentStore
+## [2026-03-13 09:10] -- Phase 1D: Migrate identity/skills IPC handlers to DocumentStore
 
-**Task:** Create a one-time migration utility that imports filesystem-based identity and skills files into the DocumentStore (SQLite documents table) on first boot after upgrade.
-**What I did:** Implemented `migrateFilesToDb()` function that scans `~/.ax/agents/` for identity files (identity/*.md, BOOTSTRAP.md, USER_BOOTSTRAP.md), agent skills (skills/**/*.md), user identity (USER.md), and user skills. Each file is stored via `documents.put()` with appropriate collection ('identity' or 'skills') and key format. Skills keys strip the .md extension. A `_meta/migrated_storage_v1` flag ensures idempotency. Wrote 19 comprehensive tests using real SQLite-backed DocumentStore with temp directories.
+**Task:** Update identity_read, identity_write, user_write IPC handlers and readonly skills provider to use DocumentStore instead of filesystem. Last piece of Phase 1 storage simplification.
+**What I did:** (1) Rewrote identity.ts handlers to read/write via `documents.get/put/delete('identity', key)` with key scheme `${agentName}/${file}`. Removed all filesystem imports from identity.ts. Removed `agentDir` from IdentityHandlerOptions. (2) Rewrote readonly.ts skills provider to use DocumentStore with `create(config, name?, opts?)` accepting `{ storage }`. (3) Reordered registry.ts to load storage BEFORE skills. (4) Updated ipc-server.ts to stop passing agentDir to identity handler. (5) Fixed 8+ test files to add `storage.documents` mock to mock registries. (6) Updated e2e harness `readIdentityFile()` from sync filesystem to async DocumentStore lookup. (7) Added `await` to all `readIdentityFile` callers in e2e scenario tests.
 **Files touched:**
-  - Created: src/providers/storage/migrate-to-db.ts, tests/providers/storage/migrate-to-db.test.ts
-**Outcome:** Success. All 19 tests pass. Existing database storage tests (18) still pass.
-**Notes:** Used async fs operations (readdir, readFile from node:fs/promises) for the migration. The `collectMdFiles()` helper recursively walks directories and returns relative paths. Error handling logs warnings for unreadable files but continues migration.
+  - Modified: src/host/ipc-handlers/identity.ts, src/providers/skills/readonly.ts, src/host/registry.ts, src/host/ipc-server.ts, src/providers/skills/git.ts
+  - Modified (tests): tests/host/ipc-server.test.ts, tests/host/ipc-handlers/identity.test.ts, tests/host/ipc-handlers/skills-install.test.ts, tests/host/ipc-delegation.test.ts, tests/host/delegation-hardening.test.ts, tests/integration/cross-component.test.ts, tests/integration/e2e.test.ts, tests/integration/phase2.test.ts, tests/providers/skills/readonly.test.ts, tests/e2e/harness.ts, tests/e2e/scenarios/identity-update.test.ts, tests/e2e/scenarios/full-pipeline.test.ts, tests/e2e/scenarios/governance-proposals.test.ts
+**Outcome:** Success. All 204 test files pass (2370 tests), TypeScript builds cleanly.
+**Notes:** `isAgentBootstrapMode` and `isAdmin` remain filesystem-based — they are shared by server.ts, server-channels.ts, governance.ts, and identity.ts. Governance handler still writes identity files to filesystem on proposal approval. Both of these will be addressed in a future phase. The bootstrap completion test requires both SOUL.md and IDENTITY.md to exist on filesystem for `isAgentBootstrapMode` to return false.
 
 ## [2026-03-04 21:00] -- PostgreSQL StorageProvider + async interface migration
 

@@ -86,7 +86,7 @@ interface PendingProposal {
 // Provider
 // ═══════════════════════════════════════════════════════
 
-export async function create(config: Config, _name?: string, opts?: { screener?: SkillScreenerProvider }): Promise<SkillStoreProvider> {
+export async function create(config: Config, _name?: string, opts?: { screener?: SkillScreenerProvider; [key: string]: unknown }): Promise<SkillStoreProvider> {
   const screener = opts?.screener;
   const skillsDir = agentSkillsDir('main');
   const gitDir = skillsDir;
