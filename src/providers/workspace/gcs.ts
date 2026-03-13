@@ -29,7 +29,7 @@ import type {
 
 /** Minimal bucket interface matching @google-cloud/storage Bucket. */
 export interface GcsBucketLike {
-  getFiles(opts: { prefix: string }): Promise<[Array<{ name: string; download(): Promise<[Buffer]> }>]>;
+  getFiles(opts: { prefix: string }): Promise<[Array<{ name: string; download(): Promise<[Buffer]> }>, ...unknown[]]>;
   file(name: string): { save(content: Buffer): Promise<unknown>; delete(): Promise<unknown> };
 }
 
