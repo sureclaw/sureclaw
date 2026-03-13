@@ -3,6 +3,9 @@
   <path d="M64 8L113.7 36.7V93.3L64 120L14.3 93.3V36.7L64 8Z"
         fill="url(#g)" fill-opacity="0.12"
         stroke="url(#g)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- "ax" text using Outfit font from dashboard -->
+  <text x="64" y="76" text-anchor="middle" font-family="Outfit, system-ui, sans-serif"
+        font-size="48" font-weight="600" fill="url(#g)">ax</text>
   <defs>
     <linearGradient id="g" x1="14" y1="8" x2="114" y2="120" gradientUnits="userSpaceOnUse">
       <stop stop-color="#eab308"/>
