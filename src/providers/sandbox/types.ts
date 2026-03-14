@@ -12,8 +12,10 @@ export interface SandboxConfig {
   agentWorkspace?: string;
   /** Per-user workspace: ~/.ax/agents/<id>/users/<userId>/workspace/ */
   userWorkspace?: string;
-  /** When true, agent/user workspace mounts are read-write (workspace provider validates at commit). */
-  workspaceMountsWritable?: boolean;
+  /** When true, /workspace/agent mount is read-write (admin users + workspace provider active). */
+  agentWorkspaceWritable?: boolean;
+  /** When true, /workspace/user mount is read-write (workspace provider active). */
+  userWorkspaceWritable?: boolean;
 }
 
 export interface SandboxProcess {

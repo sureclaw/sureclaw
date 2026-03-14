@@ -552,6 +552,20 @@ describe('MCP server tool registry security', () => {
   });
 });
 
+// ── Per-Tier Writable Workspace Flags ─────────────────────────────────
+
+describe('per-tier writable workspace flags', () => {
+  test('SandboxConfig has agentWorkspaceWritable and userWorkspaceWritable flags', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/providers/sandbox/types.ts'), 'utf-8');
+
+    expect(source).toContain('agentWorkspaceWritable');
+    expect(source).toContain('userWorkspaceWritable');
+    // Old flag should be removed
+    expect(source).not.toContain('workspaceMountsWritable');
+  });
+});
+
 // ── IPC Tools ────────────────────────────────────────────────────────
 
 describe('IPC tools do not expose paths', () => {
