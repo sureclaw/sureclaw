@@ -1,8 +1,8 @@
 # Acceptance Tests: Workspace Provider
 
-**Plan document(s):** `docs/plans/2026-03-13-workspace-provider-design.md`
-**Date designed:** 2026-03-13
-**Total tests:** 17 (ST: 9, BT: 5, IT: 3)
+**Plan document(s):** `docs/plans/2026-03-13-workspace-provider-design.md`, `docs/plans/2026-03-14-sandbox-workspace-permissions.md`
+**Date designed:** 2026-03-13 (updated 2026-03-14)
+**Total tests:** 18 (ST: 9, BT: 5, IT: 3, GKE: 1)
 
 ## Environment Notes
 
@@ -23,10 +23,13 @@
 
 ### K8s (GKE — production)
 - `workspace: gcs` with `workspace.bucket` or `GCS_WORKSPACE_BUCKET` env var
+- `sandbox: k8s` with pool controller enabled — sandbox pods claimed via NATS
 - Authentication via GKE Workload Identity or `GOOGLE_APPLICATION_CREDENTIALS`
 - Workspace data persists in GCS bucket at `gs://<bucket>/<prefix>/<scope>/<id>/`
 - Local cache in tmpdir (`/tmp/ax-workspaces-gcs`) for overlay diff — ephemeral, rebuilt on mount
-- **Not tested in kind acceptance tests** — requires real GCS bucket. Covered by unit tests (`tests/providers/workspace/gcs.test.ts`, 20 tests with mock bucket).
+- Sandbox pods have `user-ws` and `agent-ws` emptyDir volumes (per sandbox-workspace-permissions plan)
+- **Not tested in kind** — requires real GCS bucket and k8s sandbox pods. The GKE-specific tests (GKE-* section) must run against a real GKE cluster.
+- Unit test coverage: `tests/providers/workspace/gcs.test.ts` (20 tests with mock bucket)
 
 ### Fixture Changes Required
 
@@ -65,6 +68,7 @@ For BT-4 (oversized file test), also set `workspace.maxFileSize: 100`.
 17. Cleanup removes session scope tracking; agent/user scopes persist (Plan §5)
 18. safePath used for all file operations from input (Plan §9, Security)
 19. Scanner integration — every file passes through scanner before persistence (Plan §13)
+20. GKE end-to-end: sandbox tool call → GCS workspace volume mounted in sandbox → file edit → NATS release → workspace commit → GCS bucket updated (Plan §4, §5, §9, §12)
 
 ---
 
@@ -548,6 +552,129 @@ Option (a) is cleaner — create a second namespace just for BT-3.
 
 ---
 
+## GKE Integration Tests
+
+> Run on **GKE only** — these require a real GCS bucket, k8s sandbox pods (pool controller enabled), and NATS. Cannot run on kind or locally.
+
+### GKE-1: Sandbox tool call triggers GCS user workspace mount, edit, release, and commit
+
+**Criterion:** "Workers cannot write directly to permanent storage. All writes go through the commit pipeline." (Plan §12) + "GCS backend downloads from GCS on mount, uploads on commit" (Plan §9) + "Pod spec always mounts all three paths" (Plan §4)
+
+**Plan references:**
+- 2026-03-13-workspace-provider-design.md, §4 (pod compatibility), §5 (host orchestration), §9 (GCS backend), §12 (trust boundary)
+- 2026-03-14-sandbox-workspace-permissions.md, Task 3 (k8s pod spec with agent-ws/user-ws volumes)
+
+**What this tests end-to-end:**
+
+This is the production GKE workspace flow. A single user turn exercises the full data path:
+
+```
+Agent receives message
+  │
+  ├─ Host pre-mounts user workspace via GCS backend
+  │   └─ GCS backend downloads persisted state into local cache
+  │
+  ├─ Agent calls a sandbox tool (e.g., bash or write_file)
+  │   └─ Triggers NATS sandbox dispatch → claims a warm sandbox pod
+  │       └─ Sandbox pod has user-ws emptyDir volume at /workspace/user
+  │           └─ Workspace provisioned: GCS content populated into pod volume
+  │
+  ├─ Agent edits a file in the sandbox at /workspace/user/
+  │   └─ edit_file dispatched via NATS to the claimed sandbox pod
+  │
+  ├─ Turn ends
+  │   ├─ NATS "release" message sent to sandbox pod → pod returns to warm pool
+  │   └─ Host calls workspace.commit(sessionId)
+  │       ├─ GCS backend diffs changes (snapshot comparison)
+  │       ├─ Structural checks + scanner run on changed files
+  │       └─ Approved changes uploaded to GCS bucket
+  │
+  └─ GCS bucket now contains the updated file
+```
+
+**Prerequisites:**
+- GKE cluster with AX deployed
+- `sandbox: k8s` with pool controller enabled (warm sandbox pods available)
+- `workspace: gcs` with `workspace.bucket` set (or `GCS_WORKSPACE_BUCKET` env var)
+- `eventbus: nats`
+- GKE Workload Identity or `GOOGLE_APPLICATION_CREDENTIALS` configured for GCS access
+- At least one warm sandbox pod in the pool (`tasks.sandbox.light` NATS queue group has subscribers)
+
+**Setup:**
+- Config:
+  ```yaml
+  providers:
+    sandbox: k8s
+    workspace: gcs
+    eventbus: nats
+  workspace:
+    bucket: $GCS_WORKSPACE_BUCKET
+  ```
+- Seed the GCS bucket with a known file in the user workspace:
+  ```bash
+  echo "original content" | gsutil cp - "gs://$GCS_WORKSPACE_BUCKET/user/$TEST_USER_ID/editable.txt"
+  ```
+- Verify sandbox pool has warm pods:
+  ```bash
+  kubectl get pods -l app.kubernetes.io/component=sandbox -n $NAMESPACE | grep Running
+  ```
+
+**Chat script:**
+
+1. Send (single turn):
+   ```
+   Use bash to run: echo "updated by sandbox" > /workspace/user/editable.txt
+   ```
+   **Expected behavior:**
+   - Agent uses the `bash` tool (category: `sandbox`)
+   - bash tool call triggers NATS sandbox dispatch:
+     1. `SandboxClaimRequest` published to `tasks.sandbox.light` queue
+     2. Warm pod responds with `SandboxClaimResponse` (podSubject, podId)
+     3. `SandboxBashRequest` dispatched to `sandbox.{podId}`
+   - Before tool dispatch, workspace provider pre-mounts user scope → GCS backend downloads `editable.txt` from bucket into sandbox pod's `/workspace/user/` directory
+   - bash command overwrites the file with new content
+   - Turn ends:
+     1. `SandboxReleaseRequest` sent via NATS to `sandbox.{podId}` → pod returns to warm pool
+     2. `workspace.commit(sessionId)` called by host → GCS backend diffs, detects modified `editable.txt`, uploads to bucket
+
+**Expected outcome:**
+- [ ] Agent response confirms bash command executed successfully
+- [ ] Audit log contains sandbox bash tool call
+- [ ] NATS sandbox dispatch occurred (pod claimed, tool dispatched, pod released)
+- [ ] `workspace.commit` event emitted with scope=user, filesChanged≥1
+- [ ] GCS bucket at `gs://$GCS_WORKSPACE_BUCKET/user/$TEST_USER_ID/editable.txt` contains "updated by sandbox"
+- [ ] No `workspace.commit.rejected` events (file passes structural checks + scanner)
+- [ ] No errors in host or sandbox pod logs
+
+**Side-effect checks:**
+
+| Check | Command |
+|-------|---------|
+| GCS file content | `gsutil cat "gs://$GCS_WORKSPACE_BUCKET/user/$TEST_USER_ID/editable.txt"` — should contain "updated by sandbox" |
+| Audit (tool call) | `kubectl exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM audit_log WHERE action='bash' ORDER BY timestamp DESC LIMIT 5;"` |
+| Audit (commit) | `kubectl exec $PG_POD -- psql -U ax -d ax -c "SELECT * FROM audit_log WHERE action LIKE 'workspace%' ORDER BY timestamp DESC LIMIT 10;"` |
+| NATS dispatch logs | `kubectl logs $RUNTIME_POD \| grep -E "pod_claimed\|pod_released\|dispatching_tool"` |
+| Workspace commit logs | `kubectl logs $RUNTIME_POD \| grep -E "workspace.commit\|workspace_commit"` |
+| Sandbox pod logs | `kubectl logs $SANDBOX_POD \| grep -E "claim\|release\|workspace"` — should show claim, bash execution, release |
+| Event bus | `kubectl logs $RUNTIME_POD \| grep "workspace.commit"` — should show event with scope=user |
+
+**Failure modes to watch for:**
+
+| Failure | Symptom | Root cause |
+|---------|---------|------------|
+| Sandbox pod not claimed | Timeout on bash tool call | Pool controller disabled or no warm pods |
+| GCS file not updated | Old content after turn | workspace.commit() not called, or GCS backend diff missed the change |
+| File rejected at commit | `workspace.commit.rejected` event | Structural checks or scanner flagged the content |
+| Release not sent | Sandbox pod stays claimed | `sandboxDispatcher.release(requestId)` not called in agent-runtime finally block |
+| Workspace not pre-mounted | Empty /workspace/user/ in sandbox | GCS backend mount not wiring into sandbox pod volume provisioning |
+
+**Session IDs:**
+- GKE: `acceptance:workspace:gke:gke1`
+
+**Pass/Fail:** _pending_
+
+---
+
 ## Execution Architecture
 
 ```
@@ -556,7 +683,7 @@ Lead Agent (you)
 ├── Feature: workspace
 │   ├── Agent: workspace-local
 │   │   ├── Setup: isolated TEST_HOME, patch ax.yaml with workspace: local
-│   │   ├── Run: ST-1 through ST-8 (structural, source code checks)
+│   │   ├── Run: ST-1 through ST-9 (structural, source code checks)
 │   │   ├── Start server with patched config
 │   │   ├── Run: BT-1, BT-2, BT-4, BT-5 (with workspace: local config)
 │   │   ├── Restart server with workspace: none for BT-3
@@ -566,15 +693,24 @@ Lead Agent (you)
 │   │   ├── Write: tests/acceptance/workspace/results-local.md
 │   │   └── Cleanup: kill server, optionally rm TEST_HOME
 │   │
-│   └── Agent: workspace-k8s
-│       ├── Setup: unique namespace, deploy with workspace: local in config
-│       ├── Run: BT-1, BT-2, BT-4, BT-5 (with workspace: local config)
-│       ├── Deploy second namespace with workspace: none for BT-3
-│       ├── Run: BT-3 (with workspace: none config)
-│       ├── Tear down BT-3 namespace
-│       ├── Run: IT-1, IT-2, IT-3 (sequential, same namespace)
-│       ├── Write: tests/acceptance/workspace/results-k8s.md
-│       └── Teardown: helm uninstall, delete namespace(s)
+│   ├── Agent: workspace-k8s (kind)
+│   │   ├── Setup: unique namespace, deploy with workspace: local in config
+│   │   ├── Run: BT-1, BT-2, BT-4, BT-5 (with workspace: local config)
+│   │   ├── Deploy second namespace with workspace: none for BT-3
+│   │   ├── Run: BT-3 (with workspace: none config)
+│   │   ├── Tear down BT-3 namespace
+│   │   ├── Run: IT-1, IT-2, IT-3 (sequential, same namespace)
+│   │   ├── Write: tests/acceptance/workspace/results-k8s.md
+│   │   └── Teardown: helm uninstall, delete namespace(s)
+│   │
+│   └── Agent: workspace-gke (GKE only)
+│       ├── Prereqs: GKE cluster, GCS bucket, Workload Identity, pool controller
+│       ├── Setup: namespace with workspace: gcs, sandbox: k8s config
+│       ├── Seed GCS bucket with test fixture files
+│       ├── Verify sandbox warm pool has pods
+│       ├── Run: GKE-1 (sandbox→GCS end-to-end)
+│       ├── Write: tests/acceptance/workspace/results-gke.md
+│       └── Teardown: clean GCS test fixtures, helm uninstall, delete namespace
 ```
 
 ### Config Patching — Local
@@ -621,3 +757,39 @@ For BT-4, the maxFileSize override can be injected via `--set config.workspace.m
 
 **Deployment B** — `workspace: none` (used only by BT-3):
 Separate namespace with no workspace config (or explicit `workspace: none`). Deploy, run BT-3, tear down.
+
+### Config Patching — GKE
+
+The GKE agent requires a real GKE cluster with GCS access. It uses a single deployment:
+
+**Deployment G** — `workspace: gcs`, `sandbox: k8s` (used by GKE-1):
+```yaml
+config:
+  providers:
+    sandbox: k8s
+    workspace: gcs
+    eventbus: nats
+  workspace:
+    bucket: $GCS_WORKSPACE_BUCKET
+
+# Pool controller must be enabled for sandbox pod warm pool
+poolController:
+  enabled: true
+  pools:
+    light:
+      min: 1
+      max: 4
+```
+
+**GCS bucket seeding:**
+Before running GKE-1, seed the bucket with a test file:
+```bash
+echo "original content" | gsutil cp - \
+  "gs://$GCS_WORKSPACE_BUCKET/user/$TEST_USER_ID/editable.txt"
+```
+
+**GCS bucket cleanup:**
+After running GKE-1, remove test fixtures:
+```bash
+gsutil rm -r "gs://$GCS_WORKSPACE_BUCKET/user/$TEST_USER_ID/"
+```

@@ -4,6 +4,8 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-14 13:00 — Add GKE-1 sandbox→GCS workspace end-to-end acceptance test to workspace plan [lazy-sandbox.md](lazy-sandbox.md)
+- 2026-03-14 12:00 — Write lazy sandbox + workspace_write implementation plan [lazy-sandbox.md](lazy-sandbox.md)
 - 2026-03-05 07:30 — Add network policies and Cloud SQL proxy Helm templates [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 07:00 — Add NATS JetStream stream init hook job [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-05 06:15 — Add agent runtime deployment and RBAC Helm templates [k8s-deployment.md](k8s-deployment.md)
