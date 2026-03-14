@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 113 entries across 10 categories.
+Category-based organization of all journal entries. Total: 114 entries across 10 categories.
 
 ## Entries
 
+- 2026-03-14 13:06 — Per-tier workspace permission hardening [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-14 09:30 — Fix Apple Container IPC bridge: timing + tmpfs [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-13 15:00 — Sync all ax/* skills with codebase changes [docs/website.md](docs/website.md)
 - 2026-03-13 09:10 — Phase 1D: Migrate identity/skills IPC handlers to DocumentStore [providers/storage.md](providers/storage.md)

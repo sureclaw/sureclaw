@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-03-14 13:06] — Per-tier workspace permission hardening
+
+**Task:** Make /workspace root read-only, split workspaceMountsWritable into per-tier flags (agentWorkspaceWritable, userWorkspaceWritable), implement k8s scope provisioning via GCS, add transport abstraction.
+**What I did:** Executed 10-task plan: replaced workspaceMountsWritable with per-tier flags in types/host/all providers, made workspace root read-only in nsjail+bwrap, extended claim protocol with scope info, added provisionScope/diffScope to sandbox worker, updated k8s pod spec with workspace volumes, added GCS transport abstraction (LocalTransport/RemoteTransport), updated docs.
+**Files touched:** src/providers/sandbox/types.ts, src/providers/sandbox/{docker,nsjail,bwrap,seatbelt,apple,k8s}.ts, src/providers/sandbox/canonical-paths.ts, src/host/server-completions.ts, src/host/nats-sandbox-dispatch.ts, src/sandbox-worker/{types,workspace,worker}.ts, src/providers/workspace/gcs.ts, policies/agent.sb, .claude/skills/ax/provider-sandbox/SKILL.md, tests/sandbox-isolation.test.ts, tests/sandbox-worker/{types,workspace}.test.ts, tests/providers/workspace/gcs-transport.test.ts
+**Outcome:** Success — 208 test files, 2434 tests all passing.
+**Notes:** Pure extraction for GCS transport — LocalTransport is a behavior-preserving refactor of createGcsBackend.
+
 ## [2026-03-14 09:30] — Fix Apple Container IPC bridge: timing + tmpfs
 
 **Task:** Fix IPC bridge for Apple Container sandbox — agent inside VM couldn't communicate with host via --publish-socket
