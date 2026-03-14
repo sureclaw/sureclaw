@@ -21,11 +21,15 @@ const EXTRACTION_PROMPT = `Extract discrete facts, preferences, and action items
   - "Runs tests before committing" (not "Always runs the test suite before making a commit")
 - memoryType: one of profile, event, knowledge, behavior, skill, tool
 - category: one of personal_info, preferences, relationships, activities, goals, experiences, knowledge, opinions, habits, work_life
+- actionable: (optional) true ONLY if this item implies something the user needs to do, be reminded about, or follow up on
+- hintKind: (required if actionable is true) one of pending_task, follow_up, temporal_pattern
 
 Only extract information the user explicitly states or clearly implies. Do not infer or speculate.
 
-Respond with ONLY a JSON array: [{"content": "...", "memoryType": "...", "category": "..."}]
+Respond with ONLY a JSON array: [{"content": "...", "memoryType": "...", "category": "...", "actionable": true, "hintKind": "..."}]
 If nothing worth remembering, respond with: []`;
+
+const VALID_HINT_KINDS = new Set(['pending_task', 'follow_up', 'temporal_pattern']);
 
 /**
  * Extract memory items from conversation using an LLM.
@@ -36,7 +40,7 @@ export async function extractByLLM(
   scope: string,
   llm: LLMProvider,
   model?: string,
-): Promise<Omit<CortexItem, 'id'>[]> {
+): Promise<(Omit<CortexItem, 'id'> & { actionable?: true; hintKind?: string })[]> {
   const conversationText = conversation
     .map(t => `${t.role}: ${t.content}`)
     .join('\n');
@@ -75,6 +79,11 @@ export async function extractByLLM(
         ? item.category
         : defaultCategoryForType(memoryType);
 
+      const actionable = (item as any).actionable === true ? true : undefined;
+      const hintKind = actionable && VALID_HINT_KINDS.has((item as any).hintKind)
+        ? (item as any).hintKind as string
+        : undefined;
+
       return {
         content: item.content,
         memoryType,
@@ -86,6 +95,8 @@ export async function extractByLLM(
         createdAt: now,
         updatedAt: now,
         scope,
+        ...(actionable ? { actionable } : {}),
+        ...(hintKind ? { hintKind } : {}),
       };
     });
 }

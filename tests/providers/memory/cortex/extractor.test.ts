@@ -119,4 +119,42 @@ describe('extractByLLM', () => {
     expect(items).toHaveLength(1);
     expect(items[0].content).toBe('Valid item');
   });
+
+  it('extracts actionable flag and hintKind when present', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Prefers dark mode', memoryType: 'profile', category: 'preferences' },
+      { content: 'Need to update API keys by Friday', memoryType: 'event', category: 'work_life', actionable: true, hintKind: 'pending_task' },
+    ]);
+    const llm = mockLLM(llmResponse);
+    const turns: ConversationTurn[] = [
+      { role: 'user', content: 'I prefer dark mode. I need to update API keys by Friday.' },
+    ];
+    const items = await extractByLLM(turns, 'default', llm);
+    expect(items).toHaveLength(2);
+    expect(items[0].actionable).toBeUndefined();
+    expect(items[0].hintKind).toBeUndefined();
+    expect(items[1].actionable).toBe(true);
+    expect(items[1].hintKind).toBe('pending_task');
+  });
+
+  it('ignores invalid hintKind values', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Do the thing', memoryType: 'event', category: 'activities', actionable: true, hintKind: 'bogus_kind' },
+    ]);
+    const llm = mockLLM(llmResponse);
+    const turns: ConversationTurn[] = [{ role: 'user', content: 'I need to do the thing' }];
+    const items = await extractByLLM(turns, 'default', llm);
+    expect(items[0].actionable).toBe(true);
+    expect(items[0].hintKind).toBeUndefined();
+  });
+
+  it('treats actionable: false as not actionable', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Something', memoryType: 'knowledge', category: 'knowledge', actionable: false },
+    ]);
+    const llm = mockLLM(llmResponse);
+    const turns: ConversationTurn[] = [{ role: 'user', content: 'test' }];
+    const items = await extractByLLM(turns, 'default', llm);
+    expect(items[0].actionable).toBeUndefined();
+  });
 });
