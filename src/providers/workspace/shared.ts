@@ -35,6 +35,10 @@ const DEFAULT_IGNORE_PATTERNS: string[] = [
   '*.tmp',
   'build/',
   'dist/',
+  // Host-managed read-only files — DocumentStore is the source of truth.
+  // Written to agent workspace each turn so the LLM can read_file them.
+  'identity/',
+  'skills/',
 ];
 
 /** Bytes to inspect for binary detection (null bytes in this range → binary). */

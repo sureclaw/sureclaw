@@ -56,7 +56,11 @@ export class RuntimeModule extends BasePromptModule {
       `**Sandbox**: ${ctx.sandboxType}`,
       `**Security Profile**: ${ctx.profile}`,
       `**Working Directory**: . (use ./scratch for working files)`,
-      ...(ctx.hasAgentWorkspace ? [`**Agent Workspace**: ./agent (shared persistent files for this agent)`] : []),
+      ...(ctx.hasAgentWorkspace ? [
+        `**Agent Workspace**: ./agent (shared persistent files for this agent)`,
+        `  - ./agent/identity/ — agent identity files (SOUL.md, IDENTITY.md, etc.) [read-only]`,
+        `  - ./agent/skills/ — installed skills [read-only]`,
+      ] : []),
       ...(ctx.hasUserWorkspace ? [`**User Workspace**: ./user (persistent files for the current user)`] : []),
       `**Current Time**: ${cacheStableTime()}`,
     ];
