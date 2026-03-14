@@ -11,15 +11,17 @@ Sandbox providers isolate agent processes with zero network access, no credentia
 
 **SandboxConfig** -- passed to `spawn()`:
 
-| Field           | Type       | Notes                                           |
-|-----------------|------------|-------------------------------------------------|
-| workspace       | `string`   | Agent working directory (rw mount)              |
-| ipcSocket       | `string`   | Unix socket path for IPC                        |
-| timeoutSec      | `number?`  | Process timeout                                 |
-| memoryMB        | `number?`  | Memory limit                                    |
-| command         | `string[]` | Command + args to execute                       |
-| agentWorkspace  | `string?`  | Agent's shared workspace (ro mount)             |
-| userWorkspace   | `string?`  | Per-user persistent storage (ro mount)          |
+| Field                    | Type       | Notes                                           |
+|--------------------------|------------|-------------------------------------------------|
+| workspace                | `string`   | Session working directory (rw mount)             |
+| ipcSocket                | `string`   | Unix socket path for IPC                         |
+| timeoutSec               | `number?`  | Process timeout                                  |
+| memoryMB                 | `number?`  | Memory limit                                     |
+| command                  | `string[]` | Command + args to execute                        |
+| agentWorkspace           | `string?`  | Agent's shared workspace                         |
+| userWorkspace            | `string?`  | Per-user persistent storage                      |
+| agentWorkspaceWritable   | `boolean?` | rw when admin + workspace provider active        |
+| userWorkspaceWritable    | `boolean?` | rw when workspace provider active                |
 
 Note: Identity files and skills are no longer mounted as filesystem directories. They are sent via stdin payload (loaded from DocumentStore by the host).
 
@@ -33,10 +35,10 @@ All sandbox providers remap host paths to short canonical paths. The LLM sees th
 
 | Canonical Path       | Mount | Purpose                                      |
 |----------------------|-------|----------------------------------------------|
-| `/workspace`         | CWD   | Mount root, agent HOME                       |
+| `/workspace`         | ro    | Mount root (read-only), agent HOME/CWD       |
 | `/workspace/scratch` | rw    | Session working files (lost when session ends)|
-| `/workspace/agent`   | ro    | Agent workspace, persistent shared files      |
-| `/workspace/user`    | ro    | Per-user persistent storage (writes via IPC)  |
+| `/workspace/agent`   | ro*   | Agent workspace (*rw for admin users only)    |
+| `/workspace/user`    | ro*   | Per-user storage (*rw when workspace active)  |
 
 Identity files and skills are sent via stdin payload from DocumentStore — not mounted as filesystem directories.
 
