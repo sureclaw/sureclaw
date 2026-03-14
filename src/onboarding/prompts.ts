@@ -177,7 +177,7 @@ export const PROVIDER_CHOICES = {
   credentials: ['keychain', 'plaintext'],
   skills: ['database'],
   audit: ['database'],
-  sandbox: ['subprocess', 'seatbelt', 'bwrap', 'nsjail', 'docker', 'apple-container'],
+  sandbox: ['subprocess', 'seatbelt', 'bwrap', 'nsjail', 'docker', 'apple'],
   scheduler: ['none', 'full'],
   channels: ['slack'],
 } as const;

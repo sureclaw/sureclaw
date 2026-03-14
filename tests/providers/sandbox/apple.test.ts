@@ -8,7 +8,7 @@ function mockConfig(): Config {
       memory: 'cortex', scanner: 'patterns',
       channels: ['cli'], web: 'none', browser: 'none',
       credentials: 'keychain', skills: 'database', audit: 'database',
-      sandbox: 'apple-container', scheduler: 'none',
+      sandbox: 'apple', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
     scheduler: {
@@ -19,9 +19,9 @@ function mockConfig(): Config {
   };
 }
 
-describe('sandbox-apple-container provider', () => {
+describe('sandbox-apple provider', () => {
   test('create returns a valid SandboxProvider', async () => {
-    const { create } = await import('../../../src/providers/sandbox/apple-container.js');
+    const { create } = await import('../../../src/providers/sandbox/apple.js');
     const provider = await create(mockConfig());
 
     expect(provider.spawn).toBeTypeOf('function');
@@ -30,7 +30,7 @@ describe('sandbox-apple-container provider', () => {
   });
 
   test('isAvailable returns a boolean', async () => {
-    const { create } = await import('../../../src/providers/sandbox/apple-container.js');
+    const { create } = await import('../../../src/providers/sandbox/apple.js');
     const provider = await create(mockConfig());
 
     const available = await provider.isAvailable();
@@ -38,7 +38,7 @@ describe('sandbox-apple-container provider', () => {
   });
 
   test('kill handles already-exited processes gracefully', async () => {
-    const { create } = await import('../../../src/providers/sandbox/apple-container.js');
+    const { create } = await import('../../../src/providers/sandbox/apple.js');
     const provider = await create(mockConfig());
 
     // Should not throw for non-existent PID
@@ -50,7 +50,7 @@ describe('sandbox-apple-container provider', () => {
     process.env.AX_CONTAINER_IMAGE = 'custom/agent:v2';
 
     try {
-      const { create } = await import('../../../src/providers/sandbox/apple-container.js');
+      const { create } = await import('../../../src/providers/sandbox/apple.js');
       const provider = await create(mockConfig());
       // Provider created successfully with custom image
       expect(provider).toBeDefined();

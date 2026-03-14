@@ -62,7 +62,7 @@ Providers that can't remap filesystems (seatbelt, subprocess) use `createCanonic
 | nsjail     | `nsjail.ts`      | Linux          | Namespaces + seccomp-bpf (production)  |
 | bwrap      | `bwrap.ts`       | Linux          | Bubblewrap containerization            |
 | docker     | `docker.ts`      | Linux / macOS  | Container, --network=none, --cap-drop=ALL, optional gVisor |
-| apple-container | `apple-container.ts` | macOS (Apple Silicon) | Lightweight VM via Virtualization.framework, no shared kernel |
+| apple      | `apple.ts`           | macOS (Apple Silicon) | Lightweight VM via Virtualization.framework, no shared kernel |
 | k8s        | `k8s.ts`         | Kubernetes     | Pod-based sandbox with NATS dispatch   |
 | subprocess | `subprocess.ts`  | Any            | None -- dev-only fallback, logs warning |
 

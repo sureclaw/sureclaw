@@ -66,7 +66,7 @@ const _PROVIDER_MAP = {
     nsjail:     '../providers/sandbox/nsjail.js',
     bwrap:      '../providers/sandbox/bwrap.js',
     docker:     '../providers/sandbox/docker.js',
-    'apple-container': '../providers/sandbox/apple-container.js',
+    apple:             '../providers/sandbox/apple.js',
     k8s:        '../providers/sandbox/k8s.js',
   },
   scheduler: {
