@@ -239,10 +239,6 @@ describe('memU Memory Integration', () => {
     expect(memorizedConversations).toHaveLength(1);
     expect(memorizedConversations[0]).toEqual(conversation);
   });
-
-  test.skip('memU provider removed — was subset of memoryfs', () => {});
-
-  test.skip('memU write/delete removed — was subset of memoryfs', () => {});
 });
 
 // ═══════════════════════════════════════════════════════
