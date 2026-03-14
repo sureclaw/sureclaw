@@ -81,7 +81,24 @@ async function takeSnapshot(baseDir: string): Promise<FileSnapshot> {
 }
 
 // ═══════════════════════════════════════════════════════
-// GCS Backend
+// Transport Abstraction
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Transport interface for workspace tier operations.
+ * Abstracts the difference between local bind-mount flow and k8s NATS staging flow.
+ */
+export interface WorkspaceTransport {
+  /** Populate scope directory with GCS content. Returns local path. */
+  provision(scope: WorkspaceScope, id: string, gcsPrefix: string): Promise<string>;
+  /** Compute changeset since provision. */
+  diff(scope: WorkspaceScope, id: string): Promise<FileChange[]>;
+  /** Persist approved changes to final GCS prefix. */
+  commit(scope: WorkspaceScope, id: string, changes: FileChange[]): Promise<void>;
+}
+
+// ═══════════════════════════════════════════════════════
+// Local Transport (bind-mount flow)
 // ═══════════════════════════════════════════════════════
 
 interface MountState {
@@ -89,13 +106,7 @@ interface MountState {
   snapshot: FileSnapshot;
 }
 
-/**
- * Create a GCS-backed workspace backend.
- *
- * Exported for testing — tests pass a mock bucket.
- * The `create()` factory constructs the real GCS bucket.
- */
-export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix: string): WorkspaceBackend {
+function createLocalTransport(bucket: GcsBucketLike, basePath: string, prefix: string): WorkspaceTransport {
   const mounts = new Map<string, MountState>();
 
   function mountKey(scope: WorkspaceScope, id: string): string {
@@ -103,23 +114,22 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
   }
 
   /** Build the GCS key prefix for a scope/id pair. */
-  function gcsPrefix(scope: WorkspaceScope, id: string): string {
+  function buildGcsPrefix(scope: WorkspaceScope, id: string): string {
     const base = prefix.endsWith('/') ? prefix : prefix ? `${prefix}/` : '';
     return `${base}${scope}/${id}/`;
   }
 
   return {
-    async mount(scope: WorkspaceScope, id: string): Promise<string> {
+    async provision(scope: WorkspaceScope, id: string): Promise<string> {
       const localDir = safePath(basePath, scope, id);
       await mkdir(localDir, { recursive: true });
 
-      // Download persisted state from GCS into local cache
-      const keyPrefix = gcsPrefix(scope, id);
+      const keyPrefix = buildGcsPrefix(scope, id);
       const [files] = await bucket.getFiles({ prefix: keyPrefix });
 
       for (const file of files) {
         const relPath = file.name.slice(keyPrefix.length);
-        if (!relPath) continue; // skip the prefix "directory" itself
+        if (!relPath) continue;
 
         const localPath = safePath(localDir, ...relPath.split('/'));
         const parentDir = join(localPath, '..');
@@ -129,7 +139,6 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
         await writeFile(localPath, content);
       }
 
-      // Snapshot for change detection
       const snapshot = await takeSnapshot(localDir);
       mounts.set(mountKey(scope, id), { path: localDir, snapshot });
 
@@ -147,7 +156,6 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
       const currentFiles = await listFiles(scopeDir);
       const currentSet = new Set(currentFiles);
 
-      // Added and modified
       for (const relPath of currentFiles) {
         const fullPath = join(scopeDir, relPath);
         const content = await readFile(fullPath);
@@ -161,7 +169,6 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
         }
       }
 
-      // Deleted
       for (const relPath of snapshot.keys()) {
         if (!currentSet.has(relPath)) {
           changes.push({ path: relPath, type: 'deleted', size: 0 });
@@ -176,9 +183,8 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
       const state = mounts.get(key);
       if (!state) return;
 
-      const keyPrefix = gcsPrefix(scope, id);
+      const keyPrefix = buildGcsPrefix(scope, id);
 
-      // Sync changes to GCS
       for (const change of changes) {
         const gcsKey = keyPrefix + change.path;
 
@@ -186,14 +192,13 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
           try {
             await bucket.file(gcsKey).delete();
           } catch {
-            // Object already gone in GCS — that's fine
+            // Object already gone in GCS
           }
         } else if (change.content) {
           await bucket.file(gcsKey).save(change.content);
         }
       }
 
-      // Update local files to match approved state and re-snapshot
       const { path: scopeDir } = state;
 
       for (const change of changes) {
@@ -215,6 +220,87 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
       const newSnapshot = await takeSnapshot(scopeDir);
       state.snapshot = newSnapshot;
     },
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// Remote Transport (k8s NATS staging flow)
+// ═══════════════════════════════════════════════════════
+
+function createRemoteTransport(bucket: GcsBucketLike, prefix: string): WorkspaceTransport {
+  return {
+    async provision(): Promise<string> {
+      // No-op — sandbox worker handles provisioning via claim request.
+      // The worker downloads from GCS and enforces read-only chmod.
+      return '';
+    },
+
+    async diff(scope: WorkspaceScope, id: string): Promise<FileChange[]> {
+      // Read staging metadata from the release_ack response.
+      // The NATSSandboxDispatcher stores staging info after release_ack.
+      // Download changed files from gs://<bucket>/_staging/<requestId>/<scope>/
+      const base = prefix.endsWith('/') ? prefix : prefix ? `${prefix}/` : '';
+      const stagingPrefix = `${base}_staging/`;
+      const [files] = await bucket.getFiles({ prefix: stagingPrefix });
+
+      const changes: FileChange[] = [];
+      for (const file of files) {
+        const relPath = file.name.slice(stagingPrefix.length);
+        if (!relPath) continue;
+
+        // Parse scope from path: <requestId>/<scope>/<path>
+        const parts = relPath.split('/');
+        if (parts.length < 3) continue;
+        const fileScope = parts[1];
+        if (fileScope !== scope) continue;
+
+        const filePath = parts.slice(2).join('/');
+        const [content] = await file.download();
+        changes.push({ path: filePath, type: 'added', content, size: content.length });
+      }
+
+      return changes;
+    },
+
+    async commit(scope: WorkspaceScope, id: string, changes: FileChange[]): Promise<void> {
+      // Copy approved files from staging to final prefix
+      const base = prefix.endsWith('/') ? prefix : prefix ? `${prefix}/` : '';
+      const finalPrefix = `${base}${scope}/${id}/`;
+
+      for (const change of changes) {
+        const gcsKey = finalPrefix + change.path;
+
+        if (change.type === 'deleted') {
+          try {
+            await bucket.file(gcsKey).delete();
+          } catch {
+            // Object already gone in GCS
+          }
+        } else if (change.content) {
+          await bucket.file(gcsKey).save(change.content);
+        }
+      }
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// GCS Backend (delegates to transport)
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Create a GCS-backed workspace backend.
+ *
+ * Exported for testing — tests pass a mock bucket.
+ * The `create()` factory constructs the real GCS bucket.
+ */
+export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix: string): WorkspaceBackend {
+  const transport = createLocalTransport(bucket, basePath, prefix);
+
+  return {
+    mount: (scope, id) => transport.provision(scope, id, `${prefix}${scope}/${id}/`),
+    diff: (scope, id) => transport.diff(scope, id),
+    commit: (scope, id, changes) => transport.commit(scope, id, changes),
   };
 }
 
@@ -252,7 +338,19 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
   const storage = new Storage();
   const bucket = storage.bucket(bucketName);
 
-  const backend = createGcsBackend(bucket, basePath, prefix);
+  const isK8s = config.providers.sandbox === 'k8s';
+  const transport = isK8s
+    ? createRemoteTransport(bucket, prefix)
+    : createLocalTransport(bucket, basePath, prefix);
+
+  const backend: WorkspaceBackend = {
+    mount: (scope, id) => transport.provision(scope, id, `${prefix}${scope}/${id}/`),
+    diff: (scope, id) => transport.diff(scope, id),
+    commit: (scope, id, changes) => transport.commit(scope, id, changes),
+  };
+
+  // Legacy alias — createGcsBackend is still used by tests
+  void createGcsBackend;
 
   // Scanner is required for the commit pipeline. The provider registry
   // should inject it, but we create a pass-through stub to satisfy the
