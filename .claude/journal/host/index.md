@@ -53,6 +53,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 - 2026-02-22 22:23 — Fix bootstrap lifecycle bugs + add missing tests [server.md](server.md)
 - 2026-02-22 22:00 — Bootstrap admin auto-promotion for first channel user [server.md](server.md)
 - 2026-02-22 19:02 — Fix stale .bootstrap-admin-claimed blocking re-bootstrap [server.md](server.md)
+- 2026-03-14 12:00 — Add workspace_write IPC handler [enterprise.md](enterprise.md)
 - 2026-03-13 08:40 — Phase 1B: Host loads identity/skills from DB, sends via stdin [enterprise.md](enterprise.md)
 - 2026-02-22 02:00 — Rebase onto main and fix build error [enterprise.md](enterprise.md)
 - 2026-02-22 01:00 — Enterprise agent architecture: full implementation [enterprise.md](enterprise.md)

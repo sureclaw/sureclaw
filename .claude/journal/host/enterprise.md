@@ -2,6 +2,14 @@
 
 Enterprise agent architecture: multi-agent, multi-user, governance, registry, workspace tiers.
 
+## [2026-03-14 12:00] — Add workspace_write IPC handler
+
+**Task:** Implement workspace_write IPC handler for sandbox-free file writes to workspace tiers
+**What I did:** Added workspace_write handler to createWorkspaceHandlers in workspace.ts. The handler auto-mounts the requested tier, uses safePath() for traversal protection, creates nested directories as needed, writes the file, and audits the operation. Created comprehensive test suite with 6 tests covering basic writes, nested dirs, audit logging, mount failure, path traversal protection, and user tier writes.
+**Files touched:** src/host/ipc-handlers/workspace.ts (modified), tests/host/ipc-handlers/workspace.test.ts (created)
+**Outcome:** Success — all 6 new tests pass, all 50 IPC server tests still pass
+**Notes:** Schema was already added in Task 1 (WorkspaceWriteSchema). Handler is automatically wired into createIPCHandler via the existing spread of createWorkspaceHandlers.
+
 ## [2026-03-13 08:40] — Phase 1B: Host loads identity/skills from DB, sends via stdin
 
 **Task:** Modify server-completions.ts to load identity and skills from DocumentStore instead of filesystem, include in stdin payload sent to agent.
