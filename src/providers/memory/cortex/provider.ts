@@ -6,6 +6,8 @@ import type {
 } from '../types.js';
 import type { LLMProvider } from '../../llm/types.js';
 import type { DatabaseProvider } from '../../database/types.js';
+import type { EventBusProvider } from '../../eventbus/types.js';
+import type { ProactiveHint } from '../types.js';
 import { dataFile } from '../../../paths.js';
 import { createKyselyDb } from '../../../utils/database.js';
 import { runMigrations } from '../../../utils/migrator.js';
@@ -33,6 +35,7 @@ const BACKFILL_ADVISORY_LOCK_KEY = 0x41585F4246; // "AX_BF" as int
 export interface CreateOptions {
   llm?: LLMProvider;
   database?: DatabaseProvider;
+  eventbus?: EventBusProvider;
 }
 
 /**
@@ -143,6 +146,7 @@ async function updateCategorySummary(
 export async function create(config: Config, _name?: string, opts?: CreateOptions): Promise<MemoryProvider> {
   const llm = opts?.llm;
   const database = opts?.database;
+  const eventbus = opts?.eventbus;
   const memoryDir = dataFile('memory');
   const vecDbPath = join(memoryDir, '_vec.db');
 
@@ -458,6 +462,27 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
           const items = newItemsByCategory.get(candidate.category) || [];
           items.push(candidate.content);
           newItemsByCategory.set(candidate.category, items);
+        }
+      }
+
+      // Step 2b: Emit proactive hints for actionable items
+      if (eventbus) {
+        for (const candidate of candidates) {
+          if ('actionable' in candidate && candidate.actionable) {
+            eventbus.emit({
+              type: 'memory.proactive_hint',
+              requestId: config.agent_name ?? 'main',
+              timestamp: Date.now(),
+              data: {
+                source: 'memory',
+                kind: ('hintKind' in candidate ? candidate.hintKind : undefined) ?? 'pending_task',
+                reason: candidate.content,
+                suggestedPrompt: candidate.content,
+                confidence: candidate.confidence,
+                scope,
+              } satisfies ProactiveHint as Record<string, unknown>,
+            });
+          }
         }
       }
 

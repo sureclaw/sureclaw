@@ -8,6 +8,7 @@ import { create } from '../../../../src/providers/memory/cortex/provider.js';
 import type { MemoryProvider, ConversationTurn } from '../../../../src/providers/memory/types.js';
 import type { Config } from '../../../../src/types.js';
 import type { LLMProvider, ChatChunk } from '../../../../src/providers/llm/types.js';
+import type { EventBusProvider, StreamEvent } from '../../../../src/providers/eventbus/types.js';
 import { SUMMARY_ID_PREFIX } from '../../../../src/providers/memory/cortex/summary-store.js';
 
 const config = {} as Config;
@@ -415,5 +416,83 @@ describe('cortex provider with LLM', () => {
     const summaryResult = results.find(r => r.id?.startsWith(SUMMARY_ID_PREFIX));
     expect(summaryResult).toBeDefined();
     expect(summaryResult!.content).toContain('Acme Corp');
+  });
+});
+
+function mockEventBus(): EventBusProvider & { events: StreamEvent[] } {
+  const events: StreamEvent[] = [];
+  return {
+    events,
+    emit(event: StreamEvent) { events.push(event); },
+    subscribe: () => () => {},
+    subscribeRequest: () => () => {},
+    listenerCount: () => 0,
+    close() {},
+  };
+}
+
+describe('cortex provider proactive hints', () => {
+  let testHome: string;
+
+  beforeEach(async () => {
+    testHome = await mkdtemp(join(tmpdir(), `memfs-hints-${randomUUID()}-`));
+    process.env.AX_HOME = testHome;
+  });
+
+  afterEach(async () => {
+    try { await rm(testHome, { recursive: true, force: true }); } catch {}
+    delete process.env.AX_HOME;
+  });
+
+  it('memorize emits proactive hint events for actionable items', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Update API keys by Friday', memoryType: 'event', category: 'work_life', actionable: true, hintKind: 'pending_task' },
+    ]);
+    const summaryResponse = '# work_life\n- Update API keys';
+    const llm = mockLLM([llmResponse, summaryResponse]);
+    const eventbus = mockEventBus();
+    const provider = await create(config, undefined, { llm, eventbus });
+
+    await provider.memorize!([
+      { role: 'user', content: 'I need to update API keys by Friday' },
+    ]);
+
+    const hintEvents = eventbus.events.filter(e => e.type === 'memory.proactive_hint');
+    expect(hintEvents).toHaveLength(1);
+    expect(hintEvents[0].data.kind).toBe('pending_task');
+    expect(hintEvents[0].data.suggestedPrompt).toBe('Update API keys by Friday');
+    expect(hintEvents[0].data.confidence).toBe(0.85);
+    expect(hintEvents[0].data.source).toBe('memory');
+  });
+
+  it('memorize does not emit events for non-actionable items', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Prefers dark mode', memoryType: 'profile', category: 'preferences' },
+    ]);
+    const summaryResponse = '# preferences\n- Dark mode';
+    const llm = mockLLM([llmResponse, summaryResponse]);
+    const eventbus = mockEventBus();
+    const provider = await create(config, undefined, { llm, eventbus });
+
+    await provider.memorize!([
+      { role: 'user', content: 'I prefer dark mode' },
+    ]);
+
+    const hintEvents = eventbus.events.filter(e => e.type === 'memory.proactive_hint');
+    expect(hintEvents).toHaveLength(0);
+  });
+
+  it('memorize works without eventbus (no crash)', async () => {
+    const llmResponse = JSON.stringify([
+      { content: 'Has a dog', memoryType: 'profile', category: 'personal_info', actionable: true, hintKind: 'follow_up' },
+    ]);
+    const summaryResponse = '# personal_info\n- Has a dog';
+    const llm = mockLLM([llmResponse, summaryResponse]);
+    const provider = await create(config, undefined, { llm }); // no eventbus
+
+    // Should not throw
+    await provider.memorize!([
+      { role: 'user', content: 'I have a dog' },
+    ]);
   });
 });
