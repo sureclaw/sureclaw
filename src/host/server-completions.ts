@@ -603,7 +603,22 @@ export async function processCompletion(
     const CONTAINER_SANDBOXES = new Set(['docker', 'apple', 'k8s']);
     const isContainerSandbox = CONTAINER_SANDBOXES.has(config.providers.sandbox);
 
-    const spawnCommand = isContainerSandbox
+    // For container sandboxes (apple/docker), run the agent as a local subprocess
+    // instead of inside the container. This decouples the agent loop from the
+    // sandbox — the agent only needs IPC to the host, while sandbox tools can
+    // lazily spawn containers on demand. k8s already does this in
+    // agent-runtime-process.ts; this extends the pattern to local container modes.
+    let agentSandbox = providers.sandbox;
+    if (isContainerSandbox && config.providers.sandbox !== 'k8s') {
+      const subprocessModule = await import('../providers/sandbox/subprocess.js');
+      agentSandbox = await subprocessModule.create(config);
+    }
+
+    // agentInContainer: true only when the agent itself runs in a container.
+    // With lazy sandbox, apple/docker agents run as subprocess on the host.
+    const agentInContainer = isContainerSandbox && config.providers.sandbox === 'k8s';
+
+    const spawnCommand = agentInContainer
       ? ['/opt/ax/dist/agent/runner.js']
       : [process.execPath,
           // Dev mode: load tsx ESM loader so the .ts runner source is compiled on
@@ -617,7 +632,7 @@ export async function processCompletion(
       // Container sandboxes set AX_IPC_SOCKET via env var (the sandbox provider
       // controls the path inside the container). Host-side sandboxes need the
       // CLI arg because they don't remap the socket path.
-      ...(!isContainerSandbox ? ['--ipc-socket', ipcSocketPath] : []),
+      ...(!agentInContainer ? ['--ipc-socket', ipcSocketPath] : []),
       '--max-tokens', String(maxTokens),
       ...(proxySocketPath ? ['--proxy-socket', proxySocketPath] : []),
       ...(deps.verbose ? ['--verbose'] : []),
@@ -741,7 +756,7 @@ export async function processCompletion(
       response = '';
       stderr = '';
 
-      const proc = await providers.sandbox.spawn(sandboxConfig);
+      const proc = await agentSandbox.spawn(sandboxConfig);
       reqLogger.debug('agent_spawn', { sandbox: 'subprocess', attempt });
       eventBus?.emit({
         type: 'completion.agent',
@@ -823,7 +838,7 @@ export async function processCompletion(
             signaled,
           });
           try { proc.stdin.end(); } catch { /* ignore */ }
-          providers.sandbox.kill(proc.pid);
+          agentSandbox.kill(proc.pid);
         }
       }
 

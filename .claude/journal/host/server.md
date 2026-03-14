@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-14 12:10] — Decouple agent from container sandbox in processCompletion
+
+**Task:** For apple/docker container sandboxes, override the agent sandbox to subprocess so the agent loop runs on the host, not inside the container. This is the lazy sandbox wiring step.
+**What I did:** Added `agentSandbox` variable that overrides to subprocess for apple/docker (not k8s — already handled in agent-runtime-process.ts). Added `agentInContainer` flag for command/path decisions. Updated spawn and kill calls to use `agentSandbox`. Fixed sandbox-isolation source regex test to match `agentSandbox.spawn`.
+**Files touched:** src/host/server-completions.ts, tests/sandbox-isolation.test.ts
+**Outcome:** Success — 2417 tests pass
+**Notes:** Pattern matches agent-runtime-process.ts k8s handling. `isContainerSandbox` still used for workspace mount decisions; `agentInContainer` for agent process behavior.
+
 ## [2026-03-02 12:45] — Add HTTP bootstrap admin claiming to handleCompletions
 
 **Task:** Fix bug where the first HTTP user wasn't added to the admins file during bootstrap. The bootstrap admin claiming only existed in the channel handler (Slack, Discord), not in the HTTP completions path.

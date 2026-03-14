@@ -182,7 +182,7 @@ describe('sandbox providers do not mount identity (now via stdin payload)', () =
     // The sandboxConfig object should not include agentDir.
     const sandboxSection = source.slice(source.indexOf('sandboxConfig'));
     expect(sandboxSection).not.toMatch(/agentDir/);
-    expect(source).toMatch(/sandbox\.spawn/);
+    expect(source).toMatch(/[Ss]andbox\.spawn/);
   });
 
   test('bwrap provider does not mount identity directory', async () => {
