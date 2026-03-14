@@ -76,6 +76,8 @@
     "rollup": ">=4.59.0",
     "hono": ">=4.12.2",
     "basic-ftp": ">=5.2.0",
-    "sqlite-vec-linux-arm64": "0.1.7-alpha.2"
+    "sqlite-vec-linux-arm64": "0.1.7-alpha.2",
+    "@tootallnate/once": ">=3.0.1",
+    "yauzl": ">=3.2.1"
   }
 }
