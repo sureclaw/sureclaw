@@ -2,6 +2,14 @@
 
 Package management, lock file maintenance, npm/CI sync issues.
 
+## [2026-03-14 12:00] — Fix dashboard build CI: remove bogus cp command
+
+**Task:** Fix CI build failure — `cp: cannot stat 'src/admin-ui': No such file or directory`
+**What I did:** Removed the erroneous `cp -r src/admin-ui dist/admin-ui` from CI workflow. Vite already outputs to `dist/admin-ui/` via its `outDir` config, so the copy was redundant and wrong.
+**Files touched:** `.github/workflows/ci.yml`
+**Outcome:** Success — the stale `cp` command referenced a path that never existed.
+**Notes:** The dashboard Vite config (`dashboard/vite.config.ts`) sets `outDir: '../dist/admin-ui'`, which already places output at the repo root's `dist/admin-ui/`.
+
 ## [2026-03-04 03:30] — Fix npm ci failure: override unpublished sqlite-vec-linux-arm64
 
 **Task:** Fix recurring CI failure: `npm ci` fails with "Missing: sqlite-vec-linux-arm64@ from lock file"
