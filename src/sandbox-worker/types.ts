@@ -17,6 +17,11 @@ export interface SandboxClaimRequest {
     ref?: string;
     cacheKey?: string;
   };
+  /** Workspace tier provisioning -- download from GCS, enforce permissions. */
+  scopes?: {
+    agent?: { gcsPrefix: string; readOnly: boolean };
+    user?: { gcsPrefix: string; readOnly: boolean };
+  };
 }
 
 /**
@@ -112,6 +117,27 @@ export type SandboxToolResponse =
   | SandboxReadFileResponse
   | SandboxWriteFileResponse
   | SandboxEditFileResponse;
+
+/**
+ * Release response — includes GCS staging info for changed workspace tiers.
+ */
+export interface SandboxReleaseResponse {
+  type: 'release_ack';
+  /** GCS staging info for changed workspace tiers. */
+  staging?: {
+    prefix: string;
+    scopes: {
+      agent?: FileMeta[];
+      user?: FileMeta[];
+    };
+  };
+}
+
+export interface FileMeta {
+  path: string;
+  type: 'added' | 'modified' | 'deleted';
+  size: number;
+}
 
 /** Union of all messages that can arrive at a sandbox worker. */
 export type SandboxMessage = SandboxClaimRequest | SandboxToolRequest;
