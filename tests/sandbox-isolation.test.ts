@@ -561,15 +561,13 @@ describe('MCP server tool registry security', () => {
 // ── K8s Pod Spec Workspace Tier Volumes ───────────────────────────────
 
 describe('k8s pod spec workspace tier volumes', () => {
-  test('k8s pod spec always declares agent, user, and session workspace volumes', async () => {
+  test('k8s pod spec always declares agent and user workspace volumes', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/k8s.ts'), 'utf-8');
     expect(source).toContain("name: 'agent-ws'");
     expect(source).toContain("name: 'user-ws'");
-    expect(source).toContain("name: 'session-ws'");
     expect(source).toContain('CANONICAL.agent');
     expect(source).toContain('CANONICAL.user');
-    expect(source).toContain('CANONICAL.session');
   });
 });
 
@@ -598,34 +596,21 @@ describe('/workspace root is read-only', () => {
   });
 });
 
-// ── Session Scope Support ─────────────────────────────────────────────
+// ── Session Scope Backs Scratch via GCS ───────────────────────────────
 
-describe('session scope in canonical paths and types', () => {
-  test('CANONICAL includes session path', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/canonical-paths.ts'), 'utf-8');
-    expect(source).toContain("session:");
-    expect(source).toContain("/workspace/session");
-  });
-
-  test('createCanonicalSymlinks creates session symlink when sessionWorkspace is set', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/canonical-paths.ts'), 'utf-8');
-    expect(source).toContain('sessionWorkspace');
-    expect(source).toContain("join(mountRoot, 'session')");
-  });
-
-  test('SandboxClaimRequest scopes include session', async () => {
+describe('session scope backs scratch workspace', () => {
+  test('SandboxClaimRequest scopes include session for GCS-backed scratch', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/sandbox-worker/types.ts'), 'utf-8');
     expect(source).toMatch(/scopes\?.*session/s);
   });
 
-  test('SandboxReleaseResponse staging scopes include session', async () => {
+  test('sandbox worker provisions session scope into CANONICAL.scratch (not separate path)', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/sandbox-worker/types.ts'), 'utf-8');
-    // The staging.scopes should have session as a possible field
-    expect(source).toContain('session?: FileMeta[]');
+    const source = readFileSync(resolve('src/sandbox-worker/worker.ts'), 'utf-8');
+    expect(source).toContain('CANONICAL.scratch, claim.scopes.session');
+    // No separate CANONICAL.session reference
+    expect(source).not.toContain('CANONICAL.session');
   });
 });
 

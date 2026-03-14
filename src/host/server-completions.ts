@@ -656,19 +656,21 @@ export async function processCompletion(
     const hasWorkspaceProvider = config.providers.workspace && config.providers.workspace !== 'none';
     let agentWsPath: string | undefined;
     let userWsPath: string | undefined;
-    let sessionWsPath: string | undefined;
     let agentWorkspaceWritable = false;
     let userWorkspaceWritable = false;
 
     if (hasWorkspaceProvider) {
       // Pre-mount agent, user, and session scopes so their directories exist before sandbox spawn.
-      // The sandbox mounts these as read-write; the workspace provider validates at end-of-turn commit.
+      // Session scope backs scratch with GCS — in k8s mode, scratch content survives pod restarts.
       try {
         const mountOpts = { userId: currentUserId };
         const preMounted = await providers.workspace.mount(sessionId, ['agent', 'user', 'session'], mountOpts);
         agentWsPath = preMounted.paths.agent;
         userWsPath = preMounted.paths.user;
-        sessionWsPath = preMounted.paths.session;
+        // Use session scope path as scratch workspace — GCS-backed in k8s mode
+        if (preMounted.paths.session) {
+          workspace = preMounted.paths.session;
+        }
         userWorkspaceWritable = true;
         agentWorkspaceWritable = isAdmin(agentDir(agentName), currentUserId);
         eventBus?.emit({
@@ -717,7 +719,6 @@ export async function processCompletion(
       command: [],
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
-      sessionWorkspace: sessionWsPath,
     });
 
     // Override the workspaceMap entry to point at the mountRoot instead of the
@@ -751,7 +752,6 @@ export async function processCompletion(
       agentId: agentName,
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
-      sessionWorkspace: sessionWsPath,
       workspaceProvider: config.providers.workspace,
       // Identity and skills from DocumentStore (not filesystem)
       identity: identityPayload,
@@ -771,7 +771,6 @@ export async function processCompletion(
       userWorkspace: userWsPath,
       agentWorkspaceWritable,
       userWorkspaceWritable,
-      sessionWorkspace: sessionWsPath,
     };
 
     let response = '';

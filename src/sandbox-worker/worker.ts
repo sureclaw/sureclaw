@@ -230,11 +230,13 @@ export async function startWorker(options?: {
         console.log(`[sandbox-worker] user scope: source=${result.source}, files=${result.fileCount}`);
       }
       if (claim.scopes?.session) {
+        // Session scope backs the scratch workspace with GCS — provision into CANONICAL.scratch
+        // so scratch content survives across pod restarts within the same conversation.
         const result = await provisionScope(
-          CANONICAL.session, claim.scopes.session.gcsPrefix, claim.scopes.session.readOnly,
+          CANONICAL.scratch, claim.scopes.session.gcsPrefix, claim.scopes.session.readOnly,
         );
         if (!claim.scopes.session.readOnly) scopeHashes.set('session', result.hashes);
-        console.log(`[sandbox-worker] session scope: source=${result.source}, files=${result.fileCount}`);
+        console.log(`[sandbox-worker] session scope (scratch): source=${result.source}, files=${result.fileCount}`);
       }
 
       // Reply with our pod subject so the host can dispatch tool calls directly
@@ -275,7 +277,7 @@ export async function startWorker(options?: {
             const scopeChanges: Partial<Record<string, FileMeta[]>> = {};
 
             for (const [scope, hashes] of scopeHashes) {
-              const mountPath = scope === 'agent' ? CANONICAL.agent : scope === 'user' ? CANONICAL.user : CANONICAL.session;
+              const mountPath = scope === 'agent' ? CANONICAL.agent : scope === 'user' ? CANONICAL.user : CANONICAL.scratch;
               const changes = diffScope(mountPath, hashes);
               if (changes.length > 0) {
                 for (const change of changes) {

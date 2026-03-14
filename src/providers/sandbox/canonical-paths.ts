@@ -11,7 +11,9 @@
  *   /workspace/scratch  — Session working files (rw, lost when session ends)
  *   /workspace/agent    — Agent workspace, persistent shared files (rw for admin users only)
  *   /workspace/user     — Per-user persistent storage (rw when workspace provider active)
- *   /workspace/session  — Session-scoped persistent storage (rw, survives across pod restarts in k8s)
+ *
+ * In k8s mode, scratch is backed by GCS via the workspace provider's 'session'
+ * scope, so its content survives across pod restarts within the same conversation.
  *
  * Identity files and skills are now sent via stdin payload (loaded from
  * DocumentStore), not mounted as filesystem directories.
@@ -32,7 +34,6 @@ export const CANONICAL = {
   scratch:  '/workspace/scratch',
   agent:    '/workspace/agent',
   user:     '/workspace/user',
-  session:  '/workspace/session',
 } as const;
 
 /**
@@ -43,9 +44,8 @@ export function canonicalEnv(config: SandboxConfig): Record<string, string> {
   return {
     AX_IPC_SOCKET: config.ipcSocket,
     AX_WORKSPACE: CANONICAL.root,
-    ...(config.agentWorkspace    ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
-    ...(config.userWorkspace     ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),
-    ...(config.sessionWorkspace  ? { AX_SESSION_WORKSPACE: CANONICAL.session } : {}),
+    ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
+    ...(config.userWorkspace   ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),
     // Redirect caches to /tmp so they don't pollute workspace
     npm_config_cache: '/tmp/.ax-npm-cache',
     XDG_CACHE_HOME: '/tmp/.ax-cache',
@@ -79,11 +79,6 @@ export function createCanonicalSymlinks(config: SandboxConfig): {
     symlinkSync(config.userWorkspace, join(mountRoot, 'user'));
   }
 
-  // session → session-scoped persistent workspace (survives across pod restarts)
-  if (config.sessionWorkspace) {
-    symlinkSync(config.sessionWorkspace, join(mountRoot, 'session'));
-  }
-
   return {
     mountRoot,
     cleanup: () => {
@@ -106,9 +101,8 @@ export function symlinkEnv(config: SandboxConfig, mountRoot: string): Record<str
   return {
     AX_IPC_SOCKET: config.ipcSocket,
     AX_WORKSPACE: mountRoot,
-    ...(config.agentWorkspace    ? { AX_AGENT_WORKSPACE: join(mountRoot, 'agent') } : {}),
-    ...(config.userWorkspace     ? { AX_USER_WORKSPACE: join(mountRoot, 'user') } : {}),
-    ...(config.sessionWorkspace  ? { AX_SESSION_WORKSPACE: join(mountRoot, 'session') } : {}),
+    ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: join(mountRoot, 'agent') } : {}),
+    ...(config.userWorkspace   ? { AX_USER_WORKSPACE: join(mountRoot, 'user') } : {}),
     npm_config_cache: '/tmp/.ax-npm-cache',
     XDG_CACHE_HOME: '/tmp/.ax-cache',
     AX_HOME: '/tmp/.ax-agent',

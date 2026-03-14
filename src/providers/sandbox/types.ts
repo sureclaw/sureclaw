@@ -16,8 +16,6 @@ export interface SandboxConfig {
   agentWorkspaceWritable?: boolean;
   /** When true, /workspace/user mount is read-write (workspace provider active). */
   userWorkspaceWritable?: boolean;
-  /** Session-scoped workspace: persisted to GCS so k8s pods share scratch across turns. */
-  sessionWorkspace?: string;
 }
 
 export interface SandboxProcess {

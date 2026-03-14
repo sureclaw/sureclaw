@@ -2,13 +2,13 @@
 
 Local and NATS-based sandbox dispatching, lazy sandbox spawning.
 
-## [2026-03-14 14:15] — Implement session scope workspace persistence for k8s
+## [2026-03-14 14:30] — Consolidate session scope into scratch (no separate /workspace/session)
 
-**Task:** Implement session-scoped workspace persistence so k8s pods share scratch files across turns
-**What I did:** Added `CANONICAL.session` path, `sessionWorkspace` to SandboxConfig, session scope to SandboxClaimRequest/ReleaseResponse types, session-ws volume to k8s pod spec, session provisioning in sandbox worker, session mount in server-completions, session symlink in createCanonicalSymlinks, session in runtime prompt, and updated the ax skill docs.
-**Files touched:** `src/providers/sandbox/canonical-paths.ts`, `src/providers/sandbox/types.ts`, `src/providers/sandbox/k8s.ts`, `src/sandbox-worker/types.ts`, `src/sandbox-worker/worker.ts`, `src/host/server-completions.ts`, `src/agent/runner.ts`, `src/agent/agent-setup.ts`, `src/agent/prompt/types.ts`, `src/agent/prompt/modules/runtime.ts`, `tests/sandbox-isolation.test.ts`, `.claude/skills/ax/provider-sandbox/SKILL.md`
-**Outcome:** Success — all 2446 tests pass (5 new session scope tests)
-**Notes:** Session scope uses the workspace provider's existing orchestrator — `scopeId('session', ctx)` resolves to `sessionId`. The GCS backend's `buildGcsPrefix()` handles all scopes equally. The sandbox worker's `provisionScope()` is already parameterized. This was mostly wiring — the infrastructure was ~80% ready.
+**Task:** Remove duplicate session/ directory — scratch/ and session/ served the same purpose
+**What I did:** Removed CANONICAL.session, sessionWorkspace from SandboxConfig, session-ws from k8s pod spec, hasSessionWorkspace from prompt context, AX_SESSION_WORKSPACE env var. Instead, workspace provider's 'session' scope backs scratch via GCS: host mounts session scope and uses its path as the scratch workspace; sandbox worker provisions session scope into CANONICAL.scratch. The LLM just sees `./scratch` — GCS persistence is transparent.
+**Files touched:** All files from previous session scope commit, reverted the separate-path approach
+**Outcome:** Success — all 2444 tests pass
+**Notes:** Key design decision: 'session' scope still exists in the workspace provider (it's the backend mechanism for GCS persistence), but it's not a separate user-facing directory. The claim request still includes `scopes.session` for the worker to know about GCS.
 
 ## [2026-03-14 13:50] — Fix workspace commit dropping user scope changes
 

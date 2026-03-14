@@ -48,8 +48,6 @@ export interface PromptContext {
   hasAgentWorkspace?: boolean;
   /** Whether the user workspace tier is mounted (./user directory). */
   hasUserWorkspace?: boolean;
-  /** Whether the session workspace tier is mounted (./session directory). */
-  hasSessionWorkspace?: boolean;
 }
 
 export interface IdentityFiles {

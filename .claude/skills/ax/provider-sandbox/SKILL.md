@@ -22,7 +22,6 @@ Sandbox providers isolate agent processes with zero network access, no credentia
 | userWorkspace            | `string?`  | Per-user persistent storage                      |
 | agentWorkspaceWritable   | `boolean?` | rw when admin + workspace provider active        |
 | userWorkspaceWritable    | `boolean?` | rw when workspace provider active                |
-| sessionWorkspace         | `string?`  | Session-scoped persistent workspace (k8s GCS)    |
 
 Note: Identity files and skills are no longer mounted as filesystem directories. They are sent via stdin payload (loaded from DocumentStore by the host).
 
@@ -40,7 +39,8 @@ All sandbox providers remap host paths to short canonical paths. The LLM sees th
 | `/workspace/scratch`   | rw    | Session working files (lost when session ends)              |
 | `/workspace/agent`     | ro*   | Agent workspace (*rw for admin users only)                  |
 | `/workspace/user`      | ro*   | Per-user storage (*rw when workspace active)                |
-| `/workspace/session`   | rw    | Session-scoped persistent files (survives across k8s pods)  |
+
+In k8s mode, scratch is backed by GCS via the workspace provider's 'session' scope, so its content survives across pod restarts within the same conversation.
 
 Identity files and skills are sent via stdin payload from DocumentStore — not mounted as filesystem directories.
 
@@ -51,7 +51,6 @@ Identity files and skills are sent via stdin payload from DocumentStore — not 
 - `AX_WORKSPACE` — canonical root (`/workspace`)
 - `AX_AGENT_WORKSPACE` — `/workspace/agent` (if agentWorkspace set)
 - `AX_USER_WORKSPACE` — `/workspace/user` (if userWorkspace set)
-- `AX_SESSION_WORKSPACE` — `/workspace/session` (if sessionWorkspace set)
 - `npm_config_cache`, `XDG_CACHE_HOME` — redirected to `/tmp`
 - `AX_HOME` — `/tmp/.ax-agent`
 
@@ -94,11 +93,11 @@ NATS-based sandbox worker running inside k8s pods:
 
 Lifecycle: subscribe to `tasks.sandbox.{tier}` queue group → claim task → set up workspace → execute tools via unique `sandbox.{podId}` subject → release.
 
-### Session Scope Persistence (K8s)
+### Scratch Persistence via GCS (K8s)
 
-In k8s mode, each conversation's scratch workspace is persisted to GCS under `session/<sessionId>/` so that a different pod can pick up the next turn and see the same files. The host mounts `agent`, `user`, AND `session` scopes via the workspace provider. The claim request includes all three scopes with GCS prefixes. The sandbox worker provisions each scope from GCS, tracks file hashes, and uploads changes to staging on release.
+In k8s mode, scratch is backed by GCS so a different pod can pick up the next turn and see the same files. The host mounts the workspace provider's 'session' scope and uses its path as the scratch workspace. The claim request includes a `session` scope with the GCS prefix `session/<sessionId>/`. The sandbox worker provisions this into `CANONICAL.scratch`, tracks file hashes, and uploads changes to staging on release. To the LLM, it's just `./scratch` — the GCS persistence is transparent.
 
-Flow: host mounts session scope → passes `session/<sessionId>/` GCS prefix in claim → k8s pod has session-ws emptyDir volume at `CANONICAL.session` → worker downloads from GCS → agent reads/writes during turn → worker diffs and uploads to staging on release → host commits.
+Flow: host mounts 'session' scope → uses path as scratch workspace → passes `session/<sessionId>/` GCS prefix in claim → worker provisions GCS content into `/workspace/scratch` → agent reads/writes during turn → worker diffs scratch and uploads to staging on release → host commits.
 
 ## Dev/Prod Mode Support
 

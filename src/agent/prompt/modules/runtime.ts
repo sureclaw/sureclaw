@@ -58,7 +58,6 @@ export class RuntimeModule extends BasePromptModule {
       `**Working Directory**: . (use ./scratch for working files)`,
       ...(ctx.hasAgentWorkspace ? [`**Agent Workspace**: ./agent (shared persistent files for this agent)`] : []),
       ...(ctx.hasUserWorkspace ? [`**User Workspace**: ./user (persistent files for the current user)`] : []),
-      ...(ctx.hasSessionWorkspace ? [`**Session Workspace**: ./session (persistent files for this conversation, shared across turns)`] : []),
       `**Current Time**: ${cacheStableTime()}`,
     ];
 

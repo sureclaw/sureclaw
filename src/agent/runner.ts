@@ -66,7 +66,6 @@ export interface AgentConfig {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
-  sessionWorkspace?: string;
   /** Configured workspace provider name (e.g. 'none', 'local', 'gcs'). */
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
@@ -259,7 +258,6 @@ export interface StdinPayload {
   agentId?: string;
   agentWorkspace?: string;
   userWorkspace?: string;
-  sessionWorkspace?: string;
   /** Configured workspace provider name (e.g. 'none', 'local', 'gcs'). */
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (loaded from DocumentStore). */

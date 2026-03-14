@@ -63,7 +63,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasGovernance,
     hasAgentWorkspace: !!config.agentWorkspace,
     hasUserWorkspace: !!config.userWorkspace,
-    hasSessionWorkspace: !!config.sessionWorkspace,
   });
 
   const toolFilter: ToolFilterContext = {
