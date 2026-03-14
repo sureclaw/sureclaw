@@ -876,7 +876,7 @@ export async function processCompletion(
         if (b.type === 'text') return { ...b, text: outbound.content };
         return b;
       });
-      const extracted = extractImageDataBlocks(withScannedText, enterpriseUserWs, reqLogger);
+      const extracted = extractImageDataBlocks(withScannedText, userWsPath, reqLogger);
       responseBlocks = extracted.blocks;
       if (extracted.extractedFiles.length > 0) {
         extractedFiles = extracted.extractedFiles;
@@ -906,13 +906,13 @@ export async function processCompletion(
       // Without this, image URLs return 404 after the in-memory drain.
       for (const img of generatedImages) {
         try {
-          const filePath = safePath(enterpriseUserWs, ...img.fileId.split('/').filter(Boolean));
+          const filePath = safePath(userWsPath, ...img.fileId.split('/').filter(Boolean));
           mkdirSync(join(filePath, '..'), { recursive: true });
           writeFileSync(filePath, img.data);
           deps.fileStore?.register(img.fileId, agentName, currentUserId, img.mimeType);
           reqLogger.info('image_persisted', { fileId: img.fileId, path: filePath, bytes: img.data.length });
         } catch (err) {
-          reqLogger.warn('image_persist_failed', { fileId: img.fileId, workspace: enterpriseUserWs, error: (err as Error).message });
+          reqLogger.warn('image_persist_failed', { fileId: img.fileId, workspace: userWsPath, error: (err as Error).message });
         }
       }
     }
