@@ -455,10 +455,10 @@ export async function processCompletion(
     }
 
     // Register workspace for sandbox tool IPC handlers.
-    // The agent sends requestId as its sessionId in IPC calls,
+    // The agent sends sessionId in IPC calls (_sessionId field),
     // so handlers can look up the workspace by sessionId.
     if (deps.workspaceMap) {
-      deps.workspaceMap.set(requestId, workspace);
+      deps.workspaceMap.set(sessionId, workspace);
     }
 
     // Build conversation history: prefer DB-persisted history for persistent sessions,
@@ -724,7 +724,7 @@ export async function processCompletion(
     // Override the workspaceMap entry to point at the mountRoot instead of the
     // scratch directory — sandbox tool handlers now see agent/ and user/ as siblings.
     if (deps.workspaceMap) {
-      deps.workspaceMap.set(requestId, toolMountRoot.mountRoot);
+      deps.workspaceMap.set(sessionId, toolMountRoot.mountRoot);
     }
 
     // ── Load identity from DocumentStore ──
@@ -779,7 +779,7 @@ export async function processCompletion(
       sandboxType: config.providers.sandbox,
       userId: currentUserId,
       replyOptional: replyOptional ?? false,
-      sessionId: requestId,
+      sessionId,
       sessionScope: sessionScope ?? 'dm',
       // Enterprise fields
       agentId: agentName,
@@ -1166,7 +1166,7 @@ export async function processCompletion(
     // Deregister workspace from the shared map so sandbox tool handlers
     // can't access it after the agent finishes.
     if (deps.workspaceMap) {
-      deps.workspaceMap.delete(requestId);
+      deps.workspaceMap.delete(sessionId);
     }
     // Clean up the symlink mountRoot used by sandbox tool handlers.
     if (toolMountRoot) {
