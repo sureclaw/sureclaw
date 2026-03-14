@@ -95,7 +95,7 @@ export async function create(config: Config): Promise<ChannelProvider> {
   // Bridge Bolt's internal logger to our pino logger so its messages match
   // our pretty console format instead of printing raw "[WARN]  bolt-app ..." lines.
   const boltLogger = {
-    debug(...msgs: unknown[]) { slackLogger.trace(msgs.join(' ')); },
+    debug() { /* suppressed — too noisy even for --verbose */ },
     info(...msgs: unknown[]) { slackLogger.info(msgs.join(' ')); },
     warn(...msgs: unknown[]) { slackLogger.warn(msgs.join(' ')); },
     error(...msgs: unknown[]) { slackLogger.error(msgs.join(' ')); },
