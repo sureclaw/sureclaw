@@ -2,6 +2,19 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-14 10:15] — Fix: Apple Container sandbox_bash "No workspace registered" error
+
+**Task:** Debug "No workspace registered for session" error in sandbox_bash IPC handler when using Apple Container sandbox
+**What I did:**
+- Traced IPC flow: workspace registered with `requestId` but looked up by `effectiveCtx.sessionId`
+- Found root cause: In Apple Container listen mode, IPCClient is created BEFORE stdin is parsed (to start listener early), so it has no sessionId. Since `config.ipcClient` is already set, runners skip creating a new client with sessionId. Agent never sends `_sessionId` in IPC messages.
+- Added `setContext()` method to IPCClient for post-construction session context updates
+- Called `setContext()` in runner.ts after stdin parsing to inject sessionId/userId/sessionScope into the early client
+- Added test verifying `_sessionId` is sent after `setContext()` is applied to a listen-mode client
+**Files touched:** `src/agent/ipc-client.ts`, `src/agent/runner.ts`, `tests/agent/ipc-client.test.ts`
+**Outcome:** Success — all 2395 tests pass, build clean
+**Notes:** This bug only affects Apple Container sandbox (the only sandbox with `bridgeSocketPath`). Subprocess and seatbelt sandboxes connect directly to the IPC server and use `defaultCtx`, so the lookup path is different.
+
 ## [2026-03-13 09:00] — Phase 1C: Agent reads identity/skills from stdin payload
 
 **Task:** Modify agent-side code to read identity and skills from the stdin payload (sent by the host) instead of from the filesystem.

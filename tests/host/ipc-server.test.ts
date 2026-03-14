@@ -1139,6 +1139,86 @@ describe('connectIPCBridge (reverse IPC for Apple containers)', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   }, 10000);
 
+  /**
+   * Integration test: full Apple Container sandbox_bash path.
+   *
+   * Stitches together all three components that caused the workspace lookup bug:
+   *   1. IPCClient in listen mode (created before stdin, no sessionId)
+   *   2. connectIPCBridge with bridgeCtx.sessionId ≠ requestId
+   *   3. createIPCHandler with workspaceMap keyed by requestId
+   *
+   * Without setContext(), the client omits _sessionId, the handler falls back
+   * to bridgeCtx.sessionId, and the workspace lookup fails.
+   */
+  test('sandbox_bash resolves workspace through bridge when sessionId set via setContext', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ipc-bridge-ws-'));
+    const socketPath = join(tmpDir, 'bridge.sock');
+    const workspace = mkdtempSync(join(tmpdir(), 'sandbox-ws-'));
+    writeFileSync(join(workspace, 'hello.txt'), 'bridge test');
+
+    // Host side: register workspace under requestId (mimics processCompletion line 458)
+    const requestId = `chatcmpl-${randomUUID()}`;
+    const bridgeSessionId = randomUUID(); // Different from requestId (line 359)
+    const workspaceMap = new Map([[requestId, workspace]]);
+
+    const handleIPC = createIPCHandler(mockRegistry(), { workspaceMap });
+
+    // Agent side: IPCClient in listen mode WITHOUT sessionId (mimics runner.ts line 353)
+    const client = new IPCClient({ socketPath, listen: true });
+    const clientReady = client.connect();
+    await new Promise<void>(r => setTimeout(r, 50));
+
+    // Host connects bridge with bridgeCtx.sessionId ≠ requestId (line 813)
+    const bridgeCtx: IPCContext = { sessionId: bridgeSessionId, agentId: 'main' };
+    const bridge = await connectIPCBridge(socketPath, handleIPC, bridgeCtx);
+    await clientReady;
+
+    // Simulate stdin parse completing: apply session context (the fix)
+    client.setContext({ sessionId: requestId });
+
+    // Agent sends sandbox_bash — should resolve workspace via _sessionId override
+    const result = await client.call({ action: 'sandbox_bash', command: 'cat hello.txt' });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain('bridge test');
+
+    bridge.close();
+    client.disconnect();
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  }, 10000);
+
+  test('sandbox_bash fails through bridge when sessionId NOT set via setContext', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ipc-bridge-ws-'));
+    const socketPath = join(tmpDir, 'bridge.sock');
+    const workspace = mkdtempSync(join(tmpdir(), 'sandbox-ws-'));
+
+    const requestId = `chatcmpl-${randomUUID()}`;
+    const bridgeSessionId = randomUUID();
+    const workspaceMap = new Map([[requestId, workspace]]);
+
+    const handleIPC = createIPCHandler(mockRegistry(), { workspaceMap });
+
+    // Agent side: IPCClient in listen mode WITHOUT sessionId — and NO setContext
+    const client = new IPCClient({ socketPath, listen: true });
+    const clientReady = client.connect();
+    await new Promise<void>(r => setTimeout(r, 50));
+
+    const bridgeCtx: IPCContext = { sessionId: bridgeSessionId, agentId: 'main' };
+    const bridge = await connectIPCBridge(socketPath, handleIPC, bridgeCtx);
+    await clientReady;
+
+    // No setContext() — client won't send _sessionId, handler falls back to
+    // bridgeCtx.sessionId which doesn't match the workspaceMap key
+    const result = await client.call({ action: 'sandbox_bash', command: 'echo hello' });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('No workspace registered');
+
+    bridge.close();
+    client.disconnect();
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
+  }, 10000);
+
   test('connectIPCBridge retries on connection failure', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'ipc-retry-'));
     const socketPath = join(tmpDir, 'delayed.sock');

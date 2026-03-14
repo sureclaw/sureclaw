@@ -238,6 +238,56 @@ describe('IPCClient', () => {
     client.disconnect();
   });
 
+  test('setContext updates sessionId on listen-mode client', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ipc-test-'));
+    const socketPath = join(tmpDir, 'listen.sock');
+
+    // Create client in listen mode WITHOUT sessionId (mimics Apple Container boot)
+    const client = new IPCClient({ socketPath, listen: true });
+    const connectPromise = client.connect();
+
+    await new Promise<void>(r => setTimeout(r, 50));
+
+    const hostSocket = connect(socketPath);
+    await new Promise<void>((resolve) => hostSocket.once('connect', resolve));
+    await connectPromise;
+
+    // Apply session context AFTER connection (mimics stdin parse completing)
+    client.setContext({ sessionId: 'test-session-42', userId: 'alice' });
+
+    // Host side: capture the raw request to verify _sessionId is present
+    const requestPromise = new Promise<Record<string, unknown>>((resolve) => {
+      let buffer = Buffer.alloc(0);
+      hostSocket.on('data', (data) => {
+        buffer = Buffer.concat([buffer, data]);
+        while (buffer.length >= 4) {
+          const msgLen = buffer.readUInt32BE(0);
+          if (buffer.length < 4 + msgLen) return;
+          const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+          buffer = buffer.subarray(4 + msgLen);
+
+          const request = JSON.parse(raw);
+          resolve(request);
+
+          const response = JSON.stringify({ ok: true });
+          const responseBuf = Buffer.from(response, 'utf-8');
+          const lenBuf = Buffer.alloc(4);
+          lenBuf.writeUInt32BE(responseBuf.length, 0);
+          hostSocket.write(Buffer.concat([lenBuf, responseBuf]));
+        }
+      });
+    });
+
+    await client.call({ action: 'sandbox_bash', command: 'ls' });
+    const capturedRequest = await requestPromise;
+
+    expect(capturedRequest._sessionId).toBe('test-session-42');
+    expect(capturedRequest._userId).toBe('alice');
+
+    hostSocket.destroy();
+    client.disconnect();
+  });
+
   test('resolves actual response after multiple heartbeats', async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ipc-test-'));
     const socketPath = join(tmpDir, 'test.sock');

@@ -47,6 +47,18 @@ export class IPCClient {
     this.listenMode = opts.listen ?? false;
   }
 
+  /**
+   * Update session context after construction.
+   * Used by Apple Container listen mode where the IPCClient is created before
+   * stdin is parsed (to start the listener early), then session context is
+   * applied once the stdin payload arrives with the host-assigned sessionId.
+   */
+  setContext(ctx: { sessionId?: string; userId?: string; sessionScope?: string }): void {
+    if (ctx.sessionId !== undefined) this.sessionId = ctx.sessionId;
+    if (ctx.userId !== undefined) this.userId = ctx.userId;
+    if (ctx.sessionScope !== undefined) this.sessionScope = ctx.sessionScope;
+  }
+
   async connect(): Promise<void> {
     if (this.connected) return;
     // If a connect/listen is already in progress, return the same promise

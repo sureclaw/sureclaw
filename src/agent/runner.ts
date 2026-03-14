@@ -381,6 +381,16 @@ if (isMain) {
     config.replyOptional = payload.replyOptional;
     config.sessionId = payload.sessionId;
     config.sessionScope = payload.sessionScope;
+    // Update the early IPCClient (created in listen mode before stdin) with
+    // session context from the host. Without this, the client sends IPC
+    // requests without _sessionId and workspace lookups fail.
+    if (config.ipcClient) {
+      config.ipcClient.setContext({
+        sessionId: payload.sessionId,
+        userId: payload.userId,
+        sessionScope: payload.sessionScope,
+      });
+    }
     // Enterprise fields — prefer canonical env vars (set by sandbox provider)
     // over stdin payload (which carries host paths).
     config.agentId = payload.agentId;

@@ -1,5 +1,11 @@
 # Agent
 
+### Apple Container listen-mode IPCClient must receive session context after stdin
+**Date:** 2026-03-14
+**Context:** Debugging "No workspace registered for session" error with Apple Container sandbox
+**Lesson:** In Apple Container listen mode, the IPCClient is created before stdin is parsed (to start the listener early for the host bridge). If the early client is stored on `config.ipcClient`, the runner's `??` operator skips creating a new client with sessionId. Always call `setContext()` on the early client after stdin provides the sessionId, otherwise IPC messages lack `_sessionId` and the host falls back to a mismatched bridge context sessionId.
+**Tags:** apple-container, ipc, listen-mode, sessionId, workspace, sandbox
+
 ### pi-coding-agent does NOT re-export pi-agent-core types
 **Date:** 2026-02-27
 **Context:** Removing pi-agent-core as a user-facing agent type — expected to also drop the npm dep
