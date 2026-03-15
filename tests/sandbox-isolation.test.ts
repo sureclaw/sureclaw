@@ -483,23 +483,7 @@ describe('/workspace root is read-only', () => {
   });
 });
 
-// ── Session Scope Backs Scratch via GCS ───────────────────────────────
-
-describe('session scope backs scratch workspace', () => {
-  test('SandboxClaimRequest scopes include session for GCS-backed scratch', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/sandbox-worker/types.ts'), 'utf-8');
-    expect(source).toMatch(/scopes\?.*session/s);
-  });
-
-  test('sandbox worker provisions session scope into CANONICAL.scratch (not separate path)', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/sandbox-worker/worker.ts'), 'utf-8');
-    expect(source).toContain('CANONICAL.scratch, claim.scopes.session');
-    // No separate CANONICAL.session reference
-    expect(source).not.toContain('CANONICAL.session');
-  });
-});
+// Session scope / scratch workspace tests removed — sandbox-worker deleted
 
 // ── Per-Tier Writable Workspace Flags ─────────────────────────────────
 

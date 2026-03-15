@@ -1,10 +1,12 @@
 /**
  * IPC handlers: sandbox tool operations (sandbox_bash, sandbox_read_file,
- * sandbox_write_file, sandbox_edit_file).
+ * sandbox_write_file, sandbox_edit_file) and audit gate (sandbox_approve,
+ * sandbox_result).
  *
- * In local mode these execute directly on the host filesystem using the
- * session's workspace directory. In k8s mode, they dispatch to sandbox
- * pods via NATS request/reply using the NATSSandboxDispatcher.
+ * In subprocess mode these execute directly on the host filesystem using the
+ * session's workspace directory. In container mode (docker/apple/k8s), the
+ * agent executes tools locally inside the container and uses the audit gate
+ * for pre-execution approval and post-execution reporting.
  *
  * Every file operation uses safePath() for path containment (SC-SEC-004).
  */
@@ -14,9 +16,6 @@ import { dirname } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { safePath } from '../../utils/safe-path.js';
-import type { NATSSandboxDispatcher } from '../nats-sandbox-dispatch.js';
-import type { SandboxToolRequest } from '../../sandbox-worker/types.js';
-import type { SandboxProvider } from '../../providers/sandbox/types.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'sandbox-tools' });
@@ -28,25 +27,6 @@ export interface SandboxToolHandlerOptions {
    * cleaned up after the agent finishes.
    */
   workspaceMap: Map<string, string>;
-
-  /**
-   * When set, tool calls dispatch via NATS to remote sandbox pods
-   * instead of executing locally. Used when sandbox provider is k8s.
-   */
-  natsDispatcher?: NATSSandboxDispatcher;
-
-  /**
-   * Maps sessionId to requestId for per-turn pod affinity.
-   * The dispatcher uses requestId to track which pod to reuse.
-   */
-  requestIdMap?: Map<string, string>;
-
-  /**
-   * Container sandbox provider (docker/apple) for spawning ephemeral
-   * tool containers. When set, sandbox_bash dispatches commands to
-   * containers instead of executing them locally on the host.
-   */
-  containerSandbox?: SandboxProvider;
 }
 
 function resolveWorkspace(opts: SandboxToolHandlerOptions, ctx: IPCContext): string {
@@ -67,130 +47,9 @@ function safeWorkspacePath(workspace: string, relativePath: string): string {
   return safePath(workspace, ...segments);
 }
 
-/**
- * Get the requestId for a given session, used for per-turn pod affinity.
- */
-function resolveRequestId(opts: SandboxToolHandlerOptions, ctx: IPCContext): string {
-  return opts.requestIdMap?.get(ctx.sessionId) ?? ctx.sessionId;
-}
-
-/**
- * Dispatch a tool call via NATS to a remote sandbox pod.
- * Returns the tool response, or throws on timeout/error.
- */
-async function dispatchViaNATS(
-  dispatcher: NATSSandboxDispatcher,
-  requestId: string,
-  sessionId: string,
-  tool: SandboxToolRequest,
-  action: string,
-  providers: ProviderRegistry,
-): Promise<any> {
-  try {
-    logger.info('nats_dispatch_start', { requestId, toolType: tool.type, action });
-    const result = await dispatcher.dispatch(requestId, sessionId, tool);
-    logger.info('nats_dispatch_success', { requestId, toolType: tool.type });
-    await providers.audit.log({
-      action,
-      sessionId,
-      args: { dispatchMode: 'nats', toolType: tool.type },
-      result: 'success',
-    });
-    return result;
-  } catch (err: unknown) {
-    logger.error('nats_dispatch_error', { requestId, toolType: tool.type, error: (err as Error).message });
-    await providers.audit.log({
-      action,
-      sessionId,
-      args: { dispatchMode: 'nats', toolType: tool.type },
-      result: 'error',
-    });
-    return { error: `NATS dispatch error: ${(err as Error).message}` };
-  }
-}
-
-/**
- * Spawn an ephemeral container to execute a command, collect output, and return.
- * Used for sandbox_bash when docker/apple sandbox is active.
- */
-async function execInContainer(
-  sandbox: SandboxProvider,
-  workspace: string,
-  command: string,
-): Promise<{ output: string }> {
-  const proc = await sandbox.spawn({
-    workspace,
-    ipcSocket: '',  // not needed for tool containers
-    command: ['sh', '-c', command],
-    timeoutSec: 30,
-    memoryMB: 256,
-  });
-
-  let output = '';
-  const stdoutDone = (async () => {
-    for await (const chunk of proc.stdout) {
-      output += chunk.toString();
-    }
-  })();
-  const stderrDone = (async () => {
-    for await (const chunk of proc.stderr) {
-      output += chunk.toString();
-    }
-  })();
-
-  await Promise.all([stdoutDone, stderrDone]);
-  const exitCode = await proc.exitCode;
-  if (exitCode !== 0) {
-    return { output: `Exit code ${exitCode}\n${output}` };
-  }
-  return { output };
-}
-
 export function createSandboxToolHandlers(providers: ProviderRegistry, opts: SandboxToolHandlerOptions) {
-  const { natsDispatcher, containerSandbox } = opts;
-
   return {
     sandbox_bash: async (req: any, ctx: IPCContext) => {
-      // NATS dispatch mode
-      if (natsDispatcher) {
-        const requestId = resolveRequestId(opts, ctx);
-        const tool: SandboxToolRequest = {
-          type: 'bash',
-          command: req.command,
-          timeoutMs: 30_000,
-        };
-        const result = await dispatchViaNATS(natsDispatcher, requestId, ctx.sessionId, tool, 'sandbox_bash', providers);
-        // Normalize response shape to match local mode
-        if ('output' in result) return { output: result.output };
-        if ('error' in result) return { output: result.error };
-        return result;
-      }
-
-      // Container dispatch mode (docker/apple)
-      if (containerSandbox) {
-        const workspace = resolveWorkspace(opts, ctx);
-        try {
-          const result = await execInContainer(containerSandbox, workspace, req.command);
-          await providers.audit.log({
-            action: 'sandbox_bash',
-            sessionId: ctx.sessionId,
-            args: { command: req.command.slice(0, 200), dispatchMode: 'container' },
-            result: 'success',
-          });
-          return result;
-        } catch (err: unknown) {
-          logger.error('container_dispatch_error', { error: (err as Error).message });
-          await providers.audit.log({
-            action: 'sandbox_bash',
-            sessionId: ctx.sessionId,
-            args: { command: req.command.slice(0, 200), dispatchMode: 'container' },
-            result: 'error',
-          });
-          return { output: `Container dispatch error: ${(err as Error).message}` };
-        }
-      }
-
-      // Local execution mode
       const workspace = resolveWorkspace(opts, ctx);
       try {
         // nosemgrep: javascript.lang.security.detect-child-process — intentional: sandbox tool
@@ -222,16 +81,6 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
     },
 
     sandbox_read_file: async (req: any, ctx: IPCContext) => {
-      if (natsDispatcher) {
-        const requestId = resolveRequestId(opts, ctx);
-        const tool: SandboxToolRequest = { type: 'read_file', path: req.path };
-        const result = await dispatchViaNATS(natsDispatcher, requestId, ctx.sessionId, tool, 'sandbox_read_file', providers);
-        // Normalize: read_file_result has content/error
-        if ('content' in result) return { content: result.content };
-        if ('error' in result) return { error: result.error };
-        return result;
-      }
-
       const workspace = resolveWorkspace(opts, ctx);
       try {
         const abs = safeWorkspacePath(workspace, req.path);
@@ -255,15 +104,6 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
     },
 
     sandbox_write_file: async (req: any, ctx: IPCContext) => {
-      if (natsDispatcher) {
-        const requestId = resolveRequestId(opts, ctx);
-        const tool: SandboxToolRequest = { type: 'write_file', path: req.path, content: req.content };
-        const result = await dispatchViaNATS(natsDispatcher, requestId, ctx.sessionId, tool, 'sandbox_write_file', providers);
-        if ('written' in result) return { written: result.written, path: result.path };
-        if ('error' in result) return { error: result.error };
-        return result;
-      }
-
       const workspace = resolveWorkspace(opts, ctx);
       try {
         const abs = safeWorkspacePath(workspace, req.path);
@@ -288,20 +128,6 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
     },
 
     sandbox_edit_file: async (req: any, ctx: IPCContext) => {
-      if (natsDispatcher) {
-        const requestId = resolveRequestId(opts, ctx);
-        const tool: SandboxToolRequest = {
-          type: 'edit_file',
-          path: req.path,
-          old_string: req.old_string,
-          new_string: req.new_string,
-        };
-        const result = await dispatchViaNATS(natsDispatcher, requestId, ctx.sessionId, tool, 'sandbox_edit_file', providers);
-        if ('edited' in result) return { edited: result.edited, path: result.path };
-        if ('error' in result) return { error: result.error };
-        return result;
-      }
-
       const workspace = resolveWorkspace(opts, ctx);
       try {
         const abs = safeWorkspacePath(workspace, req.path);

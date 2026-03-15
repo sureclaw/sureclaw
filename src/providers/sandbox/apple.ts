@@ -101,15 +101,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         ] : []),
       ];
 
-      // Tool containers (no IPC socket) override the entrypoint so the
-      // command runs as a binary, not as an argument to the image's ENTRYPOINT
-      // (which is "node" — passing "sh" to node makes it try to resolve a module).
-      if (!hasIpcSocket) {
-        containerArgs.push('--entrypoint', cmd);
-        containerArgs.push(image, ...args);
-      } else {
-        containerArgs.push(image, cmd, ...args);
-      }
+      containerArgs.push(image, cmd, ...args);
 
       // nosemgrep: javascript.lang.security.detect-child-process — sandbox provider: spawning is its purpose
       const child = spawn('container', containerArgs, {

@@ -400,10 +400,6 @@ export async function createServer(
     orchestrator,
     agentRegistry,
     workspaceMap,
-    // When sandbox is docker/apple, pass the container provider so sandbox_bash
-    // spawns ephemeral containers instead of executing commands locally.
-    containerSandbox: ['docker', 'apple'].includes(config.providers.sandbox)
-      ? providers.sandbox : undefined,
   });
   completionDeps.ipcHandler = handleIPC;
 

@@ -36,7 +36,6 @@ import {
   type SessionRequest, type SessionResult,
 } from './nats-session-protocol.js';
 import type { EventBus } from './event-bus.js';
-import { createNATSSandboxDispatcher, type NATSSandboxDispatcher } from './nats-sandbox-dispatch.js';
 import { startNATSLLMProxy } from './nats-llm-proxy.js';
 
 const logger = getLogger().child({ component: 'agent-runtime' });
@@ -126,18 +125,12 @@ async function main(): Promise<void> {
   // providers.sandbox is k8s. The k8s provider creates a NEW k8s pod which
   // can't connect back via Unix socket IPC. k8s is only for tool dispatch
   // (sandbox worker pods), not for the agent conversation loop.
+  // In k8s mode, the agent loop runs as a local subprocess inside this pod.
+  // The k8s provider creates a NEW pod which can't connect via Unix socket IPC.
   let agentSandbox = providers.sandbox;
-  let sandboxDispatcher: NATSSandboxDispatcher | undefined;
-  const requestIdMap = new Map<string, string>();
-
   if (config.providers.sandbox === 'k8s') {
     const subprocessModule = await import('../providers/sandbox/subprocess.js');
     agentSandbox = await subprocessModule.create(config);
-
-    // Create NATS sandbox dispatcher for tool dispatch to remote sandbox pods.
-    // The dispatcher opens its own NATS connection for request/reply isolation.
-    sandboxDispatcher = await createNATSSandboxDispatcher();
-    logger.info('nats_sandbox_dispatcher_ready');
   }
 
   const completionDeps: CompletionDeps = {
@@ -193,8 +186,6 @@ async function main(): Promise<void> {
     orchestrator,
     agentRegistry,
     workspaceMap,
-    natsDispatcher: sandboxDispatcher,
-    requestIdMap,
   });
   completionDeps.ipcHandler = handleIPC;
 
@@ -283,10 +274,6 @@ async function main(): Promise<void> {
   ): Promise<void> {
     const { requestId, sessionId, content, messages } = request;
 
-    // Register requestId for per-turn pod affinity so sandbox tool handlers
-    // can route all tool calls in a turn to the same sandbox pod.
-    requestIdMap.set(sessionId, requestId);
-
     // Start NATS LLM proxy for claude-code sessions in k8s mode.
     // The claude-code sandbox pod uses a NATS bridge to send LLM requests;
     // this proxy subscribes to ipc.llm.{sessionId} and forwards them to
@@ -326,17 +313,6 @@ async function main(): Promise<void> {
         finishReason: result.finishReason,
       });
     } finally {
-      // End-of-turn: release the claimed sandbox pod back to the warm pool
-      // and clean up the requestId mapping.
-      requestIdMap.delete(sessionId);
-      if (sandboxDispatcher?.hasPod(requestId)) {
-        await sandboxDispatcher.release(requestId).catch((err) => {
-          logger.warn('sandbox_pod_release_failed', {
-            requestId,
-            error: (err as Error).message,
-          });
-        });
-      }
       // Shut down the per-session NATS LLM proxy for claude-code.
       if (llmProxy) {
         llmProxy.close();
@@ -372,9 +348,6 @@ async function main(): Promise<void> {
     orchestrator.shutdown();
 
     try { ipcServer.close(); } catch { /* ignore */ }
-    if (sandboxDispatcher) {
-      await sandboxDispatcher.close().catch(() => { /* ignore */ });
-    }
     providers.eventbus.close();
     providers.storage.close();
     try { await fileStore.close(); } catch { /* ignore */ }
