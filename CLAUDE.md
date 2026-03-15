@@ -19,7 +19,7 @@ npm run test:fuzz # Run fuzz tests (vitest --run tests/ipc-fuzz.test.ts)
 
 ## Architecture Overview
 
-When working on the AX codebase, invoke the `ax` skill for detailed architecture guidance, key files, common tasks, and gotchas for each subsystem. The `ax` skill covers: agent, host, cli, config, ipc, runners, utils, all provider categories, security, testing, logging, persistence, prompt-builder, and onboarding.
+When working on the AX codebase, invoke the `ax` skill for detailed architecture guidance, key files, common tasks, and gotchas for each subsystem. Sub-skills use **hyphen** syntax: `ax-agent`, `ax-host`, `ax-provider-llm`, etc. (not colon — `ax:agent` won't work since `ax` is a local project skill, not a plugin). The `ax` skill covers: agent, host, cli, config, ipc, runners, utils, all provider categories, security, testing, logging, persistence, prompt-builder, and onboarding.
 
 AX uses a **provider contract pattern**. Every subsystem is a TypeScript interface with pluggable implementations. The host process (trusted, `src/host/`) communicates with agent processes (sandboxed, `src/agent/`) via IPC over Unix sockets.
 
