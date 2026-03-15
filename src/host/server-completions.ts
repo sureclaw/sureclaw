@@ -5,7 +5,7 @@
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { workspaceDir, agentWorkspaceDir, userWorkspaceDir, agentDir } from '../paths.js';
@@ -730,38 +730,12 @@ export async function processCompletion(
     // Skills are keyed as <agentName>/<path> (agent-level) and <agentName>/users/<userId>/<path> (user-level)
     const skillsPayload = await loadSkillsFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
 
-    // ── Write identity/skills to agent workspace for agent read access ──
-    // The agent can `read_file agent/identity/SOUL.md` or `ls agent/skills/` to
-    // inspect its own configuration. These are read-only (agent workspace is ro
-    // for non-admin users) and ignored by the workspace provider's commit pipeline
-    // (DocumentStore is the source of truth).
-    if (agentWsPath) {
-      try {
-        const idDir = join(agentWsPath, 'identity');
-        mkdirSync(idDir, { recursive: true });
-        // Reverse-map: field → filename for writing
-        for (const [filename, field] of Object.entries(IDENTITY_FILE_MAP)) {
-          const content = identityPayload[field];
-          if (content) {
-            writeFileSync(join(idDir, filename), content, 'utf-8');
-          }
-        }
-      } catch (err) {
-        reqLogger.debug('identity_write_failed', { error: (err as Error).message });
-      }
-      try {
-        const skillDir = join(agentWsPath, 'skills');
-        mkdirSync(skillDir, { recursive: true });
-        for (const skill of skillsPayload) {
-          // Use the relative path from DocumentStore (e.g. 'deploy.md' or 'deploy/SKILL.md')
-          const skillPath = join(skillDir, skill.path);
-          mkdirSync(dirname(skillPath), { recursive: true });
-          writeFileSync(skillPath, skill.content, 'utf-8');
-        }
-      } catch (err) {
-        reqLogger.debug('skills_write_failed', { error: (err as Error).message });
-      }
-    }
+    // Identity and skills are delivered to the agent via stdin payload (below).
+    // The agent reads them via `preloaded` in identity-loader.ts and uses the
+    // `identity({ type: "read" })` IPC tool for on-demand access.
+    // We do NOT write them to the agent workspace — the workspace may be
+    // GCS-backed, and writing on every request would create unnecessary cloud
+    // I/O and stale files. The agent workspace mount is read-only for identity.
 
     // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);

@@ -63,15 +63,33 @@ async function main(): Promise<void> {
   mkdirSync(agentConfigDir, { recursive: true });
   mkdirSync(identityFilesDir, { recursive: true });
 
-  // Template seeding (same as server.ts)
+  // Template seeding (same as server.ts) — seed to both filesystem and DocumentStore
   const templatesDir = resolveTemplatesDir();
-  const bootstrapAlreadyComplete =
+  const documents = providers.storage.documents;
+
+  // Check both filesystem AND DocumentStore for bootstrap completion
+  const fsBootstrapComplete =
     existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
+  let dbBootstrapComplete = false;
+  try {
+    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
+    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
+    dbBootstrapComplete = !!(dbSoul && dbIdentity);
+  } catch { /* non-fatal */ }
+  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
 
   for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
     const dest = join(identityFilesDir, file);
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
+    // Seed to DocumentStore
+    if (existsSync(src)) {
+      const key = `${agentName}/${file}`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
+      } catch { /* non-fatal */ }
+    }
   }
   for (const file of ['capabilities.yaml']) {
     const dest = join(agentConfigDir, file);
@@ -83,6 +101,21 @@ async function main(): Promise<void> {
     if (existsSync(src)) {
       if (!existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(agentConfigDir, 'BOOTSTRAP.md'));
       if (!existsSync(join(identityFilesDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(identityFilesDir, 'BOOTSTRAP.md'));
+      // Seed to DocumentStore
+      const key = `${agentName}/BOOTSTRAP.md`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
+      } catch { /* non-fatal */ }
+    }
+    // USER_BOOTSTRAP.md → DocumentStore
+    const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
+    if (existsSync(ubSrc)) {
+      const key = `${agentName}/USER_BOOTSTRAP.md`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(ubSrc, 'utf-8'));
+      } catch { /* non-fatal */ }
     }
   }
 

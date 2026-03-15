@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { agentDir as agentDirPath, agentIdentityDir, proposalsDir } from '../../paths.js';
-import { isAgentBootstrapMode, isAdmin } from '../server.js';
+import { isAdmin } from '../server.js';
 import type { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {
@@ -136,18 +136,36 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
 
       saveProposal(proposal);
 
-      // If approved and it's an identity proposal, apply it
-      if (req.decision === 'approved' && proposal.type === 'identity' && proposal.file && agentDir) {
-        mkdirSync(agentDir, { recursive: true });
-        writeFileSync(join(agentDir, proposal.file), proposal.content, 'utf-8');
+      // If approved and it's an identity proposal, apply it to both DocumentStore and filesystem
+      if (req.decision === 'approved' && proposal.type === 'identity' && proposal.file) {
+        // Write to DocumentStore (authoritative source for identity)
+        const documents = providers.storage.documents;
+        const docKey = `${agentName}/${proposal.file}`;
+        await documents.put('identity', docKey, proposal.content);
 
-        // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
-        if ((proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentName)) {
-          const configDir = agentIdentityDir(agentName);
-          const topDir = agentDirPath(agentName);
-          try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-          try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist — agent-readable copy */ }
-          try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+        // Also write to filesystem for backward compat
+        if (agentDir) {
+          mkdirSync(agentDir, { recursive: true });
+          writeFileSync(join(agentDir, proposal.file), proposal.content, 'utf-8');
+        }
+
+        // Bootstrap completion: check DocumentStore for both SOUL.md and IDENTITY.md
+        if (proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') {
+          const otherFile = proposal.file === 'SOUL.md' ? 'IDENTITY.md' : 'SOUL.md';
+          const otherKey = `${agentName}/${otherFile}`;
+          const otherExists = await documents.get('identity', otherKey);
+          if (otherExists) {
+            // Both exist — bootstrap complete
+            await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
+            // Clean up filesystem
+            const configDir = agentIdentityDir(agentName);
+            const topDir = agentDirPath(agentName);
+            try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+            if (agentDir) {
+              try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+            }
+            try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+          }
         }
       }
 

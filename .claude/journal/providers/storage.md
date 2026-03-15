@@ -1,5 +1,13 @@
 # Storage Provider Journal
 
+## [2026-03-15 15:05] — Fix first-run bootstrap with DocumentStore (GCS) backends
+
+**Task:** Bootstrap never occurs on first run when using GCS/cloud-backed DocumentStore — only SOUL.md appears in the bucket, no BOOTSTRAP ritual. Also SOUL.md was being written to GCS workspace on every request.
+**What I did:** (1) Root cause: template files (BOOTSTRAP.md, AGENTS.md, etc.) were seeded to filesystem only, but identity is loaded from DocumentStore for agent prompts. On first run with GCS, DocumentStore was empty. (2) Added DocumentStore seeding alongside filesystem seeding in server.ts and agent-runtime-process.ts. (3) Fixed bootstrap completion in identity.ts to check DocumentStore (not filesystem) for whether both SOUL.md and IDENTITY.md exist. Also cleans up filesystem BOOTSTRAP.md for backward compat. (4) Fixed governance.ts to write approved proposals to DocumentStore too (was filesystem-only) and use DocumentStore-based bootstrap completion. (5) Removed identity/skills workspace write from server-completions.ts — the agent gets identity via stdin payload and can use `identity({ type: "read" })` IPC tool. Writing to GCS-backed workspace on every request created unnecessary cloud I/O. (6) Updated governance tests with mock DocumentStore, updated ipc-server bootstrap tests.
+**Files touched:** src/host/server.ts, src/host/agent-runtime-process.ts, src/host/server-completions.ts, src/host/ipc-handlers/identity.ts, src/host/ipc-handlers/governance.ts, tests/host/ipc-server.test.ts, tests/host/ipc-handlers/governance.test.ts
+**Outcome:** Success — 2400 tests pass (1 pre-existing macOS symlink failure unrelated)
+**Notes:** `isAgentBootstrapMode()` in server.ts still checks filesystem for the HTTP/channel admin bootstrap gate. This is fine because the filesystem BOOTSTRAP.md is also seeded, and it gets cleaned up when bootstrap completes. The DocumentStore is now the authoritative source for bootstrap completion detection in the identity/governance handlers.
+
 ## [2026-03-13 09:10] -- Phase 1D: Migrate identity/skills IPC handlers to DocumentStore
 
 **Task:** Update identity_read, identity_write, user_write IPC handlers and readonly skills provider to use DocumentStore instead of filesystem. Last piece of Phase 1 storage simplification.

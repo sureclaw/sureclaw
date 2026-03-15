@@ -7,8 +7,10 @@
 import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
-import { agentDir as agentDirPath } from '../../paths.js';
-import { isAgentBootstrapMode, isAdmin } from '../server.js';
+import { join } from 'node:path';
+import { unlinkSync } from 'node:fs';
+import { agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir } from '../../paths.js';
+import { isAdmin } from '../server.js';
 
 export interface IdentityHandlerOptions {
   agentName: string;
@@ -82,9 +84,23 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       const key = `${agentName}/${req.file}`;
       await documents.put('identity', key, req.content);
 
-      // Bootstrap completion: delete BOOTSTRAP.md and claim file once both SOUL.md and IDENTITY.md exist
-      if ((req.file === 'SOUL.md' || req.file === 'IDENTITY.md') && !isAgentBootstrapMode(agentName)) {
-        await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
+      // Bootstrap completion: delete BOOTSTRAP.md once both SOUL.md and IDENTITY.md exist.
+      // Check DocumentStore (authoritative) rather than filesystem — filesystem may not
+      // have identity files when using GCS/cloud-backed DocumentStore.
+      if (req.file === 'SOUL.md' || req.file === 'IDENTITY.md') {
+        const otherFile = req.file === 'SOUL.md' ? 'IDENTITY.md' : 'SOUL.md';
+        const otherKey = `${agentName}/${otherFile}`;
+        const otherExists = await documents.get('identity', otherKey);
+        if (otherExists) {
+          // Both SOUL.md and IDENTITY.md exist in DocumentStore — bootstrap is complete
+          await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
+          // Also clean up filesystem BOOTSTRAP.md for isAgentBootstrapMode() compat
+          const configDir = agentIdentityDir(agentName);
+          const idFilesDir = agentIdentityFilesDir(agentName);
+          try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+          try { unlinkSync(join(idFilesDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+          try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
+        }
       }
 
       await providers.audit.log({

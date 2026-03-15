@@ -34,10 +34,21 @@ vi.mock('../../../src/host/server.js', async () => {
   };
 });
 
+function createInMemoryDocuments(): any {
+  const store = new Map<string, string>();
+  return {
+    get: vi.fn(async (_col: string, key: string) => store.get(key) ?? null),
+    put: vi.fn(async (_col: string, key: string, content: string) => { store.set(key, content); }),
+    delete: vi.fn(async (_col: string, key: string) => { store.delete(key); }),
+    list: vi.fn(async () => [...store.keys()]),
+  };
+}
+
 function stubProviders(): ProviderRegistry {
   return {
     audit: { log: vi.fn() },
     scanner: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
+    storage: { documents: createInMemoryDocuments() },
   } as any;
 }
 

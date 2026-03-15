@@ -473,7 +473,7 @@ describe('unified identity_write', () => {
       origin: 'agent_initiated',
     }), ctx);
 
-    // Bootstrap not yet complete — IDENTITY.md still missing (isAgentBootstrapMode checks filesystem)
+    // Bootstrap not yet complete — IDENTITY.md still missing in DocumentStore
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
     // SOUL.md was written to DocumentStore
     const soulContent = await documents.get('identity', 'main/SOUL.md');
@@ -511,7 +511,7 @@ describe('unified identity_write', () => {
 
     // Bootstrap not yet complete — SOUL.md still missing
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
-    // BOOTSTRAP.md should still be in DocumentStore too (not deleted because isAgentBootstrapMode returns true)
+    // BOOTSTRAP.md should still be in DocumentStore (not deleted because SOUL.md missing from DocumentStore)
     const bootstrapContent = await documents.get('identity', 'main/BOOTSTRAP.md');
     expect(bootstrapContent).toBe('# Bootstrap');
 
@@ -520,7 +520,7 @@ describe('unified identity_write', () => {
     else delete process.env.AX_HOME;
   });
 
-  test('deletes BOOTSTRAP.md from DocumentStore when both SOUL.md and IDENTITY.md exist on filesystem', async () => {
+  test('deletes BOOTSTRAP.md from DocumentStore when both SOUL.md and IDENTITY.md exist', async () => {
     const savedAxHome = process.env.AX_HOME;
     const axHome = mkdtempSync(join(tmpdir(), 'ax-test-home-'));
     process.env.AX_HOME = axHome;
@@ -538,13 +538,15 @@ describe('unified identity_write', () => {
 
     const documents = createMockDocumentStore();
     await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
+    // SOUL.md must be in DocumentStore too — bootstrap completion now checks DocumentStore
+    await documents.put('identity', 'main/SOUL.md', '# Soul\nI am helpful.');
 
     const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
     });
 
     // Writing IDENTITY.md triggers bootstrap completion check
-    // isAgentBootstrapMode checks filesystem — both files exist → returns false → completion fires
+    // Both SOUL.md and IDENTITY.md in DocumentStore → completion fires
     await handle(JSON.stringify({
       action: 'identity_write',
       file: 'IDENTITY.md',

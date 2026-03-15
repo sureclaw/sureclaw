@@ -214,15 +214,37 @@ export async function createServer(
   // Bootstrap files (BOOTSTRAP.md, USER_BOOTSTRAP.md) → both agentConfigDir (authoritative)
   //   AND identityFilesDir (agent-readable copy in sandbox mount)
   const templatesDir = resolveTemplatesDir();
-  const bootstrapAlreadyComplete =
-    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
+  const documents = providers.storage.documents;
 
-  // Identity files → identityFilesDir
+  // Check both filesystem AND DocumentStore — bootstrap is complete when both
+  // SOUL.md and IDENTITY.md exist in either location (DocumentStore is authoritative
+  // for GCS/cloud setups, filesystem for local dev).
+  const fsBootstrapComplete =
+    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
+  let dbBootstrapComplete = false;
+  try {
+    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
+    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
+    dbBootstrapComplete = !!(dbSoul && dbIdentity);
+  } catch { /* DocumentStore may not support get-or-null, treat as not complete */ }
+  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
+
+  // Identity files → identityFilesDir + DocumentStore
   for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
     const dest = join(identityFilesDir, file);
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) {
       copyFileSync(src, dest);
+    }
+    // Also seed to DocumentStore (idempotent — only if not already present)
+    if (existsSync(src)) {
+      const key = `${agentName}/${file}`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) {
+          await documents.put('identity', key, readFileSync(src, 'utf-8'));
+        }
+      } catch { /* non-fatal */ }
     }
   }
 
@@ -236,6 +258,7 @@ export async function createServer(
   }
 
   // BOOTSTRAP.md → both agentConfigDir (authoritative) and identityFilesDir (agent-readable copy)
+  // + DocumentStore (so loadIdentityFromDB finds it on GCS/cloud setups)
   // Don't re-create BOOTSTRAP.md if bootstrap already completed
   if (!bootstrapAlreadyComplete) {
     const src = join(templatesDir, 'BOOTSTRAP.md');
@@ -244,15 +267,34 @@ export async function createServer(
       const identityDest = join(identityFilesDir, 'BOOTSTRAP.md');
       if (!existsSync(configDest)) copyFileSync(src, configDest);
       if (!existsSync(identityDest)) copyFileSync(src, identityDest);
+      // Seed to DocumentStore
+      const key = `${agentName}/BOOTSTRAP.md`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) {
+          await documents.put('identity', key, readFileSync(src, 'utf-8'));
+        }
+      } catch { /* non-fatal */ }
     }
   }
 
   // USER_BOOTSTRAP.md → agentConfigDir only (passed to agent via stdin payload, not mounted)
+  // + DocumentStore (so loadIdentityFromDB finds it)
   {
     const src = join(templatesDir, 'USER_BOOTSTRAP.md');
     if (existsSync(src)) {
       const configDest = join(agentConfigDir, 'USER_BOOTSTRAP.md');
       if (!existsSync(configDest)) copyFileSync(src, configDest);
+      // Seed to DocumentStore (only if bootstrap not complete)
+      if (!bootstrapAlreadyComplete) {
+        const key = `${agentName}/USER_BOOTSTRAP.md`;
+        try {
+          const existing = await documents.get('identity', key);
+          if (!existing) {
+            await documents.put('identity', key, readFileSync(src, 'utf-8'));
+          }
+        } catch { /* non-fatal */ }
+      }
     }
   }
 
