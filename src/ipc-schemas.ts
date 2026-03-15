@@ -401,6 +401,27 @@ export const SandboxEditFileSchema = ipcAction('sandbox_edit_file', {
   new_string: safeString(500_000),
 });
 
+// ── Sandbox Audit Gate (container-local execution) ─────────
+
+export const SandboxApproveSchema = ipcAction('sandbox_approve', {
+  operation: z.enum(['bash', 'read', 'write', 'edit']),
+  command: safeString(100_000).optional(),
+  path: safeString(1024).optional(),
+  content: safeString(500_000).optional(),
+  old_string: safeString(500_000).optional(),
+  new_string: safeString(500_000).optional(),
+});
+
+export const SandboxResultSchema = ipcAction('sandbox_result', {
+  operation: z.enum(['bash', 'read', 'write', 'edit']),
+  command: safeString(100_000).optional(),
+  path: safeString(1024).optional(),
+  output: safeString(500_000).optional(),
+  exitCode: z.number().int().optional(),
+  success: z.boolean().optional(),
+  error: safeString(10_000).optional(),
+});
+
 // ── Plugin Management ────────────────────────────────
 
 export const PluginListSchema = ipcAction('plugin_list', {});

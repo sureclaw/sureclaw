@@ -194,6 +194,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'agent_orch_status', 'agent_orch_list', 'agent_orch_tree',
       'agent_orch_message', 'agent_orch_poll', 'agent_orch_interrupt',
       'agent_orch_timeline',
+      // Sandbox audit gate (container-local execution, agent → host pre/post hooks)
+      'sandbox_approve', 'sandbox_result',
     ]);
 
     for (const action of schemaActions) {
