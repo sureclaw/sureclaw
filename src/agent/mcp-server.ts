@@ -112,10 +112,10 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
 
     // ── Web ──
     tool('web',
-      'Fetch URLs and search the web (proxied through host with SSRF protection).\n\n' +
+      'Fetch URLs and search the web.\n\n' +
       'Use `type` to select:\n' +
-      '- fetch: Fetch content from a URL (requires url)\n' +
-      '- search: Search the web (requires query)',
+      '- fetch: Fetch content from a URL. Pass the URL in the `url` parameter.\n' +
+      '- search: Search the web. Pass the search terms in the `query` parameter.',
       {
         type: z.enum(['fetch', 'search']),
         url: z.string().optional(),

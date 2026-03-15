@@ -89,9 +89,9 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'web',
     label: 'Web',
     description:
-      'Fetch URLs and search the web (proxied through host with SSRF protection).\n\nUse `type` to select:\n' +
-      '- fetch: Fetch content from a URL\n' +
-      '- search: Search the web',
+      'Fetch URLs and search the web.\n\nUse `type` to select:\n' +
+      '- fetch: Fetch content from a URL. Pass the URL in the `url` parameter.\n' +
+      '- search: Search the web. Pass the search terms in the `query` parameter.',
     parameters: Type.Union([
       Type.Object({
         type: Type.Literal('fetch'),
