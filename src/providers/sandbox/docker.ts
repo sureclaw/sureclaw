@@ -103,8 +103,15 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         dockerArgs.push('--stop-timeout', String(config.timeoutSec));
       }
 
-      // Image and command
-      dockerArgs.push(image, cmd, ...args);
+      // Tool containers (no IPC socket) override the entrypoint so the
+      // command runs as a binary, not as an argument to the image's ENTRYPOINT
+      // (which is "node" — passing "sh" to node makes it try to resolve a module).
+      if (!hasIpcSocket) {
+        dockerArgs.push('--entrypoint', cmd);
+        dockerArgs.push(image, ...args);
+      } else {
+        dockerArgs.push(image, cmd, ...args);
+      }
 
       // nosemgrep: javascript.lang.security.detect-child-process — sandbox provider: spawning is its purpose
       const child = spawn('docker', dockerArgs, {

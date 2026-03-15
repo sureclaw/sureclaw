@@ -811,7 +811,7 @@ export async function processCompletion(
       stderr = '';
 
       const proc = await agentSandbox.spawn(sandboxConfig);
-      reqLogger.debug('agent_spawn', { sandbox: 'subprocess', attempt });
+      reqLogger.debug('agent_spawn', { sandbox: config.providers.sandbox, attempt });
       eventBus?.emit({
         type: 'completion.agent',
         requestId,
