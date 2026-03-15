@@ -1,5 +1,11 @@
 # IPC
 
+### IPC client cannot handle concurrent calls without message ID correlation
+**Date:** 2026-03-15
+**Context:** Debugging empty response in web UI. The pi-coding-agent's second LLM call got an identity_read response instead of the actual LLM response because 3 concurrent tool IPC calls all registered separate `data` handlers on the same socket.
+**Lesson:** Never use per-call socket `data` handlers when concurrent calls share the same socket. Use a single shared data handler with a pending-calls map keyed by message ID. Every new IPC metadata field (`_msgId`, like `_sessionId`) must be: (1) stripped in `handleIPC` before Zod validation, (2) echoed by the socket/bridge layer, and (3) echoed in ALL test mock servers — there are 6+ scattered mock IPC servers across the test suite.
+**Tags:** ipc, concurrency, socket, data-handler, response-correlation, mock-servers
+
 ### IPC schemas use z.strictObject — extra fields cause silent validation failures
 **Date:** 2026-02-25
 **Context:** Adding `_sessionId` to IPC requests for session-scoped image generation. All server/integration tests started failing with empty responses.

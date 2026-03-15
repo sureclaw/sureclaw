@@ -32,6 +32,7 @@ function createMockIPCServer(socketPath: string): { server: Server; close: () =>
         buffer = buffer.subarray(4 + msgLen);
 
         const request = JSON.parse(raw);
+        const msgId = request._msgId;
         let response: Record<string, unknown>;
 
         if (request.action === 'llm_call') {
@@ -46,6 +47,8 @@ function createMockIPCServer(socketPath: string): { server: Server; close: () =>
         } else {
           response = { ok: true };
         }
+
+        if (msgId) response._msgId = msgId;
 
         const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
         const lenBuf = Buffer.alloc(4);
@@ -236,6 +239,7 @@ describe('pi-session (IPC mode — no proxy)', () => {
           const response = request.action === 'llm_call'
             ? { ok: true, chunks: [{ type: 'text', content: 'ok' }, { type: 'done', usage: { inputTokens: 5, outputTokens: 2 } }] }
             : { ok: true };
+          if (request._msgId) response._msgId = request._msgId;
           const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
           const lenBuf = Buffer.alloc(4);
           lenBuf.writeUInt32BE(responseBuf.length, 0);
@@ -333,6 +337,7 @@ describe('pi-session (IPC mode — no proxy)', () => {
           } else {
             response = { ok: true };
           }
+          if (request._msgId) response._msgId = request._msgId;
           const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
           const lenBuf = Buffer.alloc(4);
           lenBuf.writeUInt32BE(responseBuf.length, 0);
@@ -639,6 +644,7 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
           } else {
             response = { ok: true };
           }
+          if (request._msgId) response._msgId = request._msgId;
           const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
           const lenBuf = Buffer.alloc(4);
           lenBuf.writeUInt32BE(responseBuf.length, 0);
@@ -735,7 +741,8 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
           const request = JSON.parse(raw);
           ipcCalls.push(request.action);
           // Return { ok: true } for everything (IPC for non-LLM tools)
-          const responseBuf = Buffer.from(JSON.stringify({ ok: true, entries: [] }), 'utf-8');
+          const response = { ok: true, entries: [], ...(request._msgId ? { _msgId: request._msgId } : {}) };
+          const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
           const lenBuf = Buffer.alloc(4);
           lenBuf.writeUInt32BE(responseBuf.length, 0);
           socket.write(Buffer.concat([lenBuf, responseBuf]));

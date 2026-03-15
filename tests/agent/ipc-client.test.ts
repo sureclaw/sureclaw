@@ -5,6 +5,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { IPCClient } from '../../src/agent/ipc-client.js';
 
+/** Send a length-prefixed JSON frame over a socket. */
+function sendFrame(socket: import('node:net').Socket, obj: Record<string, unknown>) {
+  const json = JSON.stringify(obj);
+  const buf = Buffer.from(json, 'utf-8');
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(buf.length, 0);
+  socket.write(Buffer.concat([len, buf]));
+}
+
 function createMockServer(socketPath: string, handler: (req: Record<string, unknown>) => Record<string, unknown>): Server {
   const server = createServer((socket) => {
     let buffer = Buffer.alloc(0);
@@ -20,11 +29,34 @@ function createMockServer(socketPath: string, handler: (req: Record<string, unkn
         buffer = buffer.subarray(4 + msgLen);
 
         const request = JSON.parse(raw);
-        const response = handler(request);
-        const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
-        const lenBuf = Buffer.alloc(4);
-        lenBuf.writeUInt32BE(responseBuf.length, 0);
-        socket.write(Buffer.concat([lenBuf, responseBuf]));
+        const msgId = request._msgId;
+        const response = { ...handler(request), ...(msgId ? { _msgId: msgId } : {}) };
+        sendFrame(socket, response);
+      }
+    });
+  });
+
+  server.listen(socketPath);
+  return server;
+}
+
+/** Like createMockServer but handler is async (supports delays). */
+function createAsyncMockServer(socketPath: string, handler: (req: Record<string, unknown>, socket: import('node:net').Socket) => Promise<void>): Server {
+  const server = createServer((socket) => {
+    let buffer = Buffer.alloc(0);
+
+    socket.on('data', async (data) => {
+      buffer = Buffer.concat([buffer, data]);
+
+      while (buffer.length >= 4) {
+        const msgLen = buffer.readUInt32BE(0);
+        if (buffer.length < 4 + msgLen) break;
+
+        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+        buffer = buffer.subarray(4 + msgLen);
+
+        const request = JSON.parse(raw);
+        await handler(request, socket);
       }
     });
   });
@@ -85,6 +117,41 @@ describe('IPCClient', () => {
     client.disconnect();
   });
 
+  test('handles concurrent calls — each gets correct response', async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'ipc-test-'));
+    const socketPath = join(tmpDir, 'test.sock');
+
+    // Server echoes the action back with a per-action delay to simulate
+    // responses arriving in a different order than requests were sent
+    server = createAsyncMockServer(socketPath, async (req, socket) => {
+      const action = req.action as string;
+      const msgId = req._msgId as string | undefined;
+      // Stagger responses: call_a responds last, call_c responds first
+      const delays: Record<string, number> = { call_a: 80, call_b: 40, call_c: 10 };
+      const delay = delays[action] ?? 0;
+      await new Promise<void>(r => setTimeout(r, delay));
+      sendFrame(socket, { ok: true, action, ...(msgId ? { _msgId: msgId } : {}) });
+    });
+
+    await new Promise<void>((resolve) => server.on('listening', resolve));
+
+    const client = new IPCClient({ socketPath });
+
+    // Fire 3 calls concurrently
+    const [ra, rb, rc] = await Promise.all([
+      client.call({ action: 'call_a' }),
+      client.call({ action: 'call_b' }),
+      client.call({ action: 'call_c' }),
+    ]);
+
+    // Each call must receive its own response, not someone else's
+    expect(ra.action).toBe('call_a');
+    expect(rb.action).toBe('call_b');
+    expect(rc.action).toBe('call_c');
+
+    client.disconnect();
+  }, 5000);
+
   test('rejects on connection error', async () => {
     const client = new IPCClient({ socketPath: '/tmp/nonexistent-socket-path.sock' });
 
@@ -121,23 +188,19 @@ describe('IPCClient', () => {
         const msgLen = buffer.readUInt32BE(0);
         if (buffer.length < 4 + msgLen) return;
 
-        // Send heartbeats
+        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+        const request = JSON.parse(raw);
+        const msgId = request._msgId;
+
+        // Send heartbeats with _msgId
         const hbInterval = setInterval(() => {
-          const hb = JSON.stringify({ _heartbeat: true, ts: Date.now() });
-          const hbBuf = Buffer.from(hb, 'utf-8');
-          const lenBuf = Buffer.alloc(4);
-          lenBuf.writeUInt32BE(hbBuf.length, 0);
-          socket.write(Buffer.concat([lenBuf, hbBuf]));
+          sendFrame(socket, { _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
         }, 50);
 
         // Send real response after 300ms (longer than the 150ms timeout)
         setTimeout(() => {
           clearInterval(hbInterval);
-          const resp = JSON.stringify({ ok: true, result: 'done' });
-          const respBuf = Buffer.from(resp, 'utf-8');
-          const lenBuf = Buffer.alloc(4);
-          lenBuf.writeUInt32BE(respBuf.length, 0);
-          socket.write(Buffer.concat([lenBuf, respBuf]));
+          sendFrame(socket, { ok: true, result: 'done', ...(msgId ? { _msgId: msgId } : {}) });
         }, 300);
       });
     });
@@ -167,13 +230,13 @@ describe('IPCClient', () => {
         const msgLen = buffer.readUInt32BE(0);
         if (buffer.length < 4 + msgLen) return;
 
+        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+        const request = JSON.parse(raw);
+        const msgId = request._msgId;
+
         // Send one heartbeat after 30ms
         setTimeout(() => {
-          const hb = JSON.stringify({ _heartbeat: true, ts: Date.now() });
-          const hbBuf = Buffer.from(hb, 'utf-8');
-          const lenBuf = Buffer.alloc(4);
-          lenBuf.writeUInt32BE(hbBuf.length, 0);
-          socket.write(Buffer.concat([lenBuf, hbBuf]));
+          sendFrame(socket, { _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
         }, 30);
         // Then silence — no more heartbeats, no response
       });
@@ -218,11 +281,7 @@ describe('IPCClient', () => {
           buffer = buffer.subarray(4 + msgLen);
 
           const request = JSON.parse(raw);
-          const response = JSON.stringify({ ok: true, echo: request.action });
-          const responseBuf = Buffer.from(response, 'utf-8');
-          const lenBuf = Buffer.alloc(4);
-          lenBuf.writeUInt32BE(responseBuf.length, 0);
-          hostSocket.write(Buffer.concat([lenBuf, responseBuf]));
+          sendFrame(hostSocket, { ok: true, echo: request.action, _msgId: request._msgId });
           resolve();
         }
       });
@@ -269,11 +328,7 @@ describe('IPCClient', () => {
           const request = JSON.parse(raw);
           resolve(request);
 
-          const response = JSON.stringify({ ok: true });
-          const responseBuf = Buffer.from(response, 'utf-8');
-          const lenBuf = Buffer.alloc(4);
-          lenBuf.writeUInt32BE(responseBuf.length, 0);
-          hostSocket.write(Buffer.concat([lenBuf, responseBuf]));
+          sendFrame(hostSocket, { ok: true, _msgId: request._msgId });
         }
       });
     });
@@ -301,22 +356,18 @@ describe('IPCClient', () => {
         const msgLen = buffer.readUInt32BE(0);
         if (buffer.length < 4 + msgLen) return;
 
-        function sendFrame(obj: Record<string, unknown>) {
-          const json = JSON.stringify(obj);
-          const buf = Buffer.from(json, 'utf-8');
-          const len = Buffer.alloc(4);
-          len.writeUInt32BE(buf.length, 0);
-          socket.write(Buffer.concat([len, buf]));
-        }
+        const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
+        const request = JSON.parse(raw);
+        const msgId = request._msgId;
 
         let count = 0;
         const iv = setInterval(() => {
           count++;
           if (count <= 3) {
-            sendFrame({ _heartbeat: true, ts: Date.now() });
+            sendFrame(socket, { _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
           } else {
             clearInterval(iv);
-            sendFrame({ ok: true, data: 'final' });
+            sendFrame(socket, { ok: true, data: 'final', ...(msgId ? { _msgId: msgId } : {}) });
           }
         }, 40);
       });

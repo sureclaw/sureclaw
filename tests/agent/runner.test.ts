@@ -21,7 +21,8 @@ function createMockIPCServer(
         const raw = buffer.subarray(4, 4 + msgLen).toString('utf-8');
         buffer = buffer.subarray(4 + msgLen);
         const request = JSON.parse(raw);
-        const response = handler(request);
+        const msgId = request._msgId;
+        const response = { ...handler(request), ...(msgId ? { _msgId: msgId } : {}) };
         const responseBuf = Buffer.from(JSON.stringify(response), 'utf-8');
         const lenBuf = Buffer.alloc(4);
         lenBuf.writeUInt32BE(responseBuf.length, 0);

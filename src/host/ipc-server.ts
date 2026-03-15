@@ -126,10 +126,19 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     const handlerStart = Date.now();
     logger.debug('request_received', { rawBytes: raw.length, sessionId: ctx.sessionId, agentId: ctx.agentId });
 
+    // _msgId is echoed in every response for client-side correlation.
+    // Captured after JSON.parse succeeds; the respond() helper injects it.
+    let requestMsgId: unknown;
+    const respond = (obj: Record<string, unknown>): string => {
+      if (requestMsgId !== undefined) obj._msgId = requestMsgId;
+      return JSON.stringify(obj);
+    };
+
     // Step 1: Parse JSON
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
+      requestMsgId = (parsed as Record<string, unknown>)._msgId;
     } catch {
       logger.debug('parse_error', { rawPreview: truncate(raw, 200) });
       await providers.audit.log({
@@ -151,7 +160,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         args: {},
         result: 'blocked',
       });
-      return JSON.stringify({
+      return respond({
         ok: false,
         error: 'Unknown or missing action',
       });
@@ -178,6 +187,10 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     if (requestRequestId !== undefined) {
       delete (parsed as Record<string, unknown>)._requestId;
     }
+    // Strip _msgId before Zod validation — it's echoed back via respond()
+    if ((parsed as Record<string, unknown>)._msgId !== undefined) {
+      delete (parsed as Record<string, unknown>)._msgId;
+    }
     const effectiveCtx: IPCContext = {
       ...ctx,
       ...(typeof requestSessionId === 'string' ? { sessionId: requestSessionId } : {}),
@@ -199,7 +212,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         args: { ipcAction: actionName, rawPreview: raw.slice(0, 500) },
         result: 'blocked',
       });
-      return JSON.stringify({
+      return respond({
         ok: false,
         error: `Validation failed for action "${actionName}"`,
       });
@@ -221,7 +234,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
           },
           result: 'blocked',
         });
-        return JSON.stringify({
+        return respond({
           ok: false,
           taintBlocked: true,
           error: taintCheck.reason,
@@ -233,7 +246,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     const handler = handlers[actionName];
     if (!handler) {
       logger.debug('no_handler', { action: actionName });
-      return JSON.stringify({ ok: false, error: `No handler for action "${actionName}"` });
+      return respond({ ok: false, error: `No handler for action "${actionName}"` });
     }
 
     // Race the handler against a timeout to prevent hung handlers from
@@ -264,7 +277,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         result: 'success',
         durationMs,
       });
-      return JSON.stringify({ ok: true, ...result });
+      return respond({ ok: true, ...result });
     } catch (err) {
       const durationMs = Date.now() - handlerStart;
       logger.debug('handler_error', {
@@ -279,7 +292,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         args: { ipcAction: actionName, error: String(err) },
         result: 'error',
       });
-      return JSON.stringify({
+      return respond({
         ok: false,
         error: `Handler error: ${err instanceof Error ? err.message : String(err)}`,
       });
@@ -328,10 +341,15 @@ export function createIPCServer(
 
         logger.debug('message_received', { msgLen });
 
+        // Extract _msgId for heartbeats via regex — avoids full JSON.parse of
+        // potentially large payloads. Response injection happens inside handleIPC.
+        const msgIdMatch = raw.match(/"_msgId"\s*:\s*"([^"]+)"/);
+        const msgId = msgIdMatch?.[1];
+
         // Send periodic heartbeat frames so the client knows we're alive
         // during long-running handlers (agent_delegate, image_generate, etc.)
         const heartbeatInterval = setInterval(() => {
-          const hb = JSON.stringify({ _heartbeat: true, ts: Date.now() });
+          const hb = JSON.stringify({ _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
           const hbBuf = Buffer.from(hb, 'utf-8');
           const hbLenBuf = Buffer.alloc(4);
           hbLenBuf.writeUInt32BE(hbBuf.length, 0);
@@ -415,8 +433,12 @@ export async function connectIPCBridge(
 
       logger.debug('bridge_message_received', { msgLen });
 
+      // Extract _msgId for heartbeats via regex — avoids full JSON.parse
+      const msgIdMatch = raw.match(/"_msgId"\s*:\s*"([^"]+)"/);
+      const msgId = msgIdMatch?.[1];
+
       const heartbeatInterval = setInterval(() => {
-        const hb = JSON.stringify({ _heartbeat: true, ts: Date.now() });
+        const hb = JSON.stringify({ _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
         const hbBuf = Buffer.from(hb, 'utf-8');
         const hbLenBuf = Buffer.alloc(4);
         hbLenBuf.writeUInt32BE(hbBuf.length, 0);

@@ -2,6 +2,14 @@
 
 IPC protocol enhancements: heartbeat keep-alive, schema hardening.
 
+## [2026-03-15 15:35] — Fix concurrent IPC call response misrouting
+
+**Task:** Debug why the web UI showed no response when user said "hi" — agent's second LLM call returned empty text
+**What I did:** Root-caused to IPC client using per-call `data` handlers on a shared socket. When pi-coding-agent executed multiple tool calls concurrently (identity x2, memory x1), all handlers received the first response, resolved, and removed themselves. Subsequent responses were misrouted to the next LLM call, which parsed an identity_read response as an LLM response (no `chunks` → empty text). Fixed by adding `_msgId` correlation: client generates a unique ID per call, host echoes it in responses/heartbeats, client routes responses by ID using a single shared data handler.
+**Files touched:** `src/agent/ipc-client.ts` (major refactor: shared data handler + pending map), `src/host/ipc-server.ts` (echo `_msgId` in responses/heartbeats, strip before Zod validation), `tests/agent/ipc-client.test.ts` (added concurrent test), `tests/agent/ipc-client-reconnect.test.ts`, `tests/agent/runner.test.ts`, `tests/agent/session.test.ts`, `tests/agent/runners/pi-session.test.ts` (all mock servers updated to echo `_msgId`)
+**Outcome:** Success — all 2401 tests pass (1 pre-existing unrelated failure)
+**Notes:** The bug was intermittent in production because it required concurrent IPC calls (multiple tool_use in a single LLM response). Sequential tool calls worked fine.
+
 ## [2026-03-14 11:54] — Restore workspace_write IPC schema
 
 **Task:** Add `workspace_write` IPC schema as part of lazy-sandbox decoupling effort
