@@ -536,7 +536,7 @@ describe('MCP server tool registry security', () => {
       'memory', 'web', 'identity', 'scheduler', 'skill',
       'audit', 'agent', 'image',
       // Enterprise tools
-      'workspace', 'workspace_mount', 'governance',
+      'workspace_write', 'workspace_mount', 'governance',
       // Sandbox tools
       'bash', 'read_file', 'write_file', 'edit_file',
     ];

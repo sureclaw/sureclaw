@@ -209,21 +209,14 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     ),
 
     // ── Workspace ──
-    tool('workspace',
-      'Write files to persistent workspace tiers (agent or user) without requiring a sandbox.\n\n' +
-      'Operations:\n' +
-      '- write: Write a text file to a workspace tier (agent or user)',
+    tool('workspace_write',
+      'Write a text file to a persistent workspace tier (agent or user) without requiring a sandbox.',
       {
-        type: z.enum(['write']),
         tier: z.string().describe('"agent" or "user"'),
         path: z.string().describe('Relative path within the tier (e.g. "docs/notes.md")'),
         content: z.string().describe('File content to write'),
       },
-      (args) => {
-        const { type, ...rest } = args;
-        const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
-        return ipcCall('workspace_write', params);
-      },
+      (args) => ipcCall('workspace_write', args),
     ),
 
     // ── Workspace Scopes ──

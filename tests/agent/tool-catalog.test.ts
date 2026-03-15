@@ -53,14 +53,14 @@ describe('tool-catalog', () => {
   test('contains all expected tool names', () => {
     const expected = [
       'memory', 'web', 'identity', 'scheduler', 'skill',
-      'workspace', 'workspace_mount', 'governance', 'audit', 'agent', 'image',
+      'workspace_write', 'workspace_mount', 'governance', 'audit', 'agent', 'image',
       'bash', 'read_file', 'write_file', 'edit_file',
     ];
     expect(TOOL_NAMES).toEqual(expected);
   });
 
-  test('workspace tool exists with singleton workspace_write action', () => {
-    const spec = TOOL_CATALOG.find(s => s.name === 'workspace');
+  test('workspace_write tool exists with singleton action', () => {
+    const spec = TOOL_CATALOG.find(s => s.name === 'workspace_write');
     expect(spec).toBeDefined();
     expect(spec!.singletonAction).toBe('workspace_write');
     expect(spec!.category).toBe('workspace');

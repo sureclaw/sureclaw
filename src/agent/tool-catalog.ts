@@ -253,8 +253,8 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
 
   // ── Workspace ──
   {
-    name: 'workspace',
-    label: 'Workspace',
+    name: 'workspace_write',
+    label: 'Workspace Write',
     description:
       'Write a text file to a persistent workspace tier (agent or user) without requiring a sandbox.',
     parameters: Type.Object({
