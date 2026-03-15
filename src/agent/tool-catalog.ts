@@ -40,7 +40,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'memory',
     label: 'Memory',
     description:
-      'Store, search, read, delete, and list memory entries.\n\nOperations:\n' +
+      'Store, search, read, delete, and list memory entries.\n\nUse `type` to select:\n' +
       '- write: Store a memory entry with scope, content, and optional tags\n' +
       '- query: Search entries by scope and optional query string\n' +
       '- read: Read a specific entry by ID\n' +
@@ -89,7 +89,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'web',
     label: 'Web',
     description:
-      'Fetch URLs and search the web (proxied through host with SSRF protection).\n\nOperations:\n' +
+      'Fetch URLs and search the web (proxied through host with SSRF protection).\n\nUse `type` to select:\n' +
       '- fetch: Fetch content from a URL\n' +
       '- search: Search the web',
     parameters: Type.Union([
@@ -118,7 +118,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'identity',
     label: 'Identity',
     description:
-      'Read, write, or update identity files and user preferences.\n\nOperations:\n' +
+      'Read, write, or update identity files and user preferences.\n\nUse `type` to select:\n' +
       '- read: Read the current content of an identity file (SOUL.md or IDENTITY.md)\n' +
       '- write: Write or update a shared identity file (SOUL.md or IDENTITY.md)\n' +
       '- user_write: Write or update what you have learned about the current user (USER.md). Per-user scoped.',
@@ -155,7 +155,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'scheduler',
     label: 'Scheduler',
     description:
-      'Schedule recurring and one-shot tasks.\n\nOperations:\n' +
+      'Schedule recurring and one-shot tasks.\n\nUse `type` to select:\n' +
       '- add_cron: Schedule a recurring task using a 5-field cron expression\n' +
       '- run_at: Schedule a one-shot task at a specific date/time\n' +
       '- remove: Remove a previously scheduled cron job by its ID\n' +
@@ -195,7 +195,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Manage and discover skills.\n\nOperations:\n' +
+      'Manage and discover skills.\n\nUse `type` to select:\n' +
       '- list: List all available skills\n' +
       '- read: Read the full content of a skill by name\n' +
       '- propose: Propose a new skill or update an existing one\n' +
@@ -284,7 +284,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'governance',
     label: 'Governance',
     description:
-      'Enterprise governance: propose identity changes, list proposals, list agents.\n\nOperations:\n' +
+      'Enterprise governance: propose identity changes, list proposals, list agents.\n\nUse `type` to select:\n' +
       '- propose: Propose a change to a shared identity file for governance review\n' +
       '- list_proposals: List governance proposals, optionally filtered by status\n' +
       '- list_agents: List all registered agents in the enterprise registry',
@@ -332,7 +332,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'agent',
     label: 'Agent',
     description:
-      'Delegate tasks to sub-agents and collect results.\n\nOperations:\n' +
+      'Delegate tasks to sub-agents and collect results.\n\nUse `type` to select:\n' +
       '- delegate: Launch a sub-agent in its own sandbox (blocks by default, or fire-and-forget with wait: false)\n' +
       '- collect: Collect results from fire-and-forget delegates launched with wait: false',
     parameters: Type.Union([

@@ -1,5 +1,11 @@
 # Agent
 
+### Weaker models rename discriminator fields — always normalize before actionMap lookup
+**Date:** 2026-03-15
+**Context:** Gemini Flash sent `{"operation":"fetch"}` instead of `{"type":"fetch"}` for the `web` multi-op tool, causing silent tool failure and hallucinated content
+**Lesson:** Tool descriptions saying "Operations:" can cause Gemini/weaker models to use `operation` instead of `type` as the discriminator field. Always use `extractTypeDiscriminator()` from tool-catalog.ts when destructuring multi-op tool params — it checks common aliases (operation, action, op, command, method). This is the same pattern as `normalizeOrigin()` and `normalizeIdentityFile()` but at the discriminator level. When debugging "agent hallucination" bugs, always check server logs for whether the tool was called and what params were sent — the root cause may be param naming, not missing tool calls.
+**Tags:** gemini, tool-catalog, normalization, discriminator, hallucination, debugging
+
 ### Apple Container listen-mode IPCClient must receive session context after stdin
 **Date:** 2026-03-14
 **Context:** Debugging "No workspace registered for session" error with Apple Container sandbox

@@ -88,7 +88,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Memory ──
     tool('memory',
       'Store, search, read, delete, and list memory entries.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- write: Store a memory entry (requires scope, content)\n' +
       '- query: Search entries (requires scope, optional query/limit/tags)\n' +
       '- read: Read entry by ID (requires id)\n' +
@@ -113,7 +113,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Web ──
     tool('web',
       'Fetch URLs and search the web (proxied through host with SSRF protection).\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- fetch: Fetch content from a URL (requires url)\n' +
       '- search: Search the web (requires query)',
       {
@@ -135,7 +135,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Identity ──
     tool('identity',
       'Read, write, or update identity files or user preferences.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- read: Read current content of SOUL.md or IDENTITY.md (requires file)\n' +
       '- write: Update SOUL.md or IDENTITY.md (requires file, content, reason, origin)\n' +
       '- user_write: Update user preferences USER.md (requires content, reason, origin)',
@@ -164,7 +164,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Scheduler ──
     tool('scheduler',
       'Schedule recurring and one-shot tasks.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- add_cron: Schedule recurring task (requires schedule, prompt)\n' +
       '- run_at: Schedule one-shot task (requires datetime, prompt)\n' +
       '- remove: Remove a scheduled job (requires jobId)\n' +
@@ -187,7 +187,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Skill ──
     tool('skill',
       'Manage and discover skills.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- list: List all available skills\n' +
       '- read: Read full content of a skill (requires name)\n' +
       '- propose: Propose a new skill (requires skill, content)\n' +
@@ -239,7 +239,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Governance ──
     tool('governance',
       'Enterprise governance: propose identity changes, list proposals, list agents.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- propose: Propose a change to a shared identity file (requires file, content, reason, origin)\n' +
       '- list_proposals: List governance proposals (optional status filter)\n' +
       '- list_agents: List registered agents (optional status filter)',
@@ -271,7 +271,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
     // ── Agent ──
     tool('agent',
       'Delegate tasks to sub-agents and collect results.\n\n' +
-      'Operations:\n' +
+      'Use `type` to select:\n' +
       '- delegate: Launch a sub-agent in its own sandbox (blocks by default, or fire-and-forget with wait: false)\n' +
       '- collect: Collect results from fire-and-forget delegates launched with wait: false',
       {

@@ -2,6 +2,14 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-03-15 19:33] — Fix Gemini sending "operation" instead of "type" for multi-op tools
+
+**Task:** Agent hallucinates website content when asked to fetch URLs — tool call visible in logs but no IPC web_fetch call
+**What I did:** Root-caused to Gemini Flash sending `{"operation":"fetch","url":"..."}` instead of `{"type":"fetch","url":"..."}` for the `web` multi-op tool. The pi-session executor destructures `type` which was `undefined`, so `actionMap[undefined]` → error → LLM hallucinates. Added `extractTypeDiscriminator()` normalizer in tool-catalog.ts that checks common aliases (operation, action, op, command, method). Updated pi-session.ts executor to use it. Added 8 regression tests.
+**Files touched:** src/agent/tool-catalog.ts, src/agent/runners/pi-session.ts, tests/agent/tool-catalog.test.ts
+**Outcome:** Success — all tests pass, build clean
+**Notes:** Initial misdiagnosis: assumed agent wasn't calling the tool at all. Server logs revealed the tool call happened but with wrong param name. The tool description saying "Operations:" likely caused Gemini to name the field "operation". Already had normalizeOrigin/normalizeIdentityFile for similar Gemini issues — this is the same pattern at the discriminator level.
+
 ## [2026-03-02 11:03] — Fix /scratch path mismatch and remove redundant workspace.read/list
 
 **Task:** Fix fictional paths in agent system prompt, remove stale ./workspace references, remove redundant workspace_read/workspace_list IPC operations
