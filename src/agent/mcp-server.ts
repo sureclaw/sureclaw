@@ -284,6 +284,7 @@ export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): 
         maxTokens: z.number().optional().describe('Max tokens for the sub-agent response (delegate)'),
         timeoutSec: z.number().optional().describe('Timeout in seconds, 5-600 (delegate)'),
         wait: z.boolean().optional().describe('If false, launch in background and return immediately with a handleId. Default: true (delegate)'),
+        resourceTier: z.string().optional().describe('"default" (1 vCPU, 256MB) or "heavy" (4 vCPU, 2GB) — request more resources for intensive tasks (delegate)'),
         handleIds: z.array(z.string()).optional().describe('Handle IDs returned by delegate with wait: false (collect)'),
         timeoutMs: z.number().optional().describe('Timeout in milliseconds, default 300000 (collect)'),
       },

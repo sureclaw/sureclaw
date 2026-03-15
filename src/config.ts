@@ -70,6 +70,16 @@ const ConfigSchema = z.strictObject({
   sandbox: z.strictObject({
     timeout_sec: z.number().int().min(1).max(3600),
     memory_mb: z.number().int().min(64).max(8192),
+    tiers: z.strictObject({
+      default: z.strictObject({
+        memory_mb: z.number().int().min(64).max(8192).default(256),
+        cpus: z.number().min(0.5).max(16).default(1),
+      }).default({}),
+      heavy: z.strictObject({
+        memory_mb: z.number().int().min(64).max(8192).default(2048),
+        cpus: z.number().min(0.5).max(16).default(4),
+      }).default({}),
+    }).optional(),
   }),
   scheduler: z.strictObject({
     active_hours: z.strictObject({

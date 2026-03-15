@@ -345,6 +345,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
         maxTokens: Type.Optional(Type.Number({ description: 'Max tokens for the sub-agent response' })),
         timeoutSec: Type.Optional(Type.Number({ description: 'Timeout in seconds (5-600)' })),
         wait: Type.Optional(Type.Boolean({ description: 'If false, launch in background and return immediately with a handleId. Default: true (blocking).' })),
+        resourceTier: Type.Optional(Type.String({ description: '"default" (1 vCPU, 256MB) or "heavy" (4 vCPU, 2GB) — request more resources for intensive tasks' })),
       }),
       Type.Object({
         type: Type.Literal('collect'),

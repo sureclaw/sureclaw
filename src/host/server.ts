@@ -332,13 +332,23 @@ export async function createServer(
   // optional runner/model overrides. The child agent gets its own sandbox,
   // IPC socket, and taint budget — full isolation.
   async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
+    // Resolve resource tier for the child container
+    const tier = req.resourceTier ?? 'default';
+    const tierConfig = config.sandbox.tiers?.[tier] ?? (tier === 'heavy'
+      ? { memory_mb: 2048, cpus: 4 }
+      : { memory_mb: config.sandbox.memory_mb, cpus: 1 });
+
     // Build a temporary config override for the child agent
     const childConfig: Config = {
       ...config,
       ...(req.runner ? { agent: req.runner } : {}),
       ...(req.model ? { models: { default: [req.model] } } : {}),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      ...(req.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: req.timeoutSec } } : {}),
+      sandbox: {
+        ...config.sandbox,
+        memory_mb: tierConfig.memory_mb,
+        ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
+      },
     };
 
     const childDeps: CompletionDeps = {

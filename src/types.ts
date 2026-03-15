@@ -93,6 +93,10 @@ export interface Config {
   sandbox: {
     timeout_sec: number;
     memory_mb: number;
+    tiers?: {
+      default: { memory_mb: number; cpus: number };
+      heavy: { memory_mb: number; cpus: number };
+    };
   };
   scheduler: {
     active_hours: {
