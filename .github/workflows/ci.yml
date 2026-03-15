@@ -70,8 +70,6 @@ jobs:
         include:
           - image: ax
             dockerfile: container/agent/Dockerfile
-          - image: ax-sandbox
-            dockerfile: container/sandbox/Dockerfile
           - image: ax-browser
             dockerfile: container/browser/Dockerfile
     steps:

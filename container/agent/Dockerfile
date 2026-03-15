@@ -1,6 +1,8 @@
-# AX agent container — trusted-side processes
+# AX unified agent container — host, agent-runtime, and pool-controller
 #
-# Used by host, agent-runtime, and pool-controller (different command entrypoints).
+# Single container image replaces the previous 3-image architecture.
+# Agents execute tools locally inside the container with a host-side
+# audit gate for pre-execution approval.
 #
 # Entry points:
 #   - Host:            node dist/host/host-process.js
@@ -8,6 +10,10 @@
 #   - Pool controller: node dist/pool-controller/main.js
 
 FROM node:22-slim
+
+# git needed for workspace provisioning (GCS restore, git clone)
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/ax
 COPY package.json package-lock.json ./

@@ -65,24 +65,7 @@ spec:
     poolController:
       replicas: 1
 
-    sandbox:
-      tiers:
-        light:
-          minReady: 1
-          maxReady: 5
-          template:
-            command: ["node", "dist/sandbox-worker/main.js"]
-            cpu: "500m"
-            memory: "1Gi"
-            workspaceRoot: "/workspace"
-        heavy:
-          minReady: 0
-          maxReady: 1
-          template:
-            command: ["node", "dist/sandbox-worker/main.js"]
-            cpu: "2"
-            memory: "8Gi"
-            workspaceRoot: "/workspace"
+    # sandbox worker tiers removed — agents execute tools locally
 
     nats:
       enabled: true

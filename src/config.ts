@@ -74,11 +74,11 @@ const ConfigSchema = z.strictObject({
       default: z.strictObject({
         memory_mb: z.number().int().min(64).max(8192).default(256),
         cpus: z.number().min(0.5).max(16).default(1),
-      }).default({}),
+      }).default({ memory_mb: 256, cpus: 1 }),
       heavy: z.strictObject({
         memory_mb: z.number().int().min(64).max(8192).default(2048),
         cpus: z.number().min(0.5).max(16).default(4),
-      }).default({}),
+      }).default({ memory_mb: 2048, cpus: 4 }),
     }).optional(),
   }),
   scheduler: z.strictObject({

@@ -296,7 +296,7 @@ describe('Sandbox tool IPC handlers', () => {
         expect.objectContaining({
           action: 'sandbox_bash',
           sessionId: 'test-session',
-          result: 'approved',
+          result: 'success',
           args: expect.objectContaining({ command: 'ls', mode: 'container-local' }),
         }),
       );
@@ -312,7 +312,7 @@ describe('Sandbox tool IPC handlers', () => {
       expect(providers.audit.log).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'sandbox_read',
-          result: 'approved',
+          result: 'success',
           args: expect.objectContaining({ path: 'foo.txt', mode: 'container-local' }),
         }),
       );

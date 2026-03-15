@@ -165,7 +165,7 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
           ...(req.path ? { path: req.path } : {}),
           mode: 'container-local',
         },
-        result: 'approved',
+        result: 'success',
       });
       logger.debug('sandbox_approve', {
         sessionId: ctx.sessionId,

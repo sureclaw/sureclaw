@@ -94,7 +94,7 @@ limits:
 {{- end -}}
 
 {{/*
-ax.preset.sandboxRuntimeClass — Sandbox pod runtimeClass.
+ax.preset.sandboxRuntimeClass — Container runtimeClass for agent pods.
 Preset: small="" (no gvisor), medium/large=gvisor. Chart default: gvisor.
 */}}
 {{- define "ax.preset.sandboxRuntimeClass" -}}
@@ -107,52 +107,4 @@ Preset: small="" (no gvisor), medium/large=gvisor. Chart default: gvisor.
 {{- end -}}
 {{- end -}}
 
-{{/*
-ax.preset.sandboxTiers — Sandbox tier definitions (YAML block).
-Returns the full tiers map for use with fromYaml in the sandbox templates configmap.
-*/}}
-{{- define "ax.preset.sandboxTiers" -}}
-{{- if .Values.sandbox.tiers -}}
-{{- toYaml .Values.sandbox.tiers -}}
-{{- else -}}
-{{- $p := .Values.preset | default "" -}}
-{{- if eq $p "small" -}}
-light:
-  minReady: 1
-  maxReady: 3
-  template:
-    command: ["node", "dist/sandbox-worker/main.js"]
-    cpu: "1"
-    memory: "2Gi"
-    workspaceRoot: "/workspace"
-{{- else if eq $p "medium" -}}
-light:
-  minReady: 2
-  maxReady: 10
-  template:
-    command: ["node", "dist/sandbox-worker/main.js"]
-    cpu: "1"
-    memory: "2Gi"
-    workspaceRoot: "/workspace"
-{{- else -}}
-light:
-  minReady: 2
-  maxReady: 10
-  template:
-    command: ["node", "dist/sandbox-worker/main.js"]
-    cpu: "1"
-    memory: "2Gi"
-    workspaceRoot: "/workspace"
-heavy:
-  minReady: 0
-  maxReady: 3
-  template:
-    command: ["node", "dist/sandbox-worker/main.js"]
-    cpu: "4"
-    memory: "16Gi"
-    workspaceRoot: "/workspace"
-    nodeSelector:
-      cloud.google.com/compute-class: Performance
-{{- end -}}
-{{- end -}}
-{{- end -}}
+{{/* Sandbox worker pod tiers removed — agents execute tools locally */}}
