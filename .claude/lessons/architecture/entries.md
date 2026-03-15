@@ -1,5 +1,11 @@
 # Architecture
 
+### Three tool dispatch paths all need sandbox wiring
+**Date:** 2026-03-15
+**Context:** Wiring local sandbox into agent tool dispatch for the unified container model.
+**Lesson:** AX has THREE separate tool creation paths: `createIPCTools()` in ipc-tools.ts (pi-coding-agent), `createIPCToolDefinitions()` in pi-session.ts (pi-session runner), and `createIPCMcpServer()` in mcp-server.ts (claude-code). When adding a cross-cutting concern like local sandbox execution, all three must be updated. The MCP server uses a ternary pattern (tool function is sandbox ? local : ipc), while the others use switch statements. The tool-catalog-sync test catches missing parameter registrations immediately — always run it first.
+**Tags:** agent, sandbox, tool-dispatch, mcp-server, architecture
+
 ### Workspace provider mounts must be pre-resolved before sandbox spawn
 **Date:** 2026-03-13
 **Context:** Wiring workspace provider directories into sandbox mounts. The sandbox can't add mounts after spawn, so workspace scopes must be pre-mounted before the sandbox process starts.

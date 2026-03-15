@@ -2,6 +2,14 @@
 
 Tool catalog consolidation, MCP server tools, tool definition generation, prompt module updates.
 
+## [2026-03-15 15:30] — Implement local sandbox execution (Tasks 1-11)
+
+**Task:** Implement unified agent container architecture — agents execute tools locally with host audit gate
+**What I did:** Added audit gate IPC schemas (sandbox_approve/sandbox_result), host-side audit gate handlers, agent-side local executor (local-sandbox.ts), workspace provisioning CLI, wired local sandbox into all three tool dispatch paths (ipc-tools, pi-session, claude-code/MCP), three-phase container orchestration, resource tiers for delegation, removed legacy providers (seatbelt/nsjail/bwrap), removed ephemeral container and NATS dispatch infrastructure, updated Dockerfile/CI/Helm, updated docs.
+**Files touched:** ~40 files created/modified/deleted across src/agent/, src/host/, src/providers/, src/config.ts, src/ipc-schemas.ts, container/, charts/, flux/, .github/, docs/, README.md, and their tests
+**Outcome:** Success — all 202 test files, 2396 tests passing. Build clean.
+**Notes:** Three separate tool creation paths needed sandbox wiring (ipc-tools.ts, pi-session.ts, mcp-server.ts). The MCP server uses a ternary pattern while the others use switch statements. Tool-catalog-sync tests caught missing registrations immediately.
+
 ## [2026-03-14 12:00] — Restore workspace tool in agent catalog (lazy-sandbox Task 3)
 
 **Task:** Add a `workspace` tool to the agent tool catalog so the LLM can write files to persistent workspace tiers (agent/user) without requiring a sandbox.

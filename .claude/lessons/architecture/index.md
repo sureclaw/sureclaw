@@ -4,6 +4,7 @@ Design patterns, provider contracts, import hygiene, event bus design, and works
 
 ## Entries
 
+- Three tool dispatch paths all need sandbox wiring [entries.md](entries.md)
 - Anchor fast-path designs at the existing IPC seam [entries.md](entries.md)
 - Prefer structural layout fixes over runtime workarounds [entries.md](entries.md)
 - Provider contract pattern IS the plugin framework — packaging is the missing piece [entries.md](entries.md)
