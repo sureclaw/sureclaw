@@ -68,7 +68,7 @@ Preset: small=1, medium=3, large=5. Chart default: 3.
 
 {{/*
 ax.preset.agentRuntimeResources — Agent-runtime deployment resources (YAML block).
-Preset: small=500m/1Gi, medium/large=1cpu/2Gi. Chart default: 1cpu/2Gi.
+Preset: small=250m/500Mi, medium/large=2cpu/4Gi. Chart default: 2cpu/4Gi.
 */}}
 {{- define "ax.preset.agentRuntimeResources" -}}
 {{- if .Values.agentRuntime.resources -}}
@@ -77,18 +77,18 @@ Preset: small=500m/1Gi, medium/large=1cpu/2Gi. Chart default: 1cpu/2Gi.
 {{- $p := .Values.preset | default "" -}}
 {{- if eq $p "small" -}}
 requests:
-  cpu: "500m"
-  memory: "1Gi"
+  cpu: "250m"
+  memory: "500Mi"
 limits:
-  cpu: "500m"
-  memory: "1Gi"
+  cpu: "250m"
+  memory: "500Mi"
 {{- else -}}
 requests:
-  cpu: "1"
-  memory: "2Gi"
+  cpu: "2"
+  memory: "4Gi"
 limits:
-  cpu: "1"
-  memory: "2Gi"
+  cpu: "2"
+  memory: "4Gi"
 {{- end -}}
 {{- end -}}
 {{- end -}}

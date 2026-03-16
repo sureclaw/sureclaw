@@ -114,7 +114,7 @@ agentRuntime:
   extraVolumeMounts: []
   ports:
     metrics: 9091
-  resources:   # null → use preset (small=500m/1Gi, medium/large=1cpu/2Gi) or default 1cpu/2Gi
+  resources:   # null → use preset (small=250m/500Mi, medium/large=2cpu/4Gi) or default 2cpu/4Gi
   readinessProbe:
     httpGet:
       path: /health
