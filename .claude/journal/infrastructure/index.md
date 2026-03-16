@@ -4,6 +4,7 @@ Infrastructure, deployment, Helm, k8s, FluxCD entries.
 
 ## Entries
 
+- Warm sandbox pool claiming: claim pre-warmed pods via label patching + k8s Exec API [warm-pool-claiming.md](warm-pool-claiming.md)
 - Merge agent-runtime into host + NATS auth: 2→3 pod architecture, capability tokens, static users [host-merge-nats-auth.md](host-merge-nats-auth.md)
 - NATS static user auth: host (full) + sandbox (restricted) with auto-generated passwords [nats-auth.md](nats-auth.md)
 - Host RBAC: ServiceAccount, Role, RoleBinding for sandbox pod management [host-rbac.md](host-rbac.md)

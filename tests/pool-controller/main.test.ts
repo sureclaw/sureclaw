@@ -77,4 +77,13 @@ describe('loadTierConfigs', () => {
     expect(result[1]?.tier).toBe('heavy');
     expect(result[1]?.minReady).toBe(0); // default
   });
+
+  test('default templates use standby command (sleep), not agent runner', () => {
+    delete process.env.SANDBOX_TEMPLATE_DIR;
+    const result = loadTierConfigs();
+
+    for (const tier of result) {
+      expect(tier.template.command).toEqual(['sleep', '86400']);
+    }
+  });
 });

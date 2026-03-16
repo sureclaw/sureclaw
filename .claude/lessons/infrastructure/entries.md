@@ -1,3 +1,15 @@
+### Warm pod exec avoids env var injection problems
+**Date:** 2026-03-16
+**Context:** Implementing warm sandbox pool for k8s. Warm pods are pre-created but need per-turn env vars (IPC token, request ID) that aren't known at creation time. K8s pods can't change env vars after creation.
+**Lesson:** Use the k8s Exec API with the `env` command: warm pods run a standby entrypoint (sleep), and the host exec's `env KEY=VAL ... node runner.js` into the running container. This injects per-turn env vars at exec time without modifying the pod spec. Simpler than alternatives (NATS config delivery, wrapper scripts, ConfigMap injection). The `buildExecCommand()` function constructs the env-prefixed command array.
+**Tags:** k8s, warm-pool, exec-api, sandbox, env-vars
+
+### Mock warm-pool-client directly in integration tests, not via shared k8s mocks
+**Date:** 2026-03-16
+**Context:** Testing warm pool integration in k8s.ts. Both k8s.ts and warm-pool-client.ts import @kubernetes/client-node. Sharing mock functions across two independent API client instances causes flaky once-queue behavior with vi.clearAllMocks().
+**Lesson:** When the module under test dynamically imports another module that creates its own API client, mock the imported module directly (`vi.mock('../../../src/providers/sandbox/warm-pool-client.js')`) instead of relying on shared lower-level mocks. This gives precise control over return values per test without mock queue ordering issues.
+**Tags:** testing, vitest, mocking, warm-pool, k8s
+
 ### Per-turn capability tokens + bound context solve sandbox session isolation
 **Date:** 2026-03-16
 **Context:** Implementing NATS auth for k8s sandbox pods. Static NATS users alone don't isolate sessions — sandboxes can publish to each other's subjects.

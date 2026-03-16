@@ -7,7 +7,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createPoolController } from './controller.js';
-import { createPoolK8sClient, type TierConfig } from './k8s-client.js';
+import { createPoolK8sClient, WARM_POD_STANDBY_COMMAND, type TierConfig } from './k8s-client.js';
 import { createPoolMetrics, startMetricsServer } from './metrics.js';
 
 /**
@@ -42,7 +42,7 @@ export function loadTierConfigs(): TierConfig[] {
       maxReady: parseInt(process.env.LIGHT_MAX_READY ?? '10', 10),
       template: {
         image,
-        command: ['node', '/opt/ax/dist/agent/runner.js'],
+        command: WARM_POD_STANDBY_COMMAND,
         cpu: '1',
         memory: '2Gi',
         tier: 'light',
@@ -56,7 +56,7 @@ export function loadTierConfigs(): TierConfig[] {
       maxReady: parseInt(process.env.HEAVY_MAX_READY ?? '3', 10),
       template: {
         image,
-        command: ['node', '/opt/ax/dist/agent/runner.js'],
+        command: WARM_POD_STANDBY_COMMAND,
         cpu: '4',
         memory: '16Gi',
         tier: 'heavy',
