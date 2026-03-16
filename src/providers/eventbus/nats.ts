@@ -11,6 +11,7 @@
 import type { Config } from '../../types.js';
 import type { EventBusProvider, StreamEvent, EventListener } from './types.js';
 import { getLogger } from '../../logger.js';
+import { natsConnectOptions } from '../../utils/nats.js';
 
 const logger = getLogger().child({ component: 'eventbus-nats' });
 
@@ -49,20 +50,14 @@ export async function create(config: Config): Promise<EventBusProvider> {
   const natsModule = await import('nats');
   const { connect } = natsModule;
 
-  const natsUrl = process.env.NATS_URL ?? 'nats://localhost:4222';
+  const opts = natsConnectOptions('eventbus');
 
   let nc: Awaited<ReturnType<typeof connect>>;
   try {
-    nc = await connect({
-      servers: natsUrl,
-      name: `ax-eventbus-${process.pid}`,
-      reconnect: true,
-      maxReconnectAttempts: -1, // infinite reconnect
-      reconnectTimeWait: 1000,
-    });
-    logger.info('nats_connected', { url: natsUrl });
+    nc = await connect(opts);
+    logger.info('nats_connected', { url: opts.servers });
   } catch (err) {
-    logger.error('nats_connect_failed', { url: natsUrl, error: (err as Error).message });
+    logger.error('nats_connect_failed', { url: opts.servers, error: (err as Error).message });
     throw err;
   }
 

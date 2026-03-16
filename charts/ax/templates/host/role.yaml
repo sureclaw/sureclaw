@@ -4,7 +4,7 @@ metadata:
   name: {{ include "ax.fullname" . }}-sandbox-manager
   namespace: {{ include "ax.namespace" . }}
   labels:
-    {{- include "ax.componentLabels" (dict "component" "agent-runtime" "context" $) | nindent 4 }}
+    {{- include "ax.componentLabels" (dict "component" "host" "context" $) | nindent 4 }}
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -12,3 +12,6 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/attach", "pods/exec"]
+    verbs: ["create", "get"]

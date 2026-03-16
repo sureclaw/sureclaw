@@ -1,39 +1,46 @@
-// src/host/host-process.ts — Standalone host pod process for k8s deployment.
+// src/host/host-process.ts — Unified host pod process for k8s deployment.
 //
-// Handles HTTP requests, SSE streaming, webhooks, and channel connections.
-// Does NOT run agent conversation loops or make LLM calls.
+// Handles HTTP requests, SSE streaming, webhooks, admin dashboard,
+// AND runs processCompletion() directly (merged agent-runtime).
 //
-// Instead of calling processCompletion directly, publishes session requests
-// to NATS and subscribes to results/events for the response.
+// Each turn spawns a sandbox pod via the k8s sandbox provider,
+// starts per-turn NATS IPC handler + LLM proxy, and streams events
+// back to SSE clients via the NATS EventBus.
 //
 // For local development, use server.ts instead (all-in-one process).
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, copyFileSync, cpSync, writeFileSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logger.js';
 import { loadConfig } from '../config.js';
 import { loadProviders } from './registry.js';
 import { sendError, sendSSEChunk, readBody } from './server-http.js';
-import type { OpenAIChatRequest, OpenAIStreamChunk } from './server-http.js';
-import { isValidSessionId, webhookTransformPath } from '../paths.js';
+import type { OpenAIChatRequest } from './server-http.js';
+import { isValidSessionId, webhookTransformPath, dataDir, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
 import { createWebhookHandler } from './server-webhooks.js';
 import { createWebhookTransform } from './webhook-transform.js';
 import { createAdminHandler } from './server-admin.js';
 import { createAgentRegistry } from './agent-registry.js';
-import {
-  encode, decode,
-  sessionRequestSubject, resultSubject, eventSubject,
-  type SessionRequest, type SessionResult,
-} from './nats-session-protocol.js';
+import { createRouter } from './router.js';
+import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
+import { TaintBudget, thresholdForProfile } from './taint-budget.js';
+import { processCompletion, type CompletionDeps } from './server-completions.js';
+import { createOrchestrator } from './orchestration/orchestrator.js';
+import { FileStore } from '../file-store.js';
+import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
+import { startNATSIPCHandler } from './nats-ipc-handler.js';
+import { startNATSLLMProxy } from './nats-llm-proxy.js';
+import { encode, decode, eventSubject } from './nats-session-protocol.js';
 import type { StreamEvent } from './event-bus.js';
+import type { EventBus } from './event-bus.js';
+import { natsConnectOptions } from '../utils/nats.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 
 const logger = getLogger().child({ component: 'host-process' });
-
-/** Timeout waiting for session result (10 min — agent processing can be slow). */
-const SESSION_RESULT_TIMEOUT_MS = 600_000;
 
 /** SSE keepalive interval. */
 const SSE_KEEPALIVE_MS = 15_000;
@@ -43,19 +50,178 @@ async function main(): Promise<void> {
 
   const config = loadConfig();
   const providers = await loadProviders(config);
-  const eventBus = providers.eventbus;
+  const eventBus: EventBus = providers.eventbus;
 
-  // NATS connection for session dispatch
-  const natsModule = await import('nats');
-  const natsUrl = process.env.NATS_URL ?? 'nats://localhost:4222';
-  const nc = await natsModule.connect({
-    servers: natsUrl,
-    name: `ax-host-${process.pid}`,
-    reconnect: true,
-    maxReconnectAttempts: -1,
-    reconnectTimeWait: 1000,
+  // ── Initialize storage, routing, IPC (merged from agent-runtime) ──
+
+  mkdirSync(dataDir(), { recursive: true });
+  const db = providers.storage.messages;
+  const conversationStore = providers.storage.conversations;
+  const taintBudget = new TaintBudget({ threshold: thresholdForProfile(config.profile) });
+  const router = createRouter(providers, db, { taintBudget });
+
+  const agentName = 'main';
+  const agentDirVal = agentDirPath(agentName);
+  const agentConfigDir = agentIdentityDir(agentName);
+  const identityFilesDir = agentIdentityFilesDir(agentName);
+  mkdirSync(agentDirVal, { recursive: true });
+  mkdirSync(agentConfigDir, { recursive: true });
+  mkdirSync(identityFilesDir, { recursive: true });
+
+  // Template seeding — seed to both filesystem and DocumentStore
+  const templatesDir = resolveTemplatesDir();
+  const documents = providers.storage.documents;
+
+  // Check both filesystem AND DocumentStore for bootstrap completion
+  const fsBootstrapComplete =
+    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
+  let dbBootstrapComplete = false;
+  try {
+    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
+    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
+    dbBootstrapComplete = !!(dbSoul && dbIdentity);
+  } catch { /* non-fatal */ }
+  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
+
+  for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
+    const dest = join(identityFilesDir, file);
+    const src = join(templatesDir, file);
+    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
+    if (existsSync(src)) {
+      const key = `${agentName}/${file}`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
+      } catch { /* non-fatal */ }
+    }
+  }
+  for (const file of ['capabilities.yaml']) {
+    const dest = join(agentConfigDir, file);
+    const src = join(templatesDir, file);
+    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
+  }
+  if (!bootstrapAlreadyComplete) {
+    const src = join(templatesDir, 'BOOTSTRAP.md');
+    if (existsSync(src)) {
+      if (!existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(agentConfigDir, 'BOOTSTRAP.md'));
+      if (!existsSync(join(identityFilesDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(identityFilesDir, 'BOOTSTRAP.md'));
+      const key = `${agentName}/BOOTSTRAP.md`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
+      } catch { /* non-fatal */ }
+    }
+    const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
+    if (existsSync(ubSrc)) {
+      const key = `${agentName}/USER_BOOTSTRAP.md`;
+      try {
+        const existing = await documents.get('identity', key);
+        if (!existing) await documents.put('identity', key, readFileSync(ubSrc, 'utf-8'));
+      } catch { /* non-fatal */ }
+    }
+  }
+
+  // Skills seeding
+  const persistentSkillsDir = agentSkillsDir(agentName);
+  mkdirSync(persistentSkillsDir, { recursive: true });
+  try {
+    const existingSkills = readdirSync(persistentSkillsDir).filter(f => f.endsWith('.md'));
+    const existingDirs = readdirSync(persistentSkillsDir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && existsSync(join(persistentSkillsDir, d.name, 'SKILL.md')));
+    if (existingSkills.length === 0 && existingDirs.length === 0) {
+      const seedDir = resolveSeedSkillsDir();
+      if (existsSync(seedDir)) {
+        const seedEntries = readdirSync(seedDir, { withFileTypes: true });
+        for (const entry of seedEntries) {
+          if (entry.isFile() && entry.name.endsWith('.md')) {
+            copyFileSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name));
+          } else if (entry.isDirectory()) {
+            cpSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name), { recursive: true });
+          }
+        }
+      }
+    }
+  } catch { /* non-fatal */ }
+
+  const defaultUserId = process.env.USER ?? 'default';
+
+  // Admins file
+  const adminsPath = join(agentDirVal, 'admins');
+  if (!existsSync(adminsPath)) writeFileSync(adminsPath, '', 'utf-8');
+
+  // IPC server (Unix socket for local sandbox fallback)
+  const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
+  const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
+  const sessionCanaries = new Map<string, string>();
+  const workspaceMap = new Map<string, string>();
+  const fileStore = await FileStore.create(providers.database);
+
+  const agentSandbox = providers.sandbox;
+
+  const completionDeps: CompletionDeps = {
+    config,
+    providers: { ...providers, sandbox: agentSandbox },
+    db,
+    conversationStore,
+    router,
+    taintBudget,
+    sessionCanaries,
+    ipcSocketPath,
+    ipcSocketDir,
+    logger,
+    verbose: process.env.AX_VERBOSE === '1',
+    fileStore,
+    eventBus,
+    workspaceMap,
+  };
+
+  // Delegation handler
+  async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
+    const childConfig = {
+      ...config,
+      ...(req.runner ? { agent: req.runner } : {}),
+      ...(req.model ? { models: { default: [req.model] } } : {}),
+      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...(req.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: req.timeoutSec } } : {}),
+    };
+    const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
+    const taskPrompt = req.context ? `${req.context}\n\n---\n\nTask: ${req.task}` : req.task;
+    const childRequestId = req.requestId ?? `delegate-${randomUUID().slice(0, 8)}`;
+    const result = await processCompletion(childDeps, taskPrompt, childRequestId, [], undefined, undefined, ctx.userId);
+    return result.responseContent;
+  }
+
+  const orchestrator = createOrchestrator(eventBus, providers.audit);
+  const disableAutoState = orchestrator.enableAutoState();
+  const agentRegistry = await createAgentRegistry(providers.database);
+  await agentRegistry.ensureDefault();
+
+  const handleIPC = createIPCHandler(providers, {
+    taintBudget,
+    agentDir: identityFilesDir,
+    agentName,
+    profile: config.profile,
+    configModel: config.models?.default?.[0],
+    onDelegate: handleDelegate,
+    delegation: config.delegation ? {
+      maxConcurrent: config.delegation.max_concurrent,
+      maxDepth: config.delegation.max_depth,
+    } : undefined,
+    eventBus,
+    orchestrator,
+    agentRegistry,
+    workspaceMap,
   });
-  logger.info('nats_connected', { url: natsUrl });
+  completionDeps.ipcHandler = handleIPC;
+
+  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
+  const ipcServer = await createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
+
+  // ── NATS connection (for EventBus SSE streaming) ──
+
+  const natsModule = await import('nats');
+  const nc = await natsModule.connect(natsConnectOptions('host'));
+  logger.info('nats_connected', { url: natsConnectOptions('host').servers });
 
   const port = parseInt(process.env.PORT ?? '8080', 10);
   const agentType = config.agent ?? 'pi-coding-agent';
@@ -81,20 +247,19 @@ async function main(): Promise<void> {
           config.webhooks.model ?? config.models?.fast?.[0] ?? config.models?.default?.[0] ?? 'claude-haiku-4-5-20251001',
         ),
         dispatch: (result, runId) => {
+          // Fire-and-forget: process webhook completion asynchronously
           const targetAgent = result.agentId ?? agentType;
-          const sessionRequest: SessionRequest = {
-            type: 'session_request',
-            requestId: runId,
-            sessionId: result.sessionKey ?? `webhook:${runId}`,
-            content: result.message,
-            messages: [{ role: 'user', content: result.message }],
-            stream: false,
-            userId: 'webhook',
-            agentType: targetAgent,
-            model: result.model,
-            persistentSessionId: result.sessionKey,
-          };
-          nc.publish(sessionRequestSubject(targetAgent), encode(sessionRequest));
+          const whSessionId = result.sessionKey ?? `webhook:${runId}`;
+          void processCompletionWithNATS(
+            result.message,
+            runId,
+            [{ role: 'user', content: result.message }],
+            whSessionId,
+            'webhook',
+            targetAgent,
+          ).catch((err) => {
+            logger.error('webhook_completion_failed', { runId, error: (err as Error).message });
+          });
         },
         logger,
         transformExists: (name) => existsSync(webhookTransformPath(name)),
@@ -119,10 +284,83 @@ async function main(): Promise<void> {
         config,
         providers,
         eventBus: providers.eventbus,
-        agentRegistry: await createAgentRegistry(providers.database),
+        agentRegistry,
         startTime,
       })
     : null;
+
+  // ── processCompletion wrapper with per-turn NATS IPC ──
+
+  async function processCompletionWithNATS(
+    content: string | import('../types.js').ContentBlock[],
+    requestId: string,
+    messages: { role: string; content: string | import('../types.js').ContentBlock[] }[],
+    sessionId: string,
+    userId?: string,
+    _agentType?: string,
+  ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter'; contentBlocks?: import('../types.js').ContentBlock[] }> {
+    // Per-turn capability token for NATS subject isolation
+    const turnToken = randomUUID();
+
+    // Start NATS IPC handler for k8s sessions — the sandbox pod's
+    // NATSIPCClient publishes to ipc.request.{requestId}.{token}, and this
+    // handler routes those requests through the existing handleIPC pipeline.
+    let natsIpcHandler: { close: () => void } | undefined;
+    if (config.providers.sandbox === 'k8s') {
+      natsIpcHandler = await startNATSIPCHandler({
+        requestId,
+        token: turnToken,
+        handleIPC,
+        ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
+      });
+      logger.info('nats_ipc_handler_started', { sessionId, requestId, turnToken });
+    }
+
+    // Start NATS LLM proxy for claude-code sessions in k8s mode
+    let llmProxy: { close: () => void } | undefined;
+    if (_agentType === 'claude-code' && config.providers.sandbox === 'k8s') {
+      llmProxy = await startNATSLLMProxy({ requestId, token: turnToken });
+      logger.info('nats_llm_proxy_started', { sessionId, requestId });
+    }
+
+    // Pass per-turn token to sandbox via extraSandboxEnv
+    const turnDeps: CompletionDeps = {
+      ...completionDeps,
+      extraSandboxEnv: {
+        AX_IPC_TOKEN: turnToken,
+        AX_IPC_REQUEST_ID: requestId,
+      },
+    };
+
+    try {
+      const result = await processCompletion(
+        turnDeps,
+        content,
+        requestId,
+        messages,
+        sessionId,
+        undefined,
+        userId,
+      );
+
+      logger.info('session_completed', {
+        requestId,
+        responseLength: result.responseContent.length,
+        finishReason: result.finishReason,
+      });
+
+      return result;
+    } finally {
+      if (llmProxy) {
+        llmProxy.close();
+        logger.info('nats_llm_proxy_closed', { sessionId, requestId });
+      }
+      if (natsIpcHandler) {
+        natsIpcHandler.close();
+        logger.info('nats_ipc_handler_closed', { sessionId, requestId });
+      }
+    }
+  }
 
   // ── Request Handler ──
 
@@ -214,7 +452,7 @@ async function main(): Promise<void> {
     sendError(res, 404, 'Not found');
   }
 
-  // ── Completions: NATS dispatch ──
+  // ── Completions: direct processCompletion ──
 
   async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const requestId = `chatcmpl-${randomUUID()}`;
@@ -265,23 +503,6 @@ async function main(): Promise<void> {
     const content = lastMsg?.content ?? '';
     const userId = chatReq.user?.split('/')[0] || undefined;
 
-    // Build session request
-    const sessionRequest: SessionRequest = {
-      type: 'session_request',
-      requestId,
-      sessionId,
-      content,
-      messages: chatReq.messages,
-      stream: chatReq.stream ?? false,
-      userId,
-      agentType,
-      model: chatReq.model,
-      persistentSessionId: sessionId,
-    };
-
-    // Publish session request to NATS
-    const subject = sessionRequestSubject(agentType);
-
     if (chatReq.stream) {
       // ── Streaming mode ──
       res.writeHead(200, {
@@ -302,143 +523,100 @@ async function main(): Promise<void> {
       let hasToolCalls = false;
       let streamedContent = false;
 
-      // Subscribe to events for this request via NATS
-      const eventSub = nc.subscribe(eventSubject(requestId));
-      const resultSub = nc.subscribe(resultSubject(requestId));
+      // Subscribe to EventBus events for this request
+      const unsubscribe = eventBus.subscribeRequest(requestId, (event: StreamEvent) => {
+        try {
+          if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
+            streamedContent = true;
+            sendSSEChunk(res, {
+              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+              choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
+            });
+          } else if (event.type === 'tool.call' && event.data.toolName) {
+            streamedContent = true;
+            hasToolCalls = true;
+            sendSSEChunk(res, {
+              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+              choices: [{ index: 0, delta: {
+                tool_calls: [{
+                  index: toolCallIndex++,
+                  id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
+                  type: 'function',
+                  function: {
+                    name: event.data.toolName as string,
+                    arguments: JSON.stringify(event.data.args ?? {}),
+                  },
+                }],
+              }, finish_reason: null }],
+            });
+          }
+        } catch { /* client gone, skip */ }
+      });
 
       // Keepalive
       const keepalive = setInterval(() => {
         try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
       }, SSE_KEEPALIVE_MS);
 
-      // Process events in background
-      const eventLoop = (async () => {
-        for await (const msg of eventSub) {
-          try {
-            const event = decode<StreamEvent>(msg.data);
-            if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
-              streamedContent = true;
-              sendSSEChunk(res, {
-                id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-                choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
-              });
-            } else if (event.type === 'tool.call' && event.data.toolName) {
-              streamedContent = true;
-              hasToolCalls = true;
-              sendSSEChunk(res, {
-                id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-                choices: [{ index: 0, delta: {
-                  tool_calls: [{
-                    index: toolCallIndex++,
-                    id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
-                    type: 'function',
-                    function: {
-                      name: event.data.toolName as string,
-                      arguments: JSON.stringify(event.data.args ?? {}),
-                    },
-                  }],
-                }, finish_reason: null }],
-              });
-            }
-          } catch { /* malformed event, skip */ }
-        }
-      })();
+      try {
+        const result = await processCompletionWithNATS(
+          content, requestId, chatReq.messages, sessionId, userId, agentType,
+        );
 
-      // Publish session request
-      nc.publish(subject, encode(sessionRequest));
-
-      // Wait for result
-      let resultReceived = false;
-      const resultTimeout = setTimeout(() => {
-        if (!resultReceived) {
-          eventSub.unsubscribe();
-          resultSub.unsubscribe();
-          clearInterval(keepalive);
-          if (!res.writableEnded) {
-            sendSSEChunk(res, {
-              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-              choices: [{ index: 0, delta: { content: 'Request timed out' }, finish_reason: 'stop' }],
-            });
-            res.write('data: [DONE]\n\n');
-            res.end();
-          }
-        }
-      }, SESSION_RESULT_TIMEOUT_MS);
-
-      for await (const msg of resultSub) {
-        resultReceived = true;
-        clearTimeout(resultTimeout);
-
-        try {
-          const result = decode<SessionResult>(msg.data);
-
-          // Stop event subscription
-          eventSub.unsubscribe();
-          await eventLoop.catch(() => {});
-
-          // Fallback: if no streaming events, send full response as single chunk
-          if (!streamedContent && result.responseContent) {
-            sendSSEChunk(res, {
-              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-              choices: [{ index: 0, delta: { content: result.responseContent }, finish_reason: null }],
-            });
-          }
-
-          // Finish chunk
-          const streamFinishReason = hasToolCalls && result.finishReason === 'stop'
-            ? 'tool_calls' as const : result.finishReason;
+        // Fallback: if no streaming events, send full response as single chunk
+        if (!streamedContent && result.responseContent) {
           sendSSEChunk(res, {
             id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
+            choices: [{ index: 0, delta: { content: result.responseContent }, finish_reason: null }],
+          });
+        }
+
+        // Finish chunk
+        const streamFinishReason = hasToolCalls && result.finishReason === 'stop'
+          ? 'tool_calls' as const : result.finishReason;
+        sendSSEChunk(res, {
+          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+          choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
+        });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      } catch (err) {
+        logger.error('completion_failed', { requestId, error: (err as Error).message });
+        if (!res.writableEnded) {
+          sendSSEChunk(res, {
+            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+            choices: [{ index: 0, delta: { content: 'Internal processing error' }, finish_reason: 'stop' }],
           });
           res.write('data: [DONE]\n\n');
           res.end();
-        } catch (err) {
-          logger.error('result_decode_failed', { error: (err as Error).message });
-          if (!res.writableEnded) res.end();
         }
-
-        resultSub.unsubscribe();
-        break;
+      } finally {
+        clearInterval(keepalive);
+        unsubscribe();
       }
-
-      clearInterval(keepalive);
-      clearTimeout(resultTimeout);
     } else {
       // ── Non-streaming mode ──
+      try {
+        const result = await processCompletionWithNATS(
+          content, requestId, chatReq.messages, sessionId, userId, agentType,
+        );
 
-      // Publish and wait for result via NATS request/reply
-      nc.publish(subject, encode(sessionRequest));
+        const response = {
+          id: requestId, object: 'chat.completion', created, model: requestModel,
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: result.responseContent },
+            finish_reason: result.finishReason,
+          }],
+          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        };
 
-      // Subscribe to result subject and wait
-      const resultSub = nc.subscribe(resultSubject(requestId), { max: 1 });
-      const timeout = setTimeout(() => {
-        resultSub.unsubscribe();
-      }, SESSION_RESULT_TIMEOUT_MS);
-
-      for await (const msg of resultSub) {
-        clearTimeout(timeout);
-        try {
-          const result = decode<SessionResult>(msg.data);
-
-          const response = {
-            id: requestId, object: 'chat.completion', created, model: requestModel,
-            choices: [{
-              index: 0,
-              message: { role: 'assistant', content: result.responseContent },
-              finish_reason: result.finishReason,
-            }],
-            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-          };
-
-          const responseBody = JSON.stringify(response);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(responseBody);
-        } catch (err) {
-          logger.error('result_decode_failed', { error: (err as Error).message });
-          sendError(res, 500, 'Failed to decode result');
-        }
-        break;
+        const responseBody = JSON.stringify(response);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(responseBody);
+      } catch (err) {
+        logger.error('completion_failed', { requestId, error: (err as Error).message });
+        sendError(res, 500, 'Internal server error');
       }
     }
   }
@@ -507,10 +685,19 @@ async function main(): Promise<void> {
     logger.info('host_shutting_down');
 
     server.close();
-    await nc.drain();
+    disableAutoState();
+    orchestrator.shutdown();
+
+    try { ipcServer.close(); } catch { /* ignore */ }
     providers.eventbus.close();
     providers.storage.close();
+    try { await fileStore.close(); } catch { /* ignore */ }
+
+    await nc.drain();
     await shutdownTracing();
+
+    try { unlinkSync(ipcSocketPath); } catch { /* ignore */ }
+    try { rmSync(ipcSocketDir, { recursive: true, force: true }); } catch { /* ignore */ }
 
     process.exit(0);
   };

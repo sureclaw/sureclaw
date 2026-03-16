@@ -10,6 +10,14 @@ Architecture analysis, gap analysis, design documents, implementation plans.
 **Outcome:** Success — both docs now have clear pointers to the new plan.
 **Notes:** Minimal changes — only added supersession notes, no other content modified.
 
+## [2026-03-16 10:32] — Review host merge + NATS auth plan
+
+**Task:** Review `~/.claude/plans/inherited-cuddling-flask.md` for architecture and security gotchas against the current AX k8s implementation.
+**What I did:** Cross-checked the plan against `host-process`, `agent-runtime-process`, NATS IPC/LLM/eventbus clients, the k8s sandbox provider, pool-controller, Helm RBAC/templates, and prior infrastructure lessons.
+**Files touched:** .claude/journal/docs/plans.md, .claude/journal/docs/index.md, .claude/lessons/infrastructure/entries.md, .claude/lessons/infrastructure/index.md
+**Outcome:** Success — identified concrete risks around shared sandbox NATS credentials, incomplete auth rollout, IPC JetStream reply hazards, and the missing warm-pool/claim migration work.
+**Notes:** Review only; no product code changed.
+
 ## [2026-03-15 14:26] — Review local sandbox execution architecture plan
 
 **Task:** Review `docs/plans/2026-03-15-local-sandbox-execution.md` and provide actionable feedback.

@@ -105,7 +105,9 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
       process.exit(1);
     }
     const { startNATSBridge } = await import('../nats-bridge.js');
-    bridge = await startNATSBridge({ sessionId: config.sessionId });
+    const requestId = process.env.AX_IPC_REQUEST_ID ?? config.requestId ?? config.sessionId;
+    const token = process.env.AX_IPC_TOKEN ?? '';
+    bridge = await startNATSBridge({ sessionId: config.sessionId, requestId, token });
     logger.info('nats_bridge_started', { port: bridge.port, sessionId: config.sessionId });
   } else {
     bridge = await startTCPBridge(config.proxySocket!);

@@ -254,4 +254,41 @@ describe('sandbox-k8s provider', () => {
     const available = await provider.isAvailable();
     expect(available).toBe(false);
   });
+
+  test('pod includes NATS_USER=sandbox and NATS_PASS when NATS_SANDBOX_PASS is set', async () => {
+    process.env.NATS_SANDBOX_PASS = 'test-sandbox-pass';
+    try {
+      const { create } = await import('../../../src/providers/sandbox/k8s.js');
+      const provider = await create(mockConfig());
+      await provider.spawn(mockSandboxConfig());
+
+      const env = mockCreateNamespacedPod.mock.calls[0][0].body.spec.containers[0].env;
+      const userEnv = env.find((e: any) => e.name === 'NATS_USER');
+      const passEnv = env.find((e: any) => e.name === 'NATS_PASS');
+      expect(userEnv).toEqual({ name: 'NATS_USER', value: 'sandbox' });
+      expect(passEnv).toEqual({ name: 'NATS_PASS', value: 'test-sandbox-pass' });
+    } finally {
+      delete process.env.NATS_SANDBOX_PASS;
+    }
+  });
+
+  test('pod includes extraEnv vars from SandboxConfig', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+
+    const config = {
+      ...mockSandboxConfig(),
+      extraEnv: {
+        AX_IPC_TOKEN: 'tok-abc-123',
+        AX_IPC_REQUEST_ID: 'req-456',
+      },
+    };
+    await provider.spawn(config);
+
+    const env = mockCreateNamespacedPod.mock.calls[0][0].body.spec.containers[0].env;
+    const tokenEnv = env.find((e: any) => e.name === 'AX_IPC_TOKEN');
+    const reqIdEnv = env.find((e: any) => e.name === 'AX_IPC_REQUEST_ID');
+    expect(tokenEnv).toEqual({ name: 'AX_IPC_TOKEN', value: 'tok-abc-123' });
+    expect(reqIdEnv).toEqual({ name: 'AX_IPC_REQUEST_ID', value: 'req-456' });
+  });
 });

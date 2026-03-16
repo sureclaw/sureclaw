@@ -4,6 +4,7 @@ Category-based organization of all journal entries. Total: 114 entries across 10
 
 ## Entries
 
+- 2026-03-16 13:00 — Add NATS static user authentication to Helm chart [infrastructure/nats-auth.md](infrastructure/nats-auth.md)
 - 2026-03-16 07:40 — Add NATS IPC round-trip integration test [ipc/protocol.md](ipc/protocol.md)
 - 2026-03-16 07:34 — Add NATS IPC handler for host-side request routing [ipc/protocol.md](ipc/protocol.md)
 - 2026-03-14 13:06 — Per-tier workspace permission hardening [providers/sandbox.md](providers/sandbox.md)

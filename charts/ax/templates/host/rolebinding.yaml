@@ -1,13 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "ax.fullname" . }}-agent-runtime-sandbox
+  name: {{ include "ax.fullname" . }}-host-sandbox
   namespace: {{ include "ax.namespace" . }}
   labels:
-    {{- include "ax.componentLabels" (dict "component" "agent-runtime" "context" $) | nindent 4 }}
+    {{- include "ax.componentLabels" (dict "component" "host" "context" $) | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "ax.fullname" . }}-agent-runtime
+    name: {{ include "ax.fullname" . }}-host
     namespace: {{ include "ax.namespace" . }}
 roleRef:
   kind: Role

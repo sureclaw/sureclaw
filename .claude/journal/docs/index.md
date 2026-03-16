@@ -5,6 +5,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 ## Entries
 
 - 2026-03-16 12:00 — Update architecture plans with k8s NATS IPC supersession notes [plans.md](plans.md)
+- 2026-03-16 10:32 — Review host merge + NATS auth plan [plans.md](plans.md)
 - 2026-03-15 14:26 — Review local sandbox execution architecture plan [plans.md](plans.md)
 - 2026-03-13 16:30 — Add GCS workspace K8s setup instructions to README [website.md](website.md)
 - 2026-03-13 15:00 — Sync all ax/* skills with codebase changes [website.md](website.md)

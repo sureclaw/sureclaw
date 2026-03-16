@@ -22,31 +22,35 @@ spec:
         - name: init
           image: natsio/nats-box:latest
           command: ["/bin/sh", "-c"]
+          env:
+            - name: NATS_USER
+              value: "host"
+            - name: NATS_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ax.fullname" . }}-nats-auth
+                  key: host-password
+                  optional: true
           args:
             - |
               set -e
               NATS_URL={{ include "ax.natsUrl" . | quote }}
+              NATS_USER=${NATS_USER:-}
+              NATS_PASS=${NATS_PASS:-}
+              NATS_AUTH=""
+              if [ -n "$NATS_USER" ]; then
+                NATS_AUTH="--user=$NATS_USER --password=$NATS_PASS"
+              fi
               REPLICAS={{ include "ax.natsReplicas" . }}
 
               # Wait for NATS to be ready (use stream ls as connectivity check)
-              until nats --server=$NATS_URL stream ls 2>/dev/null; do
+              until nats --server=$NATS_URL $NATS_AUTH stream ls 2>/dev/null; do
                 echo "Waiting for NATS..."
                 sleep 2
               done
 
-              # Session dispatch stream
-              nats --server=$NATS_URL stream add SESSIONS \
-                --subjects="session.request.*" \
-                --retention=work \
-                --max-age=5m \
-                --max-msgs=10000 \
-                --discard=old \
-                --storage=memory \
-                --replicas=$REPLICAS \
-                --defaults || true
-
               # Sandbox task dispatch stream
-              nats --server=$NATS_URL stream add TASKS \
+              nats --server=$NATS_URL $NATS_AUTH stream add TASKS \
                 --subjects="tasks.sandbox.*" \
                 --retention=work \
                 --max-age=10m \
@@ -56,34 +60,12 @@ spec:
                 --replicas=$REPLICAS \
                 --defaults || true
 
-              # Results stream (keyed by requestId)
-              nats --server=$NATS_URL stream add RESULTS \
-                --subjects="results.*" \
-                --retention=limits \
-                --max-age=30m \
-                --max-msgs-per-subject=1 \
-                --discard=old \
-                --storage=memory \
-                --replicas=$REPLICAS \
-                --defaults || true
-
               # Event streaming (EventBus over NATS)
-              nats --server=$NATS_URL stream add EVENTS \
+              nats --server=$NATS_URL $NATS_AUTH stream add EVENTS \
                 --subjects="events.>" \
                 --retention=limits \
                 --max-age=5m \
                 --max-msgs=100000 \
-                --discard=old \
-                --storage=memory \
-                --replicas=$REPLICAS \
-                --defaults || true
-
-              # IPC callbacks (sandbox-to-host)
-              nats --server=$NATS_URL stream add IPC \
-                --subjects="ipc.>" \
-                --retention=work \
-                --max-age=10m \
-                --max-msgs=10000 \
                 --discard=old \
                 --storage=memory \
                 --replicas=$REPLICAS \

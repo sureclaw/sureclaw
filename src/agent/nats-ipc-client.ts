@@ -1,10 +1,14 @@
 // src/agent/nats-ipc-client.ts — NATS-based IPC client for k8s sandbox pods.
 //
 // Drop-in replacement for IPCClient when running inside a k8s pod.
-// Uses NATS request/reply on ipc.request.{sessionId} instead of Unix sockets.
-// Selected by AX_IPC_TRANSPORT=nats env var in runner.ts.
+// Uses NATS request/reply on ipc.request.{requestId}.{token} instead of
+// Unix sockets. Selected by AX_IPC_TRANSPORT=nats env var in runner.ts.
+//
+// The per-turn capability token (AX_IPC_TOKEN env) scopes the NATS subject
+// so rogue sandboxes cannot intercept requests from other sessions.
 
 import { getLogger } from '../logger.js';
+import { natsConnectOptions } from '../utils/nats.js';
 
 const logger = getLogger().child({ component: 'nats-ipc-client' });
 
@@ -17,48 +21,51 @@ export interface NATSIPCClientOptions {
   requestId?: string;
   userId?: string;
   sessionScope?: string;
+  /** Per-turn capability token from AX_IPC_TOKEN env var. */
+  token?: string;
 }
 
 export class NATSIPCClient {
   private sessionId: string;
-  private natsUrl: string;
   private timeoutMs: number;
   private requestId?: string;
   private userId?: string;
   private sessionScope?: string;
+  private token?: string;
   private nc: any = null;
   private subject: string;
 
   constructor(opts: NATSIPCClientOptions) {
     this.sessionId = opts.sessionId;
-    this.natsUrl = opts.natsUrl ?? process.env.NATS_URL ?? 'nats://localhost:4222';
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.requestId = opts.requestId;
     this.userId = opts.userId;
     this.sessionScope = opts.sessionScope;
-    this.subject = `ipc.request.${this.sessionId}`;
+    this.token = opts.token ?? process.env.AX_IPC_TOKEN;
+    this.subject = this.buildSubject();
+  }
+
+  private buildSubject(): string {
+    // Token-scoped: ipc.request.{requestId}.{token}
+    if (this.token && this.requestId) {
+      return `ipc.request.${this.requestId}.${this.token}`;
+    }
+    // Fallback (non-k8s or missing token): ipc.request.{sessionId}
+    return `ipc.request.${this.sessionId}`;
   }
 
   setContext(ctx: { sessionId?: string; requestId?: string; userId?: string; sessionScope?: string }): void {
-    if (ctx.sessionId !== undefined) {
-      this.sessionId = ctx.sessionId;
-      this.subject = `ipc.request.${this.sessionId}`;
-    }
+    if (ctx.sessionId !== undefined) this.sessionId = ctx.sessionId;
     if (ctx.requestId !== undefined) this.requestId = ctx.requestId;
     if (ctx.userId !== undefined) this.userId = ctx.userId;
     if (ctx.sessionScope !== undefined) this.sessionScope = ctx.sessionScope;
+    this.subject = this.buildSubject();
   }
 
   async connect(): Promise<void> {
     if (this.nc) return;
     const natsModule = await import('nats');
-    this.nc = await natsModule.connect({
-      servers: this.natsUrl,
-      name: `ax-ipc-${this.sessionId}`,
-      reconnect: true,
-      maxReconnectAttempts: -1,
-      reconnectTimeWait: 1000,
-    });
+    this.nc = await natsModule.connect(natsConnectOptions('ipc', this.sessionId));
     logger.info('nats_connected', { sessionId: this.sessionId, subject: this.subject });
   }
 

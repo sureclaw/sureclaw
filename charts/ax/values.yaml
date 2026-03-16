@@ -101,34 +101,6 @@ host:
     targetCPUUtilizationPercentage: 70
   env: []
 
-# ─── Agent Runtime (Conversation Layer) ──────────────────────────
-agentRuntime:
-  replicas:   # null → use preset (small=1, medium=3, large=5) or default 3
-  image:
-    registry: ""
-    repository: ax
-    tag: ""
-    pullPolicy: ""
-  command: ["node", "dist/host/agent-runtime-process.js"]
-  extraVolumes: []
-  extraVolumeMounts: []
-  ports:
-    metrics: 9091
-  resources:   # null → use preset (small=250m/500Mi, medium/large=2cpu/4Gi) or default 2cpu/4Gi
-  readinessProbe:
-    httpGet:
-      path: /health
-      port: 9091
-    initialDelaySeconds: 5
-    periodSeconds: 10
-  terminationGracePeriodSeconds: 600
-  autoscaling:
-    enabled: false
-    minReplicas: 3
-    maxReplicas: 20
-    targetCPUUtilizationPercentage: 60
-  env: []
-
 # ─── Pool Controller ─────────────────────────────────────────────
 poolController:
   enabled: true
@@ -230,6 +202,21 @@ nats:
         maxSize: 8Gi
         pvc:
           size: 10Gi
+    authorization:
+      users:
+        - user: host
+          password: ""  # Set via nats-auth-secret; empty = no auth in dev
+          permissions:
+            publish: ">"
+            subscribe: ">"
+        - user: sandbox
+          password: ""
+          permissions:
+            publish:
+              allow: ["ipc.request.*.*", "ipc.llm.*.*", "_INBOX.>"]
+            subscribe:
+              allow: ["_INBOX.>"]
+              deny: ["session.>", "results.>", "events.>"]
 
 # ─── Network Policies ────────────────────────────────────────────
 networkPolicies:
@@ -237,7 +224,7 @@ networkPolicies:
 
 # ─── API Credentials ─────────────────────────────────────────────
 # Each key maps an env var name to a secret key in the existingSecret.
-# Set a key to "" to omit it from the agent-runtime pod.
+# Set a key to "" to omit it from the host pod.
 apiCredentials:
   existingSecret: "ax-api-credentials"
   envVars:

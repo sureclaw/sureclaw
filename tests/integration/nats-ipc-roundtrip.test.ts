@@ -3,6 +3,8 @@ import { NATSIPCClient } from '../../src/agent/nats-ipc-client.js';
 import { startNATSIPCHandler } from '../../src/host/nats-ipc-handler.js';
 
 const NATS_URL = process.env.NATS_URL ?? 'nats://localhost:4222';
+const TEST_REQUEST_ID = 'test-roundtrip-req';
+const TEST_TOKEN = 'test-roundtrip-token';
 
 describe('NATS IPC round-trip', () => {
   let handler: { close: () => void };
@@ -21,10 +23,10 @@ describe('NATS IPC round-trip', () => {
       return;
     }
 
-    // Start handler (host side)
+    // Start handler (host side) — uses token-scoped subjects
     handler = await startNATSIPCHandler({
-      sessionId: 'test-roundtrip',
-      natsUrl: NATS_URL,
+      requestId: TEST_REQUEST_ID,
+      token: TEST_TOKEN,
       handleIPC: async (raw: string) => {
         const req = JSON.parse(raw);
         if (req.action === 'sandbox_approve')
@@ -33,12 +35,14 @@ describe('NATS IPC round-trip', () => {
           return JSON.stringify({ ok: true, results: [{ text: 'hello' }] });
         return JSON.stringify({ ok: true });
       },
+      ctx: { sessionId: 'test-session', agentId: 'system', userId: 'test-user' },
     });
 
-    // Start client (pod side)
+    // Start client (pod side) — matches the token-scoped subject
     client = new NATSIPCClient({
-      sessionId: 'test-roundtrip',
-      natsUrl: NATS_URL,
+      sessionId: 'test-session',
+      requestId: TEST_REQUEST_ID,
+      token: TEST_TOKEN,
     });
     await client.connect();
   });

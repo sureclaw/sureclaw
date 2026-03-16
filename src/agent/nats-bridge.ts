@@ -3,34 +3,29 @@
 // In k8s, claude-code agents run in sandbox pods without API credentials.
 // This bridge provides a local HTTP server that Claude Code CLI hits via
 // ANTHROPIC_BASE_URL. Instead of forwarding to a Unix socket proxy (like
-// tcp-bridge.ts does locally), it publishes NATS requests to the agent
-// runtime pod, which proxies to the Anthropic API.
+// tcp-bridge.ts does locally), it publishes NATS requests to the host pod,
+// which proxies to the Anthropic API.
 //
 // Flow:
 //   Claude Code CLI
 //     → HTTP to localhost:{PORT}
-//     → nats-bridge.ts publishes to ipc.llm.{sessionId}
-//     → Agent runtime pod claims, proxies to Anthropic API
+//     → nats-bridge.ts publishes to ipc.llm.{requestId}.{token}
+//     → Host pod claims, proxies to Anthropic API
 //     → Response via NATS reply → bridge → Claude Code CLI
-//
-// Also handles IPC tool calls (memory, web, audit) via ipc.request.{sessionId}.
 
 import { createServer, type Server } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { natsConnectOptions } from '../utils/nats.js';
 
 export interface NATSBridge {
   port: number;
   stop: () => Promise<void>;
 }
 
-/** NATS subjects for claude-code sandbox pod communication. */
-function llmSubject(sessionId: string): string {
-  return `ipc.llm.${sessionId}`;
-}
-
-function ipcSubject(sessionId: string): string {
-  return `ipc.request.${sessionId}`;
+/** NATS subjects for claude-code sandbox pod communication (token-scoped). */
+function llmSubject(requestId: string, token: string): string {
+  return `ipc.llm.${requestId}.${token}`;
 }
 
 /**
@@ -67,21 +62,16 @@ const LLM_PROXY_TIMEOUT_MS = 300_000;
  */
 export async function startNATSBridge(options: {
   sessionId: string;
+  requestId: string;
+  token: string;
   natsUrl?: string;
 }): Promise<NATSBridge> {
-  const { sessionId } = options;
-  const natsUrl = options.natsUrl ?? process.env.NATS_URL ?? 'nats://localhost:4222';
+  const { sessionId, requestId, token } = options;
 
   const natsModule = await import('nats');
-  const nc = await natsModule.connect({
-    servers: natsUrl,
-    name: `ax-nats-bridge-${sessionId}`,
-    reconnect: true,
-    maxReconnectAttempts: -1,
-    reconnectTimeWait: 1000,
-  });
+  const nc = await natsModule.connect(natsConnectOptions('nats-bridge', sessionId));
 
-  const subject = llmSubject(sessionId);
+  const subject = llmSubject(requestId, token);
 
   function encode(obj: unknown): Uint8Array {
     return new TextEncoder().encode(JSON.stringify(obj));

@@ -1,12 +1,14 @@
 // src/host/nats-llm-proxy.ts — NATS-based LLM proxy for claude-code sandbox pods.
 //
-// Subscribes to ipc.llm.{sessionId} and proxies requests to the Anthropic API
-// with real credentials injected. This allows claude-code pods to make LLM
-// calls without having API credentials.
+// Subscribes to ipc.llm.{requestId}.{token} and proxies requests to the
+// Anthropic API with real credentials injected. This allows claude-code
+// pods to make LLM calls without having API credentials.
 //
-// Used by the agent runtime process when running claude-code sessions in k8s.
+// The per-turn capability token prevents rogue sandbox pods from
+// intercepting LLM requests meant for other sessions.
 
 import { getLogger } from '../logger.js';
+import { natsConnectOptions } from '../utils/nats.js';
 
 const logger = getLogger().child({ component: 'nats-llm-proxy' });
 
@@ -37,34 +39,27 @@ function decode<T>(data: Uint8Array): T {
 }
 
 /**
- * Start an LLM proxy that subscribes to ipc.llm.{sessionId} via NATS
- * and forwards requests to the Anthropic API.
+ * Start an LLM proxy that subscribes to ipc.llm.{requestId}.{token}
+ * via NATS and forwards requests to the Anthropic API.
  *
  * Returns a cleanup function to unsubscribe.
  */
 export async function startNATSLLMProxy(options: {
-  sessionId: string;
-  natsUrl?: string;
+  requestId: string;
+  token: string;
   targetBaseUrl?: string;
   refreshCredentials?: () => Promise<void>;
 }): Promise<{ close: () => void }> {
   const natsModule = await import('nats');
 
-  const natsUrl = options.natsUrl ?? process.env.NATS_URL ?? 'nats://localhost:4222';
   const target = options.targetBaseUrl ?? DEFAULT_TARGET;
-  const subject = `ipc.llm.${options.sessionId}`;
+  const subject = `ipc.llm.${options.requestId}.${options.token}`;
 
-  const nc = await natsModule.connect({
-    servers: natsUrl,
-    name: `ax-llm-proxy-${options.sessionId}`,
-    reconnect: true,
-    maxReconnectAttempts: -1,
-    reconnectTimeWait: 1000,
-  });
+  const nc = await natsModule.connect(natsConnectOptions('llm-proxy', options.requestId));
 
   const sub = nc.subscribe(subject);
 
-  logger.info('llm_proxy_started', { sessionId: options.sessionId, subject });
+  logger.info('llm_proxy_started', { requestId: options.requestId, subject });
 
   // Process LLM proxy requests
   (async () => {

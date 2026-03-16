@@ -1,50 +1,50 @@
 // src/host/nats-ipc-handler.ts — NATS-based IPC handler for k8s sandbox pods.
 //
-// Subscribes to ipc.request.{sessionId} and routes incoming IPC requests
-// through the existing handleIPC pipeline. One instance per active turn.
+// Subscribes to ipc.request.{requestId}.{token} and routes incoming IPC
+// requests through the existing handleIPC pipeline. One instance per turn.
+//
+// Security: the handler uses the bound host context (sessionId, userId)
+// passed at construction time — it does NOT trust _sessionId/_userId from
+// the payload. The per-turn capability token prevents rogue sandboxes from
+// guessing the subject.
 //
 // Flow:
 //   Sandbox pod (agent)
-//     -> NATS publish to ipc.request.{sessionId}
+//     -> NATS publish to ipc.request.{requestId}.{token}
 //     -> nats-ipc-handler.ts receives via subscription
 //     -> routes through handleIPC (same as Unix socket path)
 //     -> NATS reply back to sandbox pod
 
 import { getLogger } from '../logger.js';
 import type { IPCContext } from './ipc-server.js';
+import { natsConnectOptions } from '../utils/nats.js';
 
 const logger = getLogger().child({ component: 'nats-ipc-handler' });
 
 export interface NATSIPCHandlerOptions {
-  sessionId: string;
-  natsUrl?: string;
+  /** Request ID for this turn — used in the NATS subject. */
+  requestId: string;
+  /** Per-turn capability token — unguessable, scopes the NATS subject. */
+  token: string;
+  /** The IPC handler function from ipc-server.ts. */
   handleIPC: (raw: string, ctx: IPCContext) => Promise<string>;
-  ctx?: IPCContext;
+  /** Bound host context — trusted, not overridable by sandbox payload. */
+  ctx: IPCContext;
 }
 
 export async function startNATSIPCHandler(options: NATSIPCHandlerOptions): Promise<{ close: () => void }> {
   const natsModule = await import('nats');
 
-  const natsUrl = options.natsUrl ?? process.env.NATS_URL ?? 'nats://localhost:4222';
-  const subject = `ipc.request.${options.sessionId}`;
+  const subject = `ipc.request.${options.requestId}.${options.token}`;
 
-  const nc = await natsModule.connect({
-    servers: natsUrl,
-    name: `ax-ipc-handler-${options.sessionId}`,
-    reconnect: true,
-    maxReconnectAttempts: -1,
-    reconnectTimeWait: 1000,
-  });
+  const nc = await natsModule.connect(natsConnectOptions('ipc-handler', options.requestId));
 
   const sub = nc.subscribe(subject);
 
-  logger.info('nats_ipc_handler_started', { sessionId: options.sessionId, subject });
+  logger.info('nats_ipc_handler_started', { requestId: options.requestId, subject });
 
-  const defaultCtx: IPCContext = options.ctx ?? {
-    sessionId: options.sessionId,
-    agentId: 'system',
-    userId: 'default',
-  };
+  // Use the bound host context — never trust payload _sessionId/_userId
+  const boundCtx: IPCContext = options.ctx;
 
   (async () => {
     for await (const msg of sub) {
@@ -60,11 +60,12 @@ export async function startNATSIPCHandler(options: NATSIPCHandlerOptions): Promi
       }
 
       try {
+        // Parse to extract _agentId (still trusted — it's our own sandbox)
         const parsed = JSON.parse(raw);
         const ctx: IPCContext = {
-          sessionId: parsed._sessionId ?? defaultCtx.sessionId,
-          agentId: parsed._agentId ?? defaultCtx.agentId,
-          userId: parsed._userId ?? defaultCtx.userId,
+          sessionId: boundCtx.sessionId,
+          agentId: parsed._agentId ?? boundCtx.agentId,
+          userId: boundCtx.userId,
         };
 
         const result = await options.handleIPC(raw, ctx);

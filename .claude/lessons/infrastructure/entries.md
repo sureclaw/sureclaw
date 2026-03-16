@@ -1,3 +1,15 @@
+### Per-turn capability tokens + bound context solve sandbox session isolation
+**Date:** 2026-03-16
+**Context:** Implementing NATS auth for k8s sandbox pods. Static NATS users alone don't isolate sessions — sandboxes can publish to each other's subjects.
+**Lesson:** Combine two layers: (1) Per-turn unguessable token in the NATS subject (`ipc.request.{requestId}.{token}`) — prevents rogue sandboxes from guessing the subject to hijack. (2) Bound host context in the IPC handler — `_sessionId` and `_userId` from the payload are IGNORED; only the context established when the handler was created is used. Still trust `_agentId` from payload since it's our own sandbox. Pass the token to sandbox pods via `extraEnv` on `SandboxConfig`, read from `AX_IPC_TOKEN` env var in the sandbox.
+**Tags:** nats, auth, session-isolation, sandbox, k8s, security, capability-token
+
+### JetStream streams conflict with core NATS request/reply on same subjects
+**Date:** 2026-03-16
+**Context:** The IPC stream (`ipc.>`) was capturing messages meant for core NATS request/reply (`ipc.request.{requestId}.{token}`), causing publish-ack races.
+**Lesson:** When using core NATS request/reply (nc.request()) on subjects that overlap with JetStream streams, the stream captures the message and sends a stream ack to the reply-to inbox before the actual subscriber responds. Fix: remove the JetStream stream from those subjects. IPC uses request/reply (not JetStream) — the IPC stream was unnecessary and harmful.
+**Tags:** nats, jetstream, ipc, request-reply, stream-conflict
+
 ### Custom PG username requires BOTH AX-level and Bitnami subchart-level auth settings
 **Date:** 2026-03-06
 **Context:** Deploying with `postgresql.internal.auth.username=ax` caused `CreateContainerConfigError: couldn't find key password in Secret` because the Bitnami subchart only creates `postgres-password` key by default.

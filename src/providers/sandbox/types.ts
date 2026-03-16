@@ -21,6 +21,10 @@ export interface SandboxConfig {
   agentWorkspaceWritable?: boolean;
   /** When true, /workspace/user mount is read-write (workspace provider active). */
   userWorkspaceWritable?: boolean;
+
+  // ── Extra environment variables (per-turn, set by host) ──
+  /** Additional env vars to inject into the sandbox pod (e.g. IPC tokens). */
+  extraEnv?: Record<string, string>;
 }
 
 export interface SandboxProcess {

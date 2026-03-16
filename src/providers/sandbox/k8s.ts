@@ -108,6 +108,11 @@ function buildPodSpec(
           env: [
             // NATS connectivity
             { name: 'NATS_URL', value: options.natsUrl },
+            // NATS sandbox user credentials (static auth)
+            ...(process.env.NATS_SANDBOX_PASS ? [
+              { name: 'NATS_USER', value: 'sandbox' },
+              { name: 'NATS_PASS', value: process.env.NATS_SANDBOX_PASS },
+            ] : []),
             // Use NATS for IPC instead of Unix sockets (pods can't share host filesystem)
             { name: 'AX_IPC_TRANSPORT', value: 'nats' },
             // Suppress agent debug/info logs — pod logs are piped into the
@@ -117,6 +122,9 @@ function buildPodSpec(
             // Canonical paths from sandbox config (filter out AX_IPC_SOCKET — using NATS instead)
             ...Object.entries(envVars)
               .filter(([k]) => k !== 'AX_IPC_SOCKET')
+              .map(([name, value]) => ({ name, value })),
+            // Per-turn extra env vars (IPC token, request ID, etc.)
+            ...Object.entries(config.extraEnv ?? {})
               .map(([name, value]) => ({ name, value })),
             // Pod identity
             { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },

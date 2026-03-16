@@ -68,18 +68,19 @@ describe('nats-ipc-handler', () => {
     expect(typeof mod.startNATSIPCHandler).toBe('function');
   });
 
-  test('subscribes to ipc.request.{sessionId}', async () => {
+  test('subscribes to token-scoped ipc.request.{requestId}.{token}', async () => {
     const { startNATSIPCHandler } = await import('../../src/host/nats-ipc-handler.js');
 
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'test-session-123',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-123',
+      token: 'tok-abc',
       handleIPC,
+      ctx: { sessionId: 'sess-1', agentId: 'system', userId: 'user-1' },
     });
 
-    expect(mockNc.subscribe).toHaveBeenCalledWith('ipc.request.test-session-123');
+    expect(mockNc.subscribe).toHaveBeenCalledWith('ipc.request.req-123.tok-abc');
 
     handler.close();
   });
@@ -90,9 +91,10 @@ describe('nats-ipc-handler', () => {
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-drain',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-drain',
+      token: 'tok-drain',
       handleIPC,
+      ctx: { sessionId: 'sess-drain', agentId: 'system', userId: 'default' },
     });
 
     handler.close();
@@ -109,9 +111,10 @@ describe('nats-ipc-handler', () => {
     });
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-route',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-route',
+      token: 'tok-route',
       handleIPC,
+      ctx: { sessionId: 'sess-route', agentId: 'system', userId: 'user-1' },
     });
 
     // Push a mock message
@@ -126,10 +129,11 @@ describe('nats-ipc-handler', () => {
     // Allow the async loop to process
     await new Promise((r) => setTimeout(r, 50));
 
+    // Uses bound ctx, not payload fields
     expect(handleIPC).toHaveBeenCalledWith(payload, expect.objectContaining({
       sessionId: 'sess-route',
       agentId: 'system',
-      userId: 'default',
+      userId: 'user-1',
     }));
     expect(respond).toHaveBeenCalled();
 
@@ -141,23 +145,31 @@ describe('nats-ipc-handler', () => {
     handler.close();
   });
 
-  test('uses _sessionId/_agentId/_userId from request payload for context', async () => {
+  test('uses bound context, ignores _sessionId/_userId from payload', async () => {
     const { startNATSIPCHandler } = await import('../../src/host/nats-ipc-handler.js');
 
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
+    const boundCtx = {
+      sessionId: 'bound-session',
+      agentId: 'bound-agent',
+      userId: 'bound-user',
+    };
+
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-ctx',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-ctx',
+      token: 'tok-ctx',
       handleIPC,
+      ctx: boundCtx,
     });
 
     const respond = vi.fn();
+    // Payload includes _sessionId/_userId that should be IGNORED
     const payload = JSON.stringify({
       action: 'memory_write',
-      _sessionId: 'custom-session',
+      _sessionId: 'rogue-session',
       _agentId: 'custom-agent',
-      _userId: 'custom-user',
+      _userId: 'rogue-user',
     });
     mockSub.push({
       data: new TextEncoder().encode(payload),
@@ -167,10 +179,11 @@ describe('nats-ipc-handler', () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
+    // sessionId and userId come from bound context, NOT payload
     expect(handleIPC).toHaveBeenCalledWith(payload, {
-      sessionId: 'custom-session',
-      agentId: 'custom-agent',
-      userId: 'custom-user',
+      sessionId: 'bound-session',
+      agentId: 'custom-agent',  // _agentId from payload IS trusted (our own sandbox)
+      userId: 'bound-user',
     });
 
     handler.close();
@@ -182,9 +195,10 @@ describe('nats-ipc-handler', () => {
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-bad-json',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-bad-json',
+      token: 'tok-bad',
       handleIPC,
+      ctx: { sessionId: 'sess-bad', agentId: 'system', userId: 'default' },
     });
 
     const respond = vi.fn();
@@ -196,50 +210,10 @@ describe('nats-ipc-handler', () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    // handleIPC should NOT have been called for invalid JSON
-    // (JSON.parse will throw in the try block, caught by the outer catch)
     expect(respond).toHaveBeenCalled();
     const responseData = respond.mock.calls[0][0];
     const decoded = JSON.parse(new TextDecoder().decode(responseData));
     expect(decoded.error).toBeDefined();
-
-    handler.close();
-  });
-
-  test('uses custom ctx when provided', async () => {
-    const { startNATSIPCHandler } = await import('../../src/host/nats-ipc-handler.js');
-
-    const handleIPC = vi.fn(async () => '{"ok":true}');
-
-    const customCtx = {
-      sessionId: 'override-session',
-      agentId: 'override-agent',
-      userId: 'override-user',
-    };
-
-    const handler = await startNATSIPCHandler({
-      sessionId: 'sess-custom-ctx',
-      natsUrl: 'nats://mock:4222',
-      handleIPC,
-      ctx: customCtx,
-    });
-
-    const respond = vi.fn();
-    // Payload without _sessionId/_agentId/_userId — should use custom ctx defaults
-    const payload = JSON.stringify({ action: 'web_fetch', url: 'https://example.com' });
-    mockSub.push({
-      data: new TextEncoder().encode(payload),
-      reply: 'reply',
-      respond,
-    });
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    expect(handleIPC).toHaveBeenCalledWith(payload, {
-      sessionId: 'override-session',
-      agentId: 'override-agent',
-      userId: 'override-user',
-    });
 
     handler.close();
   });
@@ -252,9 +226,10 @@ describe('nats-ipc-handler', () => {
     });
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-throw',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-throw',
+      token: 'tok-throw',
       handleIPC,
+      ctx: { sessionId: 'sess-throw', agentId: 'system', userId: 'default' },
     });
 
     const respond = vi.fn();
@@ -281,9 +256,10 @@ describe('nats-ipc-handler', () => {
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-no-reply',
-      natsUrl: 'nats://mock:4222',
+      requestId: 'req-no-reply',
+      token: 'tok-no-reply',
       handleIPC,
+      ctx: { sessionId: 'sess-no-reply', agentId: 'system', userId: 'default' },
     });
 
     const respond = vi.fn();
@@ -310,14 +286,14 @@ describe('nats-ipc-handler', () => {
     const handleIPC = vi.fn(async () => '{"ok":true}');
 
     const handler = await startNATSIPCHandler({
-      sessionId: 'sess-connect',
-      natsUrl: 'nats://custom:4222',
+      requestId: 'req-connect',
+      token: 'tok-connect',
       handleIPC,
+      ctx: { sessionId: 'sess-connect', agentId: 'system', userId: 'default' },
     });
 
     expect(natsModule.connect).toHaveBeenCalledWith(expect.objectContaining({
-      servers: 'nats://custom:4222',
-      name: 'ax-ipc-handler-sess-connect',
+      name: 'ax-ipc-handler-req-connect',
       reconnect: true,
       maxReconnectAttempts: -1,
       reconnectTimeWait: 1000,

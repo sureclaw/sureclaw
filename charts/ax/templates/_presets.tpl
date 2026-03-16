@@ -51,49 +51,6 @@ limits:
 {{- end -}}
 
 {{/*
-ax.preset.agentRuntimeReplicas — Agent-runtime deployment replicas.
-Preset: small=1, medium=3, large=5. Chart default: 3.
-*/}}
-{{- define "ax.preset.agentRuntimeReplicas" -}}
-{{- if not (kindIs "invalid" .Values.agentRuntime.replicas) -}}
-  {{- .Values.agentRuntime.replicas -}}
-{{- else -}}
-  {{- $p := .Values.preset | default "" -}}
-  {{- if eq $p "small" -}}10
-  {{- else if eq $p "medium" -}}5
-  {{- else if eq $p "large" -}}3
-  {{- else -}}3{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-ax.preset.agentRuntimeResources — Agent-runtime deployment resources (YAML block).
-Preset: small=250m/500Mi, medium/large=2cpu/4Gi. Chart default: 2cpu/4Gi.
-*/}}
-{{- define "ax.preset.agentRuntimeResources" -}}
-{{- if .Values.agentRuntime.resources -}}
-{{- toYaml .Values.agentRuntime.resources -}}
-{{- else -}}
-{{- $p := .Values.preset | default "" -}}
-{{- if eq $p "small" -}}
-requests:
-  cpu: "250m"
-  memory: "500Mi"
-limits:
-  cpu: "250m"
-  memory: "500Mi"
-{{- else -}}
-requests:
-  cpu: "2"
-  memory: "4Gi"
-limits:
-  cpu: "2"
-  memory: "4Gi"
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
 ax.preset.sandboxRuntimeClass — Container runtimeClass for agent pods.
 Preset: small="" (no gvisor), medium/large=gvisor. Chart default: gvisor.
 */}}

@@ -38,6 +38,8 @@ describe('NATSIPCClient', () => {
       request: mockRequest,
       drain: mockDrain,
     });
+    // Clear AX_IPC_TOKEN env to avoid leaking between tests
+    delete process.env.AX_IPC_TOKEN;
   });
 
   test('module exports NATSIPCClient class', async () => {
@@ -56,7 +58,7 @@ describe('NATSIPCClient', () => {
     expect(result.ok).toBe(true);
     expect(result.echo).toBe('skill_list');
 
-    // Verify NATS request was called on the correct subject
+    // Verify NATS request was called on the correct subject (fallback without token)
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [subject, payload, opts] = mockRequest.mock.calls[0];
     expect(subject).toBe('ipc.request.sess-1');
@@ -65,6 +67,57 @@ describe('NATSIPCClient', () => {
     // Verify the payload contains the action
     const sent = JSON.parse(new TextDecoder().decode(payload));
     expect(sent.action).toBe('skill_list');
+
+    await client.disconnect();
+  });
+
+  test('uses token-scoped subject when token and requestId are provided', async () => {
+    const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
+
+    mockRequest.mockResolvedValueOnce(makeNatsResponse({ ok: true }));
+
+    const client = new NATSIPCClient({
+      sessionId: 'sess-1',
+      requestId: 'req-42',
+      token: 'tok-secret',
+    });
+    await client.call({ action: 'test' });
+
+    const [subject] = mockRequest.mock.calls[0];
+    expect(subject).toBe('ipc.request.req-42.tok-secret');
+
+    await client.disconnect();
+  });
+
+  test('reads AX_IPC_TOKEN from env when token not passed in options', async () => {
+    process.env.AX_IPC_TOKEN = 'env-token-123';
+
+    const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
+
+    mockRequest.mockResolvedValueOnce(makeNatsResponse({ ok: true }));
+
+    const client = new NATSIPCClient({
+      sessionId: 'sess-env',
+      requestId: 'req-env',
+    });
+    await client.call({ action: 'test' });
+
+    const [subject] = mockRequest.mock.calls[0];
+    expect(subject).toBe('ipc.request.req-env.env-token-123');
+
+    await client.disconnect();
+  });
+
+  test('falls back to session-scoped subject when no token', async () => {
+    const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
+
+    mockRequest.mockResolvedValueOnce(makeNatsResponse({ ok: true }));
+
+    const client = new NATSIPCClient({ sessionId: 'my-pod-session' });
+    await client.call({ action: 'web_search' });
+
+    const [subject] = mockRequest.mock.calls[0];
+    expect(subject).toBe('ipc.request.my-pod-session');
 
     await client.disconnect();
   });
@@ -96,20 +149,6 @@ describe('NATSIPCClient', () => {
     await client.disconnect();
   });
 
-  test('requests are published to ipc.request.{sessionId} subject', async () => {
-    const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
-
-    mockRequest.mockResolvedValueOnce(makeNatsResponse({ ok: true }));
-
-    const client = new NATSIPCClient({ sessionId: 'my-pod-session' });
-    await client.call({ action: 'web_search' });
-
-    const [subject] = mockRequest.mock.calls[0];
-    expect(subject).toBe('ipc.request.my-pod-session');
-
-    await client.disconnect();
-  });
-
   test('setContext() updates the session ID and subject', async () => {
     const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
 
@@ -120,7 +159,7 @@ describe('NATSIPCClient', () => {
     const client = new NATSIPCClient({ sessionId: 'old-session' });
     await client.call({ action: 'test1' });
 
-    // Verify initial subject
+    // Verify initial subject (fallback — no token)
     expect(mockRequest.mock.calls[0][0]).toBe('ipc.request.old-session');
 
     // Update context
@@ -133,7 +172,7 @@ describe('NATSIPCClient', () => {
 
     await client.call({ action: 'test2' });
 
-    // Verify updated subject
+    // Still fallback (no token set) — uses session-scoped
     expect(mockRequest.mock.calls[1][0]).toBe('ipc.request.new-session');
 
     // Verify enriched fields use new context
@@ -181,22 +220,6 @@ describe('NATSIPCClient', () => {
 
     // nats.connect should only be called once
     expect(mockConnect).toHaveBeenCalledTimes(1);
-
-    await client.disconnect();
-  });
-
-  test('connect() uses natsUrl from options', async () => {
-    const { NATSIPCClient } = await import('../../src/agent/nats-ipc-client.js');
-
-    const client = new NATSIPCClient({
-      sessionId: 'sess-url',
-      natsUrl: 'nats://custom:4223',
-    });
-    await client.connect();
-
-    expect(mockConnect).toHaveBeenCalledWith(
-      expect.objectContaining({ servers: 'nats://custom:4223' }),
-    );
 
     await client.disconnect();
   });

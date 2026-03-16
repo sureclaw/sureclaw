@@ -54,6 +54,8 @@ export interface CompletionDeps {
   workspaceMap?: Map<string, string>;
   /** IPC handler function for reverse bridge connections (Apple containers). */
   ipcHandler?: (raw: string, ctx: import('./ipc-server.js').IPCContext) => Promise<string>;
+  /** Extra env vars to inject into sandbox pods (per-turn IPC token, request ID). */
+  extraSandboxEnv?: Record<string, string>;
 }
 
 export interface ExtractedFile {
@@ -779,6 +781,7 @@ export async function processCompletion(
       userWorkspace: userWsPath,
       agentWorkspaceWritable,
       userWorkspaceWritable,
+      extraEnv: deps.extraSandboxEnv,
     };
 
     // ── Three-phase container orchestration ──
