@@ -59,9 +59,9 @@ Preset: small=1, medium=3, large=5. Chart default: 3.
   {{- .Values.agentRuntime.replicas -}}
 {{- else -}}
   {{- $p := .Values.preset | default "" -}}
-  {{- if eq $p "small" -}}1
-  {{- else if eq $p "medium" -}}3
-  {{- else if eq $p "large" -}}5
+  {{- if eq $p "small" -}}10
+  {{- else if eq $p "medium" -}}5
+  {{- else if eq $p "large" -}}3
   {{- else -}}3{{- end -}}
 {{- end -}}
 {{- end -}}

@@ -10,11 +10,11 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { IPCClient } from './ipc-client.js';
+import type { IIPCClient } from './runner.js';
 import { safePath } from '../utils/safe-path.js';
 
 export interface LocalSandboxOptions {
-  client: IPCClient;
+  client: IIPCClient;
   workspace: string;
   timeoutMs?: number;
 }

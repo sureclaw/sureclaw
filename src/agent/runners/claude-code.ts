@@ -24,7 +24,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { IPCClient } from '../ipc-client.js';
 import { startTCPBridge } from '../tcp-bridge.js';
 import { createIPCMcpServer } from '../mcp-server.js';
-import type { AgentConfig } from '../runner.js';
+import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt } from '../agent-setup.js';
 import { getLogger } from '../../logger.js';

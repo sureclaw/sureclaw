@@ -29,7 +29,7 @@ import {
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { IPCClient } from '../ipc-client.js';
 import { compactHistory, historyToPiMessages } from '../runner.js';
-import type { AgentConfig } from '../runner.js';
+import type { AgentConfig, IIPCClient } from '../runner.js';
 import { convertPiMessages, emitStreamEvents } from '../stream-utils.js';
 import { createProxyStreamFn } from '../proxy-stream.js';
 import { makeProxyErrorMessage } from '../proxy-stream.js';
@@ -91,7 +91,7 @@ interface IPCResponse {
 
 // ── IPC-based pi-ai StreamFunction ──────────────────────────────────
 
-function createIPCStreamFunction(client: IPCClient) {
+function createIPCStreamFunction(client: IIPCClient) {
   return (model: Model<any>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream => {
     const stream = createAssistantMessageEventStream();
 
@@ -223,10 +223,10 @@ interface IPCToolDefsOptions {
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
   /** When set, sandbox tools execute locally with host audit gate. */
-  localSandbox?: { client: IPCClient; workspace: string };
+  localSandbox?: { client: IIPCClient; workspace: string };
 }
 
-function createIPCToolDefinitions(client: IPCClient, opts?: IPCToolDefsOptions): ToolDefinition[] {
+function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions): ToolDefinition[] {
   async function ipcCall(action: string, params: Record<string, unknown> = {}, timeoutMs?: number) {
     try {
       logger.debug('tool_ipc_call', { action });

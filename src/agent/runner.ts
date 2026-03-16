@@ -39,6 +39,7 @@ export interface SkillPayload {
 export interface IIPCClient {
   call(request: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>>;
   connect(): Promise<void>;
+  disconnect(): void;
   setContext(ctx: { sessionId?: string; requestId?: string; userId?: string; sessionScope?: string }): void;
 }
 

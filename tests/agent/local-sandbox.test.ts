@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createLocalSandbox } from '../../src/agent/local-sandbox.js';
@@ -21,7 +21,7 @@ describe('Local sandbox executor', () => {
   let workspace: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), 'local-sandbox-test-'));
+    workspace = realpathSync(mkdtempSync(join(tmpdir(), 'local-sandbox-test-')));
   });
 
   afterEach(() => {

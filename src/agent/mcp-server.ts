@@ -9,7 +9,7 @@
 import { z } from 'zod/v4';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
-import type { IPCClient } from './ipc-client.js';
+import type { IIPCClient } from './runner.js';
 import { normalizeOrigin, filterTools } from './tool-catalog.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 import { createLocalSandbox } from './local-sandbox.js';
@@ -46,7 +46,7 @@ export interface MCPServerOptions {
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
   /** When set, sandbox tools execute locally with host audit gate. */
-  localSandbox?: { client: IPCClient; workspace: string };
+  localSandbox?: { client: IIPCClient; workspace: string };
 }
 
 // ── Action maps for tools with irregular IPC action names ──
@@ -63,7 +63,7 @@ const GOVERNANCE_ACTIONS: Record<string, string> = {
   list_agents: 'agent_registry_list',
 };
 
-export function createIPCMcpServer(client: IPCClient, opts?: MCPServerOptions): McpSdkServerConfigWithInstance {
+export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions): McpSdkServerConfigWithInstance {
   async function ipcCall(action: string, params: Record<string, unknown> = {}) {
     try {
       const result = await client.call({ action, ...params });

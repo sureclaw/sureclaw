@@ -1,5 +1,5 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { IPCClient } from './ipc-client.js';
+import type { IIPCClient } from './runner.js';
 import { TOOL_CATALOG, filterTools } from './tool-catalog.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 import { createLocalSandbox } from './local-sandbox.js';
@@ -14,11 +14,11 @@ export interface IPCToolsOptions {
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
   /** When set, sandbox tools execute locally with host audit gate. */
-  localSandbox?: { client: IPCClient; workspace: string };
+  localSandbox?: { client: IIPCClient; workspace: string };
 }
 
 /** Create tools that route through IPC to the host process. */
-export function createIPCTools(client: IPCClient, opts?: IPCToolsOptions): AgentTool[] {
+export function createIPCTools(client: IIPCClient, opts?: IPCToolsOptions): AgentTool[] {
   async function ipcCall(action: string, params: Record<string, unknown> = {}, timeoutMs?: number) {
     try {
       const result = await client.call({ action, ...params }, timeoutMs);
