@@ -30,7 +30,7 @@ describe('loadTierConfigs', () => {
       maxReady: 15,
       template: {
         image: 'ax/agent:v2',
-        command: ['node', 'dist/sandbox-worker/main.js'],
+        command: ['node', '/opt/ax/dist/agent/runner.js'],
         cpu: '2',
         memory: '4Gi',
         tier: 'light',
@@ -44,7 +44,7 @@ describe('loadTierConfigs', () => {
       maxReady: 5,
       template: {
         image: 'ax/agent:v2',
-        command: ['node', 'dist/sandbox-worker/main.js'],
+        command: ['node', '/opt/ax/dist/agent/runner.js'],
         cpu: '8',
         memory: '32Gi',
         tier: 'heavy',

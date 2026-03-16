@@ -170,6 +170,22 @@ sandbox:
   runtimeClass:
   # Sandbox tiers — null → use preset or default (light 2-10 + heavy 0-3).
   tiers:
+    light:
+      minReady: 2
+      maxReady: 10
+      template:
+        command: ["node", "/opt/ax/dist/agent/runner.js"]
+        cpu: "1"
+        memory: "2Gi"
+        workspaceRoot: "/workspace"
+    heavy:
+      minReady: 0
+      maxReady: 3
+      template:
+        command: ["node", "/opt/ax/dist/agent/runner.js"]
+        cpu: "4"
+        memory: "16Gi"
+        workspaceRoot: "/workspace"
 
 # ─── PostgreSQL ───────────────────────────────────────────────────
 # Provide a DATABASE_URL via a k8s Secret. Works with any PostgreSQL:

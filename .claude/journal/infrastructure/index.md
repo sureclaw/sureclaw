@@ -4,6 +4,7 @@ Infrastructure, deployment, Helm, k8s, FluxCD entries.
 
 ## Entries
 
+- Pool controller pod template update for NATS IPC [pool-controller-nats.md](pool-controller-nats.md)
 - Cortex acceptance test fixes: FIX-6/7/8/9 [cortex-acceptance-fixes.md](cortex-acceptance-fixes.md)
 - Helm presets + `ax k8s init` CLI wizard [k8s-presets-init.md](k8s-presets-init.md)
 - Helm chart deployment improvements (5 fixes) [helm-deploy-fixes.md](helm-deploy-fixes.md)

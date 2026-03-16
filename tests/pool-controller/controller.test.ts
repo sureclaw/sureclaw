@@ -16,7 +16,7 @@ function makePod(overrides: Partial<PoolPod> = {}): PoolPod {
 
 const lightTemplate: PodTemplate = {
   image: 'ax/agent:latest',
-  command: ['node', 'dist/sandbox-worker/main.js'],
+  command: ['node', '/opt/ax/dist/agent/runner.js'],
   cpu: '1',
   memory: '2Gi',
   tier: 'light',

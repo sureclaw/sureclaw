@@ -42,7 +42,7 @@ export function loadTierConfigs(): TierConfig[] {
       maxReady: parseInt(process.env.LIGHT_MAX_READY ?? '10', 10),
       template: {
         image,
-        command: ['node', 'dist/sandbox-worker/main.js'],
+        command: ['node', '/opt/ax/dist/agent/runner.js'],
         cpu: '1',
         memory: '2Gi',
         tier: 'light',
@@ -56,7 +56,7 @@ export function loadTierConfigs(): TierConfig[] {
       maxReady: parseInt(process.env.HEAVY_MAX_READY ?? '3', 10),
       template: {
         image,
-        command: ['node', 'dist/sandbox-worker/main.js'],
+        command: ['node', '/opt/ax/dist/agent/runner.js'],
         cpu: '4',
         memory: '16Gi',
         tier: 'heavy',
