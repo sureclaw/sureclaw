@@ -4,6 +4,7 @@ Category-based organization of all journal entries. Total: 114 entries across 10
 
 ## Entries
 
+- 2026-03-16 07:34 — Add NATS IPC handler for host-side request routing [ipc/protocol.md](ipc/protocol.md)
 - 2026-03-14 13:06 — Per-tier workspace permission hardening [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-14 09:30 — Fix Apple Container IPC bridge: timing + tmpfs [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-13 15:00 — Sync all ax/* skills with codebase changes [docs/website.md](docs/website.md)

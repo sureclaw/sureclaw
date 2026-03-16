@@ -2,6 +2,14 @@
 
 IPC protocol enhancements: heartbeat keep-alive, schema hardening, NATS transport.
 
+## [2026-03-16 07:34] — Add NATS IPC handler for host-side request routing
+
+**Task:** Create a NATS-based IPC handler for the host side that subscribes to ipc.request.{sessionId} and routes incoming IPC requests through the existing handleIPC pipeline.
+**What I did:** Created `src/host/nats-ipc-handler.ts` with `startNATSIPCHandler()` function that mirrors the pattern from `nats-llm-proxy.ts`. Subscribes to `ipc.request.{sessionId}`, decodes NATS messages, extracts optional `_sessionId`/`_agentId`/`_userId` context fields from the payload, routes through the `handleIPC` callback, and responds via NATS reply. Created comprehensive test with 10 tests covering: module export, subscribe subject, close/drain, request routing, context extraction, invalid JSON handling, custom ctx, error propagation, fire-and-forget (no reply), and connection options.
+**Files touched:** `src/host/nats-ipc-handler.ts` (new), `tests/host/nats-ipc-handler.test.ts` (new)
+**Outcome:** Success — all 10 tests pass.
+**Notes:** Uses dynamic `import('nats')` like nats-llm-proxy.ts and nats-bridge.ts. Returns `{ close }` interface for cleanup. Wiring into agent-runtime-process.ts is a separate task.
+
 ## [2026-03-16 07:33] — Add NATS IPC client for k8s sandbox pods
 
 **Task:** Create a NATS-based IPC client as a drop-in replacement for IPCClient when running inside k8s sandbox pods, using NATS request/reply instead of Unix sockets.
