@@ -34,7 +34,7 @@ import { FileStore } from '../file-store.js';
 import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
 import { startNATSIPCHandler } from './nats-ipc-handler.js';
 import { startNATSLLMProxy } from './nats-llm-proxy.js';
-import { encode, decode, eventSubject } from './nats-session-protocol.js';
+import { decode, eventSubject } from './nats-session-protocol.js';
 import type { StreamEvent } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
 import { natsConnectOptions } from '../utils/nats.js';
@@ -314,16 +314,63 @@ async function main(): Promise<void> {
   ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter'; contentBlocks?: import('../types.js').ContentBlock[] }> {
     // Per-turn capability token for NATS subject isolation
     const turnToken = randomUUID();
+    const isK8s = config.providers.sandbox === 'k8s';
+
+    // Set up agent_response interceptor: a Promise that resolves when the
+    // agent sends { action: 'agent_response', content: '...' } via IPC.
+    let agentResponseResolve: ((content: string) => void) | undefined;
+    let agentResponseReject: ((err: Error) => void) | undefined;
+    let agentResponsePromise: Promise<string> | undefined;
+    let agentTimer: ReturnType<typeof setTimeout> | undefined;
+
+    if (isK8s) {
+      agentResponsePromise = new Promise<string>((resolve, reject) => {
+        agentResponseResolve = resolve;
+        agentResponseReject = reject;
+      });
+
+      // Safety timeout — if agent never sends agent_response, don't hang forever.
+      const agentTimeoutMs = ((config.sandbox.timeout_sec ?? 600) + 60) * 1000;
+      agentTimer = setTimeout(() => {
+        agentResponseReject?.(new Error('agent_response timeout'));
+      }, agentTimeoutMs);
+      if (agentTimer.unref) agentTimer.unref();
+
+      // Prevent unhandled rejection crash if the promise rejects after
+      // processCompletion has already returned (e.g. timer fires late).
+      // The real error handling happens in server-completions.ts try/catch.
+      agentResponsePromise.catch(() => {});
+    }
+
+    // Wrap handleIPC to intercept agent_response action
+    const wrappedHandleIPC = isK8s
+      ? async (raw: string, ctx: import('./ipc-server.js').IPCContext): Promise<string> => {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.action === 'agent_response') {
+              logger.info('agent_response_received', {
+                requestId,
+                contentLength: (parsed.content ?? '').length,
+              });
+              agentResponseResolve?.(parsed.content ?? '');
+              return JSON.stringify({ ok: true });
+            }
+          } catch {
+            // Not JSON or no action field — fall through to normal handler
+          }
+          return handleIPC(raw, ctx);
+        }
+      : handleIPC;
 
     // Start NATS IPC handler for k8s sessions — the sandbox pod's
     // NATSIPCClient publishes to ipc.request.{requestId}.{token}, and this
     // handler routes those requests through the existing handleIPC pipeline.
     let natsIpcHandler: { close: () => void } | undefined;
-    if (config.providers.sandbox === 'k8s') {
+    if (isK8s) {
       natsIpcHandler = await startNATSIPCHandler({
         requestId,
         token: turnToken,
-        handleIPC,
+        handleIPC: wrappedHandleIPC,
         ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
       });
       logger.info('nats_ipc_handler_started', { sessionId, requestId, turnToken });
@@ -331,18 +378,32 @@ async function main(): Promise<void> {
 
     // Start NATS LLM proxy for claude-code sessions in k8s mode
     let llmProxy: { close: () => void } | undefined;
-    if (_agentType === 'claude-code' && config.providers.sandbox === 'k8s') {
+    if (_agentType === 'claude-code' && isK8s) {
       llmProxy = await startNATSLLMProxy({ requestId, token: turnToken });
       logger.info('nats_llm_proxy_started', { sessionId, requestId });
     }
 
-    // Pass per-turn token to sandbox via extraSandboxEnv
+    // NATS work publisher — publishes work payload to agent.work.{podName}
+    // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
+    // Use TextEncoder directly — NOT encode() which adds an extra JSON.stringify wrapper,
+    // causing double-encoding that destroys the payload structure on the receiver side.
+    const publishWork = isK8s
+      ? async (podName: string, payload: string): Promise<void> => {
+          const subject = `agent.work.${podName}`;
+          logger.info('nats_work_publish', { subject, podName, payloadBytes: payload.length });
+          nc.publish(subject, new TextEncoder().encode(payload));
+        }
+      : undefined;
+
+    // Pass per-turn token + NATS helpers to sandbox via deps
     const turnDeps: CompletionDeps = {
       ...completionDeps,
       extraSandboxEnv: {
         AX_IPC_TOKEN: turnToken,
         AX_IPC_REQUEST_ID: requestId,
       },
+      ...(agentResponsePromise ? { agentResponsePromise } : {}),
+      ...(publishWork ? { publishWork } : {}),
     };
 
     try {
@@ -364,6 +425,7 @@ async function main(): Promise<void> {
 
       return result;
     } finally {
+      if (agentTimer) clearTimeout(agentTimer);
       if (llmProxy) {
         llmProxy.close();
         logger.info('nats_llm_proxy_closed', { sessionId, requestId });
