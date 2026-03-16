@@ -4,6 +4,7 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Admin state is filesystem-based and doesn't sync across k8s pods [entries.md](entries.md)
 - Admin TCP port must handle EADDRINUSE gracefully [entries.md](entries.md)
 - Tailwind v4 uses @tailwindcss/postcss, not direct tailwindcss plugin [entries.md](entries.md)
 - IPC defaultCtx.agentId is 'system', not the configured agent name [entries.md](entries.md)

@@ -4,6 +4,7 @@ Design patterns, provider contracts, import hygiene, event bus design, and works
 
 ## Entries
 
+- Filesystem-based state doesn't survive pod filesystem boundaries in k8s [entries.md](entries.md)
 - Three tool dispatch paths all need sandbox wiring [entries.md](entries.md)
 - Anchor fast-path designs at the existing IPC seam [entries.md](entries.md)
 - Prefer structural layout fixes over runtime workarounds [entries.md](entries.md)

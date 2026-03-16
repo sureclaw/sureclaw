@@ -1,5 +1,11 @@
 # Architecture
 
+### Filesystem-based state doesn't survive pod filesystem boundaries in k8s
+**Date:** 2026-03-16
+**Context:** Debugging k8s agent identity loss on every session. The agent-runtime pod is a separate Kubernetes pod with its own filesystem. IPC handlers on the agent-runtime pod couldn't read the admins file from the host pod's filesystem, so state checks always saw an empty admins file. This made every identity_write handler skip persistence because it thought there were no admins configured.
+**Lesson:** In k8s NATS dispatch architecture, the host pod and agent-runtime pod have separate filesystems. Never rely on filesystem state for access control checks between pods. Instead: (1) Gate the check on whether the state actually exists locally (`hasAnyAdmin()`), (2) Defer to the host layer for validation (IPC client<->host trust model), (3) Cache critical state in shared databases (PostgreSQL) rather than files, or (4) Pre-distribute state to both pods at deployment time. The admin file is a per-deployment credential list — it's fine to keep it on the host pod only, as long as the agent-runtime pod's gatekeeping logic doesn't assume the file exists locally.
+**Tags:** k8s, architecture, distributed-systems, nats-dispatch, filesystem, ipc, security
+
 ### Three tool dispatch paths all need sandbox wiring
 **Date:** 2026-03-15
 **Context:** Wiring local sandbox into agent tool dispatch for the unified container model.

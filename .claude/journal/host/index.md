@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-16 07:35 — Fix k8s agent identity persistence with empty admins file [k8s-deployment.md](k8s-deployment.md)
 - 2026-03-15 04:20 — Implement agent-in-container design for Docker/Apple sandboxes [sandbox-dispatch.md](sandbox-dispatch.md)
 - 2026-03-14 13:00 — Add GKE-1 sandbox→GCS workspace end-to-end acceptance test to workspace plan [lazy-sandbox.md](lazy-sandbox.md)
 - 2026-03-14 12:00 — Write lazy sandbox + workspace_write implementation plan [lazy-sandbox.md](lazy-sandbox.md)

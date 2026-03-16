@@ -1,5 +1,11 @@
 # Host
 
+### Admin state is filesystem-based and doesn't sync across k8s pods
+**Date:** 2026-03-16
+**Context:** Fixed k8s agent identity persistence bug. The identity_write IPC handler checked `isAdmin(topDir)` by reading the local filesystem admins file. In k8s with NATS dispatch (separate host pod and agent-runtime pod), the agent-runtime pod always had an empty admins file because admin claims only happen on the host pod. Every identity_write returned `{ queued: true }` instead of persisting data.
+**Lesson:** When admin state is filesystem-based and must be accessed from distributed pods, gate the admin check on `hasAnyAdmin()` — only enforce when admins are actually configured. When the admins file is empty (as on agent-runtime pods), skip the gate and let the host layer handle access control. This decouples admin persistence from distributed pod filesystems and avoids the sync problem entirely. Always check: is this gate only needed because I have configured admins, or is it a universal security requirement?
+**Tags:** k8s, admin, identity, ipc-handlers, filesystem, nats-dispatch, access-control
+
 ### Sandbox tool handlers need their own mountRoot with workspace tier symlinks
 **Date:** 2026-03-14
 **Context:** After adding per-tier workspace permissions (agent/, user/ dirs), the agent still couldn't see these directories. The sandbox provider created a symlink mountRoot internally for the agent subprocess, but the IPC sandbox tool handlers on the host used workspaceMap (pointing to the scratch dir) as their CWD — no agent/ or user/ siblings existed there.
