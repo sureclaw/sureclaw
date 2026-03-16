@@ -41,6 +41,8 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
     metrics.warmPods.set(tier.tier, 0);
     metrics.podsCreated.set(tier.tier, 0);
     metrics.podsDeleted.set(tier.tier, 0);
+    metrics.podsClaimed.set(tier.tier, 0);
+    metrics.poolMisses.set(tier.tier, 0);
     metrics.startupLatencies.set(tier.tier, []);
   }
 
@@ -134,11 +136,11 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
       }
     }
 
-    // Garbage collect terminal pods
+    // Garbage collect terminal pods (Failed/Succeeded — includes claimed pods that finished)
     for (const pod of terminal) {
       try {
         await k8sClient.deletePod(pod.name);
-        logger.debug('gc_terminal_pod', { name: pod.name, phase: pod.phase });
+        logger.debug('gc_terminal_pod', { name: pod.name, phase: pod.phase, status: pod.status });
       } catch (err) {
         logger.warn('gc_delete_failed', {
           name: pod.name,

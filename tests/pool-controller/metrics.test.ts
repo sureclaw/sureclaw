@@ -18,6 +18,8 @@ describe('pool-controller metrics', () => {
     m.targetPods.set('heavy', 2);
     m.podsCreated.set('light', 10);
     m.podsDeleted.set('light', 2);
+    m.podsClaimed.set('light', 7);
+    m.poolMisses.set('light', 3);
     m.reconcileCount = 42;
     m.lastReconcileDurationMs = 15;
     m.startupLatencies.set('light', [1000, 2000, 3000]);
@@ -30,6 +32,8 @@ describe('pool-controller metrics', () => {
     expect(output).toContain('ax_warm_pods_target{tier="heavy"} 2');
     expect(output).toContain('ax_pods_created_total{tier="light"} 10');
     expect(output).toContain('ax_pods_deleted_total{tier="light"} 2');
+    expect(output).toContain('ax_pods_claimed_total{tier="light"} 7');
+    expect(output).toContain('ax_pool_misses_total{tier="light"} 3');
     expect(output).toContain('ax_reconcile_total 42');
     expect(output).toContain('ax_reconcile_duration_ms 15');
     // Avg startup latency: (1000+2000+3000)/3 = 2000ms = 2.000s
@@ -38,6 +42,8 @@ describe('pool-controller metrics', () => {
     // Verify TYPE and HELP markers
     expect(output).toContain('# TYPE ax_warm_pods_available gauge');
     expect(output).toContain('# HELP ax_warm_pods_available');
+    expect(output).toContain('# TYPE ax_pods_claimed_total counter');
+    expect(output).toContain('# TYPE ax_pool_misses_total counter');
   });
 
   test('formatMetrics handles empty state', () => {

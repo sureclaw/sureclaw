@@ -21,6 +21,8 @@
 - Helm subchart dependencies should be gitignored [infrastructure/entries.md](infrastructure/entries.md)
 - ConfigMap-mounted config reuses loadConfig() via AX_CONFIG_PATH [infrastructure/entries.md](infrastructure/entries.md)
 - Security contexts must stay hardcoded in k8s-client.ts [infrastructure/entries.md](infrastructure/entries.md)
+- Warm pod exec avoids env var injection problems [infrastructure/entries.md](infrastructure/entries.md)
+- Mock warm-pool-client directly in integration tests, not via shared k8s mocks [infrastructure/entries.md](infrastructure/entries.md)
 - Host deployment needs API credentials for memory recall and extraction [infrastructure/entries.md](infrastructure/entries.md)
 - Bitnami PostgreSQL needs explicit auth.password for custom users [infrastructure/entries.md](infrastructure/entries.md)
 - sqlite-vec is available but unused in k8s PostgreSQL mode -- pgvector is the right path [infrastructure/entries.md](infrastructure/entries.md)

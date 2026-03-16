@@ -23,6 +23,8 @@ export interface TierConfig {
 /** Minimal pod template for creating warm pods. */
 export interface PodTemplate {
   image: string;
+  /** Command to run inside the warm pod. Defaults to a standby entrypoint
+   *  that keeps the container alive until the host exec's the agent. */
   command: string[];
   cpu: string;
   memory: string;
@@ -33,6 +35,13 @@ export interface PodTemplate {
   nodeSelector?: Record<string, string>;
   activeDeadlineSeconds?: number;
 }
+
+/**
+ * Standby command for warm pods. The container sleeps until the host
+ * claims the pod and uses the k8s Exec API to start the agent.
+ * Using 86400s (24h) — pods are GC'd by activeDeadlineSeconds anyway.
+ */
+export const WARM_POD_STANDBY_COMMAND = ['sleep', '86400'];
 
 /** Summary of a sandbox pod for pool management. */
 export interface PoolPod {

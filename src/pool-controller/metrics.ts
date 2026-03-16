@@ -16,6 +16,10 @@ export interface PoolMetrics {
   podsCreated: Map<string, number>;
   /** Total pods deleted since controller start. */
   podsDeleted: Map<string, number>;
+  /** Total warm pod claims (successful). */
+  podsClaimed: Map<string, number>;
+  /** Total warm pool misses (no warm pod available, fell back to cold start). */
+  poolMisses: Map<string, number>;
   /** Last reconciliation duration in ms. */
   lastReconcileDurationMs: number;
   /** Total reconciliation cycles. */
@@ -29,6 +33,8 @@ export function createPoolMetrics(): PoolMetrics {
     startupLatencies: new Map(),
     podsCreated: new Map(),
     podsDeleted: new Map(),
+    podsClaimed: new Map(),
+    poolMisses: new Map(),
     lastReconcileDurationMs: 0,
     reconcileCount: 0,
   };
@@ -74,6 +80,20 @@ export function formatMetrics(m: PoolMetrics): string {
   lines.push('# TYPE ax_pods_deleted_total counter');
   for (const [tier, count] of m.podsDeleted) {
     lines.push(`ax_pods_deleted_total{tier="${tier}"} ${count}`);
+  }
+
+  // Pods claimed total (warm pool hits)
+  lines.push('# HELP ax_pods_claimed_total Total warm pods claimed by sandbox hosts');
+  lines.push('# TYPE ax_pods_claimed_total counter');
+  for (const [tier, count] of m.podsClaimed) {
+    lines.push(`ax_pods_claimed_total{tier="${tier}"} ${count}`);
+  }
+
+  // Pool misses total (no warm pod available, fell back to cold start)
+  lines.push('# HELP ax_pool_misses_total Total warm pool misses (cold start fallback)');
+  lines.push('# TYPE ax_pool_misses_total counter');
+  for (const [tier, count] of m.poolMisses) {
+    lines.push(`ax_pool_misses_total{tier="${tier}"} ${count}`);
   }
 
   // Reconciliation
