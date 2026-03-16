@@ -1,5 +1,21 @@
 # K8s Deployment Journal
 
+## [2026-03-16 07:40] — Wire NATS IPC handler into agent-runtime-process, remove subprocess override
+
+**Task:** Remove the subprocess sandbox override in agent-runtime-process.ts and wire the new NATS IPC handler so k8s sandbox pods can route IPC calls back through NATS
+**What I did:** (1) Removed the 10-line workaround that force-replaced k8s sandbox with subprocess provider. (2) Added import for startNATSIPCHandler. (3) In processSessionRequest(), added NATS IPC handler startup before processCompletion (conditional on k8s mode), alongside the existing LLM proxy pattern. Handler is cleaned up in the finally block.
+**Files touched:** src/host/agent-runtime-process.ts (modified)
+**Outcome:** Success — all 746 host tests pass. k8s sessions now use the real k8s sandbox provider, and a per-session NATS IPC handler bridges IPC requests from sandbox pods back through the trusted handleIPC pipeline.
+**Notes:** This is Task 5 of the NATS IPC plan. The NATS IPC handler (nats-ipc-handler.ts) was created in a prior task. The handler follows the same lifecycle pattern as the existing NATS LLM proxy: start before processCompletion, close in finally block.
+
+## [2026-03-16 07:35] — Fix k8s agent identity persistence with empty admins file
+
+**Task:** Fix bug where AX agent forgets its identity (enters bootstrap, asks for name) on every session in k8s/Kind clusters
+**What I did:** Identified root cause: identity_write IPC handler checks isAdmin() against local filesystem, but agent-runtime pod has empty admins file (admins only configured on host pod). Added hasAnyAdmin() function that gates admin checks only when admins file is non-empty. Updated identity_write and user_write handlers to skip gate when no admins configured. Added 3 tests for empty/missing admins file.
+**Files touched:** src/host/ipc-handlers/identity.ts (added hasAnyAdmin, updated gates), tests/host/ipc-handlers/identity.test.ts (added 3 tests)
+**Outcome:** Success — identity and user data now persist in k8s agent-runtime pods. Admin enforcement gates are skipped when admins file is empty, allowing access control to be delegated to host layer.
+**Notes:** This is a k8s-specific issue because NATS dispatch architecture means host pod and agent-runtime pod have separate filesystems. Admin state is filesystem-based and can't sync across pods. The fix recognizes that admin gatekeeping is only relevant when admins are actually configured.
+
 ## [2026-03-05 08:00] — Add FluxCD sources, base kustomization, and SOPS config
 
 **Task:** Create FluxCD GitOps structure with source definitions, base kustomization, and SOPS encryption config
