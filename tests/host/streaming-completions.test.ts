@@ -98,6 +98,85 @@ function simulateStreamingResponse(
   };
 }
 
+/**
+ * Simulates the streaming logic with try/catch/finally error handling,
+ * matching the fixed server.ts code. Returns chunks, error state, and cleanup state.
+ */
+function simulateStreamingWithErrorHandling(
+  eventBus: EventBus,
+  requestId: string,
+  model: string,
+): {
+  chunks: OpenAIStreamChunk[];
+  cleaned: { unsubscribed: boolean; keepaliveCleared: boolean };
+  run: (emitFn: () => void) => void;
+  runWithError: (error: Error) => void;
+} {
+  const chunks: OpenAIStreamChunk[] = [];
+  const created = Math.floor(Date.now() / 1000);
+  const cleaned = { unsubscribed: false, keepaliveCleared: false };
+
+  function runInternal(emitFn: (() => void) | null, error: Error | null) {
+    // Role chunk
+    chunks.push({
+      id: requestId,
+      object: 'chat.completion.chunk',
+      created,
+      model,
+      choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
+    });
+
+    let streamedContent = false;
+    let hasToolCalls = false;
+    let toolCallIndex = 0;
+
+    const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
+      if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
+        streamedContent = true;
+        chunks.push({
+          id: requestId, object: 'chat.completion.chunk', created, model,
+          choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
+        });
+      }
+    });
+
+    try {
+      if (error) throw error;
+      if (emitFn) emitFn();
+
+      if (!streamedContent) {
+        chunks.push({
+          id: requestId, object: 'chat.completion.chunk', created, model,
+          choices: [{ index: 0, delta: { content: 'fallback' }, finish_reason: null }],
+        });
+      }
+
+      const finishReason = hasToolCalls ? 'tool_calls' as const : 'stop' as const;
+      chunks.push({
+        id: requestId, object: 'chat.completion.chunk', created, model,
+        choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+      });
+    } catch (err) {
+      // Error recovery: send error message and close stream (matches server.ts fix)
+      chunks.push({
+        id: requestId, object: 'chat.completion.chunk', created, model,
+        choices: [{ index: 0, delta: { content: `\n\nInternal processing error: ${(err as Error).message}` }, finish_reason: 'stop' }],
+      });
+    } finally {
+      cleaned.keepaliveCleared = true;
+      cleaned.unsubscribed = true;
+      unsubscribe();
+    }
+  }
+
+  return {
+    chunks,
+    cleaned,
+    run: (emitFn) => runInternal(emitFn, null),
+    runWithError: (error) => runInternal(null, error),
+  };
+}
+
 describe('Streaming chat completions (event bus → SSE)', () => {
   it('converts llm.chunk events into OpenAI SSE content deltas', () => {
     const eventBus = createEventBus();
@@ -326,5 +405,52 @@ describe('Streaming chat completions (event bus → SSE)', () => {
       .map(c => c.choices[0].delta.content)
       .join('');
     expect(streamedText).toBe('The quick brown fox jumps over the lazy dog');
+  });
+
+  it('sends error chunk and closes stream when processCompletion throws', () => {
+    const eventBus = createEventBus();
+    const requestId = 'chatcmpl-test-error';
+
+    const { chunks, cleaned, runWithError } = simulateStreamingWithErrorHandling(
+      eventBus, requestId, 'test-model',
+    );
+
+    runWithError(new Error('Scanner provider failed'));
+
+    // Should have: role chunk + error chunk = 2
+    expect(chunks).toHaveLength(2);
+
+    // Role chunk
+    expect(chunks[0].choices[0].delta.role).toBe('assistant');
+
+    // Error chunk — includes the error message and finishes the stream
+    expect(chunks[1].choices[0].delta.content).toContain('Internal processing error');
+    expect(chunks[1].choices[0].delta.content).toContain('Scanner provider failed');
+    expect(chunks[1].choices[0].finish_reason).toBe('stop');
+
+    // Cleanup must have happened
+    expect(cleaned.unsubscribed).toBe(true);
+    expect(cleaned.keepaliveCleared).toBe(true);
+  });
+
+  it('cleans up event bus subscription even on error', () => {
+    const eventBus = createEventBus();
+    const requestId = 'chatcmpl-test-cleanup';
+
+    const { cleaned, runWithError } = simulateStreamingWithErrorHandling(
+      eventBus, requestId, 'test-model',
+    );
+
+    runWithError(new Error('Sandbox spawn failed'));
+
+    expect(cleaned.unsubscribed).toBe(true);
+    expect(cleaned.keepaliveCleared).toBe(true);
+
+    // Verify subscription was actually removed — emitting after error should not crash
+    eventBus.emit({
+      type: 'llm.chunk', requestId, timestamp: Date.now(),
+      data: { content: 'late event' },
+    });
+    // No assertions needed — just verifying no throw
   });
 });

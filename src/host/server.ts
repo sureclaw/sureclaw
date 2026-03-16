@@ -793,6 +793,15 @@ export async function createServer(
       }
     }
 
+    logger.info('chat_request', {
+      requestId,
+      sessionId,
+      stream: !!chatReq.stream,
+      model: requestModel,
+      userId: userId ?? 'anonymous',
+      messageCount: chatReq.messages.length,
+    });
+
     if (chatReq.stream) {
       // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
       res.writeHead(200, {
@@ -846,32 +855,50 @@ export async function createServer(
         }
       });
 
-      // Run completion — blocks while agent processes, but event callbacks fire during execution
-      const { responseContent, finishReason } = await processCompletion(
-        completionDeps, content, requestId, chatReq.messages, sessionId,
-        undefined, userId,
-      );
+      // Keepalive comment every 15s to prevent proxy/LB timeouts
+      const keepalive = setInterval(() => {
+        try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
+      }, 15_000);
 
-      unsubscribe();
+      try {
+        // Run completion — blocks while agent processes, but event callbacks fire during execution
+        const { responseContent, finishReason } = await processCompletion(
+          completionDeps, content, requestId, chatReq.messages, sessionId,
+          undefined, userId,
+        );
 
-      // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
-      // bypasses the IPC LLM handler), send the full response as a single chunk.
-      if (!streamedContent && responseContent) {
+        // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
+        // bypasses the IPC LLM handler), send the full response as a single chunk.
+        if (!streamedContent && responseContent) {
+          sendSSEChunk(res, {
+            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+            choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
+          });
+        }
+
+        // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
+        const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
         sendSSEChunk(res, {
           id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-          choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
+          choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
         });
+
+        res.write('data: [DONE]\n\n');
+        res.end();
+      } catch (err) {
+        logger.error('stream_completion_failed', { requestId, error: (err as Error).message });
+        if (!res.writableEnded) {
+          sendSSEChunk(res, {
+            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
+            choices: [{ index: 0, delta: { content: `\n\nInternal processing error: ${(err as Error).message}` }, finish_reason: 'stop' }],
+          });
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
+      } finally {
+        clearInterval(keepalive);
+        unsubscribe();
       }
-
-      // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
-      const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
-      sendSSEChunk(res, {
-        id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-        choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
-      });
-
-      res.write('data: [DONE]\n\n');
-      res.end();
     } else {
       // ── Non-streaming mode ──
       const { responseContent, finishReason } = await processCompletion(

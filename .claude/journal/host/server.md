@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-16 15:50] — Fix chat completions streaming hang on error
+
+**Task:** Debug why chat completions requests from web UIs hang with no host logs
+**What I did:** Found two bugs in server.ts handleCompletions streaming path: (1) If processCompletion throws during streaming, SSE headers are already sent, so the outer catch in handleRequest checks `!res.headersSent` (false) and skips calling `res.end()` — leaving the SSE connection open forever. (2) No info-level logging for incoming requests, so users see "no logs" even when requests are being processed. Fixed by wrapping streaming processCompletion in try/catch/finally (matching the pattern already used in host-process.ts), adding SSE keepalive comments, and adding info-level `chat_request` logging.
+**Files touched:** src/host/server.ts, tests/host/streaming-completions.test.ts
+**Outcome:** Success — streaming errors now send an error SSE chunk and close the connection; event bus subscriptions and keepalive timers are cleaned up via finally block
+**Notes:** host-process.ts already had the correct pattern — this was a parity gap in server.ts
+
 ## [2026-03-14 12:10] — Decouple agent from container sandbox in processCompletion
 
 **Task:** For apple/docker container sandboxes, override the agent sandbox to subprocess so the agent loop runs on the host, not inside the container. This is the lazy sandbox wiring step.

@@ -1,5 +1,11 @@
 # Host
 
+### Streaming SSE must use try/catch/finally around processCompletion
+**Date:** 2026-03-16
+**Context:** Chat completions from web UIs hung forever when processCompletion threw during streaming mode
+**Lesson:** When SSE headers are already sent (`res.headersSent === true`), the outer `handleRequest` catch block can't use `sendError()` — it must send an error SSE chunk + `data: [DONE]` + `res.end()` to close the stream. Always wrap streaming processCompletion in try/catch/finally. The `finally` must unsubscribe event bus listeners and clear keepalive timers. host-process.ts has the reference implementation.
+**Tags:** streaming, sse, error-handling, server, hang
+
 ### Admin state is filesystem-based and doesn't sync across k8s pods
 **Date:** 2026-03-16
 **Context:** Fixed k8s agent identity persistence bug. The identity_write IPC handler checked `isAdmin(topDir)` by reading the local filesystem admins file. In k8s with NATS dispatch (separate host pod and agent-runtime pod), the agent-runtime pod always had an empty admins file because admin claims only happen on the host pod. Every identity_write returned `{ queued: true }` instead of persisting data.
