@@ -177,12 +177,25 @@ async function main(): Promise<void> {
 
   // Delegation handler
   async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
+    const tier = req.resourceTier ?? 'default';
+    const tierConfig = config.sandbox.tiers?.[tier] ?? (tier === 'heavy'
+      ? { memory_mb: 2048, cpus: 4 }
+      : { memory_mb: config.sandbox.memory_mb, cpus: 1 });
+
     const childConfig = {
       ...config,
       ...(req.runner ? { agent: req.runner } : {}),
       ...(req.model ? { models: { default: [req.model] } } : {}),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      ...(req.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: req.timeoutSec } } : {}),
+      sandbox: {
+        ...config.sandbox,
+        memory_mb: tierConfig.memory_mb,
+        tiers: {
+          default: tierConfig,
+          heavy: config.sandbox.tiers?.heavy ?? { memory_mb: 2048, cpus: 4 },
+        },
+        ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
+      },
     };
     const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
     const taskPrompt = req.context ? `${req.context}\n\n---\n\nTask: ${req.task}` : req.task;
@@ -557,6 +570,15 @@ async function main(): Promise<void> {
       const keepalive = setInterval(() => {
         try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
       }, SSE_KEEPALIVE_MS);
+
+      // Stop keepalive + event listener when client disconnects mid-stream.
+      // Without this, the timer keeps firing until processCompletion finishes.
+      const onClientGone = () => {
+        clearInterval(keepalive);
+        unsubscribe();
+      };
+      req.on('close', onClientGone);
+      req.on('error', onClientGone);
 
       try {
         const result = await processCompletionWithNATS(

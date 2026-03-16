@@ -2,6 +2,25 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-16 12:22] — Fix delegation CPU tier, git push without GCS, and missing cache key
+
+**Task:** Fix three bugs: (1) delegated CPU tier not propagated to child sandbox, (2) git workspace changes not pushed without GCS prefix, (3) cleanup cache key never passed.
+**What I did:**
+- (1) Set `tiers: { default: tierConfig, heavy: ... }` in child sandbox config in both `server.ts` and `host-process.ts`, so `server-completions.ts:778` reads the resolved tier's cpus. Also added full tier resolution to `host-process.ts` which was missing it entirely.
+- (2) Changed cleanup args to always pass `--push-changes true` (not conditional on `workspaceGcsPrefix`), so git-only setups push changes back.
+- (3) Compute `workspaceCacheKey` on the host side using the same sha256 algorithm as `workspace.ts:computeCacheKey`, pass it via `--cache-key` to both provision and cleanup phases.
+**Files touched:** `src/host/server.ts`, `src/host/host-process.ts`, `src/host/server-completions.ts`
+**Outcome:** Success — all 2442 tests pass, build clean.
+**Notes:** `tiers` type requires both `default` and `heavy` fields; used spread with fallback for `heavy` to preserve any existing config.
+
+## [2026-03-16 12:15] — Fix stream keepalive timer leak on client disconnect + redact error details
+
+**Task:** (1) Stop the SSE keepalive interval when a streaming client disconnects mid-completion. (2) Stop leaking raw exception messages to clients in the streaming error path.
+**What I did:** Added `req.on('close')` and `req.on('error')` handlers in the streaming path of both `server.ts` and `host-process.ts` that clear the keepalive timer and unsubscribe from the event bus. Also replaced the interpolated `(err as Error).message` in server.ts's streaming catch block with a generic string, matching host-process.ts and the non-streaming path.
+**Files touched:** `src/host/server.ts`, `src/host/host-process.ts`
+**Outcome:** Success — keepalive timer stops immediately on client disconnect; error details are logged server-side only and not sent to clients.
+**Notes:** `clearInterval`/`unsubscribe` are idempotent, so the `finally` block remains as a safety net for the normal path.
+
 ## [2026-03-16 15:50] — Fix chat completions streaming hang on error
 
 **Task:** Debug why chat completions requests from web UIs hang with no host logs

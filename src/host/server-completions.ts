@@ -7,7 +7,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { workspaceDir, agentWorkspaceDir, userWorkspaceDir, agentDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
 import { isAdmin } from './server.js';
@@ -791,6 +791,12 @@ export async function processCompletion(
     const workspaceGcsPrefix = process.env.AX_WORKSPACE_GCS_PREFIX;
     const needsProvisioning = isContainerSandbox && workspaceGitUrl;
 
+    // Compute deterministic cache key from git URL (mirrors agent/workspace.ts computeCacheKey).
+    // Used by both provision and cleanup phases for GCS cache restore/update.
+    const workspaceCacheKey = workspaceGitUrl
+      ? createHash('sha256').update(`${workspaceGitUrl}:HEAD`).digest('hex').slice(0, 16)
+      : undefined;
+
     if (needsProvisioning) {
       reqLogger.debug('provision_phase_start', { gitUrl: workspaceGitUrl });
       const provisionArgs = [
@@ -798,6 +804,7 @@ export async function processCompletion(
         '--workspace', workspace,
         '--session', sessionId,
         '--git-url', workspaceGitUrl,
+        ...(workspaceCacheKey ? ['--cache-key', workspaceCacheKey] : []),
         ...(workspaceGcsPrefix ? ['--session-gcs-prefix', workspaceGcsPrefix] : []),
       ];
       await agentSandbox.spawn({
@@ -1019,7 +1026,9 @@ export async function processCompletion(
           '/opt/ax/dist/agent/workspace-cli.js', 'cleanup',
           '--workspace', workspace,
           '--session', sessionId,
-          ...(workspaceGcsPrefix ? ['--push-changes', 'true', '--update-cache', 'true'] : []),
+          '--push-changes', 'true',
+          ...(workspaceGcsPrefix ? ['--update-cache', 'true'] : []),
+          ...(workspaceCacheKey ? ['--cache-key', workspaceCacheKey] : []),
         ];
         await agentSandbox.spawn({
           ...sandboxConfig,

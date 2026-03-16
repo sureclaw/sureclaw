@@ -389,6 +389,10 @@ export async function createServer(
       sandbox: {
         ...config.sandbox,
         memory_mb: tierConfig.memory_mb,
+        tiers: {
+          default: tierConfig,
+          heavy: config.sandbox.tiers?.heavy ?? { memory_mb: 2048, cpus: 4 },
+        },
         ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
       },
     };
@@ -860,6 +864,15 @@ export async function createServer(
         try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
       }, 15_000);
 
+      // Stop keepalive + event listener when client disconnects mid-stream.
+      // Without this, the timer keeps firing until processCompletion finishes.
+      const onClientGone = () => {
+        clearInterval(keepalive);
+        unsubscribe();
+      };
+      req.on('close', onClientGone);
+      req.on('error', onClientGone);
+
       try {
         // Run completion — blocks while agent processes, but event callbacks fire during execution
         const { responseContent, finishReason } = await processCompletion(
@@ -890,7 +903,7 @@ export async function createServer(
         if (!res.writableEnded) {
           sendSSEChunk(res, {
             id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: `\n\nInternal processing error: ${(err as Error).message}` }, finish_reason: 'stop' }],
+            choices: [{ index: 0, delta: { content: '\n\nInternal processing error' }, finish_reason: 'stop' }],
           });
           res.write('data: [DONE]\n\n');
           res.end();
