@@ -6,6 +6,11 @@ import type {
   ServerConfig,
   Session,
   StreamEvent,
+  DocumentEntry,
+  SkillEntry,
+  SkillContent,
+  WorkspaceFileEntry,
+  MemoryEntryView,
 } from './types';
 
 const BASE = '/admin/api';
@@ -109,6 +114,33 @@ export const api = {
   /** List sessions. */
   sessions(): Promise<Session[]> {
     return apiFetch<Session[]>('/sessions');
+  },
+
+  /** List identity documents for an agent. */
+  agentIdentity(id: string): Promise<DocumentEntry[]> {
+    return apiFetch<DocumentEntry[]>(`/agents/${encodeURIComponent(id)}/identity`);
+  },
+
+  /** List skills for an agent. */
+  agentSkills(id: string): Promise<SkillEntry[]> {
+    return apiFetch<SkillEntry[]>(`/agents/${encodeURIComponent(id)}/skills`);
+  },
+
+  /** Read a single skill's content. */
+  agentSkillContent(id: string, name: string): Promise<SkillContent> {
+    return apiFetch<SkillContent>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`);
+  },
+
+  /** List workspace files for an agent. */
+  agentWorkspace(id: string, scope = 'agent'): Promise<WorkspaceFileEntry[]> {
+    return apiFetch<WorkspaceFileEntry[]>(`/agents/${encodeURIComponent(id)}/workspace?scope=${scope}`);
+  },
+
+  /** List memory entries for an agent. */
+  agentMemory(id: string, scope = 'general', limit = 50): Promise<MemoryEntryView[]> {
+    return apiFetch<MemoryEntryView[]>(
+      `/agents/${encodeURIComponent(id)}/memory?scope=${encodeURIComponent(scope)}&limit=${limit}`
+    );
   },
 };
 

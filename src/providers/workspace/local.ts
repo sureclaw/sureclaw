@@ -8,7 +8,7 @@
 // All path construction from input uses safePath() (SC-SEC-004).
 
 import { createHash } from 'node:crypto';
-import { readdir, readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
+import { readdir, readFile, mkdir, writeFile, unlink, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { safePath } from '../../utils/safe-path.js';
@@ -199,7 +199,7 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
     checkCanary() { return false; },
   };
 
-  return createOrchestrator({
+  const provider = createOrchestrator({
     backend,
     scanner,
     config: {
@@ -211,4 +211,23 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
     },
     agentId,
   });
+
+  provider.listFiles = async (scope, id) => {
+    const folder = scope === 'session' ? 'scratch' : scope;
+    const scopeDir = safePath(basePath, folder, id);
+    const files = await listFiles(scopeDir);
+    const entries = [];
+    for (const relPath of files) {
+      const fullPath = join(scopeDir, relPath);
+      try {
+        const s = await stat(fullPath);
+        entries.push({ path: relPath, size: s.size });
+      } catch {
+        entries.push({ path: relPath, size: 0 });
+      }
+    }
+    return entries;
+  };
+
+  return provider;
 }

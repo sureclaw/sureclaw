@@ -237,6 +237,83 @@ async function handleAdminAPI(
     return;
   }
 
+  // GET /admin/api/agents/:id/identity — list identity documents
+  const identityMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/identity$/);
+  if (identityMatch && method === 'GET') {
+    const id = decodeURIComponent(identityMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    const agentName = agent.name;
+    const allKeys = await providers.storage.documents.list('identity');
+    const prefix = `${agentName}/`;
+    const files = [];
+    for (const key of allKeys) {
+      if (!key.startsWith(prefix)) continue;
+      const content = await providers.storage.documents.get('identity', key);
+      files.push({ key: key.slice(prefix.length), content: content ?? '' });
+    }
+    sendJSON(res, files);
+    return;
+  }
+
+  // GET /admin/api/agents/:id/skills — list skills
+  const skillsListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills$/);
+  if (skillsListMatch && method === 'GET') {
+    const id = decodeURIComponent(skillsListMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    const skills = await providers.skills.list();
+    sendJSON(res, skills);
+    return;
+  }
+
+  // GET /admin/api/agents/:id/skills/:name — read skill content
+  const skillReadMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills\/(.+)$/);
+  if (skillReadMatch && method === 'GET') {
+    const id = decodeURIComponent(skillReadMatch[1]);
+    const skillName = decodeURIComponent(skillReadMatch[2]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    try {
+      const content = await providers.skills.read(skillName);
+      sendJSON(res, { name: skillName, content });
+    } catch {
+      sendError(res, 404, 'Skill not found');
+    }
+    return;
+  }
+
+  // GET /admin/api/agents/:id/workspace — list workspace files
+  const workspaceMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/workspace$/);
+  if (workspaceMatch && method === 'GET') {
+    const id = decodeURIComponent(workspaceMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    if (!providers.workspace.listFiles) {
+      sendJSON(res, []);
+      return;
+    }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const scope = (url.searchParams.get('scope') ?? 'agent') as 'agent' | 'user' | 'session';
+    const files = await providers.workspace.listFiles(scope, agent.name);
+    sendJSON(res, files);
+    return;
+  }
+
+  // GET /admin/api/agents/:id/memory — list memory entries
+  const memoryMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/memory$/);
+  if (memoryMatch && method === 'GET') {
+    const id = decodeURIComponent(memoryMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const scope = url.searchParams.get('scope') ?? 'general';
+    const limit = parseInt(url.searchParams.get('limit') ?? '50');
+    const entries = await providers.memory.list(scope, limit);
+    sendJSON(res, entries);
+    return;
+  }
+
   // GET /admin/api/audit
   if (pathname.startsWith('/admin/api/audit') && method === 'GET') {
     const url = new URL(req.url ?? '/', 'http://localhost');

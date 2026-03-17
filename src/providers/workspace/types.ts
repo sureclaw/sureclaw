@@ -93,6 +93,15 @@ export interface RemoteFileChange {
 }
 
 // ═══════════════════════════════════════════════════════
+// File Listing (admin dashboard browsing)
+// ═══════════════════════════════════════════════════════
+
+export interface WorkspaceFileEntry {
+  path: string;
+  size: number;
+}
+
+// ═══════════════════════════════════════════════════════
 // Provider Interface
 // ═══════════════════════════════════════════════════════
 
@@ -111,4 +120,7 @@ export interface WorkspaceProvider {
 
   /** Store file changes received from remote agent (k8s NATS mode). */
   setRemoteChanges?(sessionId: string, changes: RemoteFileChange[]): void;
+
+  /** List files in a workspace scope (admin browsing). Optional — not all backends support it. */
+  listFiles?(scope: WorkspaceScope, id: string): Promise<WorkspaceFileEntry[]>;
 }

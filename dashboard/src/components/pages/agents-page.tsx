@@ -8,10 +8,23 @@ import {
   Clock,
   XCircle,
   CheckCircle,
+  FileText,
+  Sparkles,
+  FolderOpen,
+  Brain,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useApi } from '../../hooks/use-api';
-import type { Agent } from '../../lib/types';
+import type {
+  Agent,
+  DocumentEntry,
+  SkillEntry,
+  WorkspaceFileEntry,
+  MemoryEntryView,
+} from '../../lib/types';
 
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
@@ -32,6 +45,408 @@ function formatDate(ts: string): string {
   return new Date(ts).toLocaleString();
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '--';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type TabId = 'info' | 'identity' | 'skills' | 'workspace' | 'memory';
+
+const TABS: { id: TabId; label: string; icon: typeof Info }[] = [
+  { id: 'info', label: 'Info', icon: Info },
+  { id: 'identity', label: 'Identity', icon: FileText },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'workspace', label: 'Workspace', icon: FolderOpen },
+  { id: 'memory', label: 'Memory', icon: Brain },
+];
+
+// ── Tab Content Components ──
+
+function InfoTab({
+  agent,
+  killed,
+  killing,
+  killError,
+  onKill,
+}: {
+  agent: Agent;
+  killed: boolean;
+  killing: boolean;
+  killError: string;
+  onKill: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* Metadata grid */}
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+            ID
+          </p>
+          <p className="text-foreground/70 font-mono text-[11px] break-all">
+            {agent.id}
+          </p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+            Type
+          </p>
+          <p className="text-foreground/70 text-[13px]">{agent.agentType}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+            Created By
+          </p>
+          <p className="text-foreground/70 text-[13px]">{agent.createdBy}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+            Created At
+          </p>
+          <p className="text-foreground/70 text-[13px]">{formatDate(agent.createdAt)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+            Updated At
+          </p>
+          <p className="text-foreground/70 text-[13px]">{formatDate(agent.updatedAt)}</p>
+        </div>
+        {agent.parentId && (
+          <div>
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
+              Parent ID
+            </p>
+            <p className="text-foreground/70 font-mono text-[11px] break-all">
+              {agent.parentId}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Capabilities */}
+      {agent.capabilities.length > 0 && (
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-1.5">
+            Capabilities
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {agent.capabilities.map((cap) => (
+              <span key={cap} className="badge-zinc">
+                {cap}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Children */}
+      {agent.children && agent.children.length > 0 && (
+        <div>
+          <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-1.5">
+            Child Agents ({agent.children.length})
+          </p>
+          <div className="space-y-1.5">
+            {agent.children.map((child) => (
+              <div
+                key={child.id}
+                className="flex items-center justify-between p-2 rounded-lg border border-border/30 bg-foreground/[0.02] text-[13px]"
+              >
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      child.status === 'running'
+                        ? 'bg-emerald animate-pulse-live'
+                        : 'bg-muted-foreground/50'
+                    }`}
+                  />
+                  <span className="text-foreground/70">{child.name}</span>
+                </div>
+                <StatusBadge status={child.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Kill button */}
+      {(agent.status === 'running' || agent.status === 'idle') && !killed && (
+        <div className="pt-2 border-t border-border/30">
+          {killError && (
+            <div className="flex items-center gap-2 p-2 mb-3 rounded-lg bg-rose/5 border border-rose/15">
+              <AlertTriangle size={14} className="text-rose shrink-0" />
+              <p className="text-[13px] text-rose">{killError}</p>
+            </div>
+          )}
+          <button
+            onClick={onKill}
+            disabled={killing}
+            className="btn-danger w-full flex items-center justify-center gap-2 text-[13px]"
+          >
+            {killing ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Killing...
+              </>
+            ) : (
+              <>
+                <XCircle size={14} />
+                Kill Agent
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {killed && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald/5 border border-emerald/15">
+          <CheckCircle size={14} className="text-emerald shrink-0" />
+          <p className="text-[13px] text-emerald">
+            Agent killed successfully. Refresh to update the list.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IdentityTab({ agentId }: { agentId: string }) {
+  const { data: docs, loading, error } = useApi<DocumentEntry[]>(
+    () => api.agentIdentity(agentId),
+    [agentId]
+  );
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (loading) return <TabSkeleton />;
+  if (error) return <TabError message={error.message} />;
+  if (!docs || docs.length === 0) return <TabEmpty label="No identity files" />;
+
+  return (
+    <div className="space-y-2">
+      {docs.map((doc) => (
+        <div key={doc.key} className="rounded-lg border border-border/30 overflow-hidden">
+          <button
+            onClick={() => setExpanded(expanded === doc.key ? null : doc.key)}
+            className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-foreground/[0.02] transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <FileText size={12} className="text-amber shrink-0" />
+              <span className="text-[13px] font-medium text-foreground">{doc.key}</span>
+            </div>
+            {expanded === doc.key ? (
+              <ChevronUp size={12} className="text-muted-foreground" />
+            ) : (
+              <ChevronDown size={12} className="text-muted-foreground" />
+            )}
+          </button>
+          {expanded === doc.key && (
+            <div className="px-3 pb-3 border-t border-border/20">
+              <pre className="text-[11px] text-foreground/70 font-mono whitespace-pre-wrap mt-2 max-h-[300px] overflow-y-auto">
+                {doc.content}
+              </pre>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SkillsTab({ agentId }: { agentId: string }) {
+  const { data: skills, loading, error } = useApi<SkillEntry[]>(
+    () => api.agentSkills(agentId),
+    [agentId]
+  );
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [skillContent, setSkillContent] = useState<Record<string, string>>({});
+  const [loadingSkill, setLoadingSkill] = useState<string | null>(null);
+
+  const toggleSkill = async (name: string) => {
+    if (expanded === name) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(name);
+    if (!skillContent[name]) {
+      setLoadingSkill(name);
+      try {
+        const result = await api.agentSkillContent(agentId, name);
+        setSkillContent((prev) => ({ ...prev, [name]: result.content }));
+      } catch {
+        setSkillContent((prev) => ({ ...prev, [name]: '(failed to load)' }));
+      } finally {
+        setLoadingSkill(null);
+      }
+    }
+  };
+
+  if (loading) return <TabSkeleton />;
+  if (error) return <TabError message={error.message} />;
+  if (!skills || skills.length === 0) return <TabEmpty label="No skills" />;
+
+  return (
+    <div className="space-y-2">
+      {skills.map((skill) => (
+        <div key={skill.name} className="rounded-lg border border-border/30 overflow-hidden">
+          <button
+            onClick={() => toggleSkill(skill.name)}
+            className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-foreground/[0.02] transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Sparkles size={12} className="text-violet shrink-0" />
+              <span className="text-[13px] font-medium text-foreground truncate">{skill.name}</span>
+            </div>
+            {expanded === skill.name ? (
+              <ChevronUp size={12} className="text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronDown size={12} className="text-muted-foreground shrink-0" />
+            )}
+          </button>
+          {skill.description && expanded !== skill.name && (
+            <p className="px-3 pb-2 text-[11px] text-muted-foreground truncate">{skill.description}</p>
+          )}
+          {expanded === skill.name && (
+            <div className="px-3 pb-3 border-t border-border/20">
+              {loadingSkill === skill.name ? (
+                <div className="skeleton h-20 w-full mt-2" />
+              ) : (
+                <pre className="text-[11px] text-foreground/70 font-mono whitespace-pre-wrap mt-2 max-h-[300px] overflow-y-auto">
+                  {skillContent[skill.name] ?? ''}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkspaceTab({ agentId }: { agentId: string }) {
+  const { data: files, loading, error } = useApi<WorkspaceFileEntry[]>(
+    () => api.agentWorkspace(agentId),
+    [agentId]
+  );
+
+  if (loading) return <TabSkeleton />;
+  if (error) return <TabError message={error.message} />;
+  if (!files || files.length === 0) return <TabEmpty label="No workspace files" />;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between px-1 pb-2">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+          Agent workspace
+        </p>
+        <span className="text-[10px] text-muted-foreground">{files.length} files</span>
+      </div>
+      {files.map((file) => (
+        <div
+          key={file.path}
+          className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-foreground/[0.02] transition-colors"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText size={12} className="text-sky shrink-0" />
+            <span className="text-[12px] font-mono text-foreground/70 truncate">{file.path}</span>
+          </div>
+          <span className="text-[10px] text-muted-foreground shrink-0 ml-2">
+            {formatBytes(file.size)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MemoryTab({ agentId }: { agentId: string }) {
+  const [scope, setScope] = useState('general');
+  const { data: entries, loading, error } = useApi<MemoryEntryView[]>(
+    () => api.agentMemory(agentId, scope, 50),
+    [agentId, scope]
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+          Scope
+        </label>
+        <input
+          type="text"
+          value={scope}
+          onChange={(e) => setScope(e.target.value)}
+          className="input text-[12px] px-2 py-1 w-28"
+          placeholder="general"
+        />
+      </div>
+
+      {loading && <TabSkeleton />}
+      {error && <TabError message={error.message} />}
+      {!loading && !error && (!entries || entries.length === 0) && (
+        <TabEmpty label="No memory entries" />
+      )}
+
+      {entries && entries.length > 0 && (
+        <div className="space-y-2">
+          {entries.map((entry, i) => (
+            <div
+              key={entry.id ?? i}
+              className="p-3 rounded-lg border border-border/30 bg-foreground/[0.02]"
+            >
+              <p className="text-[12px] text-foreground/80 whitespace-pre-wrap break-words">
+                {entry.content}
+              </p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                {entry.tags &&
+                  entry.tags.map((tag) => (
+                    <span key={tag} className="badge-zinc text-[9px]">
+                      {tag}
+                    </span>
+                  ))}
+                {entry.createdAt && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {formatDate(entry.createdAt)}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Shared helpers ──
+
+function TabSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="skeleton h-10 w-full" />
+      ))}
+    </div>
+  );
+}
+
+function TabError({ message }: { message: string }) {
+  return (
+    <div className="flex items-center gap-2 p-3 rounded-lg bg-rose/5 border border-rose/15">
+      <AlertTriangle size={14} className="text-rose shrink-0" />
+      <p className="text-[12px] text-rose">{message}</p>
+    </div>
+  );
+}
+
+function TabEmpty({ label }: { label: string }) {
+  return (
+    <div className="text-center py-8 text-[13px] text-muted-foreground">{label}</div>
+  );
+}
+
+// ── Agent Detail Panel ──
+
 function AgentDetail({
   agent,
   onClose,
@@ -41,6 +456,7 @@ function AgentDetail({
   onClose: () => void;
   onKill: (id: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<TabId>('info');
   const [killing, setKilling] = useState(false);
   const [killError, setKillError] = useState('');
   const [killed, setKilled] = useState(false);
@@ -60,160 +476,72 @@ function AgentDetail({
 
   return (
     <div className="card">
+      {/* Header */}
       <div className="card-header flex items-center justify-between">
-        <h3 className="text-[14px] font-semibold tracking-tight text-foreground">Agent Details</h3>
+        <div className="flex items-center gap-2 min-w-0">
+          <Terminal size={14} className="text-amber shrink-0" />
+          <h3 className="text-[14px] font-semibold tracking-tight text-foreground truncate">
+            {agent.name}
+          </h3>
+          <StatusBadge status={killed ? 'stopped' : agent.status} />
+        </div>
         <button
           onClick={onClose}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
         >
-          <XCircle size={18} />
+          <XCircle size={16} />
         </button>
       </div>
-      <div className="card-body space-y-4">
-        {/* Identity */}
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Terminal size={16} className="text-amber" />
-            <h4 className="font-medium text-foreground">{agent.name}</h4>
-            <StatusBadge status={killed ? 'stopped' : agent.status} />
-          </div>
-          {agent.description && (
-            <p className="text-[13px] text-muted-foreground">{agent.description}</p>
-          )}
+
+      {agent.description && (
+        <p className="px-6 pt-2 text-[12px] text-muted-foreground">{agent.description}</p>
+      )}
+
+      {/* Tab bar */}
+      <div className="border-b border-border/30 px-4 pt-2">
+        <div className="flex gap-0.5">
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium rounded-t-md transition-colors ${
+                  isActive
+                    ? 'text-amber border-b-2 border-amber bg-amber/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-foreground/[0.03]'
+                }`}
+              >
+                <Icon size={11} strokeWidth={1.8} />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Metadata grid */}
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-              ID
-            </p>
-            <p className="text-foreground/70 font-mono text-[11px] break-all">
-              {agent.id}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-              Type
-            </p>
-            <p className="text-foreground/70 text-[13px]">{agent.agentType}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-              Created By
-            </p>
-            <p className="text-foreground/70 text-[13px]">{agent.createdBy}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-              Created At
-            </p>
-            <p className="text-foreground/70 text-[13px]">{formatDate(agent.createdAt)}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-              Updated At
-            </p>
-            <p className="text-foreground/70 text-[13px]">{formatDate(agent.updatedAt)}</p>
-          </div>
-          {agent.parentId && (
-            <div>
-              <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-0.5">
-                Parent ID
-              </p>
-              <p className="text-foreground/70 font-mono text-[11px] break-all">
-                {agent.parentId}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Capabilities */}
-        {agent.capabilities.length > 0 && (
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-1.5">
-              Capabilities
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {agent.capabilities.map((cap) => (
-                <span key={cap} className="badge-zinc">
-                  {cap}
-                </span>
-              ))}
-            </div>
-          </div>
+      {/* Tab content */}
+      <div className="card-body">
+        {activeTab === 'info' && (
+          <InfoTab
+            agent={agent}
+            killed={killed}
+            killing={killing}
+            killError={killError}
+            onKill={handleKill}
+          />
         )}
-
-        {/* Children */}
-        {agent.children && agent.children.length > 0 && (
-          <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide font-medium mb-1.5">
-              Child Agents ({agent.children.length})
-            </p>
-            <div className="space-y-1.5">
-              {agent.children.map((child) => (
-                <div
-                  key={child.id}
-                  className="flex items-center justify-between p-2 rounded-lg border border-border/30 bg-foreground/[0.02] text-[13px]"
-                >
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`w-1.5 h-1.5 rounded-full ${
-                        child.status === 'running'
-                          ? 'bg-emerald animate-pulse-live'
-                          : 'bg-muted-foreground/50'
-                      }`}
-                    />
-                    <span className="text-foreground/70">{child.name}</span>
-                  </div>
-                  <StatusBadge status={child.status} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Kill button */}
-        {(agent.status === 'running' || agent.status === 'idle') && !killed && (
-          <div className="pt-2 border-t border-border/30">
-            {killError && (
-              <div className="flex items-center gap-2 p-2 mb-3 rounded-lg bg-rose/5 border border-rose/15">
-                <AlertTriangle size={14} className="text-rose shrink-0" />
-                <p className="text-[13px] text-rose">{killError}</p>
-              </div>
-            )}
-            <button
-              onClick={handleKill}
-              disabled={killing}
-              className="btn-danger w-full flex items-center justify-center gap-2 text-[13px]"
-            >
-              {killing ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Killing...
-                </>
-              ) : (
-                <>
-                  <XCircle size={14} />
-                  Kill Agent
-                </>
-              )}
-            </button>
-          </div>
-        )}
-
-        {killed && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald/5 border border-emerald/15">
-            <CheckCircle size={14} className="text-emerald shrink-0" />
-            <p className="text-[13px] text-emerald">
-              Agent killed successfully. Refresh to update the list.
-            </p>
-          </div>
-        )}
+        {activeTab === 'identity' && <IdentityTab agentId={agent.id} />}
+        {activeTab === 'skills' && <SkillsTab agentId={agent.id} />}
+        {activeTab === 'workspace' && <WorkspaceTab agentId={agent.id} />}
+        {activeTab === 'memory' && <MemoryTab agentId={agent.id} />}
       </div>
     </div>
   );
 }
+
+// ── Main Page ──
 
 export default function AgentsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);

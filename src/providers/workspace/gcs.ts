@@ -398,5 +398,19 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
     };
   }
 
+  // List files from GCS bucket for admin dashboard browsing.
+  provider.listFiles = async (scope, id) => {
+    const folder = scope === 'session' ? 'scratch' : scope;
+    const base = prefix.endsWith('/') ? prefix : prefix ? `${prefix}/` : '';
+    const keyPrefix = `${base}${folder}/${id}/`;
+    const [files] = await bucket.getFiles({ prefix: keyPrefix });
+    return files
+      .map(f => {
+        const path = f.name.slice(keyPrefix.length);
+        return path ? { path, size: 0 } : null;
+      })
+      .filter((f): f is { path: string; size: number } => f !== null);
+  };
+
   return provider;
 }

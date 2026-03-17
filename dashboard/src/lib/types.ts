@@ -74,6 +74,41 @@ export interface ServerConfig {
   [key: string]: unknown;
 }
 
+/** Identity document from the document store. */
+export interface DocumentEntry {
+  key: string;
+  content: string;
+}
+
+/** Skill metadata. */
+export interface SkillEntry {
+  name: string;
+  description?: string;
+  path: string;
+}
+
+/** Skill with content. */
+export interface SkillContent {
+  name: string;
+  content: string;
+}
+
+/** Workspace file entry. */
+export interface WorkspaceFileEntry {
+  path: string;
+  size: number;
+}
+
+/** Memory entry. */
+export interface MemoryEntryView {
+  id?: string;
+  scope: string;
+  content: string;
+  tags?: string[];
+  createdAt?: string;
+  agentId?: string;
+}
+
 /** Setup status response. */
 export interface SetupStatus {
   configured: boolean;
