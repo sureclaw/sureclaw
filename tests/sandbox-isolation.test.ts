@@ -534,6 +534,26 @@ describe('sandbox workspaceLocation capability', () => {
   });
 });
 
+// ── Work Payload Workspace Provisioning Fields ───────────────────────
+
+describe('work payload includes workspace provisioning fields', () => {
+  test('stdinPayload includes GCS scope fields when workspace provider is active', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
+    expect(source).toContain('agentGcsPrefix');
+    expect(source).toContain('userGcsPrefix');
+    expect(source).toContain('sessionGcsPrefix');
+  });
+
+  test('StdinPayload type includes provisioning fields', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
+    expect(source).toContain('workspaceGitUrl');
+    expect(source).toContain('agentGcsPrefix');
+    expect(source).toContain('agentReadOnly');
+  });
+});
+
 // ── IPC Tools ────────────────────────────────────────────────────────
 
 describe('IPC tools do not expose paths', () => {

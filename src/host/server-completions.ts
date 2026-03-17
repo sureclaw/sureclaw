@@ -799,6 +799,13 @@ export async function processCompletion(
     // GCS-backed, and writing on every request would create unnecessary cloud
     // I/O and stale files. The agent workspace mount is read-only for identity.
 
+    // Workspace provisioning vars — hoisted before stdinPayload so they're available in the payload.
+    const workspaceGitUrl = process.env.AX_WORKSPACE_GIT_URL;
+    const workspaceGcsPrefix = process.env.AX_WORKSPACE_GCS_PREFIX;
+    const workspaceCacheKey = workspaceGitUrl
+      ? createHash('sha256').update(`${workspaceGitUrl}:HEAD`).digest('hex').slice(0, 16)
+      : undefined;
+
     // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);
     const stdinPayload = JSON.stringify({
@@ -824,6 +831,14 @@ export async function processCompletion(
       // Identity and skills from DocumentStore (not filesystem)
       identity: identityPayload,
       skills: skillsPayload,
+      // Workspace provisioning fields (sandbox-side providers provision in-pod)
+      workspaceGitUrl: process.env.AX_WORKSPACE_GIT_URL,
+      workspaceGitRef: process.env.AX_WORKSPACE_GIT_REF,
+      workspaceCacheKey,
+      agentGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}agent/${agentName}/` : undefined,
+      userGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}user/${currentUserId}/` : undefined,
+      sessionGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}scratch/${sessionId}/` : undefined,
+      agentReadOnly: !agentWorkspaceWritable,
     });
 
     // Spawn, run, and collect agent output — with retry on transient crashes.
@@ -850,15 +865,7 @@ export async function processCompletion(
     // ── Three-phase container orchestration ──
     // When workspace has GCS config, run provision phase (with network) before
     // the agent and cleanup phase (with network) after.
-    const workspaceGitUrl = process.env.AX_WORKSPACE_GIT_URL;
-    const workspaceGcsPrefix = process.env.AX_WORKSPACE_GCS_PREFIX;
     const needsProvisioning = isContainerSandbox && workspaceGitUrl;
-
-    // Compute deterministic cache key from git URL (mirrors agent/workspace.ts computeCacheKey).
-    // Used by both provision and cleanup phases for GCS cache restore/update.
-    const workspaceCacheKey = workspaceGitUrl
-      ? createHash('sha256').update(`${workspaceGitUrl}:HEAD`).digest('hex').slice(0, 16)
-      : undefined;
 
     if (needsProvisioning) {
       reqLogger.debug('provision_phase_start', { gitUrl: workspaceGitUrl });

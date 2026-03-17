@@ -284,6 +284,20 @@ export interface StdinPayload {
   identity?: Partial<IdentityFiles>;
   /** Pre-loaded skills from host (loaded from DocumentStore). */
   skills?: SkillPayload[];
+  /** Git URL for scratch workspace provisioning (k8s in-pod). */
+  workspaceGitUrl?: string;
+  /** Git ref for workspace checkout. */
+  workspaceGitRef?: string;
+  /** GCS cache key for workspace restore. */
+  workspaceCacheKey?: string;
+  /** GCS prefix for agent scope provisioning. */
+  agentGcsPrefix?: string;
+  /** GCS prefix for user scope provisioning. */
+  userGcsPrefix?: string;
+  /** GCS prefix for session/scratch scope provisioning. */
+  sessionGcsPrefix?: string;
+  /** Whether agent scope is read-only (non-admin users). */
+  agentReadOnly?: boolean;
 }
 
 /**
@@ -330,6 +344,14 @@ export function parseStdinPayload(data: string): StdinPayload {
         // Identity and skills from host (loaded from DocumentStore)
         identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
         skills: Array.isArray(parsed.skills) ? parsed.skills as SkillPayload[] : undefined,
+        // Workspace provisioning fields (sandbox-side providers provision in-pod)
+        workspaceGitUrl: typeof parsed.workspaceGitUrl === 'string' ? parsed.workspaceGitUrl : undefined,
+        workspaceGitRef: typeof parsed.workspaceGitRef === 'string' ? parsed.workspaceGitRef : undefined,
+        workspaceCacheKey: typeof parsed.workspaceCacheKey === 'string' ? parsed.workspaceCacheKey : undefined,
+        agentGcsPrefix: typeof parsed.agentGcsPrefix === 'string' ? parsed.agentGcsPrefix : undefined,
+        userGcsPrefix: typeof parsed.userGcsPrefix === 'string' ? parsed.userGcsPrefix : undefined,
+        sessionGcsPrefix: typeof parsed.sessionGcsPrefix === 'string' ? parsed.sessionGcsPrefix : undefined,
+        agentReadOnly: parsed.agentReadOnly === true,
       };
     }
   } catch {
