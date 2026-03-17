@@ -65,6 +65,16 @@ interface StagingEntry {
  */
 const stagingStore = new Map<string, StagingEntry>();
 
+/**
+ * Token registry: maps per-turn tokens to their bound IPC handler + context.
+ * Registered before sandbox spawn, deleted in finally block.
+ * Used by /internal/ipc and /internal/llm-proxy HTTP routes.
+ */
+export const activeTokens = new Map<string, {
+  handleIPC: (raw: string, ctx: IPCContext) => Promise<string>;
+  ctx: IPCContext;
+}>();
+
 /** Periodically clean up expired staging entries. */
 function cleanupStaging(): void {
   const now = Date.now();
@@ -448,6 +458,16 @@ async function main(): Promise<void> {
         }
       : handleIPC;
 
+    // Register turn token for HTTP IPC route (/internal/ipc).
+    // This allows the sandbox pod to call the host via HTTP with bearer token auth.
+    if (isK8s) {
+      activeTokens.set(turnToken, {
+        handleIPC: wrappedHandleIPC,
+        ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
+      });
+      logger.info('token_registered', { sessionId, requestId, turnToken });
+    }
+
     // Start NATS IPC handler for k8s sessions — the sandbox pod's
     // NATSIPCClient publishes to ipc.request.{requestId}.{token}, and this
     // handler routes those requests through the existing handleIPC pipeline.
@@ -536,6 +556,7 @@ async function main(): Promise<void> {
       return result;
     } finally {
       if (agentTimer) clearTimeout(agentTimer);
+      activeTokens.delete(turnToken);
       if (llmProxy) {
         llmProxy.close();
         logger.info('nats_llm_proxy_closed', { sessionId, requestId });
@@ -641,6 +662,27 @@ async function main(): Promise<void> {
       } catch (err) {
         logger.error('workspace_staging_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Staging upload failed');
+      }
+      return;
+    }
+
+    // IPC over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
+    if (url === '/internal/ipc' && req.method === 'POST') {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const body = await readBody(req, 1_048_576); // 1MB max
+        const result = await entry.handleIPC(body.toString(), entry.ctx);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(result);
+      } catch (err) {
+        logger.error('internal_ipc_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'IPC request failed');
       }
       return;
     }
