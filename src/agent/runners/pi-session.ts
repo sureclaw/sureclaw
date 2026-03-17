@@ -28,6 +28,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import { IPCClient } from '../ipc-client.js';
+import { startWebProxyBridge, type WebProxyBridge } from '../web-proxy-bridge.js';
 import { compactHistory, historyToPiMessages } from '../runner.js';
 import type { AgentConfig, IIPCClient } from '../runner.js';
 import { convertPiMessages, emitStreamEvents } from '../stream-utils.js';
@@ -315,6 +316,35 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     return;
   }
 
+  // Start web proxy bridge for outbound HTTP/HTTPS access if available
+  let webProxyBridge: WebProxyBridge | undefined;
+  const webProxySocket = process.env.AX_WEB_PROXY_SOCKET;
+  const webProxyUrl = process.env.AX_WEB_PROXY_URL;
+  const webProxyPort = process.env.AX_WEB_PROXY_PORT;
+  if (webProxySocket) {
+    try {
+      webProxyBridge = await startWebProxyBridge(webProxySocket);
+      logger.info('web_proxy_bridge_started', { port: webProxyBridge.port });
+    } catch (err) {
+      logger.warn('web_proxy_bridge_failed', { error: (err as Error).message });
+    }
+  }
+
+  // Set HTTP_PROXY env vars for child processes
+  const webProxyEnvUrl = webProxyBridge
+    ? `http://127.0.0.1:${webProxyBridge.port}`
+    : webProxyUrl
+      ? webProxyUrl
+      : webProxyPort
+        ? `http://127.0.0.1:${webProxyPort}`
+        : undefined;
+  if (webProxyEnvUrl) {
+    process.env.HTTP_PROXY = webProxyEnvUrl;
+    process.env.HTTPS_PROXY = webProxyEnvUrl;
+    process.env.http_proxy = webProxyEnvUrl;
+    process.env.https_proxy = webProxyEnvUrl;
+  }
+
   // Decide LLM transport: proxy (direct Anthropic SDK) or IPC fallback
   const useProxy = !!config.proxySocket;
   const activeModel = useProxy ? createProxyModel(config.maxTokens, config.model) : createIPCModel(config.maxTokens, config.model);
@@ -469,5 +499,6 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   }
 
   session.dispose();
+  if (webProxyBridge) webProxyBridge.stop();
   client.disconnect();
 }

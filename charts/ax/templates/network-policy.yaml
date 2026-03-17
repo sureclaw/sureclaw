@@ -1,0 +1,25 @@
+{{- if .Values.webProxy.enabled }}
+# Allow sandbox pods to reach the web proxy on the host pod.
+# Sandbox pods have no other egress except NATS (port 4222).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ax-sandbox-web-proxy-egress
+  labels:
+    app.kubernetes.io/name: ax-network-policy
+    app.kubernetes.io/component: web-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app: ax-sandbox
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ax-host
+      ports:
+        - port: 3128
+          protocol: TCP
+{{- end }}

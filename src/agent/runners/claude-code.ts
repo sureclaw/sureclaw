@@ -23,6 +23,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { IPCClient } from '../ipc-client.js';
 import { startTCPBridge } from '../tcp-bridge.js';
+import { startWebProxyBridge, type WebProxyBridge } from '../web-proxy-bridge.js';
 import { createIPCMcpServer } from '../mcp-server.js';
 import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
@@ -113,6 +114,20 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     bridge = await startTCPBridge(config.proxySocket!);
   }
 
+  // 1b. Start web proxy bridge for outbound HTTP/HTTPS access if available
+  let webProxyBridge: WebProxyBridge | undefined;
+  const webProxySocket = process.env.AX_WEB_PROXY_SOCKET;
+  const webProxyUrl = process.env.AX_WEB_PROXY_URL;
+  const webProxyPort = process.env.AX_WEB_PROXY_PORT;
+  if (webProxySocket) {
+    try {
+      webProxyBridge = await startWebProxyBridge(webProxySocket);
+      logger.info('web_proxy_bridge_started', { port: webProxyBridge.port });
+    } catch (err) {
+      logger.warn('web_proxy_bridge_failed', { error: (err as Error).message });
+    }
+  }
+
   // 2. Connect IPC client for MCP tools
   // Use pre-connected client if available (listen mode starts before stdin read).
   const client = config.ipcClient ?? new IPCClient({ socketPath: config.ipcSocket, listen: config.ipcListen, sessionId: config.sessionId, requestId: config.requestId, userId: config.userId, sessionScope: config.sessionScope });
@@ -174,6 +189,23 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
           ANTHROPIC_BASE_URL: `http://127.0.0.1:${bridge.port}`,
           ANTHROPIC_API_KEY: 'ax-proxy',
           CLAUDE_CODE_OAUTH_TOKEN: undefined,
+          // Web proxy for outbound HTTP/HTTPS (npm install, curl, git clone)
+          ...(webProxyBridge ? {
+            HTTP_PROXY: `http://127.0.0.1:${webProxyBridge.port}`,
+            HTTPS_PROXY: `http://127.0.0.1:${webProxyBridge.port}`,
+            http_proxy: `http://127.0.0.1:${webProxyBridge.port}`,
+            https_proxy: `http://127.0.0.1:${webProxyBridge.port}`,
+          } : webProxyUrl ? {
+            HTTP_PROXY: webProxyUrl,
+            HTTPS_PROXY: webProxyUrl,
+            http_proxy: webProxyUrl,
+            https_proxy: webProxyUrl,
+          } : webProxyPort ? {
+            HTTP_PROXY: `http://127.0.0.1:${webProxyPort}`,
+            HTTPS_PROXY: `http://127.0.0.1:${webProxyPort}`,
+            http_proxy: `http://127.0.0.1:${webProxyPort}`,
+            https_proxy: `http://127.0.0.1:${webProxyPort}`,
+          } : {}),
         },
       },
     });
@@ -221,6 +253,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   } finally {
     // 8. Cleanup — bridge.stop() may be async (NATS bridge) or sync (TCP bridge)
     await Promise.resolve(bridge.stop());
+    if (webProxyBridge) webProxyBridge.stop();
     client.disconnect();
   }
 }

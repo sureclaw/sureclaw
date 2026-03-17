@@ -152,3 +152,15 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Agent-level and user-level skills needed to appear as a single /skills directory. OverlayFS merges them with user skills shadowing agent skills. Falls back to agent-only when overlayfs is unavailable (macOS, unprivileged).
 **Lesson:** Use overlayfs for merging read-only layers where user content should shadow shared content. Always implement a fallback for environments without overlayfs support (macOS, containers without CAP_SYS_ADMIN). The fallback can be degraded (agent-only) as long as the IPC layer still manages both via host-side operations.
 **Tags:** overlayfs, skills, sandbox, fallback
+
+### Node.js fetch() rejects transfer-encoding and content-length headers
+**Date:** 2026-03-17
+**Context:** Implementing HTTP forward proxy — POST requests through the proxy returned 502 errors.
+**Lesson:** When forwarding HTTP requests via Node.js `fetch()`, always strip `transfer-encoding` and `content-length` headers from the incoming request before passing them to `fetch()`. Node's undici-based fetch handles these internally and throws `InvalidArgumentError: invalid transfer-encoding header` if you set them manually. Same pattern as the existing `tcp-bridge.ts`.
+**Tags:** fetch, proxy, http, headers, transfer-encoding
+
+### Async server.listen() required for ephemeral port assignment
+**Date:** 2026-03-17
+**Context:** Creating the web proxy with TCP ephemeral port (listen: 0) — the port was 0 when returned synchronously.
+**Lesson:** When using `server.listen(0)` for ephemeral port assignment, the port is only available after the listen callback fires. Make the startup function async and await the listen promise to get the assigned port from `server.address()`.
+**Tags:** net, server, listen, port, async

@@ -149,6 +149,10 @@ export interface Config {
     token?: string;
     port: number;
   };
+  /** Enable HTTP forward proxy for agent outbound HTTP/HTTPS requests. */
+  web_proxy?: boolean;
+  /** K8s namespace for web proxy service discovery. */
+  namespace?: string;
 }
 
 export interface ProviderRegistry {

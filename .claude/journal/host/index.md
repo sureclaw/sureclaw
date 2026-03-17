@@ -65,3 +65,4 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 - 2026-02-22 02:00 — Rebase onto main and fix build error [enterprise.md](enterprise.md)
 - 2026-02-22 01:00 — Enterprise agent architecture: full implementation [enterprise.md](enterprise.md)
 - 2026-02-22 00:00 — Enterprise agent architecture: paths.ts foundation [enterprise.md](enterprise.md)
+- 2026-03-17 00:55 — Implement HTTP forward proxy for sandboxed agents [web-proxy.md](web-proxy.md)

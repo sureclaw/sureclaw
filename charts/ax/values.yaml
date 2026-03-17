@@ -218,6 +218,14 @@ nats:
               allow: ["_INBOX.>", "agent.work.>"]
               deny: ["session.>", "results.>", "events.>"]
 
+# ─── Web Proxy ──────────────────────────────────────────────────
+# HTTP forward proxy for sandboxed agents. Allows outbound HTTP/HTTPS
+# requests (npm install, pip install, curl, git clone) through a
+# controlled proxy on the host pod. Disabled by default.
+webProxy:
+  enabled: false
+  port: 3128
+
 # ─── Network Policies ────────────────────────────────────────────
 networkPolicies:
   enabled: true

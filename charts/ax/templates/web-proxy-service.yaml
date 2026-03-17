@@ -1,0 +1,17 @@
+{{- if .Values.webProxy.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: ax-web-proxy
+  labels:
+    app.kubernetes.io/name: ax-web-proxy
+    app.kubernetes.io/component: web-proxy
+spec:
+  selector:
+    app: ax-host
+  ports:
+    - port: 3128
+      targetPort: 3128
+      protocol: TCP
+      name: http-proxy
+{{- end }}

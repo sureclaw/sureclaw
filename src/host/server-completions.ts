@@ -21,6 +21,7 @@ import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { type Logger, truncate } from '../logger.js';
 import { drainGeneratedImages } from './ipc-handlers/image.js';
 import { startAnthropicProxy } from './proxy.js';
+import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { connectIPCBridge } from './ipc-server.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
@@ -451,6 +452,7 @@ export async function processCompletion(
   let workspace = '';
   const isPersistent = !!persistentSessionId;
   let proxyCleanup: (() => void) | undefined;
+  let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
   const agentName = config.agent_name ?? 'main';
   const currentUserId = userId ?? process.env.USER ?? 'default';
@@ -600,6 +602,53 @@ export async function processCompletion(
         }
       });
       proxyCleanup = proxy.stop;
+    }
+
+    // Start web forward proxy for outbound HTTP/HTTPS access (npm install,
+    // pip install, curl, git clone). Opt-in: only when config.web_proxy is truthy.
+    // Container sandboxes get a Unix socket; subprocess mode gets a TCP port.
+    let webProxySocketPath: string | undefined;
+    let webProxyPort: number | undefined;
+    if (config.web_proxy) {
+      const canaryToken = sessionCanaries.get(queued.session_id) ?? undefined;
+      const isContainerSandboxForProxy = new Set(['docker', 'apple']).has(config.providers.sandbox);
+      if (isContainerSandboxForProxy) {
+        // Unix socket mode — placed in same dir as IPC socket (already mounted)
+        webProxySocketPath = join(ipcSocketDir, 'web-proxy.sock');
+        const webProxy = await startWebProxy({
+          listen: webProxySocketPath,
+          sessionId,
+          canaryToken,
+          onAudit: (entry) => {
+            providers.audit.log({
+              action: entry.action,
+              sessionId: entry.sessionId,
+              args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
+              result: entry.blocked ? 'blocked' : 'success',
+              durationMs: entry.durationMs,
+            }).catch(() => {});
+          },
+        });
+        webProxyCleanup = webProxy.stop;
+      } else {
+        // TCP mode — subprocess or k8s (k8s uses separate port in host-process.ts)
+        const webProxy = await startWebProxy({
+          listen: 0,
+          sessionId,
+          canaryToken,
+          onAudit: (entry) => {
+            providers.audit.log({
+              action: entry.action,
+              sessionId: entry.sessionId,
+              args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
+              result: entry.blocked ? 'blocked' : 'success',
+              durationMs: entry.durationMs,
+            }).catch(() => {});
+          },
+        });
+        webProxyPort = webProxy.address as number;
+        webProxyCleanup = webProxy.stop;
+      }
     }
 
     const maxTokens = config.max_tokens ?? 8192;
@@ -790,7 +839,11 @@ export async function processCompletion(
       userWorkspace: userWsPath,
       agentWorkspaceWritable,
       userWorkspaceWritable,
-      extraEnv: deps.extraSandboxEnv,
+      extraEnv: {
+        ...deps.extraSandboxEnv,
+        // Web proxy — agent runners detect these to start bridge / set HTTP_PROXY
+        ...(webProxyPort ? { AX_WEB_PROXY_PORT: String(webProxyPort) } : {}),
+      },
     };
 
     // ── Three-phase container orchestration ──
@@ -1244,6 +1297,11 @@ export async function processCompletion(
     if (proxyCleanup) {
       try { proxyCleanup(); } catch {
         reqLogger.debug('proxy_cleanup_failed');
+      }
+    }
+    if (webProxyCleanup) {
+      try { webProxyCleanup(); } catch {
+        reqLogger.debug('web_proxy_cleanup_failed');
       }
     }
     // Workspace provider: cleanup session scope for ephemeral sessions

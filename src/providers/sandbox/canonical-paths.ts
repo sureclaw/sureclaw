@@ -24,7 +24,7 @@
  */
 
 import { mkdirSync, symlinkSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { SandboxConfig } from './types.js';
 
@@ -41,8 +41,13 @@ export const CANONICAL = {
  * IPC socket stays at its real host path (not agent-visible, needed by both sides).
  */
 export function canonicalEnv(config: SandboxConfig): Record<string, string> {
+  // web-proxy.sock is in the same directory as the IPC socket (already mounted)
+  const ipcDir = dirname(config.ipcSocket);
+  const webProxySocket = join(ipcDir, 'web-proxy.sock');
+
   return {
     AX_IPC_SOCKET: config.ipcSocket,
+    AX_WEB_PROXY_SOCKET: webProxySocket,
     AX_WORKSPACE: CANONICAL.root,
     ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
     ...(config.userWorkspace   ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),

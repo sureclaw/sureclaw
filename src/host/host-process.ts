@@ -34,6 +34,7 @@ import { FileStore } from '../file-store.js';
 import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
 import { startNATSIPCHandler } from './nats-ipc-handler.js';
 import { startNATSLLMProxy } from './nats-llm-proxy.js';
+import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { decode, eventSubject } from './nats-session-protocol.js';
 import type { StreamEvent } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
@@ -236,6 +237,27 @@ async function main(): Promise<void> {
   const nc = await natsModule.connect(natsConnectOptions('host'));
   logger.info('nats_connected', { url: natsConnectOptions('host').servers });
 
+  // ── Web proxy for agent outbound HTTP/HTTPS access ──
+
+  let webProxy: WebProxy | undefined;
+  if (config.web_proxy) {
+    const webProxyPort = parseInt(process.env.AX_WEB_PROXY_PORT ?? '3128', 10);
+    webProxy = await startWebProxy({
+      listen: webProxyPort,
+      sessionId: 'host-process',
+      onAudit: (entry) => {
+        providers.audit.log({
+          action: entry.action,
+          sessionId: entry.sessionId,
+          args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
+          result: entry.blocked ? 'blocked' : 'success',
+          durationMs: entry.durationMs,
+        }).catch(() => {});
+      },
+    });
+    logger.info('web_proxy_started', { port: webProxyPort });
+  }
+
   const port = parseInt(process.env.PORT ?? '8080', 10);
   const agentType = config.agent ?? 'pi-coding-agent';
   const modelId = providers.llm.name;
@@ -401,6 +423,8 @@ async function main(): Promise<void> {
       extraSandboxEnv: {
         AX_IPC_TOKEN: turnToken,
         AX_IPC_REQUEST_ID: requestId,
+        // Web proxy — sandbox pods connect directly via k8s Service
+        ...(config.web_proxy ? { AX_WEB_PROXY_URL: `http://ax-web-proxy.${config.namespace ?? 'ax'}.svc:3128` } : {}),
       },
       ...(agentResponsePromise ? { agentResponsePromise } : {}),
       ...(publishWork ? { publishWork } : {}),
@@ -769,6 +793,7 @@ async function main(): Promise<void> {
     logger.info('host_shutting_down');
 
     server.close();
+    if (webProxy) webProxy.stop();
     disableAutoState();
     orchestrator.shutdown();
 
