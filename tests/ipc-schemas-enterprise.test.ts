@@ -106,6 +106,16 @@ describe('Enterprise IPC Schemas', () => {
     expect(result.success).toBe(true);
   });
 
+  test('WorkspaceWriteSchema accepts session tier', () => {
+    const result = WorkspaceWriteSchema.safeParse({
+      action: 'workspace_write',
+      tier: 'session',
+      path: 'scratch.md',
+      content: 'Scratch data',
+    });
+    expect(result.success).toBe(true);
+  });
+
   test('WorkspaceWriteSchema rejects invalid tier', () => {
     const result = WorkspaceWriteSchema.safeParse({
       action: 'workspace_write',

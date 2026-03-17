@@ -2,6 +2,14 @@
 
 IPC protocol enhancements: heartbeat keep-alive, schema hardening, NATS transport.
 
+## [2026-03-17 14:50] — Fix workspace_write IPC schema rejecting session tier
+
+**Task:** Debug why workspace_write with tier='session' never reaches host handler in K8s e2e tests
+**What I did:** Traced data flow from agent through IPC to host. Found WorkspaceWriteSchema in ipc-schemas.ts restricted tier to z.enum(['agent', 'user']), silently rejecting 'session' at Zod validation before the handler was called. Added 'session' to the enum, updated tool descriptions in tool-catalog.ts and mcp-server.ts, added schema test, removed debug instrumentation.
+**Files touched:** src/ipc-schemas.ts, src/agent/tool-catalog.ts, src/agent/mcp-server.ts, src/host/ipc-handlers/workspace.ts, tests/ipc-schemas-enterprise.test.ts, tests/e2e/e2e-k8s-docker.test.ts
+**Outcome:** Success — build passes, all 19 tests pass
+**Notes:** The schema validation failure returned a generic error back to the agent but never invoked the handler, making the debug logs in the handler useless for diagnosis.
+
 ## [2026-03-16 16:58] — Fix NATS IPC client receiving JetStream PubAck instead of IPC response
 
 **Task:** Investigate `ipc_llm_error: undefined` in k8s sandbox pods

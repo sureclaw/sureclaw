@@ -294,7 +294,7 @@ export const WorkspaceMountSchema = ipcAction('workspace_mount', {
 });
 
 export const WorkspaceWriteSchema = ipcAction('workspace_write', {
-  tier: z.enum(['agent', 'user']),
+  tier: z.enum(['agent', 'user', 'session']),
   path: safeString(1024),
   content: safeString(500_000),
 });

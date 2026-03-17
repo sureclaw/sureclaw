@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 
 import { createHarness, type ServerHarness } from './server-harness.js';
 import { createScriptableLLM, textTurn, toolUseTurn, type LLMTurn } from './scriptable-llm.js';
-import { createMockWeb } from './mock-providers.js';
+import { createMockWeb, createMockGcsWorkspace } from './mock-providers.js';
 import { startWebProxy } from '../../src/host/web-proxy.js';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -367,23 +367,40 @@ describe.skipIf(!dockerAvailable)('Docker Sandbox E2E', () => {
 
   // ── Workspace Scoping ─────────────────────────────────
 
-  test('workspace tiers are isolated (agent vs user)', async () => {
+  test('workspace writes sync to GCS with correct tier paths', async () => {
     const llm = createScriptableLLM([
       toolUseTurn('workspace_write', { tier: 'agent', path: 'notes.md', content: 'Agent note' }),
-      toolUseTurn('workspace_write', { tier: 'user', path: 'notes.md', content: 'User note' }),
+      toolUseTurn('workspace_write', { tier: 'user', path: 'prefs.txt', content: 'User pref' }),
+      toolUseTurn('workspace_write', { tier: 'session', path: 'scratch.md', content: 'Scratch data' }),
       textTurn('Workspace writes complete.'),
     ]);
     const sandbox = await dockerSandbox();
+    const { workspace, gcsBucket } = createMockGcsWorkspace();
 
     harness = await createHarness({
       llm,
       sandbox,
       configYaml: DOCKER_CONFIG_YAML,
+      providerOverrides: { workspace },
     });
 
-    const res = await harness.sendMessage('Write to both workspace tiers');
+    const res = await harness.sendMessage('Write to all workspace tiers', { user: 'user-x' });
 
     expect(res.status).toBe(200);
+
+    // Verify files landed in mock GCS bucket with correct tier prefixes
+    const keys = [...gcsBucket.files.keys()];
+    expect(keys.some(k => k.includes('agent/') && k.endsWith('notes.md'))).toBe(true);
+    expect(keys.some(k => k.includes('user/') && k.endsWith('prefs.txt'))).toBe(true);
+    expect(keys.some(k => k.includes('scratch/') && k.endsWith('scratch.md'))).toBe(true);
+
+    // Verify file contents
+    const agentKey = keys.find(k => k.includes('agent/') && k.endsWith('notes.md'))!;
+    expect(gcsBucket.files.get(agentKey)!.toString()).toBe('Agent note');
+    const userKey = keys.find(k => k.includes('user/') && k.endsWith('prefs.txt'))!;
+    expect(gcsBucket.files.get(userKey)!.toString()).toBe('User pref');
+    const scratchKey = keys.find(k => k.includes('scratch/') && k.endsWith('scratch.md'))!;
+    expect(gcsBucket.files.get(scratchKey)!.toString()).toBe('Scratch data');
   }, 180_000);
 
   // ── Scheduling ────────────────────────────────────────

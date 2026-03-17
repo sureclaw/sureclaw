@@ -1,5 +1,12 @@
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { WebProvider, FetchRequest, FetchResponse, SearchResult } from '../../src/providers/web/types.js';
 import type { GcsBucketLike } from '../../src/providers/workspace/gcs.js';
+import { createGcsBackend } from '../../src/providers/workspace/gcs.js';
+import { createOrchestrator } from '../../src/providers/workspace/shared.js';
+import type { WorkspaceProvider } from '../../src/providers/workspace/types.js';
+import type { ScannerProvider } from '../../src/providers/scanner/types.js';
 import type { TaintTag } from '../../src/types.js';
 
 // ── Mock Web Provider (replaces Tavily) ──
@@ -90,4 +97,37 @@ export function createMockGcsBucket(): GcsBucketLike & {
       };
     },
   };
+}
+
+// ── Mock GCS-backed Workspace Provider ──
+
+/** Pass-through scanner that approves everything (no external deps needed). */
+const passThroughScanner: ScannerProvider = {
+  async scanInput() { return { verdict: 'PASS' }; },
+  async scanOutput() { return { verdict: 'PASS' }; },
+  canaryToken() { return ''; },
+  checkCanary() { return false; },
+};
+
+/**
+ * Create a GCS-backed WorkspaceProvider using a mock in-memory bucket.
+ * Returns both the provider (for providerOverrides) and the bucket (for assertions).
+ */
+export function createMockGcsWorkspace(agentId = 'main'): {
+  workspace: WorkspaceProvider;
+  gcsBucket: GcsBucketLike & { files: Map<string, Buffer> };
+} {
+  const gcsBucket = createMockGcsBucket();
+  const basePath = mkdtempSync(join(tmpdir(), 'ax-gcs-ws-'));
+  mkdirSync(basePath, { recursive: true });
+
+  const backend = createGcsBackend(gcsBucket, basePath, '');
+  const workspace = createOrchestrator({
+    backend,
+    scanner: passThroughScanner,
+    config: {},
+    agentId,
+  });
+
+  return { workspace, gcsBucket };
 }

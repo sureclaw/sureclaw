@@ -257,9 +257,9 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'workspace_write',
     label: 'Workspace Write',
     description:
-      'Write a text file to a persistent workspace tier (agent or user) without requiring a sandbox.',
+      'Write a text file to a workspace tier (agent, user, or session) without requiring a sandbox.',
     parameters: Type.Object({
-      tier: Type.String({ description: '"agent" or "user"' }),
+      tier: Type.String({ description: '"agent", "user", or "session"' }),
       path: Type.String({ description: 'Relative path within the tier (e.g. "docs/notes.md")' }),
       content: Type.String({ description: 'File content to write' }),
     }),

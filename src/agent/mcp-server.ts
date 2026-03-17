@@ -219,9 +219,9 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
 
     // ── Workspace ──
     tool('workspace_write',
-      'Write a text file to a persistent workspace tier (agent or user) without requiring a sandbox.',
+      'Write a text file to a workspace tier (agent, user, or session) without requiring a sandbox.',
       {
-        tier: z.string().describe('"agent" or "user"'),
+        tier: z.string().describe('"agent", "user", or "session"'),
         path: z.string().describe('Relative path within the tier (e.g. "docs/notes.md")'),
         content: z.string().describe('File content to write'),
       },

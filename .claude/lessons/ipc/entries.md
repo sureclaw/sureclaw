@@ -1,5 +1,11 @@
 # IPC
 
+### IPC schema enums are the real gatekeeper, not the handler
+**Date:** 2026-03-17
+**Context:** workspace_write with tier='session' silently failed in K8s e2e tests. Debug logs in the handler never fired. The Zod strict schema in ipc-schemas.ts rejected the request before the handler was called, returning a generic validation error to the agent.
+**Lesson:** When an IPC action silently fails (handler never called), check the Zod schema enum in ipc-schemas.ts FIRST. The strict-mode validation runs before handler dispatch (ipc-server.ts step 3, line ~206) and returns a generic error that the agent may swallow. Compare the schema enum values against the tool catalog's description and the MCP server's Zod types — mismatches are the most common cause.
+**Tags:** ipc, zod, schema, workspace, debugging, silent-failure
+
 ### Always await server.listen() before accepting connections
 **Date:** 2026-03-15
 **Context:** `createIPCServer` called `server.listen(socketPath)` without awaiting — the socket file isn't created until the event loop processes the bind. First Slack message after server restart raced ahead and spawned an agent before the socket existed. Subsequent messages worked because the socket was created by then.
