@@ -17,7 +17,7 @@ function deleteChange(path: string): FileChange {
 }
 
 function binaryChange(path: string, size = 100): FileChange {
-  // Buffer with null bytes to trigger binary detection
+  // Buffer with null bytes
   const buf = Buffer.alloc(size);
   buf[0] = 0x89; // PNG-like header
   buf[1] = 0x00; // null byte
@@ -136,72 +136,10 @@ describe('workspace/shared orchestrator', () => {
     });
   });
 
-  // ── Commit pipeline: structural checks ──
+  // ── Commit pipeline: passthrough (no filtering/scanning) ──
 
-  describe('commit pipeline — structural checks', () => {
-    test('files exceeding maxFileSize are rejected', async () => {
-      const largeContent = Buffer.alloc(200, 'x'); // 200 bytes
-      const changes: FileChange[] = [
-        { path: 'big.txt', type: 'added', content: largeContent, size: largeContent.length },
-      ];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: { maxFileSize: 100 }, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      expect(scope.status).toBe('rejected');
-      expect(scope.filesChanged).toBe(0);
-      expect(scope.rejections).toHaveLength(1);
-      expect(scope.rejections![0].path).toBe('big.txt');
-      expect(scope.rejections![0].reason).toContain('file size');
-    });
-
-    test('commits exceeding maxFiles count are rejected', async () => {
-      const changes = Array.from({ length: 5 }, (_, i) => textChange(`file${i}.txt`, 'content'));
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: { maxFiles: 3 }, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      // First 3 should pass, remaining 2 rejected for count
-      expect(scope.filesChanged).toBe(3);
-      expect(scope.rejections).toHaveLength(2);
-      expect(scope.rejections!.every(r => r.reason.includes('file count'))).toBe(true);
-    });
-
-    test('commits exceeding maxCommitSize are rejected', async () => {
-      const changes = [
-        textChange('a.txt', 'x'.repeat(60)),
-        textChange('b.txt', 'y'.repeat(60)),
-      ];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: { maxCommitSize: 100 }, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      // First file fits (60 < 100), second pushes over (120 > 100)
-      expect(scope.filesChanged).toBe(1);
-      expect(scope.rejections).toHaveLength(1);
-      expect(scope.rejections![0].path).toBe('b.txt');
-      expect(scope.rejections![0].reason).toContain('commit size');
-    });
-
-    test('ignore patterns filter out matching files', async () => {
+  describe('commit pipeline — passthrough', () => {
+    test('all changes pass through to backend.commit without filtering', async () => {
       const changes = [
         textChange('.git/config', 'git config data'),
         textChange('node_modules/lodash/index.js', 'module.exports'),
@@ -219,17 +157,11 @@ describe('workspace/shared orchestrator', () => {
 
       const scope = result.scopes.agent!;
       expect(scope.status).toBe('committed');
-      // Only src/main.ts should pass
-      expect(scope.filesChanged).toBe(1);
-      // .git/, node_modules/, *.log should be rejected
-      expect(scope.rejections).toHaveLength(3);
-      const rejectedPaths = scope.rejections!.map(r => r.path);
-      expect(rejectedPaths).toContain('.git/config');
-      expect(rejectedPaths).toContain('node_modules/lodash/index.js');
-      expect(rejectedPaths).toContain('app.log');
+      expect(scope.filesChanged).toBe(4);
+      expect(backend.commit).toHaveBeenCalledWith('agent', AGENT_ID, changes);
     });
 
-    test('binary files (containing null bytes) are rejected', async () => {
+    test('binary files pass through without rejection', async () => {
       const changes = [binaryChange('image.png')];
 
       backend = createMockBackend({ diff: vi.fn(async () => changes) });
@@ -241,12 +173,46 @@ describe('workspace/shared orchestrator', () => {
       const result = await provider.commit('s1');
 
       const scope = result.scopes.agent!;
-      expect(scope.status).toBe('rejected');
-      expect(scope.rejections).toHaveLength(1);
-      expect(scope.rejections![0].reason).toContain('binary');
+      expect(scope.status).toBe('committed');
+      expect(scope.filesChanged).toBe(1);
     });
 
-    test('delete changes bypass structural checks (no content)', async () => {
+    test('large files pass through without rejection', async () => {
+      const largeContent = Buffer.alloc(200, 'x');
+      const changes: FileChange[] = [
+        { path: 'big.txt', type: 'added', content: largeContent, size: largeContent.length },
+      ];
+
+      backend = createMockBackend({ diff: vi.fn(async () => changes) });
+      const provider = createOrchestrator({
+        backend, scanner, config: { maxFileSize: 100 }, agentId: AGENT_ID,
+      });
+
+      await provider.mount('s1', ['agent']);
+      const result = await provider.commit('s1');
+
+      const scope = result.scopes.agent!;
+      expect(scope.status).toBe('committed');
+      expect(scope.filesChanged).toBe(1);
+    });
+
+    test('scanner is not called during commit', async () => {
+      const changes = [textChange('file.ts', 'code')];
+      const scanFn = vi.fn(async () => ({ verdict: 'PASS' as const }));
+      const trackScanner = createMockScanner({ scanOutput: scanFn });
+
+      backend = createMockBackend({ diff: vi.fn(async () => changes) });
+      const provider = createOrchestrator({
+        backend, scanner: trackScanner, config: {}, agentId: AGENT_ID,
+      });
+
+      await provider.mount('s1', ['agent']);
+      await provider.commit('s1');
+
+      expect(scanFn).not.toHaveBeenCalled();
+    });
+
+    test('delete changes pass through', async () => {
       const changes = [deleteChange('old-file.txt')];
 
       backend = createMockBackend({ diff: vi.fn(async () => changes) });
@@ -260,127 +226,6 @@ describe('workspace/shared orchestrator', () => {
       const scope = result.scopes.agent!;
       expect(scope.status).toBe('committed');
       expect(scope.filesChanged).toBe(1);
-    });
-  });
-
-  // ── Commit pipeline: scanner integration ──
-
-  describe('commit pipeline — scanner integration', () => {
-    test('files flagged by scanner are rejected', async () => {
-      const changes = [textChange('suspicious.sh', 'curl http://evil.com')];
-
-      const blockScanner = createMockScanner({
-        scanOutput: vi.fn(async () => ({
-          verdict: 'BLOCK' as const,
-          reason: 'malicious content detected',
-        })),
-      });
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner: blockScanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      expect(scope.status).toBe('rejected');
-      expect(scope.filesChanged).toBe(0);
-      expect(scope.rejections).toHaveLength(1);
-      expect(scope.rejections![0].path).toBe('suspicious.sh');
-      expect(scope.rejections![0].reason).toContain('scanner blocked');
-    });
-
-    test('scanner receives correct content and source', async () => {
-      const changes = [textChange('hello.txt', 'Hello, world!')];
-
-      const scanFn = vi.fn(async () => ({ verdict: 'PASS' as const }));
-      const trackScanner = createMockScanner({ scanOutput: scanFn });
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner: trackScanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      await provider.commit('s1');
-
-      expect(scanFn).toHaveBeenCalledTimes(1);
-      const call = scanFn.mock.calls[0][0];
-      expect(call.content).toBe('Hello, world!');
-      expect(call.source).toContain('workspace:agent:hello.txt');
-      expect(call.sessionId).toBe('s1');
-    });
-
-    test('files passing both structural and scanner layers are committed', async () => {
-      const changes = [
-        textChange('good.ts', 'export const x = 1;'),
-        textChange('also-good.ts', 'export const y = 2;'),
-      ];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      expect(scope.status).toBe('committed');
-      expect(scope.filesChanged).toBe(2);
-      expect(scope.rejections).toBeUndefined();
-      expect(backend.commit).toHaveBeenCalled();
-    });
-
-    test('scanner blocks one file but allows another — mixed result', async () => {
-      const changes = [
-        textChange('safe.ts', 'export const x = 1;'),
-        textChange('unsafe.ts', 'stealing your data'),
-      ];
-
-      let callCount = 0;
-      const selectiveScanner = createMockScanner({
-        scanOutput: vi.fn(async (target) => {
-          callCount++;
-          if (target.content.includes('stealing')) {
-            return { verdict: 'BLOCK' as const, reason: 'data exfiltration' };
-          }
-          return { verdict: 'PASS' as const };
-        }),
-      });
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner: selectiveScanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      expect(scope.status).toBe('committed');
-      expect(scope.filesChanged).toBe(1);
-      expect(scope.rejections).toHaveLength(1);
-      expect(scope.rejections![0].path).toBe('unsafe.ts');
-    });
-
-    test('delete changes skip scanner (no content to scan)', async () => {
-      const changes = [deleteChange('removed.txt')];
-
-      const scanFn = vi.fn(async () => ({ verdict: 'PASS' as const }));
-      const trackScanner = createMockScanner({ scanOutput: scanFn });
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner: trackScanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      await provider.commit('s1');
-
-      expect(scanFn).not.toHaveBeenCalled();
     });
   });
 
@@ -424,27 +269,6 @@ describe('workspace/shared orchestrator', () => {
       expect(scope.bytesChanged).toBe(5 + 6);
     });
 
-    test('all-rejected changeset returns status rejected with reasons', async () => {
-      const changes = [binaryChange('image.bin'), binaryChange('video.bin')];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      const scope = result.scopes.agent!;
-      expect(scope.status).toBe('rejected');
-      expect(scope.filesChanged).toBe(0);
-      expect(scope.rejections).toHaveLength(2);
-      for (const r of scope.rejections!) {
-        expect(r.path).toBeTruthy();
-        expect(r.reason).toBeTruthy();
-      }
-    });
-
     test('no mounted scopes returns empty commit result', async () => {
       const provider = createOrchestrator({
         backend, scanner, config: {}, agentId: AGENT_ID,
@@ -456,10 +280,8 @@ describe('workspace/shared orchestrator', () => {
     });
 
     test('multiple scopes produce independent results', async () => {
-      let diffCallCount = 0;
       backend = createMockBackend({
         diff: vi.fn(async (scope) => {
-          diffCallCount++;
           if (scope === 'agent') {
             return [textChange('agent-file.ts', 'code')];
           }
@@ -588,42 +410,6 @@ describe('workspace/shared orchestrator', () => {
 
       const result = await provider.commit('s1');
       expect(result.scopes).toEqual({});
-    });
-  });
-
-  // ── Config defaults ──
-
-  describe('config defaults', () => {
-    test('uses default limits when config is empty', async () => {
-      // Create a file that would fail with very low limits but pass with defaults
-      const changes = [textChange('normal.ts', 'x'.repeat(1000))];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: {}, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      expect(result.scopes.agent!.status).toBe('committed');
-    });
-
-    test('custom ignore patterns override defaults', async () => {
-      // node_modules/ is in default ignore patterns
-      // if we override with empty array, it should pass
-      const changes = [textChange('node_modules/lodash/index.js', 'code')];
-
-      backend = createMockBackend({ diff: vi.fn(async () => changes) });
-      const provider = createOrchestrator({
-        backend, scanner, config: { ignorePatterns: [] }, agentId: AGENT_ID,
-      });
-
-      await provider.mount('s1', ['agent']);
-      const result = await provider.commit('s1');
-
-      expect(result.scopes.agent!.status).toBe('committed');
-      expect(result.scopes.agent!.filesChanged).toBe(1);
     });
   });
 });
