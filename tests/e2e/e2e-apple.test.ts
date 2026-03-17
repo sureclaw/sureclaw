@@ -31,6 +31,17 @@ if (process.platform === 'darwin') {
   }
 }
 
+/** Ensure the Apple container system service is running. */
+function ensureContainerService() {
+  try {
+    execFileSync('container', ['system', 'info'], { stdio: 'pipe' });
+  } catch {
+    execFileSync('container', ['system', 'start'], { stdio: 'pipe' });
+    // Give the daemon a moment to become ready
+    execFileSync('sleep', ['2']);
+  }
+}
+
 let harness: ServerHarness;
 afterEach(async () => { if (harness) await harness.dispose(); });
 
@@ -80,6 +91,9 @@ describe.skipIf(!appleAvailable)('E2E Features — Apple Container Sandbox', () 
   let originalImage: string | undefined;
 
   beforeAll(() => {
+    // Start container service if not already running
+    ensureContainerService();
+
     // Build TypeScript so dist/ reflects the current source
     execFileSync('npm', ['run', 'build'], { cwd: PROJECT_ROOT, stdio: 'pipe' });
 
