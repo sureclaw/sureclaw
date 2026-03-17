@@ -8,8 +8,10 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'pool-k8s-client' });
 
-/** Pod status as tracked by the pool controller. */
-export type PodPoolStatus = 'warm' | 'claimed' | 'releasing';
+/** Pod status as tracked by the pool controller.
+ *  With queue group claiming, pods only have 'warm' status — NATS handles
+ *  work dispatch, so there's no 'claimed' label transition. */
+export type PodPoolStatus = 'warm' | 'releasing';
 
 /** Tier configuration for sandbox pods. */
 export interface TierConfig {

@@ -136,7 +136,7 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
       }
     }
 
-    // Garbage collect terminal pods (Failed/Succeeded — includes claimed pods that finished)
+    // Garbage collect terminal pods (Failed/Succeeded — includes pods that processed work and exited)
     for (const pod of terminal) {
       try {
         await k8sClient.deletePod(pod.name);
