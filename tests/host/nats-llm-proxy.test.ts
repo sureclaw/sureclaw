@@ -13,27 +13,25 @@ describe('nats-llm-proxy', () => {
   });
 });
 
-describe('nats-llm-proxy host integration', () => {
-  // The host process starts a NATS LLM proxy for claude-code sessions in k8s
-  // mode, so the sandbox pod's NATS bridge can reach the Anthropic API through
-  // the host pod's credentials.
+describe('nats-llm-proxy host integration (replaced by HTTP routes)', () => {
+  // NATS LLM proxy has been replaced by /internal/llm-proxy HTTP route.
+  // These tests verify the replacement wiring in host-process.ts.
 
-  test('host-process imports startNATSLLMProxy', () => {
+  test('host-process uses HTTP /internal/llm-proxy route instead of NATS proxy', () => {
     const source = readFileSync(
       join(__dirname, '../../src/host/host-process.ts'),
       'utf-8',
     );
-    expect(source).toContain("import { startNATSLLMProxy } from './nats-llm-proxy.js'");
+    expect(source).toContain('/internal/llm-proxy/');
+    expect(source).toContain('activeTokens');
   });
 
-  test('host-process starts LLM proxy for claude-code sessions in k8s mode', () => {
+  test('host-process registers per-turn tokens for HTTP IPC', () => {
     const source = readFileSync(
       join(__dirname, '../../src/host/host-process.ts'),
       'utf-8',
     );
-    // Proxy is started when agentType is claude-code AND sandbox is k8s
-    expect(source).toContain("agentType === 'claude-code'");
-    expect(source).toContain("config.providers.sandbox === 'k8s'");
-    expect(source).toContain('startNATSLLMProxy');
+    expect(source).toContain('activeTokens.set(turnToken');
+    expect(source).toContain('activeTokens.delete(turnToken)');
   });
 });

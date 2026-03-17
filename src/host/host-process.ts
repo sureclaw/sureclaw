@@ -33,8 +33,8 @@ import { processCompletion, type CompletionDeps } from './server-completions.js'
 import { createOrchestrator } from './orchestration/orchestrator.js';
 import { FileStore } from '../file-store.js';
 import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
-import { startNATSIPCHandler } from './nats-ipc-handler.js';
-import { startNATSLLMProxy } from './nats-llm-proxy.js';
+// NATS IPC handler and LLM proxy removed — HTTP routes handle all IPC now.
+// These imports will be deleted in Task 11 along with the source files.
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { decode, eventSubject } from './nats-session-protocol.js';
 import type { StreamEvent } from './event-bus.js';
@@ -468,27 +468,6 @@ async function main(): Promise<void> {
       logger.info('token_registered', { sessionId, requestId, turnToken });
     }
 
-    // Start NATS IPC handler for k8s sessions — the sandbox pod's
-    // NATSIPCClient publishes to ipc.request.{requestId}.{token}, and this
-    // handler routes those requests through the existing handleIPC pipeline.
-    let natsIpcHandler: { close: () => void } | undefined;
-    if (isK8s) {
-      natsIpcHandler = await startNATSIPCHandler({
-        requestId,
-        token: turnToken,
-        handleIPC: wrappedHandleIPC,
-        ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
-      });
-      logger.info('nats_ipc_handler_started', { sessionId, requestId, turnToken });
-    }
-
-    // Start NATS LLM proxy for claude-code sessions in k8s mode
-    let llmProxy: { close: () => void } | undefined;
-    if (_agentType === 'claude-code' && isK8s) {
-      llmProxy = await startNATSLLMProxy({ requestId, token: turnToken });
-      logger.info('nats_llm_proxy_started', { sessionId, requestId });
-    }
-
     // NATS work publisher — uses queue group for warm pod claiming, with
     // per-pod fallback for cold-started pods.
     // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
@@ -557,14 +536,6 @@ async function main(): Promise<void> {
     } finally {
       if (agentTimer) clearTimeout(agentTimer);
       activeTokens.delete(turnToken);
-      if (llmProxy) {
-        llmProxy.close();
-        logger.info('nats_llm_proxy_closed', { sessionId, requestId });
-      }
-      if (natsIpcHandler) {
-        natsIpcHandler.close();
-        logger.info('nats_ipc_handler_closed', { sessionId, requestId });
-      }
     }
   }
 
