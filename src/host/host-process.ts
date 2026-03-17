@@ -71,6 +71,8 @@ const stagingStore = new Map<string, StagingEntry>();
 export const activeTokens = new Map<string, {
   handleIPC: (raw: string, ctx: IPCContext) => Promise<string>;
   ctx: IPCContext;
+  /** Expected scope IDs for workspace provision — validates caller-supplied scope/id pairs. */
+  provisionIds?: { agent: string; user: string; session: string };
 }>();
 
 /** Periodically clean up expired staging entries. */
@@ -462,6 +464,7 @@ async function main(): Promise<void> {
       activeTokens.set(turnToken, {
         handleIPC: wrappedHandleIPC,
         ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
+        provisionIds: { agent: agentName, user: userId ?? defaultUserId, session: sessionId },
       });
       logger.info('token_registered', { sessionId, requestId, turnToken });
     }
@@ -693,6 +696,16 @@ async function main(): Promise<void> {
         if (!scope || !id || !providers.workspace?.downloadScope) {
           sendError(res, 400, 'Missing scope/id or workspace provider has no downloadScope');
           return;
+        }
+        // Validate requested scope/id against the token's bound context to prevent
+        // a pod from requesting other users'/sessions' workspace data.
+        if (entry.provisionIds) {
+          const expectedId = entry.provisionIds[scope];
+          if (expectedId !== undefined && id !== expectedId) {
+            logger.warn('workspace_provision_id_mismatch', { scope, requestedId: id, expectedId });
+            sendError(res, 403, 'Scope ID does not match token context');
+            return;
+          }
         }
         const files = await providers.workspace.downloadScope(scope, id);
         const json = JSON.stringify({

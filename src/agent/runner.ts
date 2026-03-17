@@ -410,6 +410,20 @@ async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<voi
       logger.warn('provision_session_scope_failed', { error: (err as Error).message });
     }
 
+    // Git workspace → /workspace/scratch (even in HTTP-GCS mode, bootstrap repo if configured)
+    if (payload.workspaceGitUrl) {
+      try {
+        const result = await provisionWorkspace(CANONICAL.scratch, '', {
+          gitUrl: payload.workspaceGitUrl,
+          ref: payload.workspaceGitRef,
+          cacheKey: payload.workspaceCacheKey,
+        });
+        logger.info('provision_workspace', { source: result.source, durationMs: result.durationMs });
+      } catch (err) {
+        logger.warn('provision_workspace_failed', { error: (err as Error).message });
+      }
+    }
+
     // Write hash snapshot for workspace release to diff against
     if (Object.keys(snapshot).length > 0) {
       try {

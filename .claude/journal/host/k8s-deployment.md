@@ -1,5 +1,16 @@
 # K8s Deployment Journal
 
+## [2026-03-17 19:30] — Fix three P1 workspace provisioning issues from PR review
+
+**Task:** Address three code review comments on the k8s workspace provisioning PR
+**What I did:**
+1. **Git workspace in HTTP GCS path**: Moved `workspaceGitUrl` provisioning inside the HTTP GCS branch (before the `return`) so k8s deployments with both git bootstrap and GCS scopes get the repo checkout.
+2. **Read-only directory locking**: Added `lockDirsSync()` helper that recursively chmods directories to `0o555` (r-xr-xr-x) after files are set to `0o444`. Prevents file creation/deletion in read-only agent scopes.
+3. **Provision endpoint ID validation**: Extended `activeTokens` map to store `provisionIds` (agent/user/session IDs). The `/internal/workspace/provision` endpoint now validates the caller-supplied `id` against the token's bound context, returning 403 on mismatch.
+**Files touched:** `src/agent/runner.ts`, `src/agent/workspace.ts`, `src/host/host-process.ts`, `tests/agent/workspace-provision-fixes.test.ts` (new)
+**Outcome:** Success — all 2399 tests pass (6 new tests for these fixes)
+**Notes:** `lockDirsSync` recurses depth-first, then chmods the parent, so child dirs are still traversable during the walk.
+
 ## [2026-03-16 07:40] — Wire NATS IPC handler into agent-runtime-process, remove subprocess override
 
 **Task:** Remove the subprocess sandbox override in agent-runtime-process.ts and wire the new NATS IPC handler so k8s sandbox pods can route IPC calls back through NATS

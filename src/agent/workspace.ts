@@ -203,8 +203,10 @@ export async function provisionScope(
 
   if (readOnly) {
     for (const relPath of localFiles) {
-      chmodSync(join(mountPath, relPath), 0o444);
+      chmodSync(join(mountPath, relPath), 0o444);  // r--r--r--
     }
+    // Lock directories too — directory write permission controls create/delete/rename
+    lockDirsSync(mountPath);
   }
 
   return { source: 'gcs', fileCount: localFiles.length, hashes };
@@ -346,6 +348,23 @@ function tryDependencyRestore(workspace: string): void {
       }
     }
   }
+}
+
+/** Recursively chmod directories to r-xr-xr-x (no write) to prevent file creation/deletion. */
+function lockDirsSync(dir: string): void {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      lockDirsSync(join(dir, entry.name));
+    }
+  }
+  // chmod after recursing so child dirs are still writable during traversal
+  chmodSync(dir, 0o555);
 }
 
 /** Sync helper: list all files recursively under a directory. */
