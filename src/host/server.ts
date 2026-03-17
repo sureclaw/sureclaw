@@ -56,6 +56,8 @@ export interface ServerOptions {
   json?: boolean;
   channels?: import('../providers/channel/types.js').ChannelProvider[];
   dedupeWindowMs?: number;
+  /** Override specific providers at load time (test/debug only). */
+  providerOverrides?: Partial<import('../types.js').ProviderRegistry>;
 }
 
 export interface AxServer {
@@ -139,7 +141,7 @@ export async function createServer(
   // Load providers (credential provider is loaded first inside loadProviders
   // so process.env is seeded before channel providers read tokens).
   logger.debug('loading_providers');
-  const providers = await loadProviders(config);
+  const providers = await loadProviders(config, { providerOverrides: opts.providerOverrides });
   logger.debug('providers_loaded');
 
   // Use the eventbus provider (loaded by registry alongside other providers).

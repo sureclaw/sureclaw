@@ -8,6 +8,8 @@ import type { PluginHost } from './plugin-host.js';
 export interface LoadProvidersOptions {
   /** Optional PluginHost for loading third-party plugin providers (Phase 3). */
   pluginHost?: PluginHost;
+  /** Override specific providers after loading (test/debug only). */
+  providerOverrides?: Partial<ProviderRegistry>;
 }
 
 export async function loadProviders(config: Config, opts?: LoadProvidersOptions): Promise<ProviderRegistry> {
@@ -88,7 +90,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   // Load workspace provider (default: none = no-op stub)
   const workspace = await loadProvider('workspace', config.providers.workspace, config);
 
-  return {
+  const registry: ProviderRegistry = {
     llm:         tracedLlm,
     image,
     memory,
@@ -107,6 +109,12 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     workspace,
     screener,
   };
+
+  if (opts?.providerOverrides) {
+    Object.assign(registry, opts.providerOverrides);
+  }
+
+  return registry;
 }
 
 async function loadProvider(kind: string, name: string, config: Config) {
