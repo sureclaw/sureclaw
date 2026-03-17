@@ -1,5 +1,17 @@
 # Host
 
+### provisionScope must use @google-cloud/storage SDK, not gsutil CLI
+**Date:** 2026-03-17
+**Context:** Agent pods had blank filesystem despite files being in GCS — debugging via `which gsutil` confirmed gsutil absent
+**Lesson:** Agent pods don't have the Google Cloud SDK installed. Any in-pod GCS access must use the `@google-cloud/storage` Node.js SDK via lazy import. Never shell out to gsutil in code that runs inside agent pods. The write path already uses HTTP-to-host for the same reason.
+**Tags:** k8s, gcs, gsutil, workspace, provisioning, pod, sdk
+
+### GCS write prefix and provisioning prefix must come from the same source
+**Date:** 2026-03-17
+**Context:** Debugging blank k8s agent filesystem — files showed in GCS but agent saw nothing on next turn
+**Lesson:** The GCS backend commits files using `config.workspace.prefix` (from the config file). The work payload builder was using `process.env.AX_WORKSPACE_GCS_PREFIX` for the provisioning prefixes. When only `config.workspace.prefix` was set, provisioning was silently skipped (all three GCS prefix fields were `undefined`). Fix: always derive the provisioning prefix from `config.workspace.prefix ?? process.env.AX_WORKSPACE_GCS_PREFIX`. When adding any read/write pair that both need the same GCS prefix, drive both from the same config source.
+**Tags:** k8s, workspace, gcs, provisioning, config, env-var, blank-filesystem
+
 ### Streaming SSE must use try/catch/finally around processCompletion
 **Date:** 2026-03-16
 **Context:** Chat completions from web UIs hung forever when processCompletion threw during streaming mode

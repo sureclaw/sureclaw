@@ -360,7 +360,7 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
   const prefix = wsConfig?.prefix ?? '';
   const rawBase = wsConfig?.basePath ?? join(tmpdir(), 'ax-workspaces-gcs');
   const basePath = rawBase.startsWith('~') ? rawBase.replace('~', homedir()) : rawBase;
-  const agentId = config.agent_name ?? 'assistant';
+  const agentId = config.agent_name ?? 'main';
 
   await mkdir(basePath, { recursive: true });
 
@@ -425,6 +425,23 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
         return path ? { path, size: 0 } : null;
       })
       .filter((f): f is { path: string; size: number } => f !== null);
+  };
+
+  // Download all files with content — used by the provision HTTP endpoint
+  // so sandbox pods can fetch workspace files from the host (the pod has no GCS credentials).
+  provider.downloadScope = async (scope, id) => {
+    const folder = scope === 'session' ? 'scratch' : scope;
+    const base = prefix.endsWith('/') ? prefix : prefix ? `${prefix}/` : '';
+    const keyPrefix = `${base}${folder}/${id}/`;
+    const [files] = await bucket.getFiles({ prefix: keyPrefix });
+    const results: Array<{ path: string; content: Buffer }> = [];
+    for (const file of files) {
+      const path = file.name.slice(keyPrefix.length);
+      if (!path) continue;
+      const [content] = await file.download();
+      results.push({ path, content });
+    }
+    return results;
   };
 
   return provider;

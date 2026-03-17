@@ -6,8 +6,10 @@
 // On cleanup: diff scopes, upload changes to GCS, git push, delete workspace.
 
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, statSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync, readFileSync, writeFileSync, chmodSync, readdirSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { join } from 'node:path';
 
 /** File change metadata for scope diffing. */
@@ -133,41 +135,79 @@ const WORKSPACE_BUCKET = process.env.GCS_WORKSPACE_BUCKET ?? '';
 
 export type FileHashMap = Map<string, string>; // relative path -> sha256
 
+/**
+ * Provision a workspace scope by downloading files into mountPath.
+ *
+ * Two modes:
+ *   1. HTTP (k8s): fetch files from the host's /internal/workspace/provision endpoint.
+ *      The host has GCS credentials; the pod does not.
+ *   2. Direct (non-k8s fallback): use @google-cloud/storage SDK when credentials are local.
+ */
 export async function provisionScope(
   mountPath: string,
   gcsPrefix: string,
   readOnly: boolean,
+  opts?: { hostUrl?: string; token?: string; scope?: string; id?: string },
 ): Promise<{ source: 'gcs' | 'empty'; fileCount: number; hashes: FileHashMap }> {
   mkdirSync(mountPath, { recursive: true });
   const hashes: FileHashMap = new Map();
 
-  if (!WORKSPACE_BUCKET) {
-    return { source: 'empty', fileCount: 0, hashes };
-  }
-
   try {
-    // nosemgrep: javascript.lang.security.detect-child-process — workspace: GCS prefix is host-constructed, not user input
-    execSync(
-      `gsutil -m rsync -r "gs://${WORKSPACE_BUCKET}/${gcsPrefix}" "${mountPath}"`,
-      { timeout: 120_000, stdio: 'pipe' },
-    );
+    if (opts?.hostUrl && opts.scope && opts.id) {
+      // K8s mode: download from host via HTTP (host has GCS credentials, pod doesn't)
+      const params = new URLSearchParams({ scope: opts.scope, id: opts.id });
+      const url = `${opts.hostUrl}/internal/workspace/provision?${params}`;
+      const headers: Record<string, string> = {};
+      if (opts.token) headers['Authorization'] = `Bearer ${opts.token}`;
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`provision HTTP ${response.status}: ${text}`);
+      }
+      const gzipped = Buffer.from(await response.arrayBuffer());
+      const json = JSON.parse(gunzipSync(gzipped).toString('utf-8')) as {
+        files: Array<{ path: string; content_base64: string; size: number }>;
+      };
+      for (const file of json.files) {
+        const localPath = join(mountPath, ...file.path.split('/'));
+        await mkdir(join(localPath, '..'), { recursive: true });
+        writeFileSync(localPath, Buffer.from(file.content_base64, 'base64'));
+      }
+    } else if (WORKSPACE_BUCKET) {
+      // Non-k8s fallback: use GCS SDK directly (host has credentials locally)
+      const { Storage } = await import('@google-cloud/storage');
+      const storage = new Storage();
+      const bucket = storage.bucket(WORKSPACE_BUCKET);
+      const [files] = await bucket.getFiles({ prefix: gcsPrefix });
+      for (const file of files) {
+        const relPath = file.name.slice(gcsPrefix.length);
+        if (!relPath) continue;
+        const localPath = join(mountPath, ...relPath.split('/'));
+        await mkdir(join(localPath, '..'), { recursive: true });
+        const [content] = await file.download();
+        writeFileSync(localPath, content);
+      }
+    } else {
+      return { source: 'empty', fileCount: 0, hashes };
+    }
   } catch {
     return { source: 'empty', fileCount: 0, hashes };
   }
 
   // Snapshot file hashes for diff on release
-  const files = listFilesSync(mountPath);
-  for (const relPath of files) {
+  const localFiles = listFilesSync(mountPath);
+  for (const relPath of localFiles) {
     const content = readFileSync(join(mountPath, relPath));
     hashes.set(relPath, hashContent(content));
   }
 
   if (readOnly) {
-    // nosemgrep: javascript.lang.security.detect-child-process — workspace: mountPath is internal, not user input
-    execSync(`chmod -R a-w "${mountPath}"`, { stdio: 'pipe' });
+    for (const relPath of localFiles) {
+      chmodSync(join(mountPath, relPath), 0o444);
+    }
   }
 
-  return { source: 'gcs', fileCount: files.length, hashes };
+  return { source: 'gcs', fileCount: localFiles.length, hashes };
 }
 
 export function diffScope(

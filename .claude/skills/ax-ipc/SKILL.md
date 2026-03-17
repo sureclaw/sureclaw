@@ -139,7 +139,12 @@ Messages support multiple block types:
 
 ### Workspace operations
 
-Workspace file syncing in k8s uses a two-phase approach: (1) the agent-side sidecar (`workspace-cli.ts release`) POSTs gzipped file data to the host's `/internal/workspace-staging` HTTP endpoint, (2) the agent sends a lightweight `workspace_release` IPC action with just the `staging_key` UUID. The host looks up the staged data, decompresses, and feeds it to the workspace provider's `setRemoteChanges()`. The old `workspace_write`/`workspace_write_file` IPC actions have been removed — the workspace provider's mount/diff/commit pipeline is now the only write path.
+Workspace file syncing in k8s uses symmetric HTTP endpoints on the host (pods have no GCS credentials):
+
+- **Provision** (start of turn): Pod GETs `GET /internal/workspace/provision?scope=<agent|user|session>&id=<id>` from the host. Host reads from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64-encoded file contents. `provisionScope()` in `src/agent/workspace.ts` handles this automatically when `AX_HOST_URL` is set.
+- **Release** (end of turn): Agent-side `workspace-cli.ts release` POSTs gzipped file data to the host's `/internal/workspace-staging` HTTP endpoint. The agent then sends a lightweight `workspace_release` IPC action with just the `staging_key` UUID. The host looks up the staged data, decompresses, and feeds it to the workspace provider's `setRemoteChanges()`.
+
+Both endpoints are authenticated via `Authorization: Bearer <ipcToken>`. The old `workspace_write`/`workspace_write_file` IPC actions have been removed — the workspace provider's mount/diff/commit pipeline is now the only write path.
 
 ### Sandbox tool operations
 

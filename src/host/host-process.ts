@@ -15,7 +15,7 @@ import { existsSync, readFileSync, mkdirSync, mkdtempSync, copyFileSync, cpSync,
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { getLogger } from '../logger.js';
 import { loadConfig } from '../config.js';
 import { loadProviders } from './registry.js';
@@ -672,6 +672,39 @@ async function main(): Promise<void> {
       } catch (err) {
         logger.error('workspace_release_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Workspace release failed');
+      }
+      return;
+    }
+
+    // Workspace provision: sandbox pods download scope files from host (host has GCS credentials, pods don't).
+    // Mirrors the release endpoint — release uploads pod→host→GCS, provision downloads GCS→host→pod.
+    if (url.startsWith('/internal/workspace/provision') && req.method === 'GET') {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const params = new URL(url, 'http://localhost').searchParams;
+        const scope = params.get('scope') as 'agent' | 'user' | 'session';
+        const id = params.get('id');
+        if (!scope || !id || !providers.workspace?.downloadScope) {
+          sendError(res, 400, 'Missing scope/id or workspace provider has no downloadScope');
+          return;
+        }
+        const files = await providers.workspace.downloadScope(scope, id);
+        const json = JSON.stringify({
+          files: files.map(f => ({ path: f.path, content_base64: f.content.toString('base64'), size: f.content.length })),
+        });
+        const gzipped = gzipSync(Buffer.from(json));
+        logger.info('workspace_provision', { scope, id, fileCount: files.length, bytes: gzipped.length });
+        res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Length': String(gzipped.length) });
+        res.end(gzipped);
+      } catch (err) {
+        logger.error('workspace_provision_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Workspace provision failed');
       }
       return;
     }

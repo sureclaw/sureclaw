@@ -182,7 +182,7 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
     | undefined;
 
   const basePath = wsConfig?.basePath ?? join(homedir(), '.ax', 'workspaces');
-  const agentId = config.agent_name ?? 'assistant';
+  const agentId = config.agent_name ?? 'main';
 
   // Create the base directory
   await mkdir(basePath, { recursive: true });

@@ -123,4 +123,8 @@ export interface WorkspaceProvider {
 
   /** List files in a workspace scope (admin browsing). Optional — not all backends support it. */
   listFiles?(scope: WorkspaceScope, id: string): Promise<WorkspaceFileEntry[]>;
+
+  /** Download all files in a scope with content. Used by the provision HTTP endpoint
+   *  so sandbox pods can fetch workspace files from the host (the pod has no GCS credentials). */
+  downloadScope?(scope: WorkspaceScope, id: string): Promise<Array<{ path: string; content: Buffer }>>;
 }

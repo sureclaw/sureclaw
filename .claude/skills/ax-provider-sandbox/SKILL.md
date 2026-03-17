@@ -103,8 +103,8 @@ Workspace prepare/release is driven by `workspaceLocation` on each SandboxProvid
 
 **Sandbox-side** (`workspaceLocation: 'sandbox'` -- k8s):
 1. `workspace.mount()` is a no-op (returns empty paths)
-2. Work payload includes scope info + git URL
-3. One pod spawns -- runner provisions from payload before agent starts (`provisionWorkspaceFromPayload`)
+2. Work payload includes workspace provider type, agent/user/session IDs, and git URL
+3. One pod spawns -- runner provisions via HTTP from host before agent starts (`provisionWorkspaceFromPayload`). When `AX_HOST_URL` is set and workspace provider is `gcs`, all scopes are fetched from the host's `GET /internal/workspace/provision` endpoint (the host has GCS credentials, the pod doesn't). No GCS prefix fields needed in the payload for this path.
 4. Agent runs -- reads/writes canonical paths in emptyDir volumes
 5. Runner releases -- diffs against provisioned hashes, HTTP upload to host
 6. Runner finalizes -- git push + GCS cache update (in-pod)
@@ -204,10 +204,17 @@ node dist/agent/workspace-cli.js release --host-url http://ax-host.ax.svc
 - **Cleanup**: Diff scopes against hash snapshot, upload changes, git push, release workspace
 - **Release** (k8s only): Diffs all workspace scopes (`/workspace/scratch`, `/workspace/agent`, `/workspace/user`) against empty baseline, gzips the change set as JSON with base64-encoded file contents, POSTs to `${hostUrl}/internal/workspace-staging`, and outputs the staging key to stdout. Called by `workspace-release.ts` as a subprocess before the `agent_response` IPC call
 
-### K8s Workspace Release Flow
+### K8s Workspace File Transfer
 
-In k8s mode, workspace file changes flow back to GCS via HTTP staging:
+In k8s mode, the host is the single GCS credential holder. Pods transfer workspace files via symmetric HTTP endpoints:
 
+**Provision** (start of turn, GCS → host → pod):
+1. `provisionWorkspaceFromPayload()` detects `AX_HOST_URL` + workspace provider `gcs`
+2. For each scope (agent, user, session), calls `provisionScope()` which GETs `${hostUrl}/internal/workspace/provision?scope=<s>&id=<id>`
+3. Host reads from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64 file contents
+4. Pod decompresses, writes files to canonical mount paths, snapshots hashes for release diff
+
+**Release** (end of turn, pod → host → GCS):
 1. Agent runner calls `releaseWorkspaceScopes()` from `workspace-release.ts`
 2. `workspace-release.ts` spawns `workspace-cli.js release --host-url <url>` as subprocess
 3. workspace-cli diffs scopes, gzips JSON, POSTs to host `/internal/workspace-staging`
@@ -250,7 +257,8 @@ In k8s mode, workspace file changes flow back to GCS via HTTP staging:
 - **Identity/skills NOT mounted**: They come via stdin payload from DocumentStore. Don't add filesystem mounts for identity or skills.
 - **Web proxy socket location**: `web-proxy.sock` lives in the same directory as the IPC socket (already mounted into containers). `canonicalEnv()` computes the path from `dirname(config.ipcSocket)`. No extra mount needed.
 - **K8s web proxy uses k8s Service**: K8s pods don't use a Unix socket for the web proxy. Instead, `host-process.ts` passes `AX_WEB_PROXY_URL` pointing to a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Network policy allows pods to reach the proxy service.
-- **K8s workspace release uses HTTP staging**: File data flows via HTTP POST to host `/internal/workspace-staging`, not via NATS (avoids NATS 1MB payload limit). Only the staging_key reference travels over NATS.
+- **K8s pods have no GCS credentials or gsutil**: Agent pods cannot access GCS directly. All GCS access goes through the host via HTTP endpoints (`/internal/workspace/provision` for reads, `/internal/workspace-staging` for writes). Never shell out to `gsutil` in code that runs inside agent pods — use the host HTTP path or `@google-cloud/storage` SDK (for non-k8s only).
+- **K8s workspace uses symmetric HTTP endpoints**: Provision (GCS→host→pod) via `GET /internal/workspace/provision`, release (pod→host→GCS) via `POST /internal/workspace-staging`. Only the staging_key reference travels over NATS (avoids NATS 1MB payload limit).
 - **child.killed is true after ANY kill() call**, not just after the process is dead. Use a separate `exited` flag.
 - **Use direct binary paths** (`node_modules/.bin/tsx`) not `npx` inside sandboxes.
 - **Always have an integration test with the real sandbox**, not just subprocess fallback.
@@ -270,6 +278,4 @@ In k8s mode, workspace file changes flow back to GCS via HTTP staging:
 - `src/agent/workspace-cli.ts` -- Container provision/cleanup/release phase CLI
 - `src/agent/workspace-release.ts` -- Thin wrapper that spawns workspace-cli.ts release as subprocess, sends staging_key via IPC
 - `src/host/provider-map.ts` -- Static allowlist (sandbox: subprocess, docker, apple, k8s)
-- `tests/providers/sandbox/` -- Tests: k8s, docker, apple, subprocess, warm-pool-client, canonical-paths, utils
-ss, docker, apple, k8s)
 - `tests/providers/sandbox/` -- Tests: k8s, docker, apple, subprocess, warm-pool-client, canonical-paths, utils

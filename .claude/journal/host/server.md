@@ -2,6 +2,38 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-17 18:52] — Fix blank k8s filesystem: HTTP-based provisioning (pod→host→GCS)
+
+**Task:** Files in GCS still not appearing on pod filesystem after SDK fix — pod has no GCS credentials either
+**What I did:** Realized the pod has no GCS credentials at all (no gsutil, no service account key). The write path (workspace release) works because it goes via HTTP to the host which HAS credentials. Made the read path symmetric: added `GET /internal/workspace/provision` endpoint to host-process.ts that reads from GCS via `downloadScope()` (new method on WorkspaceProvider), returns gzipped JSON. Changed `provisionScope` in workspace.ts to accept `hostUrl` and use HTTP when available. Changed `provisionWorkspaceFromPayload` in runner.ts to always provision via HTTP when `AX_HOST_URL` is set — no longer depends on GCS prefix fields in the work payload.
+**Files touched:** `src/providers/workspace/types.ts`, `src/providers/workspace/gcs.ts`, `src/host/host-process.ts`, `src/agent/workspace.ts`, `src/agent/runner.ts`
+**Outcome:** Clean build, all tests pass
+**Notes:** This is the architectural fix: host is the single GCS credential holder, pods only talk to host via HTTP. Mirrors the existing release flow (pod→HTTP POST→host→GCS) with a symmetric provision flow (GCS→host→HTTP GET→pod).
+
+## [2026-03-17 18:45] — Fix blank k8s filesystem: replace gsutil with @google-cloud/storage SDK in provisionScope
+
+**Task:** Files in GCS still not restored to pod filesystem after prefix fix
+**What I did:** Ran diagnostics (gsutil ls, pod logs, which gsutil). Confirmed: no `provision_` log entries (prefixes not in payload — original bug), AND `gsutil` not installed in agent pod (provisionScope would silently fail even with correct prefixes). Replaced the `gsutil -m rsync` shell call in `provisionScope` with `@google-cloud/storage` SDK (lazy import), also replaced `execSync chmod` with `chmodSync` per project hook policy.
+**Files touched:** `src/agent/workspace.ts`
+**Outcome:** Success — clean build, two root causes addressed
+**Notes:** Diagnostic-first approach: listing the bucket confirmed path structure (`test/scratch/{sessionId}/...`), pod logs showed zero provision_ entries (payload missing), `which gsutil` confirmed the CLI is absent.
+
+## [2026-03-17 18:08] — Fix blank k8s filesystem: GCS prefix sourced from config, not only env var
+
+**Task:** Agent sees blank filesystem on each new k8s turn despite files being in GCS
+**What I did:** Identified that `server-completions.ts` read `AX_WORKSPACE_GCS_PREFIX` env var for provisioning prefixes in the work payload, while the GCS backend uses `config.workspace.prefix` for commits — two independent sources. Extracted `resolveWorkspaceGcsPrefixes()` as an exported helper that prefers `config.workspace.prefix` with env var fallback; used it in the payload builder; added regression tests.
+**Files touched:** `src/host/server-completions.ts`, `tests/host/server-completions-gcs-prefix.test.ts`
+**Outcome:** Success — 4 regression tests pass
+**Notes:** The write path (gcs.ts createRemoteTransport.commit) uses `wsConfig.prefix` from config. The provision path used a separate env var. When users configure workspace.prefix in config but forget AX_WORKSPACE_GCS_PREFIX, provisioning is silently skipped → blank emptyDir volumes every turn.
+
+## [2026-03-17 00:00] — Add logger calls to identity_write decision paths
+
+**Task:** Add structured log lines to identity_write handler for k8s debugging
+**What I did:** Added `getLogger` import and `logger.info('identity_write_decision', { decision, file, sessionId })` at each decision branch (rejected_non_admin, queued_tainted, queued_paranoid, applied) in `identity_write`. Audit log already existed; these go to pod stdout/stderr for `kubectl logs` visibility.
+**Files touched:** `src/host/ipc-handlers/identity.ts`
+**Outcome:** Success
+**Notes:** scanner_blocked path was intentionally left without a logger call since it returns `ok: false` (not queued) and is already distinct in audit log.
+
 ## [2026-03-16 12:22] — Fix delegation CPU tier, git push without GCS, and missing cache key
 
 **Task:** Fix three bugs: (1) delegated CPU tier not propagated to child sandbox, (2) git workspace changes not pushed without GCS prefix, (3) cleanup cache key never passed.

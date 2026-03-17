@@ -371,6 +371,57 @@ async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<voi
   const { CANONICAL } = await import('../providers/sandbox/canonical-paths.js');
   const snapshot: Record<string, [string, string][]> = {};
 
+  // HTTP provisioning options — in k8s the pod fetches files from the host
+  // (the host has GCS credentials, the pod doesn't).
+  const hostUrl = process.env.AX_HOST_URL;
+  const token = payload.ipcToken ?? process.env.AX_IPC_TOKEN;
+
+  // In k8s mode, always provision all scopes via HTTP when a host URL is available.
+  // This doesn't require GCS prefix fields in the payload — the host resolves
+  // the GCS paths from its own config. The agentGcsPrefix fields in the payload
+  // are only needed for the legacy direct-GCS path (non-k8s).
+  if (hostUrl && payload.workspaceProvider === 'gcs') {
+    const agentId = payload.agentId ?? 'assistant';
+    const userId = payload.userId ?? '';
+    const sessionId = payload.sessionId ?? '';
+    const httpOpts = (scope: string, id: string) => ({ hostUrl, token, scope, id });
+
+    try {
+      const result = await provisionScope(CANONICAL.agent, '', payload.agentReadOnly ?? true, httpOpts('agent', agentId));
+      snapshot.agent = [...result.hashes.entries()];
+      logger.info('provision_agent_scope', { source: result.source, fileCount: result.fileCount });
+    } catch (err) {
+      logger.warn('provision_agent_scope_failed', { error: (err as Error).message });
+    }
+
+    try {
+      const result = await provisionScope(CANONICAL.user, '', false, httpOpts('user', userId));
+      snapshot.user = [...result.hashes.entries()];
+      logger.info('provision_user_scope', { source: result.source, fileCount: result.fileCount });
+    } catch (err) {
+      logger.warn('provision_user_scope_failed', { error: (err as Error).message });
+    }
+
+    try {
+      const result = await provisionScope(CANONICAL.scratch, '', false, httpOpts('session', sessionId));
+      snapshot.session = [...result.hashes.entries()];
+      logger.info('provision_session_scope', { source: result.source, fileCount: result.fileCount });
+    } catch (err) {
+      logger.warn('provision_session_scope_failed', { error: (err as Error).message });
+    }
+
+    // Write hash snapshot for workspace release to diff against
+    if (Object.keys(snapshot).length > 0) {
+      try {
+        writeFileSync('/tmp/.ax-hashes.json', JSON.stringify(snapshot), 'utf-8');
+        logger.debug('hash_snapshot_written', { scopes: Object.keys(snapshot) });
+      } catch (err) {
+        logger.warn('hash_snapshot_write_failed', { error: (err as Error).message });
+      }
+    }
+    return;
+  }
+
   // Git workspace → /workspace/scratch
   if (payload.workspaceGitUrl) {
     try {
@@ -388,7 +439,9 @@ async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<voi
   // Agent scope → /workspace/agent
   if (payload.agentGcsPrefix) {
     try {
-      const result = await provisionScope(CANONICAL.agent, payload.agentGcsPrefix, payload.agentReadOnly ?? true);
+      const result = await provisionScope(CANONICAL.agent, payload.agentGcsPrefix, payload.agentReadOnly ?? true, {
+        hostUrl, token, scope: 'agent', id: payload.agentId ?? 'assistant',
+      });
       snapshot.agent = [...result.hashes.entries()];
       logger.info('provision_agent_scope', { source: result.source, fileCount: result.fileCount });
     } catch (err) {
@@ -399,7 +452,9 @@ async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<voi
   // User scope → /workspace/user
   if (payload.userGcsPrefix) {
     try {
-      const result = await provisionScope(CANONICAL.user, payload.userGcsPrefix, false);
+      const result = await provisionScope(CANONICAL.user, payload.userGcsPrefix, false, {
+        hostUrl, token, scope: 'user', id: payload.userId ?? '',
+      });
       snapshot.user = [...result.hashes.entries()];
       logger.info('provision_user_scope', { source: result.source, fileCount: result.fileCount });
     } catch (err) {
@@ -410,7 +465,9 @@ async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<voi
   // Session scope → /workspace/scratch (GCS overlay on top of git workspace)
   if (payload.sessionGcsPrefix) {
     try {
-      const result = await provisionScope(CANONICAL.scratch, payload.sessionGcsPrefix, false);
+      const result = await provisionScope(CANONICAL.scratch, payload.sessionGcsPrefix, false, {
+        hostUrl, token, scope: 'session', id: payload.sessionId ?? '',
+      });
       snapshot.session = [...result.hashes.entries()];
       logger.info('provision_session_scope', { source: result.source, fileCount: result.fileCount });
     } catch (err) {

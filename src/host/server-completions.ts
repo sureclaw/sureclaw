@@ -163,6 +163,39 @@ export function extractSkillMeta(content: string, path: string): { name: string;
 }
 
 /**
+ * Resolve the GCS object-key prefixes used for in-pod workspace provisioning.
+ *
+ * Rules:
+ *  - Only runs when the workspace provider is 'gcs' — no-op for 'none'/'local'.
+ *  - `config.workspace.prefix` is authoritative (same source as gcs.ts createRemoteTransport).
+ *  - Falls back to `AX_WORKSPACE_GCS_PREFIX` env var for backward compat.
+ *  - Empty-string prefix is valid (files live at bucket root) — mirrors gcs.ts default.
+ *  - Trailing slash is normalised the same way as buildGcsPrefix in gcs.ts.
+ */
+export function resolveWorkspaceGcsPrefixes(
+  config: Config,
+  agentName: string,
+  userId: string,
+  sessionId: string,
+): { agentGcsPrefix?: string; userGcsPrefix?: string; sessionGcsPrefix?: string } {
+  // Only GCS workspace provider stores files in GCS that can be provisioned.
+  if (config.providers.workspace !== 'gcs') return {};
+
+  // Mirror gcs.ts: `wsConfig.prefix ?? ''` — empty string is a valid prefix
+  // meaning files live directly under the bucket root.
+  const rawPrefix = config.workspace?.prefix ?? process.env.AX_WORKSPACE_GCS_PREFIX ?? '';
+
+  // Mirror buildGcsPrefix trailing-slash normalisation in gcs.ts.
+  const base = rawPrefix.endsWith('/') ? rawPrefix : rawPrefix ? `${rawPrefix}/` : '';
+
+  return {
+    agentGcsPrefix:   `${base}agent/${agentName}/`,
+    userGcsPrefix:    `${base}user/${userId}/`,
+    sessionGcsPrefix: `${base}scratch/${sessionId}/`,
+  };
+}
+
+/**
  * Load identity files from DocumentStore for a given agent and user.
  * Returns an IdentityPayload with fields populated from matching documents.
  */
@@ -805,7 +838,8 @@ export async function processCompletion(
     // prepare/finalize on bind-mounted paths. Sandbox-side providers (k8s) include
     // the plan fields in the NATS work payload for in-pod provisioning.
     const workspaceGitUrl = process.env.AX_WORKSPACE_GIT_URL;
-    const workspaceGcsPrefix = process.env.AX_WORKSPACE_GCS_PREFIX;
+    const workspaceGcsPrefix = config.workspace?.prefix ?? process.env.AX_WORKSPACE_GCS_PREFIX;
+    const gcsPrefixes = resolveWorkspaceGcsPrefixes(config, agentName, currentUserId ?? '', sessionId);
 
     const lifecyclePlan = buildLifecyclePlan({
       gitUrl: workspaceGitUrl,
@@ -848,9 +882,7 @@ export async function processCompletion(
       workspaceGitUrl: process.env.AX_WORKSPACE_GIT_URL,
       workspaceGitRef: process.env.AX_WORKSPACE_GIT_REF,
       workspaceCacheKey,
-      agentGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}agent/${agentName}/` : undefined,
-      userGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}user/${currentUserId}/` : undefined,
-      sessionGcsPrefix: workspaceGcsPrefix ? `${workspaceGcsPrefix}scratch/${sessionId}/` : undefined,
+      ...gcsPrefixes,
       agentReadOnly: !agentWorkspaceWritable,
     });
 
