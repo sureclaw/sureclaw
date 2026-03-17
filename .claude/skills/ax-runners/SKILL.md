@@ -16,6 +16,7 @@ AX supports multiple agent runners that execute inside the sandbox. Each runner 
 | `src/agent/runners/claude-code.ts` | Claude Agent SDK runner (TCP/NATS bridge, MCP tools) | `runClaudeCode()`, `buildSDKPrompt()` |
 | `src/agent/mcp-server.ts` | MCP tool registry for claude-code | `createIPCMcpServer()` |
 | `src/agent/tcp-bridge.ts` | HTTP-to-Unix-socket forwarder | `startTCPBridge()`, `TCPBridge` |
+| `src/agent/web-proxy-bridge.ts` | TCP-to-Unix-socket bridge for HTTP forward proxy (HTTP + CONNECT) | `startWebProxyBridge()`, `WebProxyBridge` |
 | `src/agent/nats-bridge.ts` | HTTP-to-NATS bridge for K8s claude-code LLM proxy | `startNATSBridge()`, `NATSBridge` |
 | `src/agent/nats-ipc-client.ts` | NATS-based IPC client for k8s (drop-in IPCClient replacement) | `NATSIPCClient` |
 | `src/agent/local-sandbox.ts` | Agent-side sandbox execution with host audit gate | `createLocalSandbox()` |
@@ -72,13 +73,14 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 **Key flow:**
 1. Use pre-connected `IIPCClient` from `config.ipcClient` (or create new `IPCClient`)
-2. Create LLM stream function (proxy preferred, IPC fallback)
-3. Load identity files, build system prompt via `buildSystemPrompt()` (returns prompt + `ToolFilterContext`)
-4. Create IPC tools (filtered by `ToolFilterContext` -- memory, web, audit, skills, scheduler, identity/user write, delegation, image_generate)
-5. Load + compact conversation history from stdin (75% context window threshold)
-6. Create `AgentSession` with tools, history, custom system prompt
-7. Call `session.sendMessage(userMessage)` and stream text to stdout
-8. Subscribe to events: text_delta -> stdout, tool calls -> logged
+2. Start web proxy bridge if `AX_WEB_PROXY_SOCKET` / `AX_WEB_PROXY_URL` / `AX_WEB_PROXY_PORT` env var set; set `HTTP_PROXY`/`HTTPS_PROXY` for child processes
+3. Create LLM stream function (proxy preferred, IPC fallback)
+4. Load identity files, build system prompt via `buildSystemPrompt()` (returns prompt + `ToolFilterContext`)
+5. Create IPC tools (filtered by `ToolFilterContext` -- memory, web, audit, skills, scheduler, identity/user write, delegation, image_generate)
+6. Load + compact conversation history from stdin (75% context window threshold)
+7. Create `AgentSession` with tools, history, custom system prompt
+8. Call `session.sendMessage(userMessage)` and stream text to stdout
+9. Subscribe to events: text_delta -> stdout, tool calls -> logged
 
 **Timeout passthrough**: `LLM_CALL_TIMEOUT_MS` (configurable via `AX_LLM_TIMEOUT_MS`, defaults to 10 min) passed to IPC calls.
 
@@ -90,6 +92,7 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 **Key flow:**
 1. Start bridge: TCP bridge (`startTCPBridge(proxySocket)`) for local, or NATS bridge (`startNATSBridge(...)`) for k8s
+1b. Start web proxy bridge if `AX_WEB_PROXY_SOCKET` / `AX_WEB_PROXY_URL` / `AX_WEB_PROXY_PORT` env var set
 2. Use pre-connected `IIPCClient` from `config.ipcClient` (or create new `IPCClient`)
 3. Create IPC MCP server (`createIPCMcpServer(client)`) exposing tools via MCP protocol
 4. Build system prompt via `buildSystemPrompt()` (returns prompt + `ToolFilterContext`)
@@ -99,6 +102,7 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
    - `ANTHROPIC_BASE_URL`: `http://127.0.0.1:${bridge.port}` (TCP or NATS bridge)
    - `disallowedTools`: `['WebFetch', 'WebSearch', 'Skill']` (use AX's IPC versions)
    - `mcpServers`: the IPC MCP server
+   - `env`: includes `HTTP_PROXY`/`HTTPS_PROXY` if web proxy bridge is running
 6. Stream text blocks to stdout
 
 **Image support via `buildSDKPrompt()`**: When the user message contains `image_data` content blocks, `buildSDKPrompt()` returns an `AsyncIterable<SDKUserMessage>` with structured content blocks (text + base64 images) instead of a plain string.
@@ -155,3 +159,5 @@ This avoids the round-trip of sending file contents/command output over IPC for 
 - **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
 - **NATS bridge is LLM-only**: `nats-bridge.ts` handles only claude-code LLM proxy traffic (Anthropic API forwarding). General IPC for k8s (tool calls, memory, etc.) goes through `nats-ipc-client.ts` -> `nats-ipc-handler.ts`.
 - **Concurrent IPC fix**: Misrouted responses on shared Unix sockets have been fixed. Each `call()` is now correctly matched to its response.
+- **Web proxy bridge cleanup**: Both runners stop the web proxy bridge in their cleanup path (after agent loop completes). Failure to start the bridge is non-fatal (logged as warning, agent continues without outbound HTTP).
+- **Web proxy env var priority**: `AX_WEB_PROXY_SOCKET` (container, Unix socket bridge) > `AX_WEB_PROXY_URL` (k8s, direct URL) > `AX_WEB_PROXY_PORT` (subprocess, TCP). Only one is used.

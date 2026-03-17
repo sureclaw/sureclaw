@@ -64,6 +64,7 @@ Identity files and skills are sent via stdin payload from DocumentStore -- not m
 
 `canonicalEnv(config)` builds:
 - `AX_IPC_SOCKET` -- real host path for IPC
+- `AX_WEB_PROXY_SOCKET` -- path to web proxy Unix socket (same dir as IPC socket, `web-proxy.sock`)
 - `AX_WORKSPACE` -- canonical root (`/workspace`)
 - `AX_AGENT_WORKSPACE` -- `/workspace/agent` (if agentWorkspace set)
 - `AX_USER_WORKSPACE` -- `/workspace/user` (if userWorkspace set)
@@ -217,6 +218,8 @@ node dist/agent/workspace-cli.js cleanup --workspace /workspace --session defaul
 - **New host paths must be added to container providers**: SandboxConfig changes ripple to docker (-v :ro), apple (-v :ro), k8s (volume mounts).
 - **EPERM on kill**: tsx-wrapped agents may throw EPERM on SIGTERM/SIGKILL. `enforceTimeout()` handles this with try/catch.
 - **Identity/skills NOT mounted**: They come via stdin payload from DocumentStore. Don't add filesystem mounts for identity or skills.
+- **Web proxy socket location**: `web-proxy.sock` lives in the same directory as the IPC socket (already mounted into containers). `canonicalEnv()` computes the path from `dirname(config.ipcSocket)`. No extra mount needed.
+- **K8s web proxy uses k8s Service**: K8s pods don't use a Unix socket for the web proxy. Instead, `host-process.ts` passes `AX_WEB_PROXY_URL` pointing to a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Network policy allows pods to reach the proxy service.
 - **child.killed is true after ANY kill() call**, not just after the process is dead. Use a separate `exited` flag.
 - **Use direct binary paths** (`node_modules/.bin/tsx`) not `npx` inside sandboxes.
 - **Always have an integration test with the real sandbox**, not just subprocess fallback.

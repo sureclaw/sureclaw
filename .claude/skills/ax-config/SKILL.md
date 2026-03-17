@@ -68,6 +68,8 @@ Validated by `ConfigSchema` (Zod `strictObject` -- rejects unknown keys).
 | `webhooks.model` | string | optional | LLM model for webhook transforms |
 | `webhooks.allowed_agent_ids` | string[] | optional | Restrict which agents webhooks can target |
 | `admin` | object | required | Admin dashboard: `enabled` (bool), `token` (string, optional), `port` (number) |
+| `web_proxy` | boolean | false | Enable HTTP forward proxy for agent outbound HTTP/HTTPS (npm install, curl, etc.) |
+| `namespace` | string | `ax` | K8s namespace for web proxy service discovery (`ax-web-proxy.{namespace}.svc:3128`) |
 | `delegation` | object | optional | `max_concurrent` (1-10, default 3), `max_depth` (1-5, default 2) |
 
 ## Models Configuration

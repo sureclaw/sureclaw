@@ -86,6 +86,16 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 - **Warm pool** -- Pre-warmed pods with atomic claiming for K8s deployments.
 - Providers: subprocess (dev fallback), Docker, Apple Container, K8s pods (NATS IPC).
 
+### HTTP Forward Proxy (Controlled Outbound Access)
+
+Opt-in (`config.web_proxy`, disabled by default) HTTP forward proxy (`src/host/web-proxy.ts`) allows agents to make outbound HTTP/HTTPS requests (npm install, pip install, curl, git clone) while preserving `--network=none`. Security controls on the proxy:
+
+- **Private IP blocking (SSRF)**: Same private IP ranges as the fetch provider -- `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (cloud metadata), `::1`, `fe80:`, `fc/fd`.
+- **Canary token scanning**: HTTP request bodies scanned for canary tokens before forwarding. Blocks exfiltration attempts.
+- **Audit logging**: Every proxy request logged with method, URL, status, bytes, duration, and block reason.
+- **Transport**: Container sandboxes (Docker/Apple) reach the proxy via a mounted Unix socket (`web-proxy.sock` in IPC dir) + TCP loopback bridge (`web-proxy-bridge.ts`). K8s pods connect directly via a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Subprocess mode uses a TCP port.
+- **HTTPS CONNECT tunneling**: Proxy handles CONNECT method for TLS passthrough -- it never sees TLS plaintext.
+
 ## Install Validation
 
 - **`src/utils/install-validator.ts`**: Validates skill install commands against prefix allowlist (npm, brew, pip, cargo). Hard-rejects privilege escalation (sudo/su/doas/pkexec). Blocks shell operators.
@@ -105,7 +115,7 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 ## Invariants
 
 - Credentials never enter agent containers.
-- No network access from agent processes (TCP/IP denied; Unix socket IPC only).
+- No network access from agent processes (TCP/IP denied; Unix socket IPC only). Opt-in web proxy provides controlled outbound HTTP with SSRF blocking and canary scanning.
 - All external content is taint-tagged before reaching the agent.
 - Provider loading uses static allowlist only -- no dynamic path construction from config.
 - Every file path from untrusted input passes through `safePath()`.

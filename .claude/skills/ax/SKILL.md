@@ -29,6 +29,8 @@ Agent isolation uses a unified container model with four sandbox providers:
 
 Old Linux-specific sandbox providers (seatbelt, nsjail, bwrap) have been removed. The k8s provider uses NATS for all host-agent communication (IPC request/reply, LLM proxy, event streaming) instead of Unix sockets, since pods cannot share a filesystem with the host.
 
+**Outbound HTTP via Web Proxy**: Agents can optionally make outbound HTTP/HTTPS requests (npm install, pip install, curl, git clone) through a controlled forward proxy on the host. Opt-in via `config.web_proxy` (disabled by default). Containers keep `--network=none` — agents reach the proxy via a TCP bridge over a mounted Unix socket. The proxy enforces private IP blocking (SSRF), canary token scanning, and audit logging. K8s pods connect directly via a k8s Service (`ax-web-proxy`).
+
 ### NATS in k8s Deployments
 
 In k8s mode, NATS is the backbone for all cross-pod communication:

@@ -37,7 +37,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics) |
-| `src/host/host-process.ts` | Unified host pod process for k8s deployment — HTTP, SSE, webhooks, admin, and processCompletion() in one process. Per-turn NATS IPC handler + LLM proxy. Use server.ts for local dev |
+| `src/host/host-process.ts` | Unified host pod process for k8s deployment — HTTP, SSE, webhooks, admin, and processCompletion() in one process. Per-turn NATS IPC handler + LLM proxy. Starts web proxy on TCP port (default 3128) when `config.web_proxy` enabled; passes `AX_WEB_PROXY_URL` to sandbox pods via k8s Service. Use server.ts for local dev |
 | `src/host/nats-ipc-handler.ts` | NATS-based IPC handler for k8s sandbox pods. Subscribes to `ipc.request.{requestId}.{token}`, routes through existing `handleIPC` pipeline (same as Unix socket path). Per-turn capability token prevents rogue sandboxes. One instance per turn |
 | `src/host/nats-llm-proxy.ts` | NATS-based LLM proxy for claude-code in k8s — proxies requests to Anthropic API with credential injection |
 | `src/host/nats-session-protocol.ts` | NATS session protocol for k8s sandbox coordination |
@@ -52,6 +52,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/plugin-lock.ts` | Plugin manifest pinning, SHA-512 integrity hashing, lock file I/O |
 | `src/host/plugin-manifest.ts` | Plugin capability schema, validation, human-readable formatting |
 | `src/host/proxy.ts` | Credential-injecting Anthropic forward proxy, OAuth 401 retry |
+| `src/host/web-proxy.ts` | HTTP forward proxy for agent outbound HTTP/HTTPS. HTTP forwarding + HTTPS CONNECT tunneling, private IP blocking (SSRF), canary token scanning on request bodies, audit logging. Listens on Unix socket (container sandboxes) or TCP port (subprocess/k8s). Opt-in via `config.web_proxy` |
 | `src/host/taint-budget.ts` | Per-session taint ratio tracking, action gating (SC-SEC-003) |
 | `src/host/provider-map.ts` | Static allowlist mapping config names to provider modules (SC-SEC-002), plugin registration runtime allowlist |
 | `src/host/registry.ts` | Loads and assembles ProviderRegistry from config; three loading patterns (simple, manual-import with deps, custom); plugin host integration |
@@ -65,7 +66,8 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 3. **Message Dequeue** -- Dequeue **by ID** (not FIFO) from MessageQueue
 4. **Workspace Setup** -- Create workspace dir, load identity/skills from DocumentStore, build conversation history (DB-persisted for persistent sessions, client-provided for ephemeral), prepend parent channel context for thread sessions
 5. **Credential Proxy** (claude-code only) -- Refresh OAuth pre-flight, start Anthropic credential-injecting proxy, pass proxy socket to agent
-6. **Agent Spawn** -- Build spawn command with runner args, spawn with stdio pipes, write JSON payload to stdin (history, message, taintRatio, profile, requestId, identity, skills), collect stdout/stderr concurrently
+6. **Web Proxy** (opt-in, `config.web_proxy`) -- Start HTTP forward proxy per completion. Container sandboxes get a Unix socket (`web-proxy.sock` in IPC dir); subprocess gets a TCP port. Proxy enforces private IP blocking, canary scanning, and audit logging.
+7. **Agent Spawn** -- Build spawn command with runner args, spawn with stdio pipes, write JSON payload to stdin (history, message, taintRatio, profile, requestId, identity, skills), collect stdout/stderr concurrently
 7. **Outbound Scanning + Response Processing** -- Call `router.processOutbound()`, parse agent response (structured JSON with __ax_response or plain text), extract image_data blocks -> save to workspace/files/ -> convert to file refs, drain generated images
 8. **Persistence + Cleanup** -- Persist conversation turns, attach file refs, clean up workspace/proxy, emit `completion.done` event
 
@@ -249,3 +251,5 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **NATS IPC handler is per-turn**: One NATSIPCHandler instance per turn, scoped by requestId + capability token. Never reuse across turns.
 - **Deleted files**: `nats-sandbox-dispatch.ts`, `agent-runtime-process.ts`, `local-sandbox-dispatch.ts` are all removed. The k8s sandbox now uses `nats-ipc-handler.ts` which routes through the same `handleIPC` as local Unix socket.
 - **Error redaction in streams**: Streaming responses must redact internal errors before sending to client.
+- **Web proxy per completion**: When `config.web_proxy` is enabled, a web proxy instance starts per completion (Unix socket for container sandboxes, TCP for subprocess). Cleanup happens in the completion finally block.
+- **K8s web proxy**: In k8s mode, web proxy runs as a TCP server (port 3128) in the host process. Sandbox pods connect via k8s Service (`ax-web-proxy.{namespace}.svc:3128`), passed as `AX_WEB_PROXY_URL`.
