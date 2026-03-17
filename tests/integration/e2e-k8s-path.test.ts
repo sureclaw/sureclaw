@@ -6,13 +6,15 @@
  * the k8s sandbox in production: the host publishes work to NATS, the agent
  * subprocess picks it up, and IPC flows over HTTP instead of Unix sockets.
  *
- * Requires a local nats-server on localhost:4222. Tests are automatically
- * skipped when NATS is unavailable.
+ * Automatically starts a local nats-server if one isn't already running.
+ * Tests are skipped when the nats-server binary is not installed.
  */
 
-import { describe, test, expect, beforeAll, afterEach } from 'vitest';
+import { describe, test, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createConnection } from 'node:net';
 import { request as httpRequest } from 'node:http';
 
 import { createHarness, type ServerHarness } from './server-harness.js';
@@ -22,21 +24,28 @@ import { loadConfig } from '../../src/config.js';
 import { startWebProxy, type WebProxy } from '../../src/host/web-proxy.js';
 
 // ═══════════════════════════════════════════════════════
-// NATS availability detection
+// NATS availability detection (synchronous for describe.skipIf)
 // ═══════════════════════════════════════════════════════
 
-let natsAvailable = false;
+const NATS_PORT = 4222;
 
-beforeAll(async () => {
-  try {
-    const nats = await import('nats');
-    const nc = await nats.connect({ servers: 'nats://localhost:4222', timeout: 2000 });
-    await nc.close();
-    natsAvailable = true;
-  } catch {
-    natsAvailable = false;
-  }
-});
+let natsServerBinary = false;
+try {
+  execFileSync('nats-server', ['--help'], { stdio: 'ignore' });
+  natsServerBinary = true;
+} catch {
+  natsServerBinary = false;
+}
+
+/** Check if a TCP port is accepting connections. */
+function isPortOpen(port: number, timeoutMs = 1000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host: '127.0.0.1' });
+    const timer = setTimeout(() => { socket.destroy(); resolve(false); }, timeoutMs);
+    socket.on('connect', () => { clearTimeout(timer); socket.destroy(); resolve(true); });
+    socket.on('error', () => { clearTimeout(timer); resolve(false); });
+  });
+}
 
 // ═══════════════════════════════════════════════════════
 // Test config
@@ -55,8 +64,40 @@ async function k8sSandbox() {
 // Tests
 // ═══════════════════════════════════════════════════════
 
-describe.skipIf(!natsAvailable)('K8s Path (NATS + HTTP IPC) E2E', () => {
+describe.skipIf(!natsServerBinary)('K8s Path (NATS + HTTP IPC) E2E', () => {
   let harness: ServerHarness;
+  let managedNats: ChildProcess | undefined;
+
+  beforeAll(async () => {
+    // If nats-server isn't already running, start one for the test suite
+    const alreadyRunning = await isPortOpen(NATS_PORT);
+    if (!alreadyRunning) {
+      managedNats = spawn('nats-server', ['-p', String(NATS_PORT)], {
+        stdio: 'ignore',
+        detached: false,
+      });
+
+      // Wait for it to accept connections (up to 5s)
+      for (let i = 0; i < 50; i++) {
+        if (await isPortOpen(NATS_PORT, 100)) break;
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      const ready = await isPortOpen(NATS_PORT);
+      if (!ready) {
+        managedNats.kill();
+        managedNats = undefined;
+        throw new Error('Failed to start nats-server');
+      }
+    }
+  }, 30_000);
+
+  afterAll(() => {
+    if (managedNats) {
+      managedNats.kill();
+      managedNats = undefined;
+    }
+  });
 
   afterEach(async () => {
     if (harness) {
