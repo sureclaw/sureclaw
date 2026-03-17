@@ -469,15 +469,35 @@ async function main(): Promise<void> {
       logger.info('nats_llm_proxy_started', { sessionId, requestId });
     }
 
-    // NATS work publisher — publishes work payload to agent.work.{podName}
+    // NATS work publisher — uses queue group for warm pod claiming, with
+    // per-pod fallback for cold-started pods.
     // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
     // Use TextEncoder directly — NOT encode() which adds an extra JSON.stringify wrapper,
     // causing double-encoding that destroys the payload structure on the receiver side.
     const publishWork = isK8s
-      ? async (podName: string, payload: string): Promise<void> => {
+      ? async (podName: string | undefined, payload: string): Promise<string> => {
+          if (!podName) {
+            // Queue group mode: request to sandbox.work, warm pod replies with {podName}
+            try {
+              const reply = await nc.request(
+                'sandbox.work',
+                new TextEncoder().encode(payload),
+                { timeout: 5000 },
+              );
+              const { podName: claimedPod } = JSON.parse(new TextDecoder().decode(reply.data));
+              logger.info('nats_work_claimed', { podName: claimedPod, payloadBytes: payload.length });
+              return claimedPod;
+            } catch (err) {
+              // Timeout = no warm pods available, caller should cold start
+              logger.info('nats_work_queue_timeout', { error: (err as Error).message });
+              throw err;
+            }
+          }
+          // Per-pod fallback: publish to specific pod (cold start path)
           const subject = `agent.work.${podName}`;
           logger.info('nats_work_publish', { subject, podName, payloadBytes: payload.length });
           nc.publish(subject, new TextEncoder().encode(payload));
+          return podName;
         }
       : undefined;
 

@@ -1,17 +1,15 @@
 /**
  * k8s sandbox provider — Kubernetes pod-based isolation.
  *
- * Supports two modes:
- *   1. Warm pool (default): Claims a pre-warmed pod from the pool controller.
- *      The warm pod is already running runner.js, waiting for work via NATS.
- *      Falls back to cold start if no warm pods are available.
- *   2. Cold start (WARM_POOL_ENABLED=false): Creates a new pod for each
- *      sandbox request. The pod runs runner.js which connects to NATS and
- *      waits for work.
+ * Always cold-starts a new pod. Warm pool claiming is handled at the NATS
+ * queue group level — the host's publishWork() uses nc.request('sandbox.work')
+ * to deliver work to warm pods via queue groups before falling back to
+ * cold-starting a pod here.
  *
- * Communication is entirely via NATS:
- *   - Host publishes work payload to agent.work.{podName}
- *   - Agent sends IPC requests via ipc.request.{requestId}.{token}
+ * Communication is via NATS (work dispatch) and HTTP (IPC, LLM proxy,
+ * workspace release):
+ *   - Host publishes work payload via NATS queue group or per-pod subject
+ *   - Agent sends IPC requests via HTTP to /internal/ipc
  *   - Agent sends response via agent_response IPC action
  *
  * No k8s Exec or Attach API — eliminates stdin/stdout complexity and
@@ -23,8 +21,6 @@
  *   K8S_RUNTIME_CLASS — runtime class name (default: "gvisor")
  *   NATS_URL — NATS server URL passed to sandbox pods
  *   K8S_IMAGE_PULL_SECRETS — comma-separated secret names for private registries
- *   WARM_POOL_ENABLED — enable warm pool claiming (default: true)
- *   WARM_POOL_TIER — tier to claim from (default: "light")
  */
 
 import { PassThrough } from 'node:stream';
@@ -189,18 +185,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     : DEFAULT_RUNTIME_CLASS;
   const natsUrl = process.env.NATS_URL ?? 'nats://nats:4222';
 
-  // Warm pool config
-  const warmPoolEnabled = process.env.WARM_POOL_ENABLED !== 'false';
-  const warmPoolTier = process.env.WARM_POOL_TIER ?? 'light';
-
-  // Lazy-init warm pool client (only when warm pool is enabled)
-  let warmPoolClient: import('./warm-pool-client.js').WarmPoolClient | null = null;
-  if (warmPoolEnabled) {
-    const { createWarmPoolClient } = await import('./warm-pool-client.js');
-    warmPoolClient = await createWarmPoolClient(namespace);
-    logger.info('warm_pool_enabled', { tier: warmPoolTier, namespace });
-  }
-
   // Track active pods for cleanup
   const activePods = new Map<number, string>(); // synthetic PID → pod name
 
@@ -334,65 +318,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     };
   }
 
-  /**
-   * Warm-start path: claim a pre-warmed pod.
-   *
-   * The warm pod is already running runner.js, which connects to NATS
-   * and subscribes to agent.work.{podName}. The host publishes work
-   * to that subject — no k8s Exec needed.
-   */
-  async function spawnWarm(config: SandboxConfig): Promise<SandboxProcess | null> {
-    if (!warmPoolClient) return null;
-
-    const claimed = await warmPoolClient.claimPod(warmPoolTier);
-    if (!claimed) {
-      logger.info('warm_pool_miss', { tier: warmPoolTier });
-      return null;
-    }
-
-    const podName = claimed.name;
-    const pid = nextPid++;
-
-    logger.info('warm_pod_claimed', { podName, tier: claimed.tier, pid });
-
-    activePods.set(pid, podName);
-
-    // Watch for pod completion (runner exits after processing one request)
-    const exitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
-
-    // Dummy streams — communication is via NATS, not stdin/stdout.
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    const stdin = new PassThrough();
-    stdout.end();
-    stderr.end();
-    stdin.end();
-
-    return {
-      pid,
-      podName,
-      exitCode,
-      stdout,
-      stderr,
-      stdin,
-      kill() {
-        coreApi.deleteNamespacedPod({ name: podName, namespace }).catch((err: any) => {
-          logger.warn('warm_pod_delete_failed', { podName, error: err?.message });
-        });
-        activePods.delete(pid);
-      },
-    };
-  }
-
   return {
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
-      // Try warm pool first, fall back to cold start
-      if (warmPoolEnabled) {
-        const warmResult = await spawnWarm(config);
-        if (warmResult) return warmResult;
-        logger.info('warm_pool_fallback_cold', { tier: warmPoolTier });
-      }
-
+      // Always cold start — warm pool claiming is now handled by NATS queue groups
+      // (the host's publishWork uses nc.request('sandbox.work') before calling spawn).
       return spawnCold(config);
     },
 
