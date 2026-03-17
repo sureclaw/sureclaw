@@ -2,6 +2,15 @@
 
 End-to-end test framework, simulated providers, scenario coverage.
 
+## [2026-03-17 12:00] — K8s path (NATS subprocess) E2E test file
+
+**Task:** Create E2E tests for the NATS work delivery + HTTP IPC code path (k8s sandbox)
+**What I did:** Created `tests/integration/e2e-k8s-path.test.ts` with 7 test scenarios that exercise the full k8s code path through NATS subprocess + HTTP IPC transport. Tests auto-detect NATS availability and skip when nats-server is not running. Uses `createHarness` with TCP port (not Unix socket) and `createNATSSubprocess` with `ipcTransport: 'http'`.
+**Files touched:**
+- New: tests/integration/e2e-k8s-path.test.ts
+**Outcome:** Success — file created, type-checks cleanly. 7 scenarios: basic message, tool use, streaming, bootstrap, scheduler CRUD, guardian injection blocking, web proxy SSRF blocking.
+**Notes:** The `createScriptableLLM` and `createHarness` helpers from `server-harness.ts` and `scriptable-llm.ts` were not yet used by any test files before this. The `port` option on `createHarness` enables TCP listener for NATS (which needs TCP, not Unix socket). The `k8sSandbox()` helper sets `AX_HOST_URL` and `PORT` env vars that `createNATSSubprocess` reads to configure the agent's HTTP IPC target.
+
 ## [2026-02-22 21:00] — E2E test framework: expanded coverage for missing scenarios
 
 **Task:** Address gaps in E2E test coverage — memory CRUD lifecycle, browser interactions (click/type/screenshot/close), governance proposals, agent delegation, agent registry, audit query, and error handling

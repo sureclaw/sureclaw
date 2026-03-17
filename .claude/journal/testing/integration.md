@@ -2,6 +2,22 @@
 
 Integration test fixes, CI stability, smoke test improvements.
 
+## [2026-03-17 11:00] — Create Docker sandbox E2E test suite
+
+**Task:** Create `tests/integration/e2e-docker.test.ts` — full feature test suite running all scenarios through the Docker sandbox provider
+**What I did:** Created Docker E2E test file with 15 test cases covering: tool use (memory_write, sequential tools), streaming (SSE chunks), memory lifecycle (cross-turn persistence), bootstrap (identity_write), identity persistence (server restart), skills (propose/list/read), memory scoping (user isolation), workspace scoping (agent vs user tiers), scheduling (cron CRUD, run_at), content scanning (injection blocking, no canary/taint leaks), web proxy (SSRF blocking, canary detection via startWebProxy), concurrent sessions (3 parallel requests), and error handling (malformed JSON). Uses `execFileSync('docker', ['info'])` for detection with `describe.skipIf(!dockerAvailable)`. All test timeouts 90-180s for Docker startup latency. Uses server harness with scriptable LLM and real Docker sandbox from `src/providers/sandbox/docker.ts`.
+**Files touched:** `tests/integration/e2e-docker.test.ts` (new)
+**Outcome:** Success — compiles cleanly with zero TypeScript errors specific to the file
+**Notes:** Web proxy test uses `startWebProxy()` directly (not through harness) with ephemeral TCP port and try/finally for cleanup. Identity persistence test uses `existingHome` option to pass home dir across harness lifetimes.
+
+## [2026-03-17 10:00] — Create in-process server test harness
+
+**Task:** Create `tests/integration/server-harness.ts` — a reusable harness that boots a real AX server inside the test process with mock providers
+**What I did:** Created `server-harness.ts` with: (1) `HarnessOptions` interface accepting required llm/sandbox and optional web/config/providerOverrides/preStart/port/existingHome, (2) `ServerHarness` interface with server, home, socket, port, gcsBucket, sendMessage/sendMessages HTTP helpers, readFile/writeFile/fileExists fs helpers, and dispose cleanup, (3) `createHarness()` factory that creates temp AX_HOME, writes config YAML, initializes silent logger, loads config, builds provider overrides, starts server, and returns the harness. HTTP helpers use `node:http` request() to Unix socket or TCP.
+**Files touched:** `tests/integration/server-harness.ts` (new)
+**Outcome:** Success — compiles cleanly with zero TypeScript errors
+**Notes:** Uses `createMockWeb()` and `createMockGcsBucket()` from the previously-created `mock-providers.ts`. The `existingHome` option supports identity persistence tests. The `port` option enables TCP listener for NATS harness tests.
+
 ## [2026-03-01 21:20] — Fix CI unhandled ENOENT in phase1.test.ts
 
 **Task:** Fix failing CI caused by unhandled ENOENT error when pino's async file transport races with temp directory cleanup
