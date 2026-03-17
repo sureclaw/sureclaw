@@ -8,10 +8,11 @@
  * LLM (scriptable turns). Every other provider is real.
  */
 
-import { describe, test, expect, afterEach, beforeAll } from 'vitest';
+import { describe, test, expect, afterEach, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { request as httpRequest } from 'node:http';
 import { randomUUID } from 'node:crypto';
 
@@ -20,20 +21,20 @@ import { createScriptableLLM, textTurn, toolUseTurn, type LLMTurn } from './scri
 import { createMockWeb } from './mock-providers.js';
 import { startWebProxy } from '../../src/host/web-proxy.js';
 
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const E2E_IMAGE = 'ax/agent:e2e-test';
+
 // ═══════════════════════════════════════════════════════
-// Docker detection
+// Docker detection (synchronous so describe.skipIf works)
 // ═══════════════════════════════════════════════════════
 
 let dockerAvailable = false;
-
-beforeAll(() => {
-  try {
-    execFileSync('docker', ['info'], { stdio: 'ignore' });
-    dockerAvailable = true;
-  } catch {
-    dockerAvailable = false;
-  }
-});
+try {
+  execFileSync('docker', ['info'], { stdio: 'ignore' });
+  dockerAvailable = true;
+} catch {
+  dockerAvailable = false;
+}
 
 // ═══════════════════════════════════════════════════════
 // Docker sandbox helper
@@ -67,7 +68,7 @@ providers:
   audit: database
   sandbox: docker
   scheduler: plainjob
-  storage: sqlite
+  storage: database
   eventbus: inprocess
   workspace: local
   screener: static
@@ -91,6 +92,29 @@ admin:
 
 describe.skipIf(!dockerAvailable)('Docker Sandbox E2E', () => {
   let harness: ServerHarness | undefined;
+  let originalImage: string | undefined;
+
+  beforeAll(() => {
+    // Build TypeScript so dist/ reflects the current source
+    execFileSync('npm', ['run', 'build'], { cwd: PROJECT_ROOT, stdio: 'pipe' });
+
+    // Build a fresh container image from the current code
+    execFileSync('docker', [
+      'build', '-f', 'container/agent/Dockerfile', '-t', E2E_IMAGE, '.',
+    ], { cwd: PROJECT_ROOT, stdio: 'pipe' });
+
+    // Point the Docker sandbox provider at the freshly-built image
+    originalImage = process.env.AX_DOCKER_IMAGE;
+    process.env.AX_DOCKER_IMAGE = E2E_IMAGE;
+  }, 300_000); // generous timeout for tsc + docker build
+
+  afterAll(() => {
+    if (originalImage !== undefined) {
+      process.env.AX_DOCKER_IMAGE = originalImage;
+    } else {
+      delete process.env.AX_DOCKER_IMAGE;
+    }
+  });
 
   afterEach(async () => {
     if (harness) {
