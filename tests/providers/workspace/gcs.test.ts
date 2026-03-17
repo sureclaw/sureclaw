@@ -330,6 +330,34 @@ describe('workspace/gcs backend', () => {
     });
   });
 
+  // ── Credentials validation ──
+
+  describe('create() credentials check', () => {
+    const origEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+    afterEach(() => {
+      if (origEnv !== undefined) {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = origEnv;
+      } else {
+        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      }
+    });
+
+    test('throws clear error when GOOGLE_APPLICATION_CREDENTIALS points to missing file', async () => {
+      const { create } = await importGcs();
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = '/nonexistent/path/key.json';
+
+      const config = {
+        workspace: { bucket: 'test-bucket' },
+        providers: { sandbox: 'subprocess' },
+      } as any;
+
+      await expect(create(config)).rejects.toThrow(
+        /credentials file not found.*\/nonexistent\/path\/key\.json.*gcs-key/
+      );
+    });
+  });
+
   // ── Full lifecycle ──
 
   describe('full lifecycle', () => {

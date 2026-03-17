@@ -9,6 +9,7 @@
 // Storage credentials exist only in the host process — the agent never sees them.
 
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readdir, readFile, mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -330,6 +331,20 @@ export function createGcsBackend(bucket: GcsBucketLike, basePath: string, prefix
  * Credentials (GKE workload identity, GOOGLE_APPLICATION_CREDENTIALS, etc.).
  */
 export async function create(config: Config): Promise<WorkspaceProvider> {
+  // Validate GCS credentials are available before attempting to connect.
+  // In k8s, the credentials file is mounted from a Secret volume — if the
+  // Secret is missing (optional: true), the file won't exist and the GCS SDK
+  // will fail with a cryptic auth error. Catch it early with a clear message.
+  const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (credPath && !existsSync(credPath)) {
+    throw new Error(
+      `GCS workspace provider: credentials file not found at ${credPath} ` +
+      `(set via GOOGLE_APPLICATION_CREDENTIALS). In k8s, this usually means the "gcs-key" ` +
+      `Secret is missing — create it with: kubectl -n <namespace> create secret generic ` +
+      `gcs-key --from-file=key.json=/path/to/service-account-key.json`
+    );
+  }
+
   // Lazy import to avoid requiring @google-cloud/storage when using other backends
   const { Storage } = await import('@google-cloud/storage');
 

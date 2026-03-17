@@ -1017,10 +1017,21 @@ export async function processCompletion(
           reqLogger.warn('nats_agent_response_error', { error: (err as Error).message });
           // Fall through to let exitCode determine retry
         }
+
+        // In NATS/k8s mode, the cold-start pod may never have received work
+        // (a warm pool pod claimed it first via the queue group). Don't block
+        // on proc.exitCode — it would hang until the pod's activeDeadlineSeconds.
+        // If we got the response, treat it as success; otherwise let retry logic handle it.
+        if (response) {
+          exitCode = 0;
+          proc.kill(); // clean up the idle cold-start pod
+        } else {
+          exitCode = await proc.exitCode;
+        }
       } else {
         await Promise.all([stdoutDone, stderrDone]);
+        exitCode = await proc.exitCode;
       }
-      exitCode = await proc.exitCode;
       bridge?.close();
 
       reqLogger.debug('agent_exit', {

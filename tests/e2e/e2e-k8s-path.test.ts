@@ -469,6 +469,67 @@ describe.skipIf(!natsServerBinary)('K8s Path (NATS + HTTP IPC) E2E', () => {
     expect(contentC.length).toBeGreaterThan(0);
   }, 180_000);
 
+  // ── Workspace Release ESM Compatibility ─────────────
+
+  test('workspace-release module imports without __dirname error', async () => {
+    // Regression test: workspace-release.ts used CJS __dirname which crashes
+    // in ESM. The fix uses import.meta.url + fileURLToPath instead.
+    const mod = await import('../../src/agent/workspace-release.js');
+    expect(typeof mod.releaseWorkspaceScopes).toBe('function');
+  }, 10_000);
+
+  // ── Cold-Start NATS Work Delivery ──────────────────
+
+  test('cold-start: work is delivered even when agent subscribes after publish starts', async () => {
+    // Regression test: the host used to publish to agent.work.{podName} (fire-and-forget)
+    // which the runner never subscribed to. Now it uses nc.request('sandbox.work') with
+    // retries, matching the runner's subscription subject. This test verifies the retry
+    // loop handles the race between pod creation and NATS subscription.
+    const llm = createScriptableLLM([
+      textTurn('Cold start response.'),
+    ]);
+    const sandbox = await k8sSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port });
+    const res = await harness.sendMessage('cold start test');
+
+    expect(res.status).toBe(200);
+    const choices = res.parsed.choices as Array<{ message: { content: string } }>;
+    expect(choices[0].message.content).toContain('Cold start response.');
+  }, 120_000);
+
+  // ── NATS Subject Correctness ───────────────────────
+
+  test('agent subscribes to sandbox.work, not agent.work.{podName}', async () => {
+    // Regression test: the runner subscribes to 'sandbox.work' with a queue group.
+    // The host must publish to this subject. Verify by connecting to NATS, subscribing
+    // to the OLD subject pattern (agent.work.>), and confirming nothing arrives there.
+    const natsModule = await import('nats');
+    const { natsConnectOptions } = await import('../../src/utils/nats.js');
+    const nc = await natsModule.connect(natsConnectOptions('subject-test'));
+
+    // Subscribe to old subject pattern — should receive nothing
+    let oldSubjectReceived = false;
+    const sub = nc.subscribe('agent.work.>');
+    (async () => {
+      for await (const _msg of sub) {
+        oldSubjectReceived = true;
+      }
+    })();
+
+    // Run a normal message through the pipeline
+    const llm = createScriptableLLM([textTurn('Subject test OK.')]);
+    const sandbox = await k8sSandbox();
+    harness = await createK8sHarness({ llm, sandbox, port });
+    const res = await harness.sendMessage('subject test');
+
+    expect(res.status).toBe(200);
+    expect(oldSubjectReceived).toBe(false);
+
+    sub.unsubscribe();
+    await nc.close();
+  }, 120_000);
+
   // ── Error Handling ──────────────────────────────────
 
   test('unknown path returns 404, IPC without token returns 401', async () => {

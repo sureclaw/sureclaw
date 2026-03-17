@@ -22,11 +22,11 @@ spec:
       ports:
         - port: 4222
           protocol: TCP
-    # Allow workspace staging uploads to host (k8s workspace release)
+    # Allow workspace staging uploads + LLM proxy calls to host
     - to:
         - podSelector:
             matchLabels:
-              app: ax-host
+              app.kubernetes.io/name: {{ include "ax.fullname" . }}-host
       ports:
         - port: {{ .Values.host.ports.http | default 8080 }}
           protocol: TCP

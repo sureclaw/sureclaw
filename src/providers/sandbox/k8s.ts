@@ -65,7 +65,8 @@ function buildPodSpec(
       namespace: options.namespace,
       labels: {
         'app.kubernetes.io/name': 'ax-sandbox',
-        'app.kubernetes.io/component': 'sandbox',
+        'app.kubernetes.io/component': 'execution',
+        'ax.io/plane': 'execution',
         'ax.dev/session-id': config.ipcSocket
           .replace(/[^a-zA-Z0-9-_.]/g, '_')  // sanitize invalid chars
           .replace(/^[^a-zA-Z0-9]+/, '')       // strip leading non-alnum

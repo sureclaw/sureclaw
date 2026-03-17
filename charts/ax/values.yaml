@@ -215,7 +215,7 @@ nats:
             publish:
               allow: ["ipc.request.*.*", "ipc.llm.*.*", "_INBOX.>"]
             subscribe:
-              allow: ["_INBOX.>", "agent.work.>"]
+              allow: ["_INBOX.>", "sandbox.work"]
               deny: ["session.>", "results.>", "events.>"]
 
 # ─── Web Proxy ──────────────────────────────────────────────────

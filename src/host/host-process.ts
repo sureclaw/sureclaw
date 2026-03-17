@@ -466,35 +466,43 @@ async function main(): Promise<void> {
       logger.info('token_registered', { sessionId, requestId, turnToken });
     }
 
-    // NATS work publisher — uses queue group for warm pod claiming, with
-    // per-pod fallback for cold-started pods.
+    // NATS work publisher — uses sandbox.work queue group for both warm pool
+    // claiming and cold-start delivery. All runners subscribe to sandbox.work,
+    // so we always use nc.request('sandbox.work') and let NATS route to an
+    // available pod. For cold starts, we retry until the new pod subscribes.
     // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
     // Use TextEncoder directly — NOT encode() which adds an extra JSON.stringify wrapper,
     // causing double-encoding that destroys the payload structure on the receiver side.
     const publishWork = isK8s
       ? async (podName: string | undefined, payload: string): Promise<string> => {
-          if (!podName) {
-            // Queue group mode: request to sandbox.work, warm pod replies with {podName}
+          const encoded = new TextEncoder().encode(payload);
+          // Cold-start path: the pod may take a few seconds to start and subscribe
+          // to NATS. Retry nc.request until it connects (up to 60s).
+          const maxAttempts = podName ? 120 : 1;
+          const retryDelayMs = 500;
+
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
               const reply = await nc.request(
                 'sandbox.work',
-                new TextEncoder().encode(payload),
+                encoded,
                 { timeout: 5000 },
               );
               const { podName: claimedPod } = JSON.parse(new TextDecoder().decode(reply.data));
-              logger.info('nats_work_claimed', { podName: claimedPod, payloadBytes: payload.length });
+              logger.info('nats_work_claimed', { podName: claimedPod, payloadBytes: payload.length, attempt });
               return claimedPod;
             } catch (err) {
-              // Timeout = no warm pods available, caller should cold start
-              logger.info('nats_work_queue_timeout', { error: (err as Error).message });
+              if (attempt < maxAttempts) {
+                logger.debug('nats_work_retry', { podName, attempt, maxAttempts });
+                await new Promise(r => setTimeout(r, retryDelayMs));
+                continue;
+              }
+              logger.info('nats_work_queue_timeout', { podName, error: (err as Error).message });
               throw err;
             }
           }
-          // Per-pod fallback: publish to specific pod (cold start path)
-          const subject = `agent.work.${podName}`;
-          logger.info('nats_work_publish', { subject, podName, payloadBytes: payload.length });
-          nc.publish(subject, new TextEncoder().encode(payload));
-          return podName;
+          // Unreachable, but TypeScript needs it
+          throw new Error('publishWork: exhausted retries');
         }
       : undefined;
 

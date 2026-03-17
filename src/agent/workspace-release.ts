@@ -12,9 +12,13 @@
 //   This module sends workspace_release IPC with the staging_key via NATS.
 
 import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { IIPCClient } from './runner.js';
 import { getLogger } from '../logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const logger = getLogger().child({ component: 'workspace-release' });
 

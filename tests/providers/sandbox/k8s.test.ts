@@ -123,6 +123,16 @@ describe('sandbox-k8s provider', () => {
     expect(typeof proc.kill).toBe('function');
   });
 
+  test('pod metadata includes execution plane label for network policy matching', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+    await provider.spawn(mockSandboxConfig());
+
+    const labels = mockCreateNamespacedPod.mock.calls[0][0].body.metadata.labels;
+    expect(labels['ax.io/plane']).toBe('execution');
+    expect(labels['app.kubernetes.io/component']).toBe('execution');
+  });
+
   test('pod spec includes security hardening', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
