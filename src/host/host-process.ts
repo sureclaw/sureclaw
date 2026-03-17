@@ -33,8 +33,6 @@ import { processCompletion, type CompletionDeps } from './server-completions.js'
 import { createOrchestrator } from './orchestration/orchestrator.js';
 import { FileStore } from '../file-store.js';
 import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
-import { startNATSIPCHandler } from './nats-ipc-handler.js';
-import { startNATSLLMProxy } from './nats-llm-proxy.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { decode, eventSubject } from './nats-session-protocol.js';
 import type { StreamEvent } from './event-bus.js';
@@ -64,6 +62,16 @@ interface StagingEntry {
  * then references that key in a small NATS IPC workspace_release message.
  */
 const stagingStore = new Map<string, StagingEntry>();
+
+/**
+ * Token registry: maps per-turn tokens to their bound IPC handler + context.
+ * Registered before sandbox spawn, deleted in finally block.
+ * Used by /internal/ipc and /internal/llm-proxy HTTP routes.
+ */
+export const activeTokens = new Map<string, {
+  handleIPC: (raw: string, ctx: IPCContext) => Promise<string>;
+  ctx: IPCContext;
+}>();
 
 /** Periodically clean up expired staging entries. */
 function cleanupStaging(): void {
@@ -448,36 +456,45 @@ async function main(): Promise<void> {
         }
       : handleIPC;
 
-    // Start NATS IPC handler for k8s sessions — the sandbox pod's
-    // NATSIPCClient publishes to ipc.request.{requestId}.{token}, and this
-    // handler routes those requests through the existing handleIPC pipeline.
-    let natsIpcHandler: { close: () => void } | undefined;
+    // Register turn token for HTTP IPC route (/internal/ipc).
+    // This allows the sandbox pod to call the host via HTTP with bearer token auth.
     if (isK8s) {
-      natsIpcHandler = await startNATSIPCHandler({
-        requestId,
-        token: turnToken,
+      activeTokens.set(turnToken, {
         handleIPC: wrappedHandleIPC,
         ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId },
       });
-      logger.info('nats_ipc_handler_started', { sessionId, requestId, turnToken });
+      logger.info('token_registered', { sessionId, requestId, turnToken });
     }
 
-    // Start NATS LLM proxy for claude-code sessions in k8s mode
-    let llmProxy: { close: () => void } | undefined;
-    if (_agentType === 'claude-code' && isK8s) {
-      llmProxy = await startNATSLLMProxy({ requestId, token: turnToken });
-      logger.info('nats_llm_proxy_started', { sessionId, requestId });
-    }
-
-    // NATS work publisher — publishes work payload to agent.work.{podName}
+    // NATS work publisher — uses queue group for warm pod claiming, with
+    // per-pod fallback for cold-started pods.
     // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
     // Use TextEncoder directly — NOT encode() which adds an extra JSON.stringify wrapper,
     // causing double-encoding that destroys the payload structure on the receiver side.
     const publishWork = isK8s
-      ? async (podName: string, payload: string): Promise<void> => {
+      ? async (podName: string | undefined, payload: string): Promise<string> => {
+          if (!podName) {
+            // Queue group mode: request to sandbox.work, warm pod replies with {podName}
+            try {
+              const reply = await nc.request(
+                'sandbox.work',
+                new TextEncoder().encode(payload),
+                { timeout: 5000 },
+              );
+              const { podName: claimedPod } = JSON.parse(new TextDecoder().decode(reply.data));
+              logger.info('nats_work_claimed', { podName: claimedPod, payloadBytes: payload.length });
+              return claimedPod;
+            } catch (err) {
+              // Timeout = no warm pods available, caller should cold start
+              logger.info('nats_work_queue_timeout', { error: (err as Error).message });
+              throw err;
+            }
+          }
+          // Per-pod fallback: publish to specific pod (cold start path)
           const subject = `agent.work.${podName}`;
           logger.info('nats_work_publish', { subject, podName, payloadBytes: payload.length });
           nc.publish(subject, new TextEncoder().encode(payload));
+          return podName;
         }
       : undefined;
 
@@ -516,14 +533,7 @@ async function main(): Promise<void> {
       return result;
     } finally {
       if (agentTimer) clearTimeout(agentTimer);
-      if (llmProxy) {
-        llmProxy.close();
-        logger.info('nats_llm_proxy_closed', { sessionId, requestId });
-      }
-      if (natsIpcHandler) {
-        natsIpcHandler.close();
-        logger.info('nats_ipc_handler_closed', { sessionId, requestId });
-      }
+      activeTokens.delete(turnToken);
     }
   }
 
@@ -614,13 +624,105 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Workspace staging upload from sandbox pods (k8s)
+    // Direct workspace release from sandbox pods (k8s HTTP mode)
+    if (url === '/internal/workspace/release' && req.method === 'POST') {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const chunks: Buffer[] = [];
+        let totalSize = 0;
+        for await (const chunk of req) {
+          totalSize += (chunk as Buffer).length;
+          if (totalSize > MAX_STAGING_BYTES) {
+            sendError(res, 413, 'Payload too large');
+            return;
+          }
+          chunks.push(chunk as Buffer);
+        }
+        const compressed = Buffer.concat(chunks);
+        const json = gunzipSync(compressed).toString('utf-8');
+        const payload = JSON.parse(json) as { changes: Array<{ scope: string; path: string; type: string; content_base64?: string; size: number }> };
+        const changes = (payload.changes ?? []).map((c) => ({
+          scope: c.scope as 'agent' | 'user' | 'session',
+          path: c.path,
+          type: c.type as 'added' | 'modified' | 'deleted',
+          content: c.content_base64 ? Buffer.from(c.content_base64, 'base64') : undefined,
+          size: c.size,
+        }));
+
+        if (providers.workspace?.setRemoteChanges) {
+          providers.workspace.setRemoteChanges(entry.ctx.sessionId, changes);
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, changeCount: changes.length }));
+      } catch (err) {
+        logger.error('workspace_release_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Workspace release failed');
+      }
+      return;
+    }
+
+    // Workspace staging upload from sandbox pods (k8s, legacy)
     if (url === '/internal/workspace-staging' && req.method === 'POST') {
       try {
         await handleWorkspaceStaging(req, res);
       } catch (err) {
         logger.error('workspace_staging_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Staging upload failed');
+      }
+      return;
+    }
+
+    // LLM proxy over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
+    // Agent sends requests to /internal/llm-proxy/v1/messages with per-turn token as x-api-key.
+    if (url.startsWith('/internal/llm-proxy/') && req.method === 'POST') {
+      const token = req.headers['x-api-key'] as string;
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const targetPath = url.replace('/internal/llm-proxy', '');
+        const body = await readBody(req, 10_485_760); // 10MB
+        const { forwardLLMRequest } = await import('./llm-proxy-core.js');
+        await forwardLLMRequest({
+          targetPath,
+          body: body.toString(),
+          incomingHeaders: req.headers,
+          res,
+        });
+      } catch (err) {
+        logger.error('internal_llm_proxy_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 502, 'LLM proxy request failed');
+      }
+      return;
+    }
+
+    // IPC over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
+    if (url === '/internal/ipc' && req.method === 'POST') {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const body = await readBody(req, 1_048_576); // 1MB max
+        const result = await entry.handleIPC(body.toString(), entry.ctx);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(result);
+      } catch (err) {
+        logger.error('internal_ipc_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'IPC request failed');
       }
       return;
     }

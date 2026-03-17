@@ -147,14 +147,15 @@ interface ChangeEntry {
 }
 
 /**
- * Release workspace changes to the host via HTTP staging endpoint.
+ * Release workspace changes to the host via HTTP.
  *
- * For k8s NATS mode: diffs workspace scope directories, creates a gzipped
- * JSON payload, and uploads it to the host's /internal/workspace-staging
- * endpoint. Prints the staging_key to stdout so the calling agent can
- * reference it in a NATS IPC workspace_release message.
+ * Two modes:
+ *   1. Direct release (--token): POST gzipped changes to /internal/workspace/release
+ *      with bearer token auth. Single HTTP call, no staging key round-trip.
+ *   2. Staging (legacy): POST to /internal/workspace-staging, get back staging_key,
+ *      caller sends workspace_release IPC with the key.
  *
- * Usage: workspace-cli.js release --host-url <url> [--scopes session,agent,user]
+ * Usage: workspace-cli.js release --host-url <url> [--token <token>] [--scopes session,agent,user]
  *
  * Canonical workspace paths:
  *   /workspace/scratch → session scope
@@ -168,6 +169,7 @@ async function release(args: Record<string, string>): Promise<void> {
     process.exit(1);
   }
 
+  const token = args.token;
   const scopeNames = (args.scopes ?? 'session,agent,user').split(',') as Array<'session' | 'agent' | 'user'>;
 
   const scopePaths: Record<string, string> = {
@@ -213,7 +215,6 @@ async function release(args: Record<string, string>): Promise<void> {
 
   if (allChanges.length === 0) {
     console.error('[release] no changes detected');
-    // Output empty string — caller checks for empty staging_key
     process.stdout.write('');
     return;
   }
@@ -223,31 +224,53 @@ async function release(args: Record<string, string>): Promise<void> {
   const gzipped = gzipSync(Buffer.from(json));
   console.error(`[release] payload: ${allChanges.length} changes, ${json.length} bytes raw, ${gzipped.length} bytes gzipped`);
 
-  // Upload to host staging endpoint
-  const url = `${hostUrl}/internal/workspace-staging`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/gzip',
-      'Content-Length': String(gzipped.length),
-    },
-    body: gzipped,
-  });
+  if (token) {
+    // Direct release: single HTTP POST with auth token
+    const url = `${hostUrl}/internal/workspace/release`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/gzip',
+        'Content-Length': String(gzipped.length),
+        'Authorization': `Bearer ${token}`,
+      },
+      body: gzipped,
+    });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`staging upload failed: ${response.status} ${text}`);
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`workspace release failed: ${response.status} ${text}`);
+    }
+
+    const result = await response.json() as { ok: boolean; changeCount: number };
+    console.error(`[release] complete: ${result.changeCount} changes`);
+    // Output 'direct' to signal no staging_key needed
+    process.stdout.write('direct');
+  } else {
+    // Legacy staging mode: upload, get staging_key
+    const url = `${hostUrl}/internal/workspace-staging`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/gzip',
+        'Content-Length': String(gzipped.length),
+      },
+      body: gzipped,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`staging upload failed: ${response.status} ${text}`);
+    }
+
+    const result = await response.json() as { staging_key: string };
+    if (!result.staging_key) {
+      throw new Error('staging upload response missing staging_key');
+    }
+
+    console.error(`[release] staged: ${result.staging_key}`);
+    process.stdout.write(result.staging_key);
   }
-
-  const result = await response.json() as { staging_key: string };
-  if (!result.staging_key) {
-    throw new Error('staging upload response missing staging_key');
-  }
-
-  console.error(`[release] staged: ${result.staging_key}`);
-
-  // Output staging_key to stdout for the calling agent
-  process.stdout.write(result.staging_key);
 }
 
 // ── CLI entry point ──

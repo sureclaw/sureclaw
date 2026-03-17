@@ -8,8 +8,10 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'pool-k8s-client' });
 
-/** Pod status as tracked by the pool controller. */
-export type PodPoolStatus = 'warm' | 'claimed' | 'releasing';
+/** Pod status as tracked by the pool controller.
+ *  With queue group claiming, pods only have 'warm' status — NATS handles
+ *  work dispatch, so there's no 'claimed' label transition. */
+export type PodPoolStatus = 'warm' | 'releasing';
 
 /** Tier configuration for sandbox pods. */
 export interface TierConfig {
@@ -132,7 +134,8 @@ export async function createPoolK8sClient(namespace?: string): Promise<PoolK8sCl
               workingDir: '/workspace',
               env: [
                 { name: 'NATS_URL', value: template.natsUrl },
-                { name: 'AX_IPC_TRANSPORT', value: 'nats' },
+                { name: 'AX_IPC_TRANSPORT', value: 'http' },
+                { name: 'AX_HOST_URL', value: process.env.AX_HOST_URL ?? `http://ax-host.${ns}.svc` },
                 { name: 'AX_WORKSPACE', value: '/workspace' },
                 { name: 'AX_AGENT_WORKSPACE', value: '/workspace/agent' },
                 { name: 'AX_USER_WORKSPACE', value: '/workspace/user' },

@@ -448,9 +448,9 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     });
   }
 
-  // In NATS mode, buffer text instead of writing to stdout — response goes via IPC
-  const isNATS = process.env.AX_IPC_TRANSPORT === 'nats';
-  const textBuffer: string[] | undefined = isNATS ? [] : undefined;
+  // In k8s mode (NATS or HTTP), buffer text instead of writing to stdout — response goes via IPC
+  const isK8sTransport = process.env.AX_IPC_TRANSPORT === 'nats' || process.env.AX_IPC_TRANSPORT === 'http';
+  const textBuffer: string[] | undefined = isK8sTransport ? [] : undefined;
 
   // Subscribe to events — stream text to stdout (or buffer for NATS), log tools/errors to stderr
   const eventState = subscribeAgentEvents(session, config, { buffer: textBuffer });
@@ -487,7 +487,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   logger.debug('session_complete', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
 
   // In NATS mode, release workspace files then send agent_response
-  if (isNATS) {
+  if (isK8sTransport) {
     // Upload workspace file changes to host via sidecar before agent_response
     const hostUrl = process.env.AX_HOST_URL;
     if (hostUrl) {

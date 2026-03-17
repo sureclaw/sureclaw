@@ -1,22 +1,10 @@
-// tests/providers/sandbox/k8s-warm-pool.test.ts — Tests for warm pool integration in k8s provider
+// tests/providers/sandbox/k8s-warm-pool.test.ts — Tests for k8s provider (cold start only)
 //
-// Tests the warm pool spawn path with NATS-based communication (no exec/attach).
+// Warm pool claiming is now handled by NATS queue groups in host-process.ts,
+// not by the k8s sandbox provider. The provider always cold-starts a pod.
 
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SandboxConfig } from '../../../src/providers/sandbox/types.js';
-
-// ── Warm pool integration tests ──
-// Mock the warm-pool-client module directly for precise control over claiming behavior.
-
-const mockClaimPod = vi.fn();
-const mockReleasePod = vi.fn().mockResolvedValue(undefined);
-
-vi.mock('../../../src/providers/sandbox/warm-pool-client.js', () => ({
-  createWarmPoolClient: vi.fn().mockResolvedValue({
-    claimPod: mockClaimPod,
-    releasePod: mockReleasePod,
-  }),
-}));
 
 const mockCreateNamespacedPod = vi.fn().mockResolvedValue({ body: {} });
 const mockDeleteNamespacedPod = vi.fn().mockResolvedValue({ body: {} });
@@ -71,16 +59,13 @@ function mockConfig() {
   };
 }
 
-describe('k8s provider warm pool integration', () => {
+describe('k8s provider (cold start, NATS queue group claiming)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Restore default implementations after clearAllMocks
     mockCreateNamespacedPod.mockResolvedValue({ body: {} });
     mockDeleteNamespacedPod.mockResolvedValue({ body: {} });
     mockListNamespacedPod.mockResolvedValue({ items: [] });
     mockReadNamespacedPod.mockResolvedValue({ status: { phase: 'Running' } });
-    mockClaimPod.mockResolvedValue(null);  // default: no warm pods
-    mockReleasePod.mockResolvedValue(undefined);
     mockWatch.mockImplementation((_path: string, _query: any, callback: any) => {
       setTimeout(() => {
         callback('MODIFIED', {
@@ -89,17 +74,9 @@ describe('k8s provider warm pool integration', () => {
       }, 10);
       return { abort: vi.fn() };
     });
-    delete process.env.WARM_POOL_ENABLED;
-    delete process.env.WARM_POOL_TIER;
   });
 
-  afterEach(() => {
-    delete process.env.WARM_POOL_ENABLED;
-    delete process.env.WARM_POOL_TIER;
-  });
-
-  test('cold start when warm pool is explicitly disabled', async () => {
-    process.env.WARM_POOL_ENABLED = 'false';
+  test('spawn always creates a new pod (cold start)', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
@@ -113,46 +90,12 @@ describe('k8s provider warm pool integration', () => {
 
     const proc = await provider.spawn(config);
 
-    // Should create a new pod (cold start)
     expect(mockCreateNamespacedPod).toHaveBeenCalledOnce();
-    expect(mockClaimPod).not.toHaveBeenCalled();
     expect(proc.pid).toBeGreaterThan(0);
+    expect(proc.podName).toMatch(/^ax-sandbox-/);
   });
 
-  test('warm pool spawn claims pod without exec (NATS mode)', async () => {
-    // Warm pool returns a claimed pod
-    mockClaimPod.mockResolvedValueOnce({ name: 'warm-pod-1', tier: 'light' });
-
-    const { create } = await import('../../../src/providers/sandbox/k8s.js');
-    const provider = await create(mockConfig());
-
-    const config: SandboxConfig = {
-      workspace: '/tmp/ws',
-      ipcSocket: '/tmp/ipc.sock',
-      command: ['node', 'runner.js'],
-      timeoutSec: 30,
-    };
-
-    const proc = await provider.spawn(config);
-
-    // Should NOT create a new pod — claimed from warm pool
-    expect(mockCreateNamespacedPod).not.toHaveBeenCalled();
-    expect(mockClaimPod).toHaveBeenCalledWith('light');
-
-    // In NATS mode, warm pod is already running runner.js — no exec needed
-    expect(proc.pid).toBeGreaterThan(0);
-    // podName is set for NATS work delivery
-    expect(proc.podName).toBe('warm-pod-1');
-
-    // Exit code resolves from pod watch
-    const exitCode = await proc.exitCode;
-    expect(exitCode).toBe(0);
-  });
-
-  test('falls back to cold start when no warm pods available', async () => {
-    // claimPod returns null → no warm pods
-    mockClaimPod.mockResolvedValueOnce(null);
-
+  test('pod has podName set for NATS work delivery', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
@@ -166,18 +109,11 @@ describe('k8s provider warm pool integration', () => {
 
     const proc = await provider.spawn(config);
 
-    // Should fall back to creating a new pod
-    expect(mockCreateNamespacedPod).toHaveBeenCalledOnce();
+    expect(proc.podName).toMatch(/^ax-sandbox-/);
     expect(proc.pid).toBeGreaterThan(0);
-    // Cold start pods also have podName for NATS work delivery
-    expect(proc.podName).toBeDefined();
   });
 
-  test('warm pool kill deletes the claimed pod', async () => {
-    process.env.WARM_POOL_ENABLED = 'true';
-
-    mockClaimPod.mockResolvedValueOnce({ name: 'warm-pod-kill', tier: 'light' });
-
+  test('kill deletes the pod', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
@@ -193,12 +129,11 @@ describe('k8s provider warm pool integration', () => {
 
     await new Promise(r => setTimeout(r, 10));
     expect(mockDeleteNamespacedPod).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'warm-pod-kill' }),
+      expect.objectContaining({ name: proc.podName }),
     );
   });
 
-  test('cold start pod has podName set for NATS work delivery', async () => {
-    process.env.WARM_POOL_ENABLED = 'false';
+  test('exit code resolves from pod watch', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
@@ -207,13 +142,10 @@ describe('k8s provider warm pool integration', () => {
       ipcSocket: '/tmp/ipc.sock',
       command: ['node', 'runner.js'],
       timeoutSec: 30,
-      memoryMB: 256,
     };
 
     const proc = await provider.spawn(config);
-
-    // Pod name should be set for NATS work delivery
-    expect(proc.podName).toMatch(/^ax-sandbox-/);
-    expect(proc.pid).toBeGreaterThan(0);
+    const exitCode = await proc.exitCode;
+    expect(exitCode).toBe(0);
   });
 });

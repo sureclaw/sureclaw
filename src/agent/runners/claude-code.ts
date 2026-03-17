@@ -89,27 +89,20 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     ? rawMsg.filter(b => b.type === 'image_data')
     : [];
 
-  // Detect k8s mode: NATS_URL is set and no proxySocket provided.
-  // In k8s sandbox pods, LLM calls go through NATS instead of a Unix socket proxy.
-  const useNATSBridge = !config.proxySocket && !!process.env.NATS_URL;
+  // Detect transport mode
+  const isHTTPTransport = process.env.AX_IPC_TRANSPORT === 'http';
 
-  if (!config.proxySocket && !useNATSBridge) {
-    logger.error('missing_proxy_socket', { message: 'claude-code agent requires --proxy-socket or NATS_URL env var' });
+  if (!isHTTPTransport && !config.proxySocket) {
+    logger.error('missing_proxy_socket', { message: 'claude-code agent requires --proxy-socket or AX_IPC_TRANSPORT=http' });
     process.exit(1);
   }
 
-  // 1. Start bridge — TCP bridge for local mode, NATS bridge for k8s mode
-  let bridge: { port: number; stop: () => void | Promise<void> };
-  if (useNATSBridge) {
-    if (!config.sessionId) {
-      logger.error('missing_session_id', { message: 'claude-code NATS bridge requires sessionId' });
-      process.exit(1);
-    }
-    const { startNATSBridge } = await import('../nats-bridge.js');
-    const requestId = process.env.AX_IPC_REQUEST_ID ?? config.requestId ?? config.sessionId;
-    const token = process.env.AX_IPC_TOKEN ?? '';
-    bridge = await startNATSBridge({ sessionId: config.sessionId, requestId, token });
-    logger.info('nats_bridge_started', { port: bridge.port, sessionId: config.sessionId });
+  // 1. Start bridge — HTTP mode needs no bridge, socket mode starts TCP bridge
+  let bridge: { port: number; stop: () => void | Promise<void> } | undefined;
+  if (isHTTPTransport) {
+    // K8s HTTP mode: agent hits host LLM proxy directly via /internal/llm-proxy.
+    // No bridge needed — ANTHROPIC_BASE_URL points to host, per-turn token as API key.
+    logger.info('http_llm_proxy', { hostUrl: process.env.AX_HOST_URL });
   } else {
     bridge = await startTCPBridge(config.proxySocket!);
   }
@@ -162,8 +155,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     fullPrompt = userMessage;
   }
 
-  // In NATS mode, buffer text instead of writing to stdout — response goes via IPC
-  const isNATS = process.env.AX_IPC_TRANSPORT === 'nats';
+  // In k8s mode (NATS or HTTP), buffer text instead of writing to stdout — response goes via IPC
+  const isK8sTransport = process.env.AX_IPC_TRANSPORT === 'nats' || process.env.AX_IPC_TRANSPORT === 'http';
   const textBuffer: string[] = [];
 
   try {
@@ -186,8 +179,14 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         disallowedTools: ['WebFetch', 'WebSearch', 'Skill'],
         env: {
           ...process.env,
-          ANTHROPIC_BASE_URL: `http://127.0.0.1:${bridge.port}`,
-          ANTHROPIC_API_KEY: 'ax-proxy',
+          // HTTP transport: point directly at host LLM proxy, per-turn token as API key
+          // Bridge modes: point at local bridge port with dummy key
+          ANTHROPIC_BASE_URL: isHTTPTransport
+            ? `${process.env.AX_HOST_URL}/internal/llm-proxy`
+            : `http://127.0.0.1:${bridge!.port}`,
+          ANTHROPIC_API_KEY: isHTTPTransport
+            ? (process.env.AX_IPC_TOKEN ?? 'ax-proxy')
+            : 'ax-proxy',
           CLAUDE_CODE_OAUTH_TOKEN: undefined,
           // Web proxy for outbound HTTP/HTTPS (npm install, curl, git clone)
           ...(webProxyBridge ? {
@@ -217,10 +216,10 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         for (const block of msg.message.content) {
           if (block.type === 'text') {
             if (hasOutput) {
-              if (isNATS) textBuffer.push('\n\n');
+              if (isK8sTransport) textBuffer.push('\n\n');
               else process.stdout.write('\n\n');
             }
-            if (isNATS) textBuffer.push(block.text);
+            if (isK8sTransport) textBuffer.push(block.text);
             else process.stdout.write(block.text);
             hasOutput = true;
           }
@@ -231,10 +230,10 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         process.stderr.write(`Claude Code error: ${errText}\n`);
       }
     }
-    if (hasOutput && !isNATS) process.stdout.write('\n');
+    if (hasOutput && !isK8sTransport) process.stdout.write('\n');
 
     // In NATS mode, release workspace files then send agent_response
-    if (isNATS) {
+    if (isK8sTransport) {
       // Upload workspace file changes to host via sidecar before agent_response
       const hostUrl = process.env.AX_HOST_URL;
       if (hostUrl) {
@@ -264,7 +263,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     process.exitCode = 1;
   } finally {
     // 8. Cleanup — bridge.stop() may be async (NATS bridge) or sync (TCP bridge)
-    await Promise.resolve(bridge.stop());
+    if (bridge) await Promise.resolve(bridge.stop());
     if (webProxyBridge) webProxyBridge.stop();
     client.disconnect();
   }

@@ -270,50 +270,36 @@ describe('buildSDKPrompt', () => {
   });
 });
 
-describe('claude-code k8s NATS bridge detection', () => {
-  // The claude-code runner uses NATS bridge instead of TCP bridge when running
-  // in a k8s sandbox pod. Detection: NATS_URL is set AND no proxySocket provided.
+describe('claude-code k8s HTTP transport detection', () => {
+  // The claude-code runner uses direct HTTP to the host LLM proxy when
+  // AX_IPC_TRANSPORT=http. No bridge process needed — ANTHROPIC_BASE_URL
+  // points to host's /internal/llm-proxy with per-turn token as API key.
 
-  test('runner source imports startNATSBridge for k8s mode', () => {
+  test('runner detects HTTP transport mode', () => {
     const source = readFileSync(
       join(__dirname, '../../../src/agent/runners/claude-code.ts'),
       'utf-8',
     );
-    // Verify the NATS bridge import is present
-    expect(source).toContain("import('../nats-bridge.js')");
-    expect(source).toContain('startNATSBridge');
+    expect(source).toContain("AX_IPC_TRANSPORT === 'http'");
+    expect(source).toContain('isHTTPTransport');
   });
 
-  test('runner detects k8s mode via NATS_URL env var', () => {
+  test('runner sets ANTHROPIC_BASE_URL to host LLM proxy in HTTP mode', () => {
     const source = readFileSync(
       join(__dirname, '../../../src/agent/runners/claude-code.ts'),
       'utf-8',
     );
-    // Verify the detection logic: no proxySocket + NATS_URL = NATS bridge
-    expect(source).toContain('!config.proxySocket && !!process.env.NATS_URL');
+    expect(source).toContain('/internal/llm-proxy');
+    expect(source).toContain('AX_HOST_URL');
+    expect(source).toContain('AX_IPC_TOKEN');
   });
 
-  test('runner requires sessionId for NATS bridge mode', () => {
+  test('runner skips bridge in HTTP mode', () => {
     const source = readFileSync(
       join(__dirname, '../../../src/agent/runners/claude-code.ts'),
       'utf-8',
     );
-    // NATS bridge needs sessionId for the ipc.llm.{sessionId} subject
-    expect(source).toContain('config.sessionId');
-    expect(source).toContain("startNATSBridge({ sessionId: config.sessionId");
-  });
-
-  test('NATSBridge interface is compatible with TCPBridge usage', async () => {
-    // Both bridge types must expose { port, stop } so the runner can use them
-    // interchangeably. Verify the NATS bridge exports the right shape.
-    const natsMod = await import('../../../src/agent/nats-bridge.js');
-    type NATSBridge = (typeof natsMod)['NATSBridge'] extends never
-      ? { port: number; stop: () => Promise<void> }
-      : import('../../../src/agent/nats-bridge.js').NATSBridge;
-
-    // Type-level check: NATSBridge has port and stop
-    const _typeCheck: NATSBridge = { port: 0, stop: async () => {} };
-    expect(_typeCheck).toHaveProperty('port');
-    expect(_typeCheck).toHaveProperty('stop');
+    expect(source).toContain('if (isHTTPTransport)');
+    expect(source).toContain('http_llm_proxy');
   });
 });

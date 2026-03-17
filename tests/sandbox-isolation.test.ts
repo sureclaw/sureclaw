@@ -209,7 +209,8 @@ describe('claude-code env spread', () => {
     expect(source).toContain('...process.env');
 
     // But it does set safe overrides for credentials
-    expect(source).toContain("ANTHROPIC_API_KEY: 'ax-proxy'");
+    // HTTP mode uses per-turn token, bridge mode uses dummy 'ax-proxy' key
+    expect(source).toContain("'ax-proxy'");
     expect(source).toContain('CLAUDE_CODE_OAUTH_TOKEN: undefined');
   });
 

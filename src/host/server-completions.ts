@@ -60,9 +60,10 @@ export interface CompletionDeps {
   /** Promise that resolves with the agent response content (NATS mode).
    *  When set, processCompletion waits on this instead of reading stdout. */
   agentResponsePromise?: Promise<string>;
-  /** Callback to publish work payload via NATS to a pod (NATS mode).
-   *  Called with (podName, stdinPayload) after sandbox spawn. */
-  publishWork?: (podName: string, payload: string) => Promise<void>;
+  /** Callback to publish work payload via NATS (k8s mode).
+   *  If podName is undefined, uses queue group (warm pool) — returns the claiming pod's name.
+   *  If podName is set, publishes to that specific pod (cold start fallback). */
+  publishWork?: (podName: string | undefined, payload: string) => Promise<string>;
 }
 
 export interface ExtractedFile {

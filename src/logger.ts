@@ -116,9 +116,10 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   // immediately. Without this, pino buffers ~4KB before flushing.
   const syncFile = process.env.LOG_SYNC === '1';
 
-  // In NATS mode (k8s sandbox), write console logs to stderr (fd 2) so they
-  // don't pollute stdout. Logs stay visible via `kubectl logs` stderr stream.
-  const consoleFd = process.env.AX_IPC_TRANSPORT === 'nats' ? 2 : 1;
+  // In k8s sandbox mode (NATS or HTTP transport), write console logs to stderr (fd 2)
+  // so they don't pollute stdout. Logs stay visible via `kubectl logs` stderr stream.
+  const ipcTransport = process.env.AX_IPC_TRANSPORT;
+  const consoleFd = (ipcTransport === 'nats' || ipcTransport === 'http') ? 2 : 1;
 
   // If a test stream is provided, use it directly (no transports)
   if (opts.stream) {
