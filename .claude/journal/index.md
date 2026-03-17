@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 115 entries across 10 categories.
+Category-based organization of all journal entries. Total: 116 entries across 10 categories.
 
 ## Entries
 
+- 2026-03-17 00:27 — Security review of HTTP proxy design trade-offs [docs/plans.md](docs/plans.md)
 - 2026-03-16 16:38 — Create one-page PDF app summary [docs/artifacts.md](docs/artifacts.md)
 - 2026-03-16 13:00 — Add NATS static user authentication to Helm chart [infrastructure/nats-auth.md](infrastructure/nats-auth.md)
 - 2026-03-16 07:40 — Add NATS IPC round-trip integration test [ipc/protocol.md](ipc/protocol.md)

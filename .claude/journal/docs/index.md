@@ -4,6 +4,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-03-17 00:27 — Security review of HTTP proxy design trade-offs [plans.md](plans.md)
 - 2026-03-16 16:38 — Create one-page PDF app summary [artifacts.md](artifacts.md)
 - 2026-03-16 12:00 — Update architecture plans with k8s NATS IPC supersession notes [plans.md](plans.md)
 - 2026-03-16 10:32 — Review host merge + NATS auth plan [plans.md](plans.md)

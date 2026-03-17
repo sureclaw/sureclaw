@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-03-17 00:27] — Security review of HTTP proxy design trade-offs
+
+**Task:** Analyze `docs/plans/2026-03-16-http-proxy-design.md` for security implications and judge whether the design is a reasonable trade-off.
+**What I did:** Read the full plan and assessed preserved invariants, new attack surface, mitigations, and residual risks (CONNECT blind spots, DNS/rebinding concerns, proxy auth, and k8s service exposure) to prepare concise recommendations.
+**Files touched:** .claude/journal/docs/plans.md, .claude/journal/docs/index.md
+**Outcome:** Success — produced a structured security assessment with clear go/no-go conditions and hardening follow-ups.
+**Notes:** Review-only task; no product code changes.
+
 ## [2026-03-16 12:00] — Update architecture plans with k8s NATS IPC supersession notes
 
 **Task:** Add supersession notes to two architecture docs pointing to the new k8s NATS IPC sandbox plan.
