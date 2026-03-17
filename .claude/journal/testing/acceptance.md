@@ -2,6 +2,21 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-17 08:42] — E2E test of k8s networking simplification (HTTP IPC) via ax-debug harness
+
+**Task:** Test the k8s networking simplification plan (docs/plans/2026-03-17-k8s-networking-simplification.md) end-to-end using the HTTP IPC local debug harness.
+**What I did:** Started nats-server, launched `run-http-local.ts` harness, sent two chat completion requests via curl, verified health endpoint and token security (401 for invalid tokens).
+**Files touched:** None (read-only testing)
+**Outcome:** SUCCESS. Full HTTP IPC flow confirmed working:
+  1. Host published work via NATS `sandbox.work` queue group (with retry — agent needed 2 attempts to subscribe)
+  2. Agent subprocess received work via NATS, processed with `HttpIPCClient`
+  3. Agent sent `llm_call` IPC via HTTP POST to `/internal/ipc` with Bearer token auth
+  4. Agent sent `agent_response` via HTTP IPC, host returned completion
+  5. Second request also succeeded (stability under repeated use)
+  6. Invalid token correctly returned 401 (security check)
+  7. Health endpoint returned `{"status":"ok"}`
+**Notes:** The plan's Tasks 1-9 appear fully implemented. NATS files (nats-ipc-client.ts, nats-bridge.ts, nats-ipc-handler.ts, nats-llm-proxy.ts) and warm-pool-client.ts are already deleted. HttpIPCClient and llm-proxy-core.ts exist. The HTTP IPC harness (`run-http-local.ts`) is a complete standalone test of the new architecture.
+
 ## [2026-03-13 13:46] -- K8s acceptance: workspace provider
 
 **Task:** Deploy AX to kind cluster with workspace provider enabled and run all behavioral (BT-1 through BT-5) and integration tests (IT-1 through IT-3) for the workspace feature.
