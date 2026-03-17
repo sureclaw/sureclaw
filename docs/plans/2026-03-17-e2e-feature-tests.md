@@ -1240,25 +1240,25 @@ git commit -m "test: finalize E2E feature tests"
 
 ### Feature Coverage Per Sandbox
 
-| Feature | Docker | Apple | K8s Path |
-|---------|--------|-------|----------|
-| Tool use (single + multi) | yes | yes | yes |
-| Streaming (SSE) | yes | yes | yes |
-| Memory write + recall | yes | — | — |
-| Bootstrap (first-run) | yes | yes | yes |
-| Identity persistence | yes | — | — |
-| Skill propose/list/read | yes | — | — |
-| Memory scoping (per-user) | yes | — | — |
-| Workspace scoping (agent/user) | yes | — | — |
-| Scheduler CRUD | yes | yes | yes |
-| Scheduler run_at | yes | — | — |
-| Guardian scanner (injection) | yes | yes | yes |
-| Canary/taint non-leakage | yes | — | — |
-| Web proxy (SSRF + canary) | yes | yes | yes |
-| Concurrent sessions | yes | — | — |
-| Error handling (400/404) | yes | — | — |
+| Feature | Docker | Apple | K8s Path | K8s Docker |
+|---------|--------|-------|----------|------------|
+| Tool use (single + multi) | yes | yes | yes | yes |
+| Streaming (SSE) | yes | yes | yes | yes |
+| Memory write + recall | yes | yes | yes | yes |
+| Bootstrap (first-run) | yes | yes | yes | yes |
+| Identity persistence | yes | yes | yes | yes |
+| Skill propose/list/read | yes | yes | yes | yes |
+| Memory scoping (per-user) | yes | yes | yes | yes |
+| Workspace scoping (agent/user) | yes | yes | yes | yes |
+| Scheduler CRUD | yes | yes | yes | yes |
+| Scheduler run_at | yes | yes | yes | yes |
+| Guardian scanner (injection) | yes | yes | yes | yes |
+| Canary/taint non-leakage | yes | yes | yes | yes |
+| Web proxy (SSRF + canary) | yes | yes | yes | yes |
+| Concurrent sessions | yes | yes | yes | yes |
+| Error handling (400/404) | yes | yes | yes | yes |
 
-Apple and K8s test files include a subset of critical scenarios. Docker has the full suite. All three validate the core pathways (tool use, streaming, bootstrap, scheduling, scanning, proxy).
+All four sandbox test files now have full feature coverage. Tests skip gracefully when their backend is unavailable.
 
 ### Providers Used
 

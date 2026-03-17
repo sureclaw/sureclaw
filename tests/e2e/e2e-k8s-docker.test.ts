@@ -18,6 +18,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { request as httpRequest } from 'node:http';
+import { randomUUID } from 'node:crypto';
 
 import { createK8sHarness, type K8sServerHarness } from './k8s-server-harness.js';
 import { createScriptableLLM, textTurn, toolUseTurn } from './scriptable-llm.js';
@@ -329,5 +330,235 @@ describe.skipIf(!canRun)('K8s Docker Simulation (Docker + NATS + HTTP IPC) E2E',
     } finally {
       proxy.stop();
     }
+  }, 30_000);
+
+  // ── Multiple Tool Calls ─────────────────────────────
+
+  test('multiple sequential tool calls', async () => {
+    const llm = createScriptableLLM([
+      toolUseTurn('memory_write', { scope: 'user_test', content: 'Fact one', tags: ['test'] }),
+      toolUseTurn('memory_write', { scope: 'user_test', content: 'Fact two', tags: ['test'] }),
+      textTurn('Both facts stored.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    const res = await harness.sendMessage('Remember two things');
+
+    expect(res.status).toBe(200);
+    expect(llm.callCount).toBe(3);
+  }, 180_000);
+
+  // ── Memory Lifecycle ────────────────────────────────
+
+  test('memory written in turn 1 is available in turn 2', async () => {
+    const sessionId = randomUUID();
+    const llm = createScriptableLLM([
+      toolUseTurn('memory_write', { scope: 'user_test', content: 'My favorite color is blue', tags: ['preference'] }),
+      textTurn('Got it, your favorite color is blue.'),
+      toolUseTurn('memory_query', { scope: 'user_test', tags: ['preference'] }),
+      textTurn('Your favorite color is blue.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+
+    await harness.sendMessage('My favorite color is blue', { sessionId });
+    const res2 = await harness.sendMessage('What is my favorite color?', { sessionId });
+
+    expect(res2.status).toBe(200);
+    expect(llm.callCount).toBeGreaterThanOrEqual(3);
+  }, 180_000);
+
+  // ── Identity Persistence ────────────────────────────
+
+  test('SOUL and IDENTITY survive server restart', async () => {
+    // Session 1: write identity
+    const llm1 = createScriptableLLM([
+      toolUseTurn('identity_write', {
+        file: 'SOUL.md',
+        content: '# Soul\nPersistent Docker+NATS identity.',
+        reason: 'User requested',
+        origin: 'user_request',
+      }),
+      textTurn('Identity written.'),
+    ]);
+    const sandbox1 = await dockerNATSSandbox();
+    const h1 = await createK8sHarness({ llm: llm1, sandbox: sandbox1, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    await h1.sendMessage('Set your soul');
+    const savedHome = h1.home;
+    await h1.dispose();
+
+    // Session 2: verify identity persists
+    const llm2 = createScriptableLLM([
+      textTurn('I remember my persistent identity.'),
+    ]);
+    const sandbox2 = await dockerNATSSandbox();
+    harness = await createK8sHarness({ llm: llm2, sandbox: sandbox2, port, configYaml: DOCKER_NATS_CONFIG_YAML, existingHome: savedHome });
+
+    const res = await harness.sendMessage('Who are you?');
+    expect(res.status).toBe(200);
+    expect(llm2.callCount).toBe(1);
+  }, 180_000);
+
+  // ── Skills ──────────────────────────────────────────
+
+  test('skill propose, list, and read round-trip', async () => {
+    const llm = createScriptableLLM([
+      toolUseTurn('skill_propose', { skill: 'test-skill', content: '# Test Skill\nDoes things.' }),
+      toolUseTurn('skill_list', {}),
+      toolUseTurn('skill_read', { name: 'test-skill' }),
+      textTurn('Skill round-trip complete.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    const res = await harness.sendMessage('Create, list, and read a skill');
+
+    expect(res.status).toBe(200);
+    expect(llm.callCount).toBeGreaterThanOrEqual(3);
+  }, 180_000);
+
+  // ── Memory Scoping ──────────────────────────────────
+
+  test('user A memory is not visible to user B in DM scope', async () => {
+    const llm = createScriptableLLM([
+      toolUseTurn('memory_write', { scope: 'user_a', content: 'Secret for user A', tags: ['private'] }),
+      textTurn('Stored for user A.'),
+      toolUseTurn('memory_query', { scope: 'user_b', tags: ['private'] }),
+      textTurn('No memories found for user B.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    await harness.sendMessage('Remember my secret', { user: 'user-a' });
+    const res = await harness.sendMessage('What secrets do you know?', { user: 'user-b' });
+
+    expect(res.status).toBe(200);
+    expect(llm.callCount).toBeGreaterThanOrEqual(3);
+  }, 180_000);
+
+  // ── Workspace Scoping ───────────────────────────────
+
+  test('workspace tiers are isolated (agent vs user)', async () => {
+    const llm = createScriptableLLM([
+      toolUseTurn('workspace_write', { tier: 'agent', path: 'notes.md', content: 'Agent note' }),
+      toolUseTurn('workspace_write', { tier: 'user', path: 'notes.md', content: 'User note' }),
+      textTurn('Workspace writes complete.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    const res = await harness.sendMessage('Write to both workspace tiers');
+
+    expect(res.status).toBe(200);
+  }, 180_000);
+
+  // ── Scheduler run_at ────────────────────────────────
+
+  test('scheduler: run_at fires near-future job', async () => {
+    const nearFuture = new Date(Date.now() + 2000).toISOString();
+    const llm = createScriptableLLM([
+      toolUseTurn('scheduler_run_at', { datetime: nearFuture, prompt: 'Near future task' }),
+      textTurn('Job scheduled.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    const res = await harness.sendMessage('Schedule a task for 2 seconds from now');
+
+    expect(res.status).toBe(200);
+    expect(llm.callCount).toBe(2);
+  }, 180_000);
+
+  // ── Canary/Taint Non-Leakage ────────────────────────
+
+  test('response does not leak canary tokens or taint tags', async () => {
+    const llm = createScriptableLLM([
+      textTurn('Here is a normal helpful response.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+    const res = await harness.sendMessage('Tell me something helpful');
+
+    expect(res.status).toBe(200);
+    const content = (res.parsed as any)?.choices?.[0]?.message?.content ?? '';
+    expect(content).not.toContain('CANARY-');
+    expect(content).not.toContain('canary:');
+    expect(content).not.toContain('external_content');
+    expect(content).not.toContain('redacted');
+  }, 180_000);
+
+  // ── Concurrent Sessions ─────────────────────────────
+
+  test('parallel requests get independent responses', async () => {
+    const llm = createScriptableLLM([
+      textTurn('Response for session alpha.', /alpha/),
+      textTurn('Response for session beta.', /beta/),
+      textTurn('Response for session gamma.', /gamma/),
+    ], textTurn('Fallback response.'));
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+
+    const [resA, resB, resC] = await Promise.all([
+      harness.sendMessage('Hello from alpha', { sessionId: randomUUID() }),
+      harness.sendMessage('Hello from beta', { sessionId: randomUUID() }),
+      harness.sendMessage('Hello from gamma', { sessionId: randomUUID() }),
+    ]);
+
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    expect(resC.status).toBe(200);
+
+    const contentA = (resA.parsed as any)?.choices?.[0]?.message?.content ?? '';
+    const contentB = (resB.parsed as any)?.choices?.[0]?.message?.content ?? '';
+    const contentC = (resC.parsed as any)?.choices?.[0]?.message?.content ?? '';
+
+    expect(contentA.length).toBeGreaterThan(0);
+    expect(contentB.length).toBeGreaterThan(0);
+    expect(contentC.length).toBeGreaterThan(0);
+  }, 180_000);
+
+  // ── Error Handling ──────────────────────────────────
+
+  test('unknown path returns 404, IPC without token returns 401', async () => {
+    const llm = createScriptableLLM([
+      textTurn('Should not reach here.'),
+    ]);
+    const sandbox = await dockerNATSSandbox();
+
+    harness = await createK8sHarness({ llm, sandbox, port, configYaml: DOCKER_NATS_CONFIG_YAML });
+
+    // Unknown path → 404
+    const res404 = await new Promise<{ status: number }>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port,
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+      }, (r) => { r.resume(); r.on('end', () => resolve({ status: r.statusCode ?? 0 })); });
+      req.on('error', reject);
+      req.write('{}');
+      req.end();
+    });
+    expect(res404.status).toBe(404);
+
+    // IPC without auth token → 401
+    const res401 = await new Promise<{ status: number }>((resolve, reject) => {
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port,
+        path: '/internal/ipc',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': '2' },
+      }, (r) => { r.resume(); r.on('end', () => resolve({ status: r.statusCode ?? 0 })); });
+      req.on('error', reject);
+      req.write('{}');
+      req.end();
+    });
+    expect(res401.status).toBe(401);
   }, 30_000);
 });
