@@ -246,6 +246,25 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
         }
       }
 
+      // Sandbox-side finalize: git push + GCS cache update.
+      // In k8s, the pod owns the workspace — finalize must happen in-pod.
+      // Host-side providers (Docker/Apple) handle this after container exit.
+      try {
+        const { releaseWorkspace } = await import('../workspace.js');
+        const scratchPath = '/workspace/scratch';
+        const { existsSync } = await import('node:fs');
+        if (existsSync(scratchPath + '/.git')) {
+          await releaseWorkspace(scratchPath, {
+            pushChanges: true,
+            updateCache: !!process.env.WORKSPACE_CACHE_BUCKET,
+            cacheKey: process.env.AX_WORKSPACE_CACHE_KEY,
+          });
+          logger.info('workspace_cleanup_done');
+        }
+      } catch (err) {
+        logger.warn('workspace_cleanup_failed', { error: (err as Error).message });
+      }
+
       const buffered = textBuffer.join('');
       logger.debug('nats_agent_response', { contentLength: buffered.length });
       try {

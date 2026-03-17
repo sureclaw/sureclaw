@@ -546,6 +546,24 @@ describe('sandbox workspaceLocation capability', () => {
   });
 });
 
+// ── In-Pod Workspace Cleanup (Sandbox-Side Finalize) ─────────────────
+
+describe('in-pod workspace cleanup (sandbox-side finalize)', () => {
+  test('claude-code runner calls releaseWorkspace after workspace release', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/agent/runners/claude-code.ts'), 'utf-8');
+    expect(source).toContain('releaseWorkspace');
+    expect(source).toContain('workspace_cleanup');
+  });
+
+  test('pi-session runner calls releaseWorkspace after workspace release', async () => {
+    const { readFileSync } = await import('node:fs');
+    const source = readFileSync(resolve('src/agent/runners/pi-session.ts'), 'utf-8');
+    expect(source).toContain('releaseWorkspace');
+    expect(source).toContain('workspace_cleanup');
+  });
+});
+
 // ── Work Payload Workspace Provisioning Fields ───────────────────────
 
 describe('work payload includes workspace provisioning fields', () => {
