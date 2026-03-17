@@ -666,6 +666,33 @@ async function main(): Promise<void> {
       return;
     }
 
+    // LLM proxy over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
+    // Agent sends requests to /internal/llm-proxy/v1/messages with per-turn token as x-api-key.
+    if (url.startsWith('/internal/llm-proxy/') && req.method === 'POST') {
+      const token = req.headers['x-api-key'] as string;
+      const entry = token ? activeTokens.get(token) : undefined;
+      if (!entry) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid token' }));
+        return;
+      }
+      try {
+        const targetPath = url.replace('/internal/llm-proxy', '');
+        const body = await readBody(req, 10_485_760); // 10MB
+        const { forwardLLMRequest } = await import('./llm-proxy-core.js');
+        await forwardLLMRequest({
+          targetPath,
+          body: body.toString(),
+          incomingHeaders: req.headers,
+          res,
+        });
+      } catch (err) {
+        logger.error('internal_llm_proxy_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 502, 'LLM proxy request failed');
+      }
+      return;
+    }
+
     // IPC over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
     if (url === '/internal/ipc' && req.method === 'POST') {
       const token = req.headers.authorization?.replace('Bearer ', '');
