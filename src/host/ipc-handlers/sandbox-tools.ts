@@ -16,6 +16,7 @@ import { dirname } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { safePath } from '../../utils/safe-path.js';
+import { extractNetworkDomains } from '../../agent/local-sandbox.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'sandbox-tools' });
@@ -203,6 +204,25 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         ...(req.path ? { path: req.path } : {}),
       });
       // Option A+ hook point: policy check, return {approved: false, reason: "..."}
+
+      // Auto-approve well-known network domains for bash commands to avoid
+      // proxy governance deadlock (agent blocked on spawn while proxy waits
+      // for approval). Session-scoped only — no cross-session leakage.
+      if (req.operation === 'bash' && req.command) {
+        const domains = extractNetworkDomains(req.command);
+        if (domains.length > 0) {
+          const { preApproveDomain } = await import('../web-proxy-approvals.js');
+          for (const domain of domains) {
+            preApproveDomain(ctx.sessionId, domain);
+          }
+          logger.debug('sandbox_approve_auto_domains', {
+            sessionId: ctx.sessionId,
+            domains,
+            command: req.command.slice(0, 100),
+          });
+        }
+      }
+
       return { approved: true };
     },
 

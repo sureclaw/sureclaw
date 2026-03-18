@@ -84,59 +84,14 @@ describe('Local sandbox executor', () => {
       expect(result.output).toContain('Exit code 42');
     });
 
-    test('pre-approves registry.npmjs.org for npm install commands', async () => {
+    test('does not make web_proxy_approve calls (auto-approval is host-side)', async () => {
       const client = mockClient();
       const sandbox = createLocalSandbox({ client, workspace });
-      await sandbox.bash('npm install -g @googleworkspace/cli');
-
-      const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
-      const approveIdx = calls.findIndex(
-        (c: any) => c.action === 'web_proxy_approve' && c.domain === 'registry.npmjs.org',
-      );
-      expect(approveIdx).toBeGreaterThan(-1);
-      const sandboxApproveIdx = calls.findIndex((c: any) => c.action === 'sandbox_approve');
-      const resultIdx = calls.findIndex((c: any) => c.action === 'sandbox_result');
-      expect(approveIdx).toBeGreaterThan(sandboxApproveIdx);
-      expect(approveIdx).toBeLessThan(resultIdx);
-    });
-
-    test('pre-approves pypi.org and files.pythonhosted.org for pip install', async () => {
-      const client = mockClient();
-      const sandbox = createLocalSandbox({ client, workspace });
-      await sandbox.bash('pip install requests');
-
-      const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
-      const domains = calls
-        .filter((c: any) => c.action === 'web_proxy_approve')
-        .map((c: any) => c.domain);
-      expect(domains).toContain('pypi.org');
-      expect(domains).toContain('files.pythonhosted.org');
-    });
-
-    test('does not pre-approve domains for non-network commands', async () => {
-      const client = mockClient();
-      const sandbox = createLocalSandbox({ client, workspace });
-      await sandbox.bash('echo hello');
+      await sandbox.bash('npm install express');
 
       const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
       const proxyApprovals = calls.filter((c: any) => c.action === 'web_proxy_approve');
       expect(proxyApprovals).toHaveLength(0);
-    });
-
-    test('pre-approve failure does not block command execution', async () => {
-      const client = {
-        call: vi.fn().mockImplementation(async (req: Record<string, unknown>) => {
-          if (req.action === 'sandbox_approve') return { approved: true };
-          if (req.action === 'sandbox_result') return { ok: true };
-          if (req.action === 'web_proxy_approve') throw new Error('IPC timeout');
-          return {};
-        }),
-        connect: vi.fn(),
-        disconnect: vi.fn(),
-      } as unknown as IPCClient;
-      const sandbox = createLocalSandbox({ client, workspace });
-      const result = await sandbox.bash('npm --version');
-      expect(result.output).toBeDefined();
     });
 
     test('kills process on timeout', async () => {

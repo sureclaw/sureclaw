@@ -39,7 +39,7 @@ export function extractNetworkDomains(command: string): string[] {
 }
 
 export function createLocalSandbox(opts: LocalSandboxOptions) {
-  const { client, workspace, timeoutMs = 30_000 } = opts;
+  const { client, workspace, timeoutMs = 120_000 } = opts;
 
   function safeWorkspacePath(relativePath: string): string {
     const segments = relativePath.split(/[/\\]/).filter(Boolean);
@@ -61,13 +61,8 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
         return { output: `Denied: ${approval.reason ?? 'denied by host policy'}` };
       }
 
-      // Pre-approve well-known network domains to avoid proxy governance deadlock.
-      const domains = extractNetworkDomains(command);
-      await Promise.all(
-        domains.map(domain =>
-          client.call({ action: 'web_proxy_approve', domain, approved: true }).catch(() => {}),
-        ),
-      );
+      // Network domain auto-approval is handled host-side in sandbox_approve
+      // handler (session-scoped only, no cross-session leakage).
 
       const MAX_BUFFER = 1024 * 1024;
       return new Promise<{ output: string }>((resolve) => {

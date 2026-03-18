@@ -337,6 +337,46 @@ describe('Sandbox tool IPC handlers', () => {
       const auditCall = (providers.audit.log as any).mock.calls[0][0];
       expect(auditCall.args.command.length).toBe(200);
     });
+
+    test('auto-approves registry.npmjs.org for npm install (session-scoped)', async () => {
+      // Import the approvals module to check session-scoped cache
+      const { isDomainApproved, cleanupSession } = await import(
+        '../../../src/host/web-proxy-approvals.js'
+      );
+      cleanupSession('test-session');
+      cleanupSession('other-session');
+
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      await handlers.sandbox_approve(
+        { operation: 'bash', command: 'npm install express' },
+        ctx,
+      );
+
+      // Domain should be approved for THIS session
+      expect(isDomainApproved('test-session', 'registry.npmjs.org')).toBe(true);
+      // But NOT for other sessions (no cross-session leakage)
+      expect(isDomainApproved('other-session', 'registry.npmjs.org')).toBe(false);
+      // And NOT in the global host-process scope
+      expect(isDomainApproved('host-process', 'registry.npmjs.org')).toBe(false);
+
+      cleanupSession('test-session');
+    });
+
+    test('does not auto-approve for non-network commands', async () => {
+      const { isDomainApproved, cleanupSession } = await import(
+        '../../../src/host/web-proxy-approvals.js'
+      );
+      cleanupSession('test-session');
+
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      await handlers.sandbox_approve(
+        { operation: 'bash', command: 'echo hello' },
+        ctx,
+      );
+
+      expect(isDomainApproved('test-session', 'registry.npmjs.org')).toBe(false);
+      cleanupSession('test-session');
+    });
   });
 
   describe('sandbox_result', () => {
