@@ -7,7 +7,7 @@
  * 2. Execute locally (only if approved)
  * 3. sandbox_result → host logs outcome (best-effort)
  */
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { IIPCClient } from './runner.js';
@@ -17,6 +17,25 @@ export interface LocalSandboxOptions {
   client: IIPCClient;
   workspace: string;
   timeoutMs?: number;
+}
+
+/** Well-known package manager commands and their registry domains. */
+const NETWORK_COMMAND_DOMAINS: [RegExp, string[]][] = [
+  [/\bnpm\s+(install|i|ci|update|audit|pack|publish)\b/, ['registry.npmjs.org']],
+  [/\bnpx\s/, ['registry.npmjs.org']],
+  [/\byarn\s+(add|install|upgrade)\b/, ['registry.yarnpkg.com', 'registry.npmjs.org']],
+  [/\bpip\s+(install|download)\b/, ['pypi.org', 'files.pythonhosted.org']],
+  [/\bgem\s+install\b/, ['rubygems.org']],
+  [/\bcargo\s+(install|build|update)\b/, ['crates.io', 'static.crates.io']],
+  [/\bgo\s+(get|install|mod\s+download)\b/, ['proxy.golang.org', 'sum.golang.org']],
+];
+
+export function extractNetworkDomains(command: string): string[] {
+  const domains: string[] = [];
+  for (const [pattern, doms] of NETWORK_COMMAND_DOMAINS) {
+    if (pattern.test(command)) domains.push(...doms);
+  }
+  return [...new Set(domains)];
 }
 
 export function createLocalSandbox(opts: LocalSandboxOptions) {
@@ -42,22 +61,56 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
         return { output: `Denied: ${approval.reason ?? 'denied by host policy'}` };
       }
 
-      let output = '';
-      let exitCode = 0;
-      try {
-        // nosemgrep: javascript.lang.security.detect-child-process — sandbox tool
-        output = execFileSync('sh', ['-c', command], {
-          cwd: workspace, encoding: 'utf-8', timeout: timeoutMs,
-          maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'],
-        });
-      } catch (err: unknown) {
-        const e = err as { stdout?: string; stderr?: string; status?: number };
-        output = [e.stdout, e.stderr].filter(Boolean).join('\n') || 'Command failed';
-        exitCode = e.status ?? 1;
-      }
+      // Pre-approve well-known network domains to avoid proxy governance deadlock.
+      const domains = extractNetworkDomains(command);
+      await Promise.all(
+        domains.map(domain =>
+          client.call({ action: 'web_proxy_approve', domain, approved: true }).catch(() => {}),
+        ),
+      );
 
-      report({ operation: 'bash', command, output: output.slice(0, 500_000), exitCode });
-      return exitCode !== 0 ? { output: `Exit code ${exitCode}\n${output}` } : { output };
+      const MAX_BUFFER = 1024 * 1024;
+      return new Promise<{ output: string }>((resolve) => {
+        // nosemgrep: javascript.lang.security.detect-child-process — sandbox tool
+        const child = spawn('sh', ['-c', command], {
+          cwd: workspace,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let killed = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (stdout.length < MAX_BUFFER) stdout += chunk.toString('utf-8');
+        });
+        child.stderr.on('data', (chunk: Buffer) => {
+          if (stderr.length < MAX_BUFFER) stderr += chunk.toString('utf-8');
+        });
+
+        const timer = setTimeout(() => {
+          killed = true;
+          try { child.kill('SIGTERM'); } catch { /* already dead */ }
+          setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch { /* already dead */ }
+          }, 5_000);
+        }, timeoutMs);
+
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          const output = [stdout, stderr].filter(Boolean).join('\n') || (killed ? 'Command timed out' : 'Command failed');
+          const exitCode = code ?? (killed ? 124 : 1);
+          report({ operation: 'bash', command, output: output.slice(0, 500_000), exitCode });
+          resolve(exitCode !== 0 ? { output: `Exit code ${exitCode}\n${output}` } : { output });
+        });
+
+        child.on('error', (err) => {
+          clearTimeout(timer);
+          const output = `Command error: ${err.message}`;
+          report({ operation: 'bash', command, output, exitCode: 1 });
+          resolve({ output: `Exit code 1\n${output}` });
+        });
+      });
     },
 
     async readFile(path: string): Promise<{ content?: string; error?: string }> {

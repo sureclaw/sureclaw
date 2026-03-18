@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createLocalSandbox } from '../../src/agent/local-sandbox.js';
+import { createLocalSandbox, extractNetworkDomains } from '../../src/agent/local-sandbox.js';
 import type { IPCClient } from '../../src/agent/ipc-client.js';
 
 function mockClient(approveResult: Record<string, unknown> = { approved: true }): IPCClient {
@@ -83,6 +83,68 @@ describe('Local sandbox executor', () => {
       const result = await sandbox.bash('exit 42');
       expect(result.output).toContain('Exit code 42');
     });
+
+    test('pre-approves registry.npmjs.org for npm install commands', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      await sandbox.bash('npm install -g @googleworkspace/cli');
+
+      const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
+      const approveIdx = calls.findIndex(
+        (c: any) => c.action === 'web_proxy_approve' && c.domain === 'registry.npmjs.org',
+      );
+      expect(approveIdx).toBeGreaterThan(-1);
+      const sandboxApproveIdx = calls.findIndex((c: any) => c.action === 'sandbox_approve');
+      const resultIdx = calls.findIndex((c: any) => c.action === 'sandbox_result');
+      expect(approveIdx).toBeGreaterThan(sandboxApproveIdx);
+      expect(approveIdx).toBeLessThan(resultIdx);
+    });
+
+    test('pre-approves pypi.org and files.pythonhosted.org for pip install', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      await sandbox.bash('pip install requests');
+
+      const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
+      const domains = calls
+        .filter((c: any) => c.action === 'web_proxy_approve')
+        .map((c: any) => c.domain);
+      expect(domains).toContain('pypi.org');
+      expect(domains).toContain('files.pythonhosted.org');
+    });
+
+    test('does not pre-approve domains for non-network commands', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      await sandbox.bash('echo hello');
+
+      const calls = (client.call as any).mock.calls.map((c: any[]) => c[0]);
+      const proxyApprovals = calls.filter((c: any) => c.action === 'web_proxy_approve');
+      expect(proxyApprovals).toHaveLength(0);
+    });
+
+    test('pre-approve failure does not block command execution', async () => {
+      const client = {
+        call: vi.fn().mockImplementation(async (req: Record<string, unknown>) => {
+          if (req.action === 'sandbox_approve') return { approved: true };
+          if (req.action === 'sandbox_result') return { ok: true };
+          if (req.action === 'web_proxy_approve') throw new Error('IPC timeout');
+          return {};
+        }),
+        connect: vi.fn(),
+        disconnect: vi.fn(),
+      } as unknown as IPCClient;
+      const sandbox = createLocalSandbox({ client, workspace });
+      const result = await sandbox.bash('npm --version');
+      expect(result.output).toBeDefined();
+    });
+
+    test('kills process on timeout', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace, timeoutMs: 1_000 });
+      const result = await sandbox.bash('sleep 30');
+      expect(result.output).toContain('Exit code');
+    }, 10_000);
   });
 
   // ── readFile ──
@@ -163,6 +225,34 @@ describe('Local sandbox executor', () => {
       const sandbox = createLocalSandbox({ client, workspace });
       const result = await sandbox.editFile('edit.txt', 'a', 'b');
       expect(result.error).toBe('Denied: policy');
+    });
+  });
+
+  // ── extractNetworkDomains ──
+
+  describe('extractNetworkDomains', () => {
+    test('extracts npm registry for npm install', () => {
+      expect(extractNetworkDomains('npm install express')).toEqual(['registry.npmjs.org']);
+    });
+
+    test('extracts npm registry for npx', () => {
+      expect(extractNetworkDomains('npx create-react-app myapp')).toEqual(['registry.npmjs.org']);
+    });
+
+    test('extracts pip domains', () => {
+      const domains = extractNetworkDomains('pip install requests');
+      expect(domains).toContain('pypi.org');
+      expect(domains).toContain('files.pythonhosted.org');
+    });
+
+    test('returns empty for non-network commands', () => {
+      expect(extractNetworkDomains('echo hello')).toEqual([]);
+      expect(extractNetworkDomains('ls -la')).toEqual([]);
+    });
+
+    test('deduplicates domains', () => {
+      const domains = extractNetworkDomains('npm install foo && npm ci');
+      expect(domains).toEqual(['registry.npmjs.org']);
     });
   });
 });

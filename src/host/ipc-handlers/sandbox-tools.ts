@@ -11,7 +11,7 @@
  * Every file operation uses safePath() for path containment (SC-SEC-004).
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { dirname } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
@@ -51,33 +51,62 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
   return {
     sandbox_bash: async (req: any, ctx: IPCContext) => {
       const workspace = resolveWorkspace(opts, ctx);
-      try {
+      const TIMEOUT_MS = 120_000;
+      const MAX_BUFFER = 1024 * 1024;
+
+      return new Promise<{ output: string }>((resolve) => {
         // nosemgrep: javascript.lang.security.detect-child-process — intentional: sandbox tool
-        const out = execSync(req.command, {
+        const child = spawn('sh', ['-c', req.command], {
           cwd: workspace,
-          encoding: 'utf-8',
-          timeout: 30_000,
-          maxBuffer: 1024 * 1024,
           stdio: ['pipe', 'pipe', 'pipe'],
         });
-        await providers.audit.log({
-          action: 'sandbox_bash',
-          sessionId: ctx.sessionId,
-          args: { command: req.command.slice(0, 200) },
-          result: 'success',
+
+        let stdout = '';
+        let stderr = '';
+        let killed = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (stdout.length < MAX_BUFFER) stdout += chunk.toString('utf-8');
         });
-        return { output: out };
-      } catch (err: unknown) {
-        const e = err as { stdout?: string; stderr?: string; status?: number };
-        const output = [e.stdout, e.stderr].filter(Boolean).join('\n') || 'Command failed';
-        await providers.audit.log({
-          action: 'sandbox_bash',
-          sessionId: ctx.sessionId,
-          args: { command: req.command.slice(0, 200) },
-          result: 'error',
+        child.stderr.on('data', (chunk: Buffer) => {
+          if (stderr.length < MAX_BUFFER) stderr += chunk.toString('utf-8');
         });
-        return { output: `Exit code ${e.status ?? 1}\n${output}` };
-      }
+
+        const timer = setTimeout(() => {
+          killed = true;
+          try { child.kill('SIGTERM'); } catch { /* already dead */ }
+          setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch { /* already dead */ }
+          }, 5_000);
+        }, TIMEOUT_MS);
+
+        child.on('close', async (code) => {
+          clearTimeout(timer);
+          const exitCode = code ?? (killed ? 124 : 1);
+          const output = exitCode === 0
+            ? stdout
+            : [stdout, stderr].filter(Boolean).join('\n') || (killed ? 'Command timed out' : 'Command failed');
+
+          await providers.audit.log({
+            action: 'sandbox_bash',
+            sessionId: ctx.sessionId,
+            args: { command: req.command.slice(0, 200) },
+            result: exitCode === 0 ? 'success' : 'error',
+          });
+          resolve(exitCode === 0 ? { output } : { output: `Exit code ${exitCode}\n${output}` });
+        });
+
+        child.on('error', async (err) => {
+          clearTimeout(timer);
+          await providers.audit.log({
+            action: 'sandbox_bash',
+            sessionId: ctx.sessionId,
+            args: { command: req.command.slice(0, 200) },
+            result: 'error',
+          });
+          resolve({ output: `Exit code 1\nCommand error: ${err.message}` });
+        });
+      });
     },
 
     sandbox_read_file: async (req: any, ctx: IPCContext) => {

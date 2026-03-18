@@ -235,6 +235,11 @@ function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }], details: undefined };
 }
 
+/** Maximum tool calls per session to prevent infinite retry loops.
+ *  Matches claude-code runner's maxTurns: 20 (but counts individual tool
+ *  calls, not LLM turns, so the limit is higher). */
+const MAX_TOOL_CALLS = 50;
+
 interface IPCToolDefsOptions {
   /** Current user ID — included in user_write calls for per-user scoping. */
   userId?: string;
@@ -267,6 +272,7 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
 
   const TOOLS_WITH_ORIGIN = new Set(['identity_write', 'user_write', 'identity_propose']);
   const catalog = opts?.filter ? filterTools(opts.filter) : TOOL_CATALOG;
+  let toolCallCount = 0;
 
   return catalog.map(spec => ({
     name: spec.name,
@@ -274,6 +280,11 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
     description: spec.description,
     parameters: spec.parameters,
     async execute(_id: string, params: unknown) {
+      toolCallCount++;
+      if (toolCallCount > MAX_TOOL_CALLS) {
+        logger.warn('max_tool_calls_exceeded', { count: toolCallCount, limit: MAX_TOOL_CALLS });
+        return text('Error: Maximum tool call limit reached (' + MAX_TOOL_CALLS + ' calls). Please provide your final response to the user.');
+      }
       const toolStart = Date.now();
       process.stderr.write(`[diag] tool_execute name=${spec.name}\n`);
       logger.debug('tool_execute', { name: spec.name, category: spec.category });

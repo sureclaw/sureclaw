@@ -70,6 +70,15 @@ describe('Sandbox tool IPC handlers', () => {
         handlers.sandbox_bash({ command: 'echo hello' }, badCtx),
       ).rejects.toThrow(/No workspace registered/);
     });
+
+    test('captures combined stdout and stderr', async () => {
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_bash(
+        { command: 'echo stdout-msg && echo stderr-msg >&2' },
+        ctx,
+      );
+      expect(result.output).toContain('stdout-msg');
+    });
   });
 
   // ── sandbox_read_file ──

@@ -1,5 +1,11 @@
 # Architecture
 
+### Synchronous child process execution + web proxy governance = deadlock
+**Date:** 2026-03-18
+**Context:** Debugging agent hang on `npm install -g` in container mode. `execFileSync` blocks the event loop, but npm routes through the web proxy which calls `requestApproval()` — a 120s blocking wait for the agent to send `web_proxy_approve` IPC. Since the agent is blocked on execFileSync, the IPC can never arrive.
+**Lesson:** Never use `execFileSync`/`execSync` for bash commands in the agent or host process when those commands may trigger proxy-governed network requests. Use async `spawn` instead. For known package manager commands, pre-approve well-known registry domains (registry.npmjs.org, pypi.org, etc.) BEFORE executing the command to break the circular dependency.
+**Tags:** deadlock, web-proxy, execFileSync, spawn, sandbox, container, npm
+
 ### K8s filesystem lifecycle must stay inside one pod or use explicit remote handoff
 **Date:** 2026-03-17
 **Context:** Comparing the original workspace-permissions plan to the current k8s implementation. `server-completions.ts` still runs provision, agent, and cleanup as separate sandbox spawns, while the k8s sandbox provider mounts `emptyDir` volumes that exist only for one pod.

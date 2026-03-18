@@ -364,7 +364,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       command: Type.String({ description: 'The bash command to execute' }),
     }),
     category: 'sandbox',
-    timeoutMs: 60_000,
+    timeoutMs: 180_000,
     singletonAction: 'sandbox_bash',
   },
   {
