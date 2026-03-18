@@ -96,8 +96,9 @@ describe('Local sandbox executor', () => {
 
     test('kills process on timeout', async () => {
       const client = mockClient();
-      const sandbox = createLocalSandbox({ client, workspace, timeoutMs: 1_000 });
-      const result = await sandbox.bash('sleep 30');
+      const sandbox = createLocalSandbox({ client, workspace, timeoutMs: 500 });
+      // Use node instead of sleep — node exits on SIGTERM while sleep may ignore it
+      const result = await sandbox.bash('node -e "setTimeout(()=>{},60000)"');
       expect(result.output).toContain('Exit code');
     }, 15_000);
   });
