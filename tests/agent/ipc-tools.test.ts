@@ -210,17 +210,18 @@ describe('ipc-tools', () => {
       filter: { hasHeartbeat: false, hasSkills: false, hasWorkspaceScopes: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + sandbox(4) = 10 tools
+    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + skill(1) + sandbox(4) = 11 tools
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
     expect(names).toContain('image');
+    expect(names).toContain('skill'); // skill tools always available
     expect(names).toContain('bash');
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(11);
   });
 });

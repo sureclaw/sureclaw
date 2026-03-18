@@ -1,5 +1,15 @@
 # K8s Deployment Journal
 
+## [2026-03-18 06:00] — Fix PR review: scheduler preProcessed reuse and LLM model precedence
+
+**Task:** Address two code review comments on the k8s-scheduler-and-model-routing PR
+**What I did:**
+1. **P1 — Reuse preprocessed scheduler message**: Added `preProcessed` parameter to `processCompletionWithNATS()` and forwarded it to `processCompletion()`. Updated the scheduler callback to pass `{ sessionId, messageId, canaryToken }` so the message isn't scanned/enqueued a second time (matching server.ts behavior).
+2. **P2 — Preserve explicit llm_call model overrides**: Changed model precedence in LLM handler from `configModel ?? req.model` to `req.model ?? configModel`, so delegation's per-request model override takes priority over the host's default.
+**Files touched:** `src/host/host-process.ts`, `src/host/ipc-handlers/llm.ts`, `tests/host/ipc-handlers/llm-events.test.ts`
+**Outcome:** Success — build clean, 2412 tests pass (2 new model precedence tests added)
+**Notes:** The orphaned queue entry + canary bypass was a real security issue — without preProcessed, processCompletion re-enqueues with a different canary token, making the outbound scan compare against the wrong canary.
+
 ## [2026-03-17 19:30] — Fix three P1 workspace provisioning issues from PR review
 
 **Task:** Address three code review comments on the k8s workspace provisioning PR

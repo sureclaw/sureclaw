@@ -104,6 +104,8 @@
 - Node.js fetch body does not accept Buffer in strict TypeScript [providers/channel.md](providers/channel.md)
 - pi-agent-core only supports text — image blocks must bypass it [providers/memory.md](providers/memory.md)
 - Salience formula produces 0 at zero reinforcement — test ratios need nonzero counts [providers/memory.md](providers/memory.md)
+- Scheduler must be started in BOTH server.ts AND host-process.ts [providers/scheduler.md](providers/scheduler.md)
+- LLM IPC handler must use configModel for actual calls, not just logging [providers/scheduler.md](providers/scheduler.md)
 - SQLiteJobStore belongs in types.ts alongside MemoryJobStore [providers/scheduler.md](providers/scheduler.md)
 - Pre-existing provider-map path regex failures [providers/scheduler.md](providers/scheduler.md)
 - Check dependency chain before implementing plan tasks — missing prereqs block you [providers/memory.md](providers/memory.md)

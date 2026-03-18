@@ -1,5 +1,17 @@
 # Host
 
+### LLM handler model precedence: req.model before configModel
+**Date:** 2026-03-18
+**Context:** Delegation passes `req.model` to override the default model, but `configModel ?? req.model` made the config default win
+**Lesson:** In `createLLMHandlers`, the per-request `req.model` must take precedence over the `configModel` default. The correct precedence is `req.model ?? configModel ?? fallback`. The IPC handler is created once with `configModel` baked in, but delegation callers set `req.model` at call time — it must not be shadowed.
+**Tags:** llm, model, delegation, ipc-handler, precedence
+
+### processCompletionWithNATS must forward preProcessed for channel/scheduler paths
+**Date:** 2026-03-18
+**Context:** Scheduler callback in host-process.ts called processCompletion without preProcessed, causing double-enqueue and canary mismatch
+**Lesson:** When `processCompletionWithNATS` wraps `processCompletion`, it must accept and forward the `preProcessed` parameter. Without it, the message gets scanned and enqueued twice — the first queue entry is orphaned and the outbound canary check compares against the wrong token, allowing canary-leak bypass. Always mirror server.ts's scheduler callback pattern.
+**Tags:** k8s, nats, scheduler, canary, security, processCompletion, preProcessed
+
 ### provisionScope must use @google-cloud/storage SDK, not gsutil CLI
 **Date:** 2026-03-17
 **Context:** Agent pods had blank filesystem despite files being in GCS — debugging via `which gsutil` confirmed gsutil absent

@@ -53,7 +53,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
   const resolvedAgentName = agentName ?? 'main';
   return {
     llm_call: async (req: any, ctx: IPCContext) => {
-      const effectiveModel = configModel ?? req.model ?? 'claude-sonnet-4-20250514';
+      const effectiveModel = req.model ?? configModel ?? 'claude-sonnet-4-20250514';
       // Estimate context usage from the messages being sent
       const contextWindow = getContextWindow(effectiveModel);
       const messagesJson = JSON.stringify(req.messages ?? []);
@@ -89,7 +89,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
       const resolveImageFile = createImageResolver(ctx, resolvedAgentName);
       const chunks: unknown[] = [];
       for await (const chunk of providers.llm.chat({
-        model: req.model ?? 'claude-sonnet-4-20250514',
+        model: effectiveModel,
         messages: req.messages,
         tools: req.tools,
         taskType: req.taskType,

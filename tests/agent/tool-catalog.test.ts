@@ -213,16 +213,15 @@ describe('filterTools', () => {
 
   test('all flags false returns only always-on categories', () => {
     const result = filterTools(NO_FLAGS);
-    const names = result.map(s => s.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) + sandbox(4) = 10
+    // skill tools are always on, so only scheduler/workspace/governance are excluded
     const alwaysOn = TOOL_CATALOG.filter(s =>
-      !['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
+      !['scheduler', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
     );
     expect(result.length).toBe(alwaysOn.length);
 
-    // Verify excluded categories
+    // Verify excluded categories (skill is NOT excluded)
     for (const spec of result) {
-      expect(['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
+      expect(['scheduler', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
     }
   });
 
@@ -238,16 +237,11 @@ describe('filterTools', () => {
     expect(names).not.toContain('scheduler');
   });
 
-  test('hasSkills includes skill tool', () => {
-    const result = filterTools({ ...NO_FLAGS, hasSkills: true });
-    const names = result.map(s => s.name);
-    expect(names).toContain('skill');
-  });
-
-  test('hasSkills=false excludes skill tool', () => {
-    const result = filterTools({ ...ALL_FLAGS, hasSkills: false });
-    const names = result.map(s => s.name);
-    expect(names).not.toContain('skill');
+  test('skill tools are always available regardless of hasSkills', () => {
+    const withSkills = filterTools({ ...NO_FLAGS, hasSkills: true });
+    const withoutSkills = filterTools({ ...NO_FLAGS, hasSkills: false });
+    expect(withSkills.map(s => s.name)).toContain('skill');
+    expect(withoutSkills.map(s => s.name)).toContain('skill');
   });
 
   test('hasGovernance includes governance tool', () => {

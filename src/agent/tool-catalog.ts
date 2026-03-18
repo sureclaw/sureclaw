@@ -459,8 +459,8 @@ export function getToolParamKeys(name: string): string[] {
 export interface ToolFilterContext {
   /** identityFiles.heartbeat is non-empty */
   hasHeartbeat: boolean;
-  /** skills.length > 0 */
-  hasSkills: boolean;
+  /** @deprecated — skill tools are always available so agents can discover/install skills */
+  hasSkills?: boolean;
   /** Workspace scoped mounts available (workspace provider != 'none') */
   hasWorkspaceScopes: boolean;
   /** Enterprise governance enabled */
@@ -475,7 +475,7 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
   return TOOL_CATALOG.filter(spec => {
     switch (spec.category) {
       case 'scheduler':  return ctx.hasHeartbeat;
-      case 'skill':      return ctx.hasSkills;
+      case 'skill':      return true;
       case 'workspace':        return ctx.hasWorkspaceScopes;
       case 'workspace_scopes': return ctx.hasWorkspaceScopes;
       case 'governance': return ctx.hasGovernance;

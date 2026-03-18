@@ -174,6 +174,56 @@ describe('LLM handler event emissions', () => {
     expect(chunkEvents[1].data.contentLength).toBe(1);
   });
 
+  it('uses req.model over configModel when both are present', async () => {
+    let calledModel: string | undefined;
+    const providers = {
+      llm: {
+        name: 'mock',
+        async *chat(opts: any) {
+          calledModel = opts.model;
+          yield { type: 'text', content: 'ok' };
+          yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 } };
+        },
+        async models() { return ['mock-model']; },
+      },
+      workspace: {
+        async mount() { return { paths: {} }; },
+        async commit() { return { scopes: {} }; },
+        async cleanup() {},
+        activeMounts() { return []; },
+      },
+    } as unknown as ProviderRegistry;
+
+    const handlers = createLLMHandlers(providers, 'config-default-model');
+    await handlers.llm_call({ model: 'override-model', messages: [{ role: 'user', content: 'hi' }] }, mockCtx());
+    expect(calledModel).toBe('override-model');
+  });
+
+  it('falls back to configModel when req.model is absent', async () => {
+    let calledModel: string | undefined;
+    const providers = {
+      llm: {
+        name: 'mock',
+        async *chat(opts: any) {
+          calledModel = opts.model;
+          yield { type: 'text', content: 'ok' };
+          yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 } };
+        },
+        async models() { return ['mock-model']; },
+      },
+      workspace: {
+        async mount() { return { paths: {} }; },
+        async commit() { return { scopes: {} }; },
+        async cleanup() {},
+        activeMounts() { return []; },
+      },
+    } as unknown as ProviderRegistry;
+
+    const handlers = createLLMHandlers(providers, 'config-default-model');
+    await handlers.llm_call({ messages: [{ role: 'user', content: 'hi' }] }, mockCtx());
+    expect(calledModel).toBe('config-default-model');
+  });
+
   it('includes context metrics in llm.start event', async () => {
     const eventBus = createEventBus();
     const events: StreamEvent[] = [];
