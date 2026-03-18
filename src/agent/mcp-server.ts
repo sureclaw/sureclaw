@@ -311,6 +311,19 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       (args) => ipcCall('image_generate', args),
     ),
 
+    // ── Web Proxy Governance ──
+    tool('web_approve',
+      'Approve network access to a domain for commands that need internet ' +
+      '(npm install, pip install, curl, git clone, etc.).\n\n' +
+      'Call this BEFORE running a bash command that needs to reach an external domain. ' +
+      'Example: approve "registry.npmjs.org" before `npm install`.',
+      {
+        domain: z.string().describe('Domain to approve, e.g. "registry.npmjs.org"'),
+        approved: z.boolean().describe('true to approve, false to deny'),
+      },
+      (args) => ipcCall('web_proxy_approve', args),
+    ),
+
     // ── Sandbox (singleton tools for bash/file ops) ──
     // When localSandbox is set, tools execute in-container with host audit gate.
     tool('bash',

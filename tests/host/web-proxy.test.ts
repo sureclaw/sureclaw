@@ -429,4 +429,162 @@ describe('web-proxy', () => {
       expect(refused).toBe(true);
     });
   });
+
+  describe('onApprove governance gate', () => {
+    test('blocks HTTP request when onApprove denies', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        onApprove: async (_domain) => ({ approved: false, reason: 'Not allowed' }),
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/install`,
+      );
+
+      expect(result.status).toBe(403);
+      expect(result.body).toContain('Not allowed');
+    });
+
+    test('allows HTTP request when onApprove approves', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        onApprove: async (_domain) => ({ approved: true }),
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/install`,
+      );
+
+      expect(result.status).toBe(200);
+    });
+
+    test('caches approval per domain', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      let callCount = 0;
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        onApprove: async (_domain) => {
+          callCount++;
+          return { approved: true };
+        },
+      });
+      cleanups.push(proxy.stop);
+
+      const url = `http://127.0.0.1:${echo.port}/a`;
+      await proxyFetch(proxy.address as number, url);
+      await proxyFetch(proxy.address as number, url);
+      await proxyFetch(proxy.address as number, url);
+
+      // onApprove should only be called once — subsequent requests use cache
+      expect(callCount).toBe(1);
+    });
+
+    test('allowedDomains bypass onApprove', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      let callCount = 0;
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        allowedDomains: new Set(['127.0.0.1']),
+        onApprove: async (_domain) => {
+          callCount++;
+          return { approved: false };
+        },
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/bypass`,
+      );
+
+      // Should be allowed (domain in allowlist), onApprove never called
+      expect(result.status).toBe(200);
+      expect(callCount).toBe(0);
+    });
+
+    test('blocks CONNECT when onApprove denies', async () => {
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        onApprove: async (_domain) => ({ approved: false, reason: 'Denied' }),
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyConnect(
+        proxy.address as number,
+        '127.0.0.1',
+        443,
+        'test',
+      ).catch(() => ({ established: false, response: 'blocked' }));
+
+      expect(result.established).toBe(false);
+    });
+
+    test('emits audit entry with domain_denied when blocked', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const entries: ProxyAuditEntry[] = [];
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+        onAudit: (e) => entries.push(e),
+        onApprove: async (_domain) => ({ approved: false }),
+      });
+      cleanups.push(proxy.stop);
+
+      await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/blocked`,
+      );
+
+      expect(entries.length).toBe(1);
+      expect(entries[0].status).toBe(403);
+      expect(entries[0].blocked).toContain('domain_denied');
+    });
+
+    test('auto-approves when onApprove not provided', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      // No onApprove — backward compat, all requests auto-approved
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-no-approve',
+        allowedIPs: ALLOW_LOCALHOST,
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/auto`,
+      );
+
+      expect(result.status).toBe(200);
+    });
+  });
 });

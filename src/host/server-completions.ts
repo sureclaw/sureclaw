@@ -647,6 +647,29 @@ export async function processCompletion(
     if (config.web_proxy) {
       const canaryToken = sessionCanaries.get(queued.session_id) ?? undefined;
       const isContainerSandboxForProxy = new Set(['docker', 'apple']).has(config.providers.sandbox);
+      const webProxyAudit = (entry: import('./web-proxy.js').ProxyAuditEntry) => {
+        providers.audit.log({
+          action: entry.action,
+          sessionId: entry.sessionId,
+          args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
+          result: entry.blocked ? 'blocked' : 'success',
+          durationMs: entry.durationMs,
+        }).catch(() => {});
+      };
+      // Governance gate — emits event and blocks until the user approves via
+      // the web_proxy_approve IPC action. Imported lazily to avoid circular deps.
+      const { requestApproval } = await import('./web-proxy-approvals.js');
+      const webProxyApprove = async (domain: string, method: string, url: string) => {
+        reqLogger.info('web_proxy_approval_required', { domain, method, url });
+        eventBus?.emit({
+          type: 'web_proxy.approval_required',
+          requestId,
+          timestamp: Date.now(),
+          data: { domain, method, url, sessionId },
+        });
+        const approved = await requestApproval(sessionId, domain);
+        return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
+      };
       if (isContainerSandboxForProxy) {
         // Unix socket mode — placed in same dir as IPC socket (already mounted)
         webProxySocketPath = join(ipcSocketDir, 'web-proxy.sock');
@@ -654,15 +677,8 @@ export async function processCompletion(
           listen: webProxySocketPath,
           sessionId,
           canaryToken,
-          onAudit: (entry) => {
-            providers.audit.log({
-              action: entry.action,
-              sessionId: entry.sessionId,
-              args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
-              result: entry.blocked ? 'blocked' : 'success',
-              durationMs: entry.durationMs,
-            }).catch(() => {});
-          },
+          onAudit: webProxyAudit,
+          onApprove: webProxyApprove,
         });
         webProxyCleanup = webProxy.stop;
       } else {
@@ -671,15 +687,8 @@ export async function processCompletion(
           listen: 0,
           sessionId,
           canaryToken,
-          onAudit: (entry) => {
-            providers.audit.log({
-              action: entry.action,
-              sessionId: entry.sessionId,
-              args: { method: entry.method, url: entry.url, status: entry.status, requestBytes: entry.requestBytes, responseBytes: entry.responseBytes, blocked: entry.blocked },
-              result: entry.blocked ? 'blocked' : 'success',
-              durationMs: entry.durationMs,
-            }).catch(() => {});
-          },
+          onAudit: webProxyAudit,
+          onApprove: webProxyApprove,
         });
         webProxyPort = webProxy.address as number;
         webProxyCleanup = webProxy.stop;
@@ -925,6 +934,7 @@ export async function processCompletion(
     for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
       response = '';
       stderr = '';
+      const attemptStartTime = Date.now();
 
       const proc = await agentSandbox.spawn(sandboxConfig);
       reqLogger.debug('agent_spawn', { sandbox: config.providers.sandbox, attempt });
@@ -1075,7 +1085,8 @@ export async function processCompletion(
         stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
       });
 
-      reqLogger.debug('agent_complete', { durationSec: 0, exitCode, attempt });
+      const attemptDurationMs = Date.now() - attemptStartTime;
+      reqLogger.debug('agent_complete', { durationMs: attemptDurationMs, exitCode, attempt });
 
       if (exitCode === 0) break; // Success — no retry needed
 
@@ -1100,7 +1111,7 @@ export async function processCompletion(
       const isTransient = isTransientAgentFailure(exitCode, stderr);
 
       if (!isTransient || attempt >= MAX_AGENT_RETRIES) {
-        reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, stderr: stderr.slice(0, 2000) });
+        reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, maxRetries: MAX_AGENT_RETRIES, messageId: queued.id, stderr: stderr.slice(0, 2000) });
         await db.fail(queued.id);
         const diagnosed = diagnoseError(stderr || 'agent exited with no output');
         return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
@@ -1343,6 +1354,11 @@ export async function processCompletion(
       try { webProxyCleanup(); } catch {
         reqLogger.debug('web_proxy_cleanup_failed');
       }
+    }
+    // Clean up pending web proxy approvals for this session
+    if (config.web_proxy) {
+      const { cleanupSession } = await import('./web-proxy-approvals.js');
+      cleanupSession(sessionId);
     }
     // Workspace provider: cleanup session scope for ephemeral sessions
     if (!isPersistent) {

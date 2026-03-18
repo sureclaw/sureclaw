@@ -192,5 +192,40 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
       });
       return { ok: true };
     },
+
+    // ── Web Proxy Governance ──────────────────────────────
+
+    web_proxy_approve: async (req: any, ctx: IPCContext) => {
+      const { resolveApproval, preApproveDomain } = await import('../web-proxy-approvals.js');
+
+      // Try session-scoped key first (per-session proxy in server-completions),
+      // then global key (k8s shared proxy in host-process keyed as 'host-process').
+      let found = resolveApproval(ctx.sessionId, req.domain, req.approved);
+      if (!found) {
+        found = resolveApproval('host-process', req.domain, req.approved);
+      }
+
+      // Pre-cache the decision for future requests so the proxy's onApprove
+      // callback returns immediately. Cache in both scopes so it works
+      // regardless of which proxy path handles the next request.
+      if (req.approved) {
+        preApproveDomain(ctx.sessionId, req.domain);
+        preApproveDomain('host-process', req.domain);
+      }
+
+      await providers.audit.log({
+        action: 'web_proxy_approve',
+        sessionId: ctx.sessionId,
+        args: { domain: req.domain, approved: req.approved },
+        result: 'success',
+      });
+      logger.debug('web_proxy_approve', {
+        sessionId: ctx.sessionId,
+        domain: req.domain,
+        approved: req.approved,
+        found,
+      });
+      return { ok: true, found };
+    },
   };
 }

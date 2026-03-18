@@ -202,11 +202,16 @@ export async function provisionScope(
   }
 
   if (readOnly) {
-    for (const relPath of localFiles) {
-      chmodSync(join(mountPath, relPath), 0o444);  // r--r--r--
+    try {
+      for (const relPath of localFiles) {
+        chmodSync(join(mountPath, relPath), 0o444);  // r--r--r--
+      }
+      // Lock directories too — directory write permission controls create/delete/rename
+      lockDirsSync(mountPath);
+    } catch {
+      // EPERM in k8s — volume owned by different UID. Proceed without enforcing
+      // read-only so the hash snapshot is still returned for workspace release.
     }
-    // Lock directories too — directory write permission controls create/delete/rename
-    lockDirsSync(mountPath);
   }
 
   return { source: 'gcs', fileCount: localFiles.length, hashes };

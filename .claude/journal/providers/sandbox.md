@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-03-18 08:25] — Fix terminal sandbox pod accumulation in k8s
+
+**Task:** Cold-started k8s sandbox pods were accumulating in Error/Failed state because nothing cleaned them up after exit.
+**What I did:** Two-layer fix: (1) Self-cleanup in k8s.ts — after `watchPodExit` resolves, the pod is deleted automatically. (2) Safety net GC in pool controller — added `listTerminalSandboxPods()` to k8s-client.ts that selects ALL `ax-sandbox` pods in Failed/Succeeded phase regardless of tier, and `gcTerminalSandboxPods()` in controller.ts that deletes them during each reconcile cycle.
+**Files touched:** `src/providers/sandbox/k8s.ts`, `src/pool-controller/k8s-client.ts`, `src/pool-controller/controller.ts`, `tests/providers/sandbox/k8s.test.ts`, `tests/pool-controller/controller.test.ts`, `tests/pool-controller/k8s-client.test.ts`
+**Outcome:** Success — 33 tests pass, clean build.
+**Notes:** Root cause: cold-started pods lack `ax.io/tier` label so the per-tier GC in the pool controller never found them. The warm pool pods (with tier labels) were already being GC'd correctly.
+
 ## [2026-03-17 14:00] — Implement unified workspace lifecycle (10 tasks)
 
 **Task:** Replace broken three-phase pod orchestration with unified workspace lifecycle

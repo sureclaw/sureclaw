@@ -6,6 +6,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 - 2026-03-17 05:30 — Redesign k8s workspace release: HTTP staging + sidecar pattern [workspace.md](workspace.md)
 - 2026-03-16 21:10 — Fix k8s workspace file syncing to GCS via NATS IPC (superseded) [workspace.md](workspace.md)
+- 2026-03-18 08:25 — Fix terminal sandbox pod accumulation in k8s [sandbox.md](sandbox.md)
 - 2026-03-16 15:00 — Pure NATS communication for k8s sandbox (eliminate stdin/stdout/exec) [sandbox.md](sandbox.md)
 - 2026-03-13 — Update acceptance test plan for GCS backend (ST-9 added, 17 total tests) [workspace.md](workspace.md)
 - 2026-03-13 — Add GCS workspace backend with 20 tests (TDD, mock GCS bucket) [workspace.md](workspace.md)

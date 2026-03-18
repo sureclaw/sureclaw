@@ -134,9 +134,9 @@ function buildPodSpec(
             ...(process.env.WORKSPACE_CACHE_BUCKET ? [{ name: 'WORKSPACE_CACHE_BUCKET', value: process.env.WORKSPACE_CACHE_BUCKET }] : []),
             ...(process.env.AX_WORKSPACE_GIT_URL ? [{ name: 'AX_WORKSPACE_GIT_URL', value: process.env.AX_WORKSPACE_GIT_URL }] : []),
             ...(process.env.AX_WORKSPACE_GIT_REF ? [{ name: 'AX_WORKSPACE_GIT_REF', value: process.env.AX_WORKSPACE_GIT_REF }] : []),
-            // Canonical paths from sandbox config (filter out AX_IPC_SOCKET — using NATS instead)
+            // Canonical paths from sandbox config (filter out socket-based vars — k8s uses HTTP/NATS)
             ...Object.entries(envVars)
-              .filter(([k]) => k !== 'AX_IPC_SOCKET')
+              .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
               .map(([name, value]) => ({ name, value })),
             // Per-turn extra env vars (IPC token, request ID, etc.)
             ...Object.entries(config.extraEnv ?? {})
@@ -200,6 +200,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   function watchPodExit(podName: string, pid: number, timeoutSec: number): Promise<number> {
     return new Promise<number>((resolve) => {
       let resolved = false;
+      let lastPhase: string | undefined;
+      const watchStartTime = Date.now();
 
       const watchPath = `/api/v1/namespaces/${namespace}/pods`;
 
@@ -209,6 +211,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         (type: string, obj: any) => {
           if (resolved) return;
           const phase = obj?.status?.phase;
+          lastPhase = phase;
 
           if (phase === 'Succeeded') {
             resolved = true;
@@ -219,6 +222,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             activePods.delete(pid);
             const containerStatus = obj?.status?.containerStatuses?.[0];
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
+            const reason = containerStatus?.state?.terminated?.reason;
+            logger.warn('pod_failed', { podName, exitCode: code, reason, phase });
             resolve(code);
           }
         },
@@ -226,7 +231,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           if (!resolved) {
             resolved = true;
             activePods.delete(pid);
-            logger.warn('pod_watch_error', { podName, error: err?.message });
+            logger.warn('pod_watch_error', { podName, lastPhase, error: err?.message });
             resolve(1);
           }
         },
@@ -238,7 +243,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         if (!resolved) {
           resolved = true;
           activePods.delete(pid);
-          logger.warn('pod_timeout', { podName, timeoutMs });
+          logger.warn('pod_timeout', { podName, timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
           resolve(1);
         }
       }, timeoutMs);
@@ -275,7 +280,18 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
     activePods.set(pid, podName);
 
-    const exitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+
+    // Self-cleanup: delete the pod after it exits so terminal pods don't accumulate.
+    const exitCode = rawExitCode.then(code => {
+      coreApi.deleteNamespacedPod({ name: podName, namespace, gracePeriodSeconds: 0 }).catch((err: any) => {
+        const status = err?.response?.statusCode;
+        if (status !== 404) {
+          logger.warn('pod_cleanup_failed', { podName, error: err?.message });
+        }
+      });
+      return code;
+    });
 
     // Dummy streams — response comes via NATS agent_response, not stdout.
     const stdout = new PassThrough();

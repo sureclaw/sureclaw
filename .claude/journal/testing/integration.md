@@ -2,6 +2,14 @@
 
 Integration test fixes, CI stability, smoke test improvements.
 
+## [2026-03-18 14:30] — Fix CI test failures for web_approve tool addition
+
+**Task:** Fix 6 failing CI tests after web_approve tool was added to TOOL_CATALOG
+**What I did:** Updated tool counts from 15→16 and added web_approve to expected tool lists in 4 test files
+**Files touched:** tests/sandbox-isolation.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/mcp-server.test.ts, tests/agent/tool-catalog.test.ts
+**Outcome:** Success — all 106 tests in the 4 files pass
+**Notes:** The web_approve tool (web proxy governance) was added to tool-catalog.ts but tests weren't updated to reflect the new count
+
 ## [2026-03-17 16:00] — Create K8s-mode server test harness
 
 **Task:** Create `tests/integration/k8s-server-harness.ts` — a reusable K8s-mode test fixture

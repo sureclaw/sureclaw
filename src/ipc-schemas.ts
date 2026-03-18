@@ -433,6 +433,15 @@ export const SandboxResultSchema = ipcAction('sandbox_result', {
   error: safeString(10_000).optional(),
 });
 
+// ── Web Proxy Governance ───────────────────────────────
+
+export const WebProxyApproveSchema = ipcAction('web_proxy_approve', {
+  /** Domain to approve/deny (e.g. "registry.npmjs.org"). */
+  domain: safeString(256),
+  /** Whether to approve (true) or deny (false) access. */
+  approved: z.boolean(),
+});
+
 // ── Plugin Management ────────────────────────────────
 
 export const PluginListSchema = ipcAction('plugin_list', {});

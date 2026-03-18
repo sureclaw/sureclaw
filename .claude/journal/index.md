@@ -4,6 +4,8 @@ Category-based organization of all journal entries. Total: 119 entries across 10
 
 ## Entries
 
+- 2026-03-18 12:15 — Fix opaque "fetch failed" errors in HTTP IPC client [host/server.md](host/server.md)
+- 2026-03-18 12:00 — Improve logging detail across host and agent [host/server.md](host/server.md)
 - 2026-03-17 14:00 — Implement unified workspace lifecycle (10 tasks) [providers/sandbox.md](providers/sandbox.md)
 - 2026-03-17 11:02 — Outline safe unified lifecycle for container sandboxes [docs/plans.md](docs/plans.md)
 - 2026-03-17 10:59 — Explain multi-sandbox redesign scope for phase removal [docs/plans.md](docs/plans.md)

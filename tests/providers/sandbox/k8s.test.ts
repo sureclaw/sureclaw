@@ -192,13 +192,19 @@ describe('sandbox-k8s provider', () => {
     expect(spec.activeDeadlineSeconds).toBe(30);
   });
 
-  test('exitCode resolves when pod succeeds', async () => {
+  test('exitCode resolves when pod succeeds and pod is deleted', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
 
     const proc = await provider.spawn(mockSandboxConfig());
     const code = await proc.exitCode;
     expect(code).toBe(0);
+
+    // Self-cleanup: pod should be deleted after exit
+    await new Promise(r => setTimeout(r, 10));
+    expect(mockDeleteNamespacedPod).toHaveBeenCalledWith(
+      expect.objectContaining({ gracePeriodSeconds: 0 }),
+    );
   });
 
   test('exitCode resolves with non-zero on pod failure', async () => {

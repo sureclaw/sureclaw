@@ -56,6 +56,16 @@ export interface WebProxyOptions {
   onAudit?: (entry: ProxyAuditEntry) => void;
   /** IPs exempt from private-range blocking (for testing). */
   allowedIPs?: Set<string>;
+  /**
+   * Governance gate — called before forwarding a request to a new domain.
+   * The proxy caches decisions per domain for the session lifetime, so this
+   * is called at most once per unique domain.
+   *
+   * When not provided, all public-IP requests are auto-approved (existing behavior).
+   */
+  onApprove?: (domain: string, method: string, url: string) => Promise<{ approved: boolean; reason?: string }>;
+  /** Domains pre-approved without calling onApprove (e.g. from config allowlist). */
+  allowedDomains?: Set<string>;
 }
 
 // ── Private IP blocking ──────────────────────────────────────────────
@@ -113,8 +123,10 @@ function containsCanary(body: Buffer, canaryToken?: string): boolean {
 // ── Proxy implementation ─────────────────────────────────────────────
 
 export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy> {
-  const { listen, sessionId, canaryToken, onAudit, allowedIPs } = options;
+  const { listen, sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains } = options;
   const activeSockets = new Set<net.Socket>();
+  /** Per-domain decision cache — avoids repeated callbacks for the same domain. */
+  const domainDecisions = new Map<string, boolean>();
 
   function audit(entry: ProxyAuditEntry): void {
     onAudit?.(entry);
@@ -127,6 +139,30 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       durationMs: entry.durationMs,
       blocked: entry.blocked,
     });
+  }
+
+  /**
+   * Check whether a domain is approved. Returns null if approved,
+   * or a block reason string if denied.
+   */
+  async function checkDomainApproval(domain: string, method: string, url: string): Promise<string | null> {
+    // Pre-approved via config allowlist
+    if (allowedDomains?.has(domain)) return null;
+
+    // Cached from a previous request in this session
+    const cached = domainDecisions.get(domain);
+    if (cached === true) return null;
+    if (cached === false) return `Network access to ${domain} was denied`;
+
+    // No governance gate configured — auto-approve (backward compat)
+    if (!onApprove) return null;
+
+    const decision = await onApprove(domain, method, url);
+    domainDecisions.set(domain, decision.approved);
+    if (!decision.approved) {
+      return decision.reason ?? `Network access to ${domain} was denied`;
+    }
+    return null;
   }
 
   // ── HTTP request forwarding ──
@@ -148,6 +184,20 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
         : targetUrl.hostname;
 
       await resolveAndCheck(hostname, allowedIPs);
+
+      // Governance gate — check domain approval before forwarding
+      const blockReason = await checkDomainApproval(hostname, method, url);
+      if (blockReason) {
+        audit({
+          action: 'proxy_request', sessionId, method, url,
+          status: 403, requestBytes: 0, responseBytes: 0,
+          durationMs: Date.now() - startTime,
+          blocked: `domain_denied: ${hostname}`,
+        });
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end(blockReason);
+        return;
+      }
 
       // Read request body
       const chunks: Buffer[] = [];
@@ -284,6 +334,20 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     }
 
     try {
+      // Governance gate — check domain approval before tunneling
+      const blockReason = await checkDomainApproval(hostname, 'CONNECT', target);
+      if (blockReason) {
+        clientSocket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        clientSocket.end();
+        audit({
+          action: 'proxy_request', sessionId, method: 'CONNECT', url: target,
+          status: 403, requestBytes: 0, responseBytes: 0,
+          durationMs: Date.now() - startTime,
+          blocked: `domain_denied: ${hostname}`,
+        });
+        return;
+      }
+
       // Resolve and check for private IPs
       const resolvedIP = await resolveAndCheck(hostname, allowedIPs);
 

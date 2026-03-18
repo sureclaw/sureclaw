@@ -381,6 +381,23 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     singletonAction: 'image_generate',
   },
 
+  // ── Web Proxy Governance ──
+  {
+    name: 'web_approve',
+    label: 'Approve Web Access',
+    description:
+      'Approve network access to a domain for commands that need internet ' +
+      '(npm install, pip install, curl, git clone, etc.).\n\n' +
+      'Call this BEFORE running a bash command that needs to reach an external domain. ' +
+      'Example: approve "registry.npmjs.org" before `npm install`.',
+    parameters: Type.Object({
+      domain: Type.String({ description: 'Domain to approve, e.g. "registry.npmjs.org"' }),
+      approved: Type.Boolean({ description: 'true to approve, false to deny' }),
+    }),
+    category: 'web',
+    singletonAction: 'web_proxy_approve',
+  },
+
   // ── Sandbox (singleton tools for bash/file ops) ──
   {
     name: 'bash',

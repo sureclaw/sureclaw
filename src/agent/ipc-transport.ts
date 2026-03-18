@@ -185,8 +185,17 @@ export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[
         });
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        process.stderr.write(`[diag] ipc_llm_stream_error: ${(err as Error).message}\n`);
-        logger.debug('stream_error', { error: (err as Error).message, stack: (err as Error).stack });
+        const cause = (err as any)?.cause;
+        const causeDetail = cause ? ` (cause: ${cause.code ?? ''} ${cause.message ?? ''})`.trim() : '';
+        process.stderr.write(`[diag] ipc_llm_stream_error model=${model?.id} messages=${messages.length}: ${(err as Error).message}${causeDetail}\n`);
+        logger.debug('stream_error', {
+          error: (err as Error).message,
+          causeCode: cause?.code,
+          causeMessage: cause?.message,
+          stack: (err as Error).stack,
+          model: model?.id,
+          messageCount: messages.length,
+        });
         try {
           const errMsg = makeErrorMessage((err as Error).message);
           stream.push({ type: 'start', partial: errMsg });

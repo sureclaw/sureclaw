@@ -1060,7 +1060,10 @@ export async function createServer(
         }
 
         logger.info('scheduler_message_processed', {
+          sender: msg.sender,
+          sessionId: result.sessionId,
           contentLength: responseContent.length,
+          hasResponse: responseContent.trim().length > 0,
         });
       }
     });

@@ -2,6 +2,32 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-18 12:15] — Fix opaque "fetch failed" errors in HTTP IPC client
+
+**Task:** Make `ipc_llm_stream_error: fetch failed` errors actionable by extracting the real cause
+**What I did:** The root problem was `HttpIPCClient.call()` doing a raw `fetch()` with zero error handling. Node.js `fetch()` throws opaque "fetch failed" errors — the real cause (ECONNREFUSED, ECONNRESET, ETIMEDOUT, DNS failure) is buried in the `.cause` chain. Fixed at two levels:
+1. `HttpIPCClient.call()` — wrapped `fetch()` in try/catch that extracts `.cause.code` and `.cause.message`, re-throws with full context (action, URL, timeout, cause). Also added HTTP status error handling for non-2xx responses.
+2. Both stream error handlers (`pi-session.ts` and `ipc-transport.ts`) — extract `.cause` from errors when logging to stderr `[diag]` lines and structured logs.
+**Files touched:**
+- `src/agent/http-ipc-client.ts` — Wrapped fetch() with cause extraction and HTTP status handling
+- `src/agent/runners/pi-session.ts` — Extract .cause in ipc_llm_stream_error handler
+- `src/agent/ipc-transport.ts` — Extract .cause in stream_error handler
+**Outcome:** Success — all 2412 tests pass, clean build
+**Notes:** Before: `[diag] ipc_llm_stream_error: fetch failed`. After: `[diag] ipc_llm_stream_error model=claude-sonnet-4-5-20250929 messages=18 duration=5000ms: IPC llm_call failed: fetch failed (ECONNRESET: read ECONNRESET) [url=http://ax-host.ax.svc/internal/ipc, timeout=600000ms]`
+
+## [2026-03-18 12:00] — Improve logging detail across host and agent
+
+**Task:** Add more context to log messages that were too terse to diagnose issues
+**What I did:** Enhanced logging at 12+ log sites across host (server-completions, host-process, k8s sandbox) and agent (pi-session IPC model, tool execution). Added: timing data (duration for LLM calls, tool execution, prompt cycles, session completion, agent attempts), token usage (input/output counts), missing identifiers (sessionId, messageId, sender, pod phase), tool execution results (action, result length), and pod failure details (exit code, reason, last phase).
+**Files touched:**
+- `src/agent/runners/pi-session.ts` — Added timing + token usage to ipc_llm_result, tool_execute/tool_result, prompt/idle cycle; improved ipc_llm_stream_error with model context
+- `src/host/server-completions.ts` — Added messageId + maxRetries to agent_failed, timing to agent_complete (was hardcoded durationSec:0)
+- `src/host/host-process.ts` — Added sessionId + duration to session_completed, sender + sessionId to scheduler_message_processed
+- `src/host/server.ts` — Added sender + sessionId to scheduler_message_processed
+- `src/providers/sandbox/k8s.ts` — Added lastPhase + elapsed to pod_timeout, pod_failed log with exit reason
+**Outcome:** Success — all 2412 tests pass, clean build
+**Notes:** The structured logger sends full detail to ~/.ax/data/ax.log (always debug level); stderr [diag] lines now include timing and tokens for k8s observability
+
 ## [2026-03-17 18:52] — Fix blank k8s filesystem: HTTP-based provisioning (pod→host→GCS)
 
 **Task:** Files in GCS still not appearing on pod filesystem after SDK fix — pod has no GCS credentials either
