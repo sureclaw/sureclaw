@@ -44,13 +44,14 @@ export const CANONICAL = {
  * IPC socket stays at its real host path (not agent-visible, needed by both sides).
  */
 export function canonicalEnv(config: SandboxConfig): Record<string, string> {
-  // web-proxy.sock is in the same directory as the IPC socket (already mounted)
-  const ipcDir = dirname(config.ipcSocket);
-  const webProxySocket = join(ipcDir, 'web-proxy.sock');
+  // web-proxy.sock is in the same directory as the IPC socket (already mounted).
+  // In k8s HTTP mode, ipcSocket is empty — skip the socket (pods use AX_WEB_PROXY_URL instead).
+  const ipcDir = config.ipcSocket ? dirname(config.ipcSocket) : '';
+  const webProxySocket = ipcDir ? join(ipcDir, 'web-proxy.sock') : '';
 
   return {
     AX_IPC_SOCKET: config.ipcSocket,
-    AX_WEB_PROXY_SOCKET: webProxySocket,
+    ...(webProxySocket ? { AX_WEB_PROXY_SOCKET: webProxySocket } : {}),
     AX_WORKSPACE: CANONICAL.root,
     ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
     ...(config.userWorkspace   ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),

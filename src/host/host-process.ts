@@ -288,6 +288,11 @@ async function main(): Promise<void> {
   let webProxy: WebProxy | undefined;
   if (config.web_proxy) {
     const webProxyPort = parseInt(process.env.AX_WEB_PROXY_PORT ?? '3128', 10);
+    // K8s shared proxy: governance gate uses the approval registry keyed by
+    // the requesting session. The session ID is not available from the HTTP
+    // proxy request itself (it's a transparent forward proxy), so the k8s
+    // shared proxy uses a global approval scope ('host-process').
+    const { requestApproval } = await import('./web-proxy-approvals.js');
     webProxy = await startWebProxy({
       listen: webProxyPort,
       sessionId: 'host-process',
@@ -299,6 +304,11 @@ async function main(): Promise<void> {
           result: entry.blocked ? 'blocked' : 'success',
           durationMs: entry.durationMs,
         }).catch(() => {});
+      },
+      onApprove: async (domain, method, url) => {
+        logger.info('web_proxy_approval_required', { domain, method, url });
+        const approved = await requestApproval('host-process', domain);
+        return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
       },
     });
     logger.info('web_proxy_started', { port: webProxyPort });

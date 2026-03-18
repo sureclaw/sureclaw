@@ -192,5 +192,25 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
       });
       return { ok: true };
     },
+
+    // ── Web Proxy Governance ──────────────────────────────
+
+    web_proxy_approve: async (req: any, ctx: IPCContext) => {
+      const { resolveApproval } = await import('../web-proxy-approvals.js');
+      const found = resolveApproval(ctx.sessionId, req.domain, req.approved);
+      await providers.audit.log({
+        action: 'web_proxy_approve',
+        sessionId: ctx.sessionId,
+        args: { domain: req.domain, approved: req.approved },
+        result: found ? 'success' : 'error',
+      });
+      logger.debug('web_proxy_approve', {
+        sessionId: ctx.sessionId,
+        domain: req.domain,
+        approved: req.approved,
+        found,
+      });
+      return { ok: true, found };
+    },
   };
 }

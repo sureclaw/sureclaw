@@ -134,9 +134,9 @@ function buildPodSpec(
             ...(process.env.WORKSPACE_CACHE_BUCKET ? [{ name: 'WORKSPACE_CACHE_BUCKET', value: process.env.WORKSPACE_CACHE_BUCKET }] : []),
             ...(process.env.AX_WORKSPACE_GIT_URL ? [{ name: 'AX_WORKSPACE_GIT_URL', value: process.env.AX_WORKSPACE_GIT_URL }] : []),
             ...(process.env.AX_WORKSPACE_GIT_REF ? [{ name: 'AX_WORKSPACE_GIT_REF', value: process.env.AX_WORKSPACE_GIT_REF }] : []),
-            // Canonical paths from sandbox config (filter out AX_IPC_SOCKET — using NATS instead)
+            // Canonical paths from sandbox config (filter out socket-based vars — k8s uses HTTP/NATS)
             ...Object.entries(envVars)
-              .filter(([k]) => k !== 'AX_IPC_SOCKET')
+              .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
               .map(([name, value]) => ({ name, value })),
             // Per-turn extra env vars (IPC token, request ID, etc.)
             ...Object.entries(config.extraEnv ?? {})
