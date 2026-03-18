@@ -18,7 +18,8 @@
     "test:fuzz": "vitest run tests/ipc-fuzz.test.ts",
     "serve": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts serve",
     "send": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts send",
-    "configure": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts configure"
+    "configure": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts configure",
+    "k8s:dev": "bash scripts/k8s-dev.sh"
   },
   "keywords": [
     "ai",
