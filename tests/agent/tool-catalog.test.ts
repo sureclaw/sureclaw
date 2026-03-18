@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, normalizeOrigin, normalizeI
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 15 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(15);
+  test('exports exactly 16 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(16);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -54,7 +54,7 @@ describe('tool-catalog', () => {
     const expected = [
       'memory', 'web', 'identity', 'scheduler', 'skill',
       'workspace_write', 'workspace_mount', 'governance', 'audit', 'agent', 'image',
-      'bash', 'read_file', 'write_file', 'edit_file',
+      'web_approve', 'bash', 'read_file', 'write_file', 'edit_file',
     ];
     expect(TOOL_NAMES).toEqual(expected);
   });
