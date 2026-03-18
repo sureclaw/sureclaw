@@ -60,6 +60,7 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         const child = spawn('sh', ['-c', req.command], {
           cwd: workspace,
           stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true,
         });
 
         let stdout = '';
@@ -73,12 +74,14 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
           if (stderr.length < MAX_BUFFER) stderr += chunk.toString('utf-8');
         });
 
+        const killGroup = (signal: NodeJS.Signals) => {
+          try { process.kill(-child.pid!, signal); } catch { /* already dead */ }
+        };
+
         const timer = setTimeout(() => {
           killed = true;
-          try { child.kill('SIGTERM'); } catch { /* already dead */ }
-          setTimeout(() => {
-            try { child.kill('SIGKILL'); } catch { /* already dead */ }
-          }, 5_000);
+          killGroup('SIGTERM');
+          setTimeout(() => killGroup('SIGKILL'), 5_000);
         }, TIMEOUT_MS);
 
         child.on('close', async (code) => {

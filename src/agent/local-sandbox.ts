@@ -70,6 +70,7 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
         const child = spawn('sh', ['-c', command], {
           cwd: workspace,
           stdio: ['pipe', 'pipe', 'pipe'],
+          detached: true,  // own process group so we can kill the entire tree
         });
 
         let stdout = '';
@@ -83,12 +84,16 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
           if (stderr.length < MAX_BUFFER) stderr += chunk.toString('utf-8');
         });
 
+        // Kill the entire process group (sh + children like npm, node, etc.)
+        // so pipes close and the 'close' event fires promptly.
+        const killGroup = (signal: NodeJS.Signals) => {
+          try { process.kill(-child.pid!, signal); } catch { /* already dead */ }
+        };
+
         const timer = setTimeout(() => {
           killed = true;
-          try { child.kill('SIGTERM'); } catch { /* already dead */ }
-          setTimeout(() => {
-            try { child.kill('SIGKILL'); } catch { /* already dead */ }
-          }, 5_000);
+          killGroup('SIGTERM');
+          setTimeout(() => killGroup('SIGKILL'), 5_000);
         }, timeoutMs);
 
         child.on('close', (code) => {
