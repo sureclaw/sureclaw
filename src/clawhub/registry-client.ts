@@ -1,34 +1,36 @@
 /**
- * ClawHub registry client — fetches and caches skills from the public registry.
+ * ClawHub registry client — fetches and caches skills from clawhub.ai.
  *
  * Not a provider (no create() pattern). Utility class used by IPC handlers.
  * All file paths use safePath(). Cache TTL 1 hour.
+ *
+ * API base: https://clawhub.ai/api/v1 (discovered via /.well-known/clawhub.json)
+ * Skills are distributed as ZIP files; SKILL.md is extracted from the archive.
  */
 
 import { join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { safePath } from '../utils/safe-path.js';
 import { axHome } from '../paths.js';
 
-const CLAWHUB_API = 'https://registry.clawhub.dev/api/v1';
+const CLAWHUB_API = 'https://clawhub.ai/api/v1';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ClawHubSkillEntry {
-  name: string;
-  author: string;
-  description: string;
-  version: string;
-  downloads: number;
+  slug: string;
+  displayName: string;
+  summary: string | null;
+  version: string | null;
   score?: number;
+  updatedAt?: number;
 }
 
 export interface ClawHubSkillDetail {
-  name: string;
-  author: string;
-  description: string;
-  version: string;
+  slug: string;
+  displayName: string;
+  summary: string | null;
   skillMd: string;
-  files: string[];
 }
 
 function cacheDir(): string {
@@ -74,6 +76,65 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function fetchBinary(url: string): Promise<Buffer> {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'ax-agent/1.0' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`ClawHub API error: ${response.status} ${response.statusText}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * Extract a named file from a ZIP buffer using the Central Directory.
+ * Supports stored (method 0) and deflate-compressed (method 8) entries.
+ * Returns null if the file is not found.
+ */
+export function extractFileFromZip(buf: Buffer, targetName: string): string | null {
+  // Locate End of Central Directory record (signature 0x06054b50)
+  let eocdPos = -1;
+  const searchStart = Math.max(0, buf.length - 65558); // max comment = 65535 bytes
+  for (let i = buf.length - 22; i >= searchStart; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) {
+      eocdPos = i;
+      break;
+    }
+  }
+  if (eocdPos === -1) throw new Error('ZIP: EOCD record not found');
+
+  const cdCount = buf.readUInt16LE(eocdPos + 10);
+  const cdOffset = buf.readUInt32LE(eocdPos + 16);
+
+  // Scan Central Directory entries
+  let pos = cdOffset;
+  for (let i = 0; i < cdCount; i++) {
+    if (buf.readUInt32LE(pos) !== 0x02014b50) break; // central directory signature
+
+    const method = buf.readUInt16LE(pos + 10);
+    const compressedSize = buf.readUInt32LE(pos + 20);
+    const fileNameLen = buf.readUInt16LE(pos + 28);
+    const extraLen = buf.readUInt16LE(pos + 30);
+    const commentLen = buf.readUInt16LE(pos + 32);
+    const localHeaderOffset = buf.readUInt32LE(pos + 42);
+    const fileName = buf.toString('utf8', pos + 46, pos + 46 + fileNameLen);
+
+    if (fileName === targetName || fileName.endsWith(`/${targetName}`)) {
+      // Use local file header to find the data start
+      const lhFileNameLen = buf.readUInt16LE(localHeaderOffset + 26);
+      const lhExtraLen = buf.readUInt16LE(localHeaderOffset + 28);
+      const dataStart = localHeaderOffset + 30 + lhFileNameLen + lhExtraLen;
+      const data = buf.subarray(dataStart, dataStart + compressedSize);
+      return (method === 0 ? data : inflateRawSync(data)).toString('utf8');
+    }
+
+    pos += 46 + fileNameLen + extraLen + commentLen;
+  }
+
+  return null;
+}
+
 /**
  * Search ClawHub for skills matching a query.
  */
@@ -82,38 +143,70 @@ export async function search(query: string, limit = 20): Promise<ClawHubSkillEnt
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  const url = `${CLAWHUB_API}/skills/search?q=${encodeURIComponent(query)}&limit=${limit}`;
-  const results = await fetchJson<{ skills: ClawHubSkillEntry[] }>(url);
-  await writeCache(cacheKey, JSON.stringify(results.skills));
-  return results.skills;
+  const url = `${CLAWHUB_API}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+  const response = await fetchJson<{ results: ClawHubSkillEntry[] }>(url);
+  await writeCache(cacheKey, JSON.stringify(response.results));
+  return response.results;
 }
 
 /**
- * Fetch a specific skill by name (author/skill or just skill name).
+ * Fetch a specific skill by slug, downloading and extracting SKILL.md from the ZIP.
  */
-export async function fetchSkill(name: string): Promise<ClawHubSkillDetail> {
-  const cacheKey = `skill-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`;
+export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
+  const cacheKey = `skill-${slug.replace(/[^a-zA-Z0-9-]/g, '_')}`;
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  const url = `${CLAWHUB_API}/skills/${encodeURIComponent(name)}`;
-  const detail = await fetchJson<ClawHubSkillDetail>(url);
+  // Download ZIP and search for metadata concurrently
+  const [zipBytes, searchResults] = await Promise.all([
+    fetchBinary(`${CLAWHUB_API}/download?slug=${encodeURIComponent(slug)}`),
+    search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
+  ]);
+
+  const skillMd = extractFileFromZip(zipBytes, 'SKILL.md');
+  if (!skillMd) {
+    throw new Error(`ClawHub: SKILL.md not found in zip for "${slug}"`);
+  }
+
+  const meta = searchResults[0];
+  const detail: ClawHubSkillDetail = {
+    slug,
+    displayName: meta?.displayName ?? slug,
+    summary: meta?.summary ?? null,
+    skillMd,
+  };
+
   await writeCache(cacheKey, JSON.stringify(detail));
   return detail;
 }
 
 /**
- * List popular skills from ClawHub.
+ * List popular skills from ClawHub, sorted by downloads.
  */
 export async function listPopular(limit = 20): Promise<ClawHubSkillEntry[]> {
   const cacheKey = `popular-${limit}`;
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  const url = `${CLAWHUB_API}/skills/popular?limit=${limit}`;
-  const results = await fetchJson<{ skills: ClawHubSkillEntry[] }>(url);
-  await writeCache(cacheKey, JSON.stringify(results.skills));
-  return results.skills;
+  const url = `${CLAWHUB_API}/skills?sort=downloads&limit=${limit}`;
+  const response = await fetchJson<{
+    items: Array<{
+      slug: string;
+      displayName: string;
+      summary?: string | null;
+      latestVersion?: { version: string } | null;
+    }>;
+  }>(url);
+
+  const entries: ClawHubSkillEntry[] = response.items.map(item => ({
+    slug: item.slug,
+    displayName: item.displayName,
+    summary: item.summary ?? null,
+    version: item.latestVersion?.version ?? null,
+  }));
+
+  await writeCache(cacheKey, JSON.stringify(entries));
+  return entries;
 }
 
 /**

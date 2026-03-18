@@ -1,5 +1,17 @@
 # Provider Lessons: Skills
 
+### ClawHub API is at clawhub.ai, not registry.clawhub.dev; skills are ZIP files
+**Date:** 2026-03-18
+**Context:** Debugging skills.search network errors — registry-client.ts pointed at nonexistent domain
+**Lesson:** The real ClawHub API base URL is `https://clawhub.ai/api/v1` (discoverable via `GET /.well-known/clawhub.json`). The old `registry.clawhub.dev` domain is NXDOMAIN. Key endpoints: `/search?q=` returns `{ results: [{slug, displayName, summary, version, score}] }`, `/download?slug=` returns a ZIP binary, `/skills?sort=downloads` returns paginated `{items, nextCursor}` (currently empty from the API). Skills are distributed as ZIP files containing `SKILL.md` — fetchSkill must download and extract, not call a JSON detail endpoint.
+**Tags:** clawhub, skills, registry, api, zip
+
+### Floating promises in Promise.all tests pollute subsequent mocks
+**Date:** 2026-03-18
+**Context:** Testing fetchSkill which runs fetchBinary and search concurrently; "throws on download error" test left search running after fetchBinary threw
+**Lesson:** When `Promise.all([A, B])` rejects because A throws, B keeps running in the background. If B calls `fetch`, it consumes a mock registered for the NEXT test. Fix: register a mock for B's fetch call in the throwing test AND `await new Promise(resolve => setTimeout(resolve, 10))` to let the background promise settle before the test exits.
+**Tags:** testing, async, promise-all, mock-pollution, vitest
+
 ### Popular OpenClaw skills use clawdbot alias, not openclaw
 **Date:** 2026-02-26
 **Context:** Implementing AgentSkills SKILL.md parser for gog, nano-banana-pro, and mcporter

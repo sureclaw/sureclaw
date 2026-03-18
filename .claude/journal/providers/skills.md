@@ -2,6 +2,18 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-03-18 10:25] — Fix ClawHub registry client to use real API
+
+**Task:** Debug network errors when agents use skills.search — registry client pointed at nonexistent domain
+**What I did:**
+- Diagnosed root cause: `CLAWHUB_API` pointed to `registry.clawhub.dev` (NXDOMAIN — never registered)
+- Discovered real API via `/.well-known/clawhub.json` and clawhub npm CLI source: base is `https://clawhub.ai/api/v1`
+- Rewrote `src/clawhub/registry-client.ts`: new base URL, updated response shapes (`results[]` not `skills[]`, `slug`/`displayName`/`summary` fields), ZIP download + SKILL.md extraction for `fetchSkill` using Node.js `zlib` and manual ZIP Central Directory parsing
+- Updated `tests/clawhub/registry-client.test.ts`: new test for `extractFileFromZip`, `buildStoredZip` helper, fixed floating-promise mock pollution, added `AX_HOME` isolation
+**Files touched:** `src/clawhub/registry-client.ts`, `tests/clawhub/registry-client.test.ts`
+**Outcome:** All 10 tests pass; full suite unaffected (pre-existing sync failure unrelated)
+**Notes:** fetchSkill now downloads real ZIP files and extracts SKILL.md; listPopular uses `/api/v1/skills?sort=downloads` which currently returns empty items from the API (not a client bug)
+
 ## [2026-03-03 20:40] — Implement skills install architecture
 
 **Task:** Implement the full skills install architecture from docs/plans/2026-03-03-skills-install-architecture.md — two-phase inspect/execute flow, command validation, env scrubbing, concurrency control, TOCTOU defense, state persistence, prompt/tool integration
