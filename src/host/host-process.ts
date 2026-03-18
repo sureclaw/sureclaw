@@ -528,6 +528,7 @@ async function main(): Promise<void> {
       ...(publishWork ? { publishWork } : {}),
     };
 
+    const sessionStartTime = Date.now();
     try {
       const result = await processCompletion(
         turnDeps,
@@ -541,8 +542,10 @@ async function main(): Promise<void> {
 
       logger.info('session_completed', {
         requestId,
+        sessionId,
         responseLength: result.responseContent.length,
         finishReason: result.finishReason,
+        durationMs: Date.now() - sessionStartTime,
       });
 
       return result;
@@ -1122,7 +1125,10 @@ async function main(): Promise<void> {
       }
 
       logger.info('scheduler_message_processed', {
+        sender: msg.sender,
+        sessionId: result.sessionId,
         contentLength: responseContent.length,
+        hasResponse: responseContent.trim().length > 0,
       });
     }
   });

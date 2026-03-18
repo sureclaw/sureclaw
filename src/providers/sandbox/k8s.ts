@@ -200,6 +200,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   function watchPodExit(podName: string, pid: number, timeoutSec: number): Promise<number> {
     return new Promise<number>((resolve) => {
       let resolved = false;
+      let lastPhase: string | undefined;
+      const watchStartTime = Date.now();
 
       const watchPath = `/api/v1/namespaces/${namespace}/pods`;
 
@@ -209,6 +211,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         (type: string, obj: any) => {
           if (resolved) return;
           const phase = obj?.status?.phase;
+          lastPhase = phase;
 
           if (phase === 'Succeeded') {
             resolved = true;
@@ -219,6 +222,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             activePods.delete(pid);
             const containerStatus = obj?.status?.containerStatuses?.[0];
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
+            const reason = containerStatus?.state?.terminated?.reason;
+            logger.warn('pod_failed', { podName, exitCode: code, reason, phase });
             resolve(code);
           }
         },
@@ -226,7 +231,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           if (!resolved) {
             resolved = true;
             activePods.delete(pid);
-            logger.warn('pod_watch_error', { podName, error: err?.message });
+            logger.warn('pod_watch_error', { podName, lastPhase, error: err?.message });
             resolve(1);
           }
         },
@@ -238,7 +243,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         if (!resolved) {
           resolved = true;
           activePods.delete(pid);
-          logger.warn('pod_timeout', { podName, timeoutMs });
+          logger.warn('pod_timeout', { podName, timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
           resolve(1);
         }
       }, timeoutMs);

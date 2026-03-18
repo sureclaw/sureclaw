@@ -114,6 +114,7 @@ function createIPCStreamFunction(client: IIPCClient) {
     }));
 
     (async () => {
+      const llmCallStart = Date.now();
       try {
         const allMessages = context.systemPrompt
           ? [{ role: 'system', content: context.systemPrompt }, ...messages]
@@ -182,18 +183,34 @@ function createIPCStreamFunction(client: IIPCClient) {
           timestamp: Date.now(),
         };
 
+        const llmCallDurationMs = Date.now() - llmCallStart;
         logger.debug('ipc_llm_result', {
           stopReason,
           textLength: fullText.length,
           textPreview: fullText.slice(0, 200),
           toolCallCount: toolCalls.length,
           toolNames: toolCalls.map(t => t.name),
+          inputTokens: usage.input,
+          outputTokens: usage.output,
+          totalTokens: usage.totalTokens,
+          durationMs: llmCallDurationMs,
         });
-        process.stderr.write(`[diag] ipc_llm_result stop=${stopReason} text=${fullText.length}chars tools=[${toolCalls.map(t => t.name).join(',')}]\n`);
+        process.stderr.write(`[diag] ipc_llm_result stop=${stopReason} text=${fullText.length}chars tools=[${toolCalls.map(t => t.name).join(',')}] tokens=${usage.input}in/${usage.output}out duration=${llmCallDurationMs}ms\n`);
         emitStreamEvents(stream, msg, fullText, toolCalls, stopReason as 'stop' | 'toolUse');
       } catch (err: unknown) {
-        logger.debug('ipc_llm_stream_error', { error: (err as Error).message, stack: (err as Error).stack });
-        process.stderr.write(`[diag] ipc_llm_stream_error: ${(err as Error).message}\n`);
+        const llmErrorDurationMs = Date.now() - llmCallStart;
+        const cause = (err as any)?.cause;
+        const causeDetail = cause ? ` (cause: ${cause.code ?? ''} ${cause.message ?? ''})`.trim() : '';
+        logger.debug('ipc_llm_stream_error', {
+          error: (err as Error).message,
+          causeCode: cause?.code,
+          causeMessage: cause?.message,
+          stack: (err as Error).stack,
+          model: model?.id,
+          messageCount: messages.length,
+          durationMs: llmErrorDurationMs,
+        });
+        process.stderr.write(`[diag] ipc_llm_stream_error model=${model?.id} messages=${messages.length} duration=${llmErrorDurationMs}ms: ${(err as Error).message}${causeDetail}\n`);
         const errMsg = makeErrorMessage((err as Error).message);
         stream.push({ type: 'start', partial: errMsg });
         stream.push({ type: 'error', reason: 'error', error: errMsg });
@@ -257,7 +274,9 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
     description: spec.description,
     parameters: spec.parameters,
     async execute(_id: string, params: unknown) {
+      const toolStart = Date.now();
       process.stderr.write(`[diag] tool_execute name=${spec.name}\n`);
+      logger.debug('tool_execute', { name: spec.name, category: spec.category });
       const raw = p(params);
       let action: string;
       let callParams: Record<string, unknown>;
@@ -299,7 +318,12 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
         callParams = { ...callParams, file: normalizeIdentityFile(callParams.file) };
       }
 
-      return ipcCall(action, callParams, spec.timeoutMs);
+      const result = await ipcCall(action, callParams, spec.timeoutMs);
+      const toolDurationMs = Date.now() - toolStart;
+      const resultStr = JSON.stringify(result);
+      logger.debug('tool_result', { name: spec.name, action, durationMs: toolDurationMs, resultLength: resultStr.length });
+      process.stderr.write(`[diag] tool_result name=${spec.name} action=${action} duration=${toolDurationMs}ms resultLen=${resultStr.length}\n`);
+      return result;
     },
   })) as ToolDefinition[];
 }
@@ -459,14 +483,19 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   const agentTools = (session.agent.state as any).tools ?? [];
   const agentToolNames = agentTools.map((t: any) => t.name);
   process.stderr.write(`[diag] agent_tools count=${agentTools.length} names=[${agentToolNames.join(',')}]\n`);
+  const promptStartTime = Date.now();
   process.stderr.write(`[diag] prompt_start\n`);
   logger.debug('prompt_start', { messagePreview: truncate(userMessage, 200), agentToolNames });
   await session.prompt(userMessage);
-  process.stderr.write(`[diag] prompt_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
-  logger.debug('prompt_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
+  const promptDurationMs = Date.now() - promptStartTime;
+  process.stderr.write(`[diag] prompt_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()} duration=${promptDurationMs}ms\n`);
+  logger.debug('prompt_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput(), durationMs: promptDurationMs });
+  const idleStartTime = Date.now();
   await session.agent.waitForIdle();
-  process.stderr.write(`[diag] wait_idle_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()}\n`);
-  logger.debug('wait_idle_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
+  const idleDurationMs = Date.now() - idleStartTime;
+  const totalDurationMs = Date.now() - promptStartTime;
+  process.stderr.write(`[diag] wait_idle_returned events=${eventState.eventCount()} hasOutput=${eventState.hasOutput()} idleWait=${idleDurationMs}ms total=${totalDurationMs}ms\n`);
+  logger.debug('wait_idle_returned', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput(), idleDurationMs, totalDurationMs });
 
   // Log final agent state for debugging
   const finalMessages = session.agent.state.messages;

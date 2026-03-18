@@ -67,25 +67,59 @@ export class HttpIPCClient implements IIPCClient {
     };
 
     const effectiveTimeout = callTimeoutMs ?? this.timeoutMs;
+    const url = `${this.hostUrl}/internal/ipc`;
+    const action = request.action as string;
 
     logger.debug('call_start', {
-      action: request.action,
+      action,
       hostUrl: this.hostUrl,
       timeoutMs: effectiveTimeout,
     });
 
-    const res = await fetch(`${this.hostUrl}/internal/ipc`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`,
-      },
-      body: JSON.stringify(enriched),
-      signal: AbortSignal.timeout(effectiveTimeout),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(enriched),
+        signal: AbortSignal.timeout(effectiveTimeout),
+      });
+    } catch (err: unknown) {
+      // Node.js fetch() throws opaque "fetch failed" errors. The real cause
+      // (ECONNREFUSED, ECONNRESET, ETIMEDOUT, AbortError, etc.) is in .cause.
+      const cause = (err as any)?.cause;
+      const causeMsg = cause?.message ?? cause?.code ?? '';
+      const causeCode = cause?.code ?? '';
+      const errMsg = (err as Error).message;
+      const detail = causeMsg ? `${errMsg} (${causeCode ? causeCode + ': ' : ''}${causeMsg})` : errMsg;
+      logger.error('call_fetch_failed', {
+        action,
+        url,
+        timeoutMs: effectiveTimeout,
+        error: errMsg,
+        causeMessage: causeMsg,
+        causeCode,
+      });
+      throw new Error(`IPC ${action} failed: ${detail} [url=${url}, timeout=${effectiveTimeout}ms]`, { cause });
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      logger.error('call_http_error', {
+        action,
+        url,
+        status: res.status,
+        statusText: res.statusText,
+        body: body.slice(0, 500),
+      });
+      throw new Error(`IPC ${action} HTTP ${res.status}: ${res.statusText} [url=${url}]${body ? ' — ' + body.slice(0, 200) : ''}`);
+    }
 
     const result = await res.json() as Record<string, unknown>;
-    logger.debug('call_done', { action: request.action });
+    logger.debug('call_done', { action });
     return result;
   }
 }

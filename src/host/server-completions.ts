@@ -925,6 +925,7 @@ export async function processCompletion(
     for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
       response = '';
       stderr = '';
+      const attemptStartTime = Date.now();
 
       const proc = await agentSandbox.spawn(sandboxConfig);
       reqLogger.debug('agent_spawn', { sandbox: config.providers.sandbox, attempt });
@@ -1075,7 +1076,8 @@ export async function processCompletion(
         stderrPreview: stderr ? truncate(stderr, 1000) : undefined,
       });
 
-      reqLogger.debug('agent_complete', { durationSec: 0, exitCode, attempt });
+      const attemptDurationMs = Date.now() - attemptStartTime;
+      reqLogger.debug('agent_complete', { durationMs: attemptDurationMs, exitCode, attempt });
 
       if (exitCode === 0) break; // Success — no retry needed
 
@@ -1100,7 +1102,7 @@ export async function processCompletion(
       const isTransient = isTransientAgentFailure(exitCode, stderr);
 
       if (!isTransient || attempt >= MAX_AGENT_RETRIES) {
-        reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, stderr: stderr.slice(0, 2000) });
+        reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, maxRetries: MAX_AGENT_RETRIES, messageId: queued.id, stderr: stderr.slice(0, 2000) });
         await db.fail(queued.id);
         const diagnosed = diagnoseError(stderr || 'agent exited with no output');
         return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
