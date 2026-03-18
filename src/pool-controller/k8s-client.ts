@@ -59,6 +59,9 @@ export interface PoolPod {
 /** K8s client interface for pool management — mockable for tests. */
 export interface PoolK8sClient {
   listPods(tier: string): Promise<PoolPod[]>;
+  /** List all ax-sandbox pods in Failed/Succeeded phase, regardless of tier.
+   *  Used by the controller to GC cold-started pods that lack tier labels. */
+  listTerminalSandboxPods(): Promise<PoolPod[]>;
   createPod(template: PodTemplate): Promise<string>;
   deletePod(name: string): Promise<void>;
   patchPodLabel(name: string, label: string, value: string): Promise<void>;
@@ -98,6 +101,30 @@ export async function createPoolK8sClient(namespace?: string): Promise<PoolK8sCl
           : new Date(),
         phase: pod.status?.phase ?? 'Unknown',
       }));
+    },
+
+    async listTerminalSandboxPods(): Promise<PoolPod[]> {
+      // Select all ax-sandbox pods, then filter client-side to Failed/Succeeded.
+      const labelSelector = 'app.kubernetes.io/name=ax-sandbox';
+      const response = await api.listNamespacedPod({
+        namespace: ns,
+        labelSelector,
+      });
+
+      return (response.items ?? [])
+        .filter((pod) => {
+          const phase = pod.status?.phase;
+          return phase === 'Failed' || phase === 'Succeeded';
+        })
+        .map((pod) => ({
+          name: pod.metadata?.name ?? '',
+          tier: pod.metadata?.labels?.['ax.io/tier'] ?? '',
+          status: (pod.metadata?.labels?.['ax.io/status'] as PodPoolStatus) ?? 'warm',
+          createdAt: pod.metadata?.creationTimestamp
+            ? new Date(pod.metadata.creationTimestamp)
+            : new Date(),
+          phase: pod.status?.phase ?? 'Unknown',
+        }));
     },
 
     async createPod(template: PodTemplate): Promise<string> {

@@ -24,11 +24,12 @@ const lightTemplate: PodTemplate = {
   workspaceRoot: '/workspace',
 };
 
-function createMockK8sClient(pods: PoolPod[] = []): PoolK8sClient & {
+function createMockK8sClient(pods: PoolPod[] = [], terminalOrphans: PoolPod[] = []): PoolK8sClient & {
   created: string[];
   deleted: string[];
 } {
   const state = [...pods];
+  const orphanState = [...terminalOrphans];
   const created: string[] = [];
   const deleted: string[] = [];
 
@@ -37,6 +38,9 @@ function createMockK8sClient(pods: PoolPod[] = []): PoolK8sClient & {
     deleted,
     async listPods(tier: string) {
       return state.filter(p => p.tier === tier);
+    },
+    async listTerminalSandboxPods() {
+      return [...orphanState, ...state.filter(p => p.phase === 'Failed' || p.phase === 'Succeeded')];
     },
     async createPod(template: PodTemplate) {
       const name = `ax-sandbox-${template.tier}-test-${Math.random().toString(36).slice(2, 6)}`;
@@ -47,6 +51,8 @@ function createMockK8sClient(pods: PoolPod[] = []): PoolK8sClient & {
     async deletePod(name: string) {
       const idx = state.findIndex(p => p.name === name);
       if (idx >= 0) state.splice(idx, 1);
+      const orphanIdx = orphanState.findIndex(p => p.name === name);
+      if (orphanIdx >= 0) orphanState.splice(orphanIdx, 1);
       deleted.push(name);
     },
     async patchPodLabel() {},
@@ -166,6 +172,28 @@ describe('pool-controller', () => {
     controller.stop();
 
     expect(metrics.reconcileCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('garbage collects cold-started sandbox pods without tier labels', async () => {
+    const pods = [makePod(), makePod()]; // 2 warm Running (at minReady)
+    const orphans: PoolPod[] = [
+      makePod({ name: 'ax-sandbox-abc123', tier: '', phase: 'Failed' }),
+      makePod({ name: 'ax-sandbox-def456', tier: '', phase: 'Succeeded' }),
+    ];
+    const k8sClient = createMockK8sClient(pods, orphans);
+    const metrics = createPoolMetrics();
+    const controller = createPoolController({
+      tiers,
+      reconcileIntervalMs: 60000,
+      k8sClient,
+      metrics,
+    });
+
+    await controller.reconcileOnce();
+
+    expect(k8sClient.deleted).toContain('ax-sandbox-abc123');
+    expect(k8sClient.deleted).toContain('ax-sandbox-def456');
+    expect(k8sClient.created.length).toBe(0); // no scale-up needed
   });
 
   test('updates reconcile metrics', async () => {

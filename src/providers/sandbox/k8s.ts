@@ -280,7 +280,18 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
     activePods.set(pid, podName);
 
-    const exitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+
+    // Self-cleanup: delete the pod after it exits so terminal pods don't accumulate.
+    const exitCode = rawExitCode.then(code => {
+      coreApi.deleteNamespacedPod({ name: podName, namespace, gracePeriodSeconds: 0 }).catch((err: any) => {
+        const status = err?.response?.statusCode;
+        if (status !== 404) {
+          logger.warn('pod_cleanup_failed', { podName, error: err?.message });
+        }
+      });
+      return code;
+    });
 
     // Dummy streams — response comes via NATS agent_response, not stdout.
     const stdout = new PassThrough();

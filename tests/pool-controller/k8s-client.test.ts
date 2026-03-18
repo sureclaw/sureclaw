@@ -177,4 +177,25 @@ describe('pool-controller k8s-client createPod', () => {
     expect(body.spec.volumes).toHaveLength(4);
     expect(body.spec.containers[0].volumeMounts).toHaveLength(4);
   });
+
+  test('listTerminalSandboxPods returns only Failed/Succeeded pods', async () => {
+    mockListNamespacedPod.mockResolvedValueOnce({
+      items: [
+        { metadata: { name: 'running-pod', labels: { 'app.kubernetes.io/name': 'ax-sandbox' }, creationTimestamp: '2026-01-01T00:00:00Z' }, status: { phase: 'Running' } },
+        { metadata: { name: 'failed-pod', labels: { 'app.kubernetes.io/name': 'ax-sandbox' }, creationTimestamp: '2026-01-01T00:00:00Z' }, status: { phase: 'Failed' } },
+        { metadata: { name: 'succeeded-pod', labels: { 'app.kubernetes.io/name': 'ax-sandbox' }, creationTimestamp: '2026-01-01T00:00:00Z' }, status: { phase: 'Succeeded' } },
+      ],
+    });
+
+    const client = await createPoolK8sClient('ax');
+    const terminal = await client.listTerminalSandboxPods();
+
+    expect(terminal).toHaveLength(2);
+    expect(terminal.map(p => p.name)).toEqual(['failed-pod', 'succeeded-pod']);
+
+    // Verify label selector uses only app name (not tier-specific)
+    expect(mockListNamespacedPod).toHaveBeenCalledWith(
+      expect.objectContaining({ labelSelector: 'app.kubernetes.io/name=ax-sandbox' }),
+    );
+  });
 });

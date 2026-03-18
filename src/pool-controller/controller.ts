@@ -55,6 +55,8 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
       for (const tierConfig of tiers) {
         await reconcileTier(tierConfig);
       }
+      // GC cold-started sandbox pods that lack tier labels (not covered by per-tier GC)
+      await gcTerminalSandboxPods();
     } catch (err) {
       logger.error('reconcile_error', { error: (err as Error).message });
     } finally {
@@ -147,6 +149,26 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
           error: (err as Error).message,
         });
       }
+    }
+  }
+
+  /** GC all terminal ax-sandbox pods (covers cold-started pods without tier labels). */
+  async function gcTerminalSandboxPods(): Promise<void> {
+    try {
+      const terminal = await k8sClient.listTerminalSandboxPods();
+      for (const pod of terminal) {
+        try {
+          await k8sClient.deletePod(pod.name);
+          logger.debug('gc_terminal_sandbox_pod', { name: pod.name, phase: pod.phase });
+        } catch (err) {
+          logger.warn('gc_terminal_delete_failed', {
+            name: pod.name,
+            error: (err as Error).message,
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('gc_terminal_list_failed', { error: (err as Error).message });
     }
   }
 
