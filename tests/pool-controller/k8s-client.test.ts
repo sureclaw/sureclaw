@@ -138,4 +138,43 @@ describe('pool-controller k8s-client createPod', () => {
       valueFrom: { fieldRef: { fieldPath: 'metadata.name' } },
     });
   });
+
+  test('createPod includes extraVolumes and extraVolumeMounts when provided', async () => {
+    delete process.env.NATS_SANDBOX_PASS;
+
+    const client = await createPoolK8sClient('ax');
+    const template: PodTemplate = {
+      ...basePodTemplate(),
+      extraVolumes: [
+        { name: 'ax-dev-dist', hostPath: { path: '/ax-dev/dist' } },
+      ],
+      extraVolumeMounts: [
+        { name: 'ax-dev-dist', mountPath: '/opt/ax/dist' },
+      ],
+    };
+    await client.createPod(template);
+
+    const body = mockCreateNamespacedPod.mock.calls[0][0].body;
+    const volumes = body.spec.volumes;
+    const mounts = body.spec.containers[0].volumeMounts;
+
+    // Should include the 4 default volumes + 1 extra
+    expect(volumes).toHaveLength(5);
+    expect(volumes[4]).toEqual({ name: 'ax-dev-dist', hostPath: { path: '/ax-dev/dist' } });
+
+    // Should include the 4 default mounts + 1 extra
+    expect(mounts).toHaveLength(5);
+    expect(mounts[4]).toEqual({ name: 'ax-dev-dist', mountPath: '/opt/ax/dist' });
+  });
+
+  test('createPod works without extraVolumes (backwards compatible)', async () => {
+    delete process.env.NATS_SANDBOX_PASS;
+
+    const client = await createPoolK8sClient('ax');
+    await client.createPod(basePodTemplate());
+
+    const body = mockCreateNamespacedPod.mock.calls[0][0].body;
+    expect(body.spec.volumes).toHaveLength(4);
+    expect(body.spec.containers[0].volumeMounts).toHaveLength(4);
+  });
 });

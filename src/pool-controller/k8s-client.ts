@@ -36,6 +36,8 @@ export interface PodTemplate {
   runtimeClassName?: string;
   nodeSelector?: Record<string, string>;
   activeDeadlineSeconds?: number;
+  extraVolumes?: Array<Record<string, unknown>>;
+  extraVolumeMounts?: Array<Record<string, unknown>>;
 }
 
 /**
@@ -164,6 +166,7 @@ export async function createPoolK8sClient(namespace?: string): Promise<PoolK8sCl
                 { name: 'agent-ws', mountPath: '/workspace/agent' },
                 { name: 'user-ws', mountPath: '/workspace/user' },
                 { name: 'tmp', mountPath: '/tmp' },
+                ...(template.extraVolumeMounts ?? []),
               ],
             },
           ],
@@ -172,6 +175,7 @@ export async function createPoolK8sClient(namespace?: string): Promise<PoolK8sCl
             { name: 'agent-ws', emptyDir: { sizeLimit: '10Gi' } },
             { name: 'user-ws', emptyDir: { sizeLimit: '10Gi' } },
             { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
+            ...(template.extraVolumes ?? []),
           ],
         },
       };
