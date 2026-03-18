@@ -18,6 +18,16 @@ spec:
     - ports:
         - port: {{ .Values.host.ports.http }}
           protocol: TCP
+    {{- if $.Values.webProxy.enabled }}
+    # Allow sandbox pods to reach the web proxy
+    - from:
+        - podSelector:
+            matchLabels:
+              ax.io/plane: execution
+      ports:
+        - port: {{ $.Values.webProxy.port }}
+          protocol: TCP
+    {{- end }}
   egress:
     # NATS
     - to:

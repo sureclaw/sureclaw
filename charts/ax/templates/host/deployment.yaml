@@ -31,6 +31,11 @@ spec:
             - name: metrics
               containerPort: {{ .Values.host.ports.metrics }}
               protocol: TCP
+            {{- if .Values.webProxy.enabled }}
+            - name: web-proxy
+              containerPort: {{ .Values.webProxy.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: AX_CONFIG_PATH
               value: "/etc/ax/ax.yaml"

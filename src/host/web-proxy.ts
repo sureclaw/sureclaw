@@ -48,6 +48,9 @@ export interface ProxyAuditEntry {
 export interface WebProxyOptions {
   /** Unix socket path OR TCP port number (0 = ephemeral). */
   listen: string | number;
+  /** Bind address for TCP mode. Defaults to '127.0.0.1'.
+   *  Use '0.0.0.0' when the proxy must be reachable from other pods (k8s). */
+  bindHost?: string;
   /** Session ID for audit logging context. */
   sessionId: string;
   /** Canary token to scan for in outbound request bodies. */
@@ -123,7 +126,7 @@ function containsCanary(body: Buffer, canaryToken?: string): boolean {
 // ── Proxy implementation ─────────────────────────────────────────────
 
 export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy> {
-  const { listen, sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains } = options;
+  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains } = options;
   const activeSockets = new Set<net.Socket>();
   /** Per-domain decision cache — avoids repeated callbacks for the same domain. */
   const domainDecisions = new Map<string, boolean>();
@@ -446,7 +449,7 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
   } else {
     // TCP mode — wait for listen callback to get the assigned port
     const port = await new Promise<number>((resolve) => {
-      server.listen(listen, '127.0.0.1', () => {
+      server.listen(listen, bindHost, () => {
         resolve((server.address() as AddressInfo).port);
       });
     });

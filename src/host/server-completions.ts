@@ -764,6 +764,8 @@ export async function processCompletion(
       // Per-turn IPC token for NATS subject scoping (warm pods need this in the payload
       // since they don't have AX_IPC_TOKEN env var — it's set at pod creation time for cold pods only)
       ipcToken: deps.extraSandboxEnv?.AX_IPC_TOKEN,
+      // Web proxy URL — warm pool pods don't have this in their pod spec
+      webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
       // Enterprise fields
       agentId: agentName,
       agentWorkspace: agentWsPath,
@@ -796,7 +798,7 @@ export async function processCompletion(
       extraEnv: {
         ...deps.extraSandboxEnv,
         // Web proxy — agent runners detect these to start bridge / set HTTP_PROXY
-        ...(webProxyPort ? { AX_WEB_PROXY_PORT: String(webProxyPort) } : {}),
+        ...(webProxyPort ? { AX_PROXY_LISTEN_PORT: String(webProxyPort) } : {}),
       },
     };
 

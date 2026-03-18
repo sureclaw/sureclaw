@@ -11,15 +11,15 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: ax-sandbox
+      ax.io/plane: execution
   policyTypes:
     - Egress
   egress:
     - to:
         - podSelector:
             matchLabels:
-              app: ax-host
+              ax.io/plane: ingress
       ports:
-        - port: 3128
+        - port: {{ .Values.webProxy.port }}
           protocol: TCP
 {{- end }}

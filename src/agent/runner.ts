@@ -286,6 +286,8 @@ export interface StdinPayload {
   sessionGcsPrefix?: string;
   /** Whether agent scope is read-only (non-admin users). */
   agentReadOnly?: boolean;
+  /** Web proxy URL for outbound HTTP/HTTPS (warm pool pods get this from payload, not pod env). */
+  webProxyUrl?: string;
 }
 
 /**
@@ -339,6 +341,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         userGcsPrefix: typeof parsed.userGcsPrefix === 'string' ? parsed.userGcsPrefix : undefined,
         sessionGcsPrefix: typeof parsed.sessionGcsPrefix === 'string' ? parsed.sessionGcsPrefix : undefined,
         agentReadOnly: parsed.agentReadOnly === true,
+        webProxyUrl: typeof parsed.webProxyUrl === 'string' ? parsed.webProxyUrl : undefined,
       };
     }
   } catch {
@@ -544,6 +547,11 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       sessionScope: payload.sessionScope,
       token: payload.ipcToken,
     });
+  }
+  // Web proxy URL — warm pool pods don't have AX_WEB_PROXY_URL in their pod spec,
+  // so the host sends it in the payload. Set it in process.env so the runner picks it up.
+  if (payload.webProxyUrl && !process.env.AX_WEB_PROXY_URL) {
+    process.env.AX_WEB_PROXY_URL = payload.webProxyUrl;
   }
   // Enterprise fields — prefer canonical env vars (set by sandbox provider)
   // over payload (which carries host paths).

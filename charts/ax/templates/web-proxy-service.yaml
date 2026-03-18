@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/component: web-proxy
 spec:
   selector:
-    app: ax-host
+    {{- include "ax.selectorLabels" (dict "component" "host" "context" $) | nindent 4 }}
   ports:
     - port: 3128
       targetPort: 3128

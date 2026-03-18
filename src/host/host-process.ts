@@ -288,7 +288,7 @@ async function main(): Promise<void> {
 
   let webProxy: WebProxy | undefined;
   if (config.web_proxy) {
-    const webProxyPort = parseInt(process.env.AX_WEB_PROXY_PORT ?? '3128', 10);
+    const webProxyPort = parseInt(process.env.AX_PROXY_LISTEN_PORT ?? '3128', 10);
     // K8s shared proxy: governance gate uses the approval registry keyed by
     // the requesting session. The session ID is not available from the HTTP
     // proxy request itself (it's a transparent forward proxy), so the k8s
@@ -296,6 +296,7 @@ async function main(): Promise<void> {
     const { requestApproval } = await import('./web-proxy-approvals.js');
     webProxy = await startWebProxy({
       listen: webProxyPort,
+      bindHost: '0.0.0.0',
       sessionId: 'host-process',
       onAudit: (entry) => {
         providers.audit.log({

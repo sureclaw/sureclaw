@@ -111,7 +111,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   let webProxyBridge: WebProxyBridge | undefined;
   const webProxySocket = process.env.AX_WEB_PROXY_SOCKET;
   const webProxyUrl = process.env.AX_WEB_PROXY_URL;
-  const webProxyPort = process.env.AX_WEB_PROXY_PORT;
+  const webProxyPort = process.env.AX_PROXY_LISTEN_PORT;
   if (webProxySocket) {
     try {
       webProxyBridge = await startWebProxyBridge(webProxySocket);
