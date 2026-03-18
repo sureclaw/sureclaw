@@ -23,7 +23,6 @@ export interface ProfileDefaults {
   web: string;
   browser: string;
   credentials: string;
-  skills: string;
   audit: string;
   sandbox: string;
   scheduler: string;
@@ -42,7 +41,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     web: 'none',
     browser: 'none',
     credentials: 'keychain',
-    skills: 'database',
+
     audit: 'database',
     sandbox: defaultSandbox,
     scheduler: 'plainjob',
@@ -56,7 +55,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     web: 'fetch',
     browser: 'none',
     credentials: 'keychain',
-    skills: 'database',
+
     audit: 'database',
     sandbox: defaultSandbox,
     scheduler: 'plainjob',
@@ -71,7 +70,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     web: 'fetch',
     browser: 'container',
     credentials: 'keychain',
-    skills: 'database',
+
     audit: 'database',
     sandbox: defaultSandbox,
     scheduler: 'plainjob',
@@ -175,7 +174,6 @@ export const PROVIDER_CHOICES = {
   web: ['none', 'fetch'],
   browser: ['none', 'container'],
   credentials: ['keychain', 'plaintext'],
-  skills: ['database'],
   audit: ['database'],
   sandbox: ['subprocess', 'docker', 'apple', 'k8s'],
   scheduler: ['none', 'plainjob'],

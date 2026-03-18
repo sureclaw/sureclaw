@@ -8,7 +8,7 @@ import type { ChannelProvider, ChannelAccessConfig } from './providers/channel/t
 import type { WebProvider } from './providers/web/types.js';
 import type { BrowserProvider } from './providers/browser/types.js';
 import type { CredentialProvider } from './providers/credentials/types.js';
-import type { SkillStoreProvider, SkillScreenerProvider } from './providers/skills/types.js';
+import type { SkillScreenerProvider } from './providers/screener/types.js';
 import type { AuditProvider } from './providers/audit/types.js';
 import type { SandboxProvider } from './providers/sandbox/types.js';
 import type { SchedulerProvider, CronDelivery } from './providers/scheduler/types.js';
@@ -19,7 +19,7 @@ import type { WorkspaceProvider } from './providers/workspace/types.js';
 import type {
   MemoryProviderName, ScannerProviderName, ChannelProviderName,
   WebProviderName, BrowserProviderName, CredentialProviderName,
-  SkillsProviderName, AuditProviderName, SandboxProviderName,
+  AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
   DatabaseProviderName, WorkspaceProviderName,
 } from './host/provider-map.js';
@@ -79,7 +79,6 @@ export interface Config {
     web: WebProviderName;
     browser: BrowserProviderName;
     credentials: CredentialProviderName;
-    skills: SkillsProviderName;
     audit: AuditProviderName;
     sandbox: SandboxProviderName;
     scheduler: SchedulerProviderName;
@@ -164,7 +163,6 @@ export interface ProviderRegistry {
   web: WebProvider;
   browser: BrowserProvider;
   credentials: CredentialProvider;
-  skills: SkillStoreProvider;
   audit: AuditProvider;
   sandbox: SandboxProvider;
   scheduler: SchedulerProvider;

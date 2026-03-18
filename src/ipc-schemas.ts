@@ -150,35 +150,9 @@ export const BrowserCloseSchema = ipcAction('browser_close', { session: browserS
 
 // ── Skills ───────────────────────────────────────────
 
-export const SkillReadSchema = ipcAction('skill_read', { name: safeString(200) });
-
-export const SkillListSchema = ipcAction('skill_list', {});
-
-export const SkillProposeSchema = ipcAction('skill_propose', {
-  skill: safeString(200),
-  content: safeString(100_000),
-  reason: safeString(2000).optional(),
-});
-
-export const SkillImportSchema = ipcAction('skill_import', {
-  source: safeString(2048),
-  autoApprove: z.boolean().optional(),
-});
-
 export const SkillSearchSchema = ipcAction('skill_search', {
   query: safeString(500),
   limit: z.number().int().min(1).max(50).optional(),
-});
-
-export const SkillInstallSchema = ipcAction('skill_install', {
-  skill: safeString(200),
-  phase: z.enum(['inspect', 'execute']),
-  stepIndex: z.number().int().min(0).max(50).optional(),       // required for 'execute'
-  inspectToken: safeString(128).optional(),                     // required for 'execute'; SHA-256 hex from inspect
-});
-
-export const SkillInstallStatusSchema = ipcAction('skill_install_status', {
-  skill: safeString(200),
 });
 
 // ── Audit ────────────────────────────────────────────

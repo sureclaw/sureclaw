@@ -54,9 +54,6 @@ const _PROVIDER_MAP = {
     plaintext: '../providers/credentials/plaintext.js',
     keychain:  '../providers/credentials/keychain.js',
   },
-  skills: {
-    database: '../providers/skills/database.js',
-  },
   audit: {
     database: '../providers/audit/database.js',
   },
@@ -116,7 +113,6 @@ export type ChannelProviderName    = keyof ProviderMapType['channel'];
 export type WebProviderName        = keyof ProviderMapType['web'];
 export type BrowserProviderName    = keyof ProviderMapType['browser'];
 export type CredentialProviderName = keyof ProviderMapType['credentials'];
-export type SkillsProviderName     = keyof ProviderMapType['skills'];
 export type DatabaseProviderName    = keyof ProviderMapType['database'];
 export type AuditProviderName      = keyof ProviderMapType['audit'];
 export type SandboxProviderName    = keyof ProviderMapType['sandbox'];

@@ -60,7 +60,6 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     web: answers.webProvider || defaults.web,
     browser: defaults.browser,
     credentials: defaults.credentials,
-    skills: defaults.skills,
     audit: defaults.audit,
     sandbox: defaults.sandbox,
     scheduler: defaults.scheduler,

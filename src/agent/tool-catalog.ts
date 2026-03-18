@@ -191,64 +191,21 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     },
   },
 
-  // ── Skill ──
+  // ── Skill Search ──
   {
     name: 'skill',
     label: 'Skill',
     description:
-      'Manage and discover skills.\n\nUse `type` to select:\n' +
-      '- list: List all available skills\n' +
-      '- read: Read the full content of a skill by name\n' +
-      '- propose: Propose a new skill or update an existing one\n' +
-      '- import: Import an external skill from ClawHub or local SKILL.md content\n' +
-      '- search: Search the ClawHub registry for available skills\n' +
-      '- install: Install skill dependencies (two-phase: inspect then execute)\n' +
-      '- install_status: Check install progress for a skill',
-    parameters: Type.Union([
-      Type.Object({
-        type: Type.Literal('list'),
-      }),
-      Type.Object({
-        type: Type.Literal('read'),
-        name: Type.String(),
-      }),
-      Type.Object({
-        type: Type.Literal('propose'),
-        skill: Type.String({ description: 'Skill name (alphanumeric, hyphens, underscores)' }),
-        content: Type.String({ description: 'Skill content as markdown' }),
-        reason: Type.Optional(Type.String({ description: 'Why this skill is needed' })),
-      }),
-      Type.Object({
-        type: Type.Literal('import'),
-        source: Type.String({ description: 'Skill source: "clawhub:<name>" or raw SKILL.md content' }),
-        autoApprove: Type.Optional(Type.Boolean({ description: 'Auto-approve if screener passes (default: false)' })),
-      }),
-      Type.Object({
-        type: Type.Literal('search'),
-        query: Type.String({ description: 'Search query' }),
-        limit: Type.Optional(Type.Number({ description: 'Max results (1-50, default 20)' })),
-      }),
-      Type.Object({
-        type: Type.Literal('install'),
-        skill: Type.String({ description: 'Skill name to install dependencies for' }),
-        phase: Type.String({ description: '"inspect" to check what\'s needed, or "execute" to run one approved step' }),
-        stepIndex: Type.Optional(Type.Number({ description: 'Step index to execute (required for execute phase)' })),
-        inspectToken: Type.Optional(Type.String({ description: 'SHA-256 token from inspect response; required for execute phase' })),
-      }),
-      Type.Object({
-        type: Type.Literal('install_status'),
-        skill: Type.String({ description: 'Skill name to check install progress for' }),
-      }),
-    ]),
+      'Search for skills in the ClawHub registry.\n\n' +
+      'Use `type: "search"` to find skills by query.',
+    parameters: Type.Object({
+      type: Type.Literal('search'),
+      query: Type.String({ description: 'Search query' }),
+      limit: Type.Optional(Type.Number({ description: 'Max results (1-50, default 20)' })),
+    }),
     category: 'skill',
     actionMap: {
-      list: 'skill_list',
-      read: 'skill_read',
-      propose: 'skill_propose',
-      import: 'skill_import',
       search: 'skill_search',
-      install: 'skill_install',
-      install_status: 'skill_install_status',
     },
   },
 
@@ -476,8 +433,6 @@ export function getToolParamKeys(name: string): string[] {
 export interface ToolFilterContext {
   /** identityFiles.heartbeat is non-empty */
   hasHeartbeat: boolean;
-  /** @deprecated — skill tools are always available so agents can discover/install skills */
-  hasSkills?: boolean;
   /** Workspace scoped mounts available (workspace provider != 'none') */
   hasWorkspaceScopes: boolean;
   /** Enterprise governance enabled */

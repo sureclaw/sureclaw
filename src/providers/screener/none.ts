@@ -7,7 +7,7 @@ import type {
   SkillScreenerProvider,
   ScreeningVerdict,
   ExtendedScreeningVerdict,
-} from '../skills/types.js';
+} from './types.js';
 
 export function create(_config: Config): SkillScreenerProvider {
   return {

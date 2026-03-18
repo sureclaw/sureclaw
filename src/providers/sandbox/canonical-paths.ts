@@ -15,8 +15,8 @@
  * In k8s mode, scratch is backed by GCS via the workspace provider's 'session'
  * scope, so its content survives across pod restarts within the same conversation.
  *
- * Identity files and skills are now sent via stdin payload (loaded from
- * DocumentStore), not mounted as filesystem directories.
+ * Identity files are sent via stdin payload (loaded from DocumentStore).
+ * Skills are stored as filesystem files in agent/skills/ and user/skills/.
  *
  * Providers that support filesystem remapping (Docker, bwrap, nsjail) mount
  * directly to canonical paths. Providers that don't (seatbelt, subprocess)
@@ -49,17 +49,25 @@ export function canonicalEnv(config: SandboxConfig): Record<string, string> {
   const ipcDir = config.ipcSocket ? dirname(config.ipcSocket) : '';
   const webProxySocket = ipcDir ? join(ipcDir, 'web-proxy.sock') : '';
 
-  return {
+  // Prepend user/bin and agent/bin to PATH so installed skill binaries are available
+  const binPaths: string[] = [];
+  if (config.userWorkspace) binPaths.push(join(CANONICAL.user, 'bin'));
+  if (config.agentWorkspace) binPaths.push(join(CANONICAL.agent, 'bin'));
+  const basePath = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
+
+  const env: Record<string, string> = {
     AX_IPC_SOCKET: config.ipcSocket,
-    ...(webProxySocket ? { AX_WEB_PROXY_SOCKET: webProxySocket } : {}),
     AX_WORKSPACE: CANONICAL.root,
-    ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: CANONICAL.agent } : {}),
-    ...(config.userWorkspace   ? { AX_USER_WORKSPACE: CANONICAL.user } : {}),
-    // Redirect caches to /tmp so they don't pollute workspace
     npm_config_cache: '/tmp/.ax-npm-cache',
     XDG_CACHE_HOME: '/tmp/.ax-cache',
     AX_HOME: '/tmp/.ax-agent',
   };
+  if (binPaths.length > 0) env.PATH = `${binPaths.join(':')}:${basePath}`;
+  if (webProxySocket) env.AX_WEB_PROXY_SOCKET = webProxySocket;
+  if (config.agentWorkspace) env.AX_AGENT_WORKSPACE = CANONICAL.agent;
+  if (config.userWorkspace) env.AX_USER_WORKSPACE = CANONICAL.user;
+
+  return env;
 }
 
 /**
@@ -107,14 +115,23 @@ export function createCanonicalSymlinks(config: SandboxConfig): {
  * Points to symlink paths under mountRoot instead of real host paths.
  */
 export function symlinkEnv(config: SandboxConfig, mountRoot: string): Record<string, string> {
-  return {
+  // Prepend user/bin and agent/bin to PATH so installed skill binaries are available
+  const binPaths: string[] = [];
+  if (config.userWorkspace) binPaths.push(join(mountRoot, 'user', 'bin'));
+  if (config.agentWorkspace) binPaths.push(join(mountRoot, 'agent', 'bin'));
+  const basePath = process.env.PATH || '/usr/local/bin:/usr/bin:/bin';
+
+  const env: Record<string, string> = {
     AX_IPC_SOCKET: config.ipcSocket,
     AX_WORKSPACE: mountRoot,
-    ...(config.agentWorkspace  ? { AX_AGENT_WORKSPACE: join(mountRoot, 'agent') } : {}),
-    ...(config.userWorkspace   ? { AX_USER_WORKSPACE: join(mountRoot, 'user') } : {}),
     npm_config_cache: '/tmp/.ax-npm-cache',
     XDG_CACHE_HOME: '/tmp/.ax-cache',
     AX_HOME: '/tmp/.ax-agent',
   };
+  if (binPaths.length > 0) env.PATH = `${binPaths.join(':')}:${basePath}`;
+  if (config.agentWorkspace) env.AX_AGENT_WORKSPACE = join(mountRoot, 'agent');
+  if (config.userWorkspace) env.AX_USER_WORKSPACE = join(mountRoot, 'user');
+
+  return env;
 }
 

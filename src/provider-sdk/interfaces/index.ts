@@ -75,17 +75,12 @@ export type {
   CredentialProvider,
 } from '../../providers/credentials/types.js';
 
-// ── Skills ───────────────────────────────────────────
+// ── Screener ────────────────────────────────────────
 export type {
-  SkillStoreProvider,
   SkillScreenerProvider,
-  SkillMeta,
-  SkillProposal,
-  ProposalResult,
-  SkillLogEntry,
   ScreeningVerdict,
   ExtendedScreeningVerdict,
-} from '../../providers/skills/types.js';
+} from '../../providers/screener/types.js';
 
 // ── Audit ────────────────────────────────────────────
 export type {

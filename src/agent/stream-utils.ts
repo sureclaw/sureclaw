@@ -198,3 +198,19 @@ export function loadSkills(skillsDir: string): SkillSummary[] {
     return results;
   } catch { return []; }
 }
+
+/**
+ * Load and merge skills from multiple directories (user shadows agent).
+ * Directories are processed in order; later entries shadow earlier ones by name.
+ */
+export function loadSkillsMultiDir(
+  dirs: Array<{ dir: string; scope: 'agent' | 'user' }>,
+): SkillSummary[] {
+  const merged = new Map<string, SkillSummary>();
+  for (const { dir } of dirs) {
+    for (const skill of loadSkills(dir)) {
+      merged.set(skill.name, skill);
+    }
+  }
+  return [...merged.values()];
+}

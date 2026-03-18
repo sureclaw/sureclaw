@@ -18,7 +18,7 @@ import type {
   ExtendedScreeningVerdict,
   ScreeningReason,
   ScreeningVerdictKind,
-} from '../skills/types.js';
+} from './types.js';
 
 // ═══════════════════════════════════════════════════════
 // Layer 1: Hard-reject patterns (BLOCK)

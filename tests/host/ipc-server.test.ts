@@ -83,15 +83,6 @@ function mockRegistry(documents?: DocumentStore): ProviderRegistry {
       async delete() {},
       async list() { return []; },
     },
-    skills: {
-      async list() { return []; },
-      async read() { return ''; },
-      async propose() { throw new Error('read-only'); },
-      async approve() {},
-      async reject() {},
-      async revert() {},
-      async log() { return []; },
-    },
     audit: {
       async log() {},
       async query() { return []; },
@@ -171,13 +162,6 @@ describe('IPC Handler', () => {
     expect(result.results).toEqual([]);
   });
 
-  test('dispatches valid skill_list', async () => {
-    const payload = JSON.stringify({ action: 'skill_list' });
-    const result = JSON.parse(await handle(payload, ctx));
-    expect(result.ok).toBe(true);
-    expect(result.skills).toEqual([]);
-  });
-
   test('dispatches valid audit_query', async () => {
     const payload = JSON.stringify({ action: 'audit_query' });
     const result = JSON.parse(await handle(payload, ctx));
@@ -196,7 +180,7 @@ describe('IPC Handler', () => {
 
   test('rejects extra fields (strict mode)', async () => {
     const payload = JSON.stringify({
-      action: 'skill_list',
+      action: 'audit_query',
       evil: 'injected',
     });
     const result = JSON.parse(await handle(payload, ctx));
@@ -214,7 +198,7 @@ describe('IPC Handler', () => {
 
   test('strips _sessionId from request and uses it for context', async () => {
     const payload = JSON.stringify({
-      action: 'skill_list',
+      action: 'audit_query',
       _sessionId: 'override-session',
     });
     // _sessionId should be stripped before schema validation (strict mode)
@@ -225,7 +209,7 @@ describe('IPC Handler', () => {
 
   test('strips _userId from request and uses it for context', async () => {
     const payload = JSON.stringify({
-      action: 'skill_list',
+      action: 'audit_query',
       _userId: 'vinay@canopyworks.com',
     });
     // _userId should be stripped before schema validation (strict mode)
@@ -1177,9 +1161,9 @@ describe('connectIPCBridge (reverse IPC for Apple containers)', () => {
     expect((result as any).chunks[0].content).toBe('Hello from bridge');
 
     // Second call to verify the connection stays alive
-    const result2 = await client.call({ action: 'skill_list' });
+    const result2 = await client.call({ action: 'audit_query' });
     expect(result2.ok).toBe(true);
-    expect(result2.echo).toBe('skill_list');
+    expect(result2.echo).toBe('audit_query');
 
     bridge.close();
     client.disconnect();

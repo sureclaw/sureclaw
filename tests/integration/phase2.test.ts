@@ -42,7 +42,7 @@ function powerUserConfig(): Config {
     providers: {
       memory: 'cortex', scanner: 'guardian',
       channels: [], web: 'tavily', browser: 'container',
-      credentials: 'keychain', skills: 'database', audit: 'database',
+      credentials: 'keychain', audit: 'database',
       sandbox: 'docker', scheduler: 'plainjob',
     },
     sandbox: { timeout_sec: 60, memory_mb: 512 },
@@ -112,15 +112,6 @@ function mockProviders(opts?: {
       async set() {},
       async delete() {},
       async list() { return []; },
-    },
-    skills: {
-      async list() { return []; },
-      async read() { return ''; },
-      async propose() { return { id: 'p1', verdict: 'REJECT' as const, reason: 'test' }; },
-      async approve() {},
-      async reject() {},
-      async revert() {},
-      async log() { return []; },
     },
     audit: {
       async log(entry: Partial<AuditEntry>) { auditLog.push(entry); },
@@ -421,7 +412,7 @@ describe('Power User Profile', () => {
     budget.recordContent(sessionId, 'a'.repeat(500), true);
     budget.recordContent(sessionId, 'b'.repeat(500), false);
 
-    const check = budget.checkAction(sessionId, 'skill_propose');
+    const check = budget.checkAction(sessionId, 'identity_write');
     expect(check.allowed).toBe(true);
   });
 
@@ -433,7 +424,7 @@ describe('Power User Profile', () => {
     budget.recordContent(sessionId, 'a'.repeat(700), true);
     budget.recordContent(sessionId, 'b'.repeat(300), false);
 
-    const check = budget.checkAction(sessionId, 'skill_propose');
+    const check = budget.checkAction(sessionId, 'identity_write');
     expect(check.allowed).toBe(false);
   });
 });
@@ -482,7 +473,7 @@ describe('Architectural Invariants', () => {
     expect(VALID_ACTIONS).toContain('memory_write');
     expect(VALID_ACTIONS).toContain('web_fetch');
     expect(VALID_ACTIONS).toContain('browser_launch');
-    expect(VALID_ACTIONS).toContain('skill_propose');
+    expect(VALID_ACTIONS).toContain('identity_write');
     expect(VALID_ACTIONS).toContain('audit_query');
 
     // Phase 2 additions

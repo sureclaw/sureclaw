@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import { create } from '../../../src/providers/screener/static.js';
-import type { SkillScreenerProvider } from '../../../src/providers/skills/types.js';
+import type { SkillScreenerProvider } from '../../../src/providers/screener/types.js';
 import type { Config } from '../../../src/types.js';
 
 const config = {} as Config;

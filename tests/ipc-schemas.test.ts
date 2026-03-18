@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   IPC_SCHEMAS, IPCEnvelopeSchema,
   LlmCallSchema, MemoryWriteSchema, MemoryReadSchema,
-  SkillReadSchema, AuditQuerySchema, WebFetchSchema,
+  AuditQuerySchema, WebFetchSchema,
 } from '../src/ipc-schemas.js';
 
 describe('IPC Schema Validation (SC-SEC-001)', () => {
@@ -178,23 +178,6 @@ describe('IPC Schema Validation (SC-SEC-001)', () => {
       expect(WebFetchSchema.safeParse({
         action: 'web_fetch',
         url: 'not a url',
-      }).success).toBe(false);
-    });
-  });
-
-  // ── Skill Read ──
-  describe('SkillReadSchema', () => {
-    test('accepts valid name', () => {
-      expect(SkillReadSchema.safeParse({
-        action: 'skill_read',
-        name: 'default',
-      }).success).toBe(true);
-    });
-
-    test('rejects null bytes in name', () => {
-      expect(SkillReadSchema.safeParse({
-        action: 'skill_read',
-        name: 'test\0evil',
       }).success).toBe(false);
     });
   });

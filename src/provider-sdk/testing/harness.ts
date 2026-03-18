@@ -21,7 +21,6 @@ import type { LLMProvider } from '../interfaces/index.js';
 import type { ImageProvider } from '../interfaces/index.js';
 import type { SchedulerProvider } from '../interfaces/index.js';
 import type { SandboxProvider } from '../interfaces/index.js';
-import type { SkillStoreProvider } from '../interfaces/index.js';
 import type { ChannelProvider } from '../interfaces/index.js';
 
 // ═══════════════════════════════════════════════════════
@@ -47,7 +46,7 @@ export interface HarnessResult {
 
 export type ProviderKind =
   | 'llm' | 'image' | 'memory' | 'scanner' | 'channel'
-  | 'web' | 'browser' | 'credentials' | 'skills'
+  | 'web' | 'browser' | 'credentials'
   | 'audit' | 'sandbox' | 'scheduler';
 
 type ProviderForKind<K extends ProviderKind> =
@@ -59,7 +58,6 @@ type ProviderForKind<K extends ProviderKind> =
   K extends 'web' ? WebProvider :
   K extends 'browser' ? BrowserProvider :
   K extends 'credentials' ? CredentialProvider :
-  K extends 'skills' ? SkillStoreProvider :
   K extends 'audit' ? AuditProvider :
   K extends 'sandbox' ? SandboxProvider :
   K extends 'scheduler' ? SchedulerProvider :
@@ -358,30 +356,6 @@ function sandboxContract(): ContractTest<SandboxProvider>[] {
   ];
 }
 
-function skillsContract(): ContractTest<SkillStoreProvider>[] {
-  return [
-    {
-      name: 'list returns an array',
-      async run(provider) {
-        const result = await provider.list();
-        assertType(result, 'array', 'list() must return an array');
-      },
-    },
-    {
-      name: 'read is a function',
-      async run(provider) {
-        assertType(provider.read, 'function', 'read must be a function');
-      },
-    },
-    {
-      name: 'propose is a function',
-      async run(provider) {
-        assertType(provider.propose, 'function', 'propose must be a function');
-      },
-    },
-  ];
-}
-
 function channelContract(): ContractTest<ChannelProvider>[] {
   return [
     {
@@ -431,7 +405,6 @@ const CONTRACTS: Record<ProviderKind, () => ContractTest<any>[]> = {
   web: webContract,
   browser: browserContract,
   credentials: credentialContract,
-  skills: skillsContract,
   audit: auditContract,
   sandbox: sandboxContract,
   scheduler: schedulerContract,

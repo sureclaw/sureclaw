@@ -77,6 +77,30 @@ describe('canonicalEnv', () => {
     expect(env.XDG_CACHE_HOME).toBe('/tmp/.ax-cache');
     expect(env.AX_HOME).toBe('/tmp/.ax-agent');
   });
+
+  test('prepends user/bin and agent/bin to PATH when workspaces are active', () => {
+    const config = mockSandboxConfig({
+      agentWorkspace: '/workspace/agent-real',
+      userWorkspace: '/workspace/user-real',
+    });
+    const env = canonicalEnv(config);
+    expect(env.PATH).toMatch(/^\/workspace\/user\/bin:\/workspace\/agent\/bin:/);
+  });
+
+  test('omits user/bin from PATH when no user workspace', () => {
+    const config = mockSandboxConfig({
+      agentWorkspace: '/workspace/agent-real',
+    });
+    const env = canonicalEnv(config);
+    expect(env.PATH).toMatch(/^\/workspace\/agent\/bin:/);
+    expect(env.PATH).not.toContain('/workspace/user/bin');
+  });
+
+  test('omits bin dirs from PATH when no workspaces', () => {
+    const config = mockSandboxConfig();
+    const env = canonicalEnv(config);
+    expect(env.PATH).toBeUndefined();
+  });
 });
 
 describe('createCanonicalSymlinks', () => {
@@ -165,5 +189,17 @@ describe('symlinkEnv', () => {
 
     expect(env.AX_AGENT_WORKSPACE).toBe(join(mountRoot, 'agent'));
     expect(env.AX_USER_WORKSPACE).toBe(join(mountRoot, 'user'));
+  });
+
+  test('prepends user/bin and agent/bin to PATH when workspaces are active', () => {
+    const config = mockSandboxConfig({
+      agentWorkspace: '/home/alice/.ax/agents/main/agent/workspace',
+      userWorkspace: '/home/alice/.ax/agents/main/users/alice/workspace',
+    });
+    const { mountRoot, cleanup } = createCanonicalSymlinks(config);
+    cleanupFn = cleanup;
+
+    const env = symlinkEnv(config, mountRoot);
+    expect(env.PATH).toMatch(new RegExp(`^${mountRoot}/user/bin:${mountRoot}/agent/bin:`));
   });
 });

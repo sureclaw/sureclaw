@@ -58,18 +58,18 @@ describe('SkillsModule', () => {
     expect(mod.priority).toBe(70);
   });
 
-  test('includes meta-skill instructions with skill_propose', () => {
+  test('includes filesystem-based skill creation instructions', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')] });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('propose');
+    expect(rendered).toContain('./user/skills/');
   });
 
-  test('includes auto-continue hint', () => {
+  test('includes next-session hint', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')] });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('next turn');
+    expect(rendered).toContain('next session');
   });
 
   test('includes creating skills section', () => {
@@ -95,6 +95,6 @@ describe('SkillsModule', () => {
     const text = mod.renderMinimal!(ctx).join('\n');
     expect(text).toContain('3 skills available');
     expect(text).toContain('skill');
-    expect(text).toContain('read');
+    expect(text).toContain('Read');
   });
 });

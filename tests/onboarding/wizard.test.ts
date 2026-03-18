@@ -40,7 +40,7 @@ describe('Onboarding Wizard', () => {
     expect(config.profile).toBe('paranoid');
     expect(config.providers.scanner).toBe('patterns');
     expect(config.providers.web).toBe('none');
-    expect(config.providers.skills).toBe('database');
+
     expect(config.providers.channels).toEqual(['cli']);
   });
 
@@ -59,7 +59,7 @@ describe('Onboarding Wizard', () => {
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('balanced');
     expect(config.providers.web).toBe('fetch');
-    expect(config.providers.skills).toBe('database');
+
     expect(config.providers.memory).toBe('cortex');
   });
 
@@ -77,7 +77,7 @@ describe('Onboarding Wizard', () => {
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('yolo');
-    expect(config.providers.skills).toBe('database');
+
     expect(config.providers.browser).toBe('container');
     expect(config.providers.credentials).toBe('keychain');
   });

@@ -107,15 +107,6 @@ export interface IdentityPayload {
   heartbeat?: string;
 }
 
-/** A skill loaded from DocumentStore with extracted metadata. */
-export interface SkillPayload {
-  name: string;
-  path: string;
-  description: string;
-  content: string;
-  scope: 'agent' | 'user';
-}
-
 /** Map from identity filename (without .md) to the corresponding IdentityPayload field. */
 const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
   'AGENTS.md': 'agents',
@@ -127,40 +118,6 @@ const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
   'HEARTBEAT.md': 'heartbeat',
 };
 
-/**
- * Extract skill name and description from markdown content.
- * Takes the H1 title as the name and the first non-empty, non-heading line
- * as the description. Falls back to the last segment of the path if no H1 found.
- */
-export function extractSkillMeta(content: string, path: string): { name: string; description: string } {
-  const lines = content.split('\n');
-  // Default name: last segment of path (e.g. 'deploy' from 'main/deploy')
-  // For directory-based skills (e.g. 'deploy/SKILL.md'), use the parent directory name
-  const segments = path.split('/');
-  let lastSegment: string;
-  if (segments.length >= 2 && segments[segments.length - 1] === 'SKILL.md') {
-    lastSegment = segments[segments.length - 2];
-  } else {
-    lastSegment = segments[segments.length - 1] ?? path;
-  }
-  let name = lastSegment.replace(/\.md$/i, '');
-  let description = '';
-
-  for (const line of lines) {
-    const h1Match = line.match(/^#\s+(.+)/);
-    if (h1Match && !name.includes('/')) {
-      name = h1Match[1].trim();
-      continue;
-    }
-    // First non-empty, non-heading line is the description
-    if (!description && line.trim() && !line.startsWith('#')) {
-      description = line.trim();
-      break;
-    }
-  }
-
-  return { name, description: description || 'No description' };
-}
 
 /**
  * Resolve the GCS object-key prefixes used for in-pod workspace provisioning.
@@ -246,70 +203,6 @@ async function loadIdentityFromDB(
   }
 
   return identity;
-}
-
-/**
- * Load skills from DocumentStore for a given agent and user.
- * User-level skills shadow agent-level skills when relative paths match.
- * Returns an array of SkillPayload with extracted metadata.
- */
-async function loadSkillsFromDB(
-  documents: DocumentStore,
-  agentName: string,
-  userId: string,
-  logger: Logger,
-): Promise<SkillPayload[]> {
-  try {
-    const allKeys = await documents.list('skills');
-    const agentPrefix = `${agentName}/`;
-    const userPrefix = `${agentName}/users/${userId}/`;
-
-    // Collect agent-level skills keyed by relative path
-    const agentSkills = new Map<string, string>(); // relativePath → key
-    for (const key of allKeys) {
-      if (!key.startsWith(agentPrefix)) continue;
-      if (key.includes('/users/')) continue;
-      const relativePath = key.slice(agentPrefix.length);
-      agentSkills.set(relativePath, key);
-    }
-
-    // Collect user-level skills keyed by relative path
-    const userSkills = new Map<string, string>(); // relativePath → key
-    for (const key of allKeys) {
-      if (!key.startsWith(userPrefix)) continue;
-      const relativePath = key.slice(userPrefix.length);
-      userSkills.set(relativePath, key);
-    }
-
-    // Merge: user skills shadow agent skills with matching relative paths
-    const mergedPaths = new Map<string, { key: string; scope: 'agent' | 'user' }>();
-    for (const [relPath, key] of agentSkills) {
-      mergedPaths.set(relPath, { key, scope: 'agent' });
-    }
-    for (const [relPath, key] of userSkills) {
-      mergedPaths.set(relPath, { key, scope: 'user' }); // shadows agent
-    }
-
-    // Load content and extract metadata.
-    // Deduplicate: file-based (deploy.md) takes precedence over directory-based (deploy/SKILL.md)
-    // when both exist with the same derived name.
-    const skills: SkillPayload[] = [];
-    const seenNames = new Set<string>();
-    for (const [relPath, { key, scope }] of mergedPaths) {
-      const content = await documents.get('skills', key);
-      if (!content) continue;
-
-      const { name, description } = extractSkillMeta(content, relPath);
-      if (seenNames.has(name)) continue;
-      seenNames.add(name);
-      skills.push({ name, path: relPath, description, content, scope });
-    }
-
-    return skills;
-  } catch (err) {
-    logger.warn('skills_load_failed', { error: (err as Error).message });
-    return [];
-  }
 }
 
 /**
@@ -831,16 +724,8 @@ export async function processCompletion(
     // Identity files are keyed as <agentName>/<filename> and <agentName>/users/<userId>/<filename>
     const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
 
-    // ── Load skills from DocumentStore ──
-    // Skills are keyed as <agentName>/<path> (agent-level) and <agentName>/users/<userId>/<path> (user-level)
-    const skillsPayload = await loadSkillsFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
-
-    // Identity and skills are delivered to the agent via stdin payload (below).
-    // The agent reads them via `preloaded` in identity-loader.ts and uses the
-    // `identity({ type: "read" })` IPC tool for on-demand access.
-    // We do NOT write them to the agent workspace — the workspace may be
-    // GCS-backed, and writing on every request would create unnecessary cloud
-    // I/O and stale files. The agent workspace mount is read-only for identity.
+    // Identity is delivered to the agent via stdin payload (below).
+    // Skills are now loaded directly from filesystem directories by the agent.
 
     // ── Workspace lifecycle ──
     // Build a plan once per turn. Host-side providers (Docker/Apple) use it to
@@ -884,9 +769,8 @@ export async function processCompletion(
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
       workspaceProvider: config.providers.workspace,
-      // Identity and skills from DocumentStore (not filesystem)
+      // Identity from DocumentStore (skills are now filesystem-based)
       identity: identityPayload,
-      skills: skillsPayload,
       // Workspace provisioning fields (sandbox-side providers provision in-pod)
       workspaceGitUrl: process.env.AX_WORKSPACE_GIT_URL,
       workspaceGitRef: process.env.AX_WORKSPACE_GIT_REF,

@@ -23,7 +23,7 @@ const mockConfig = {
   providers: {
     memory: 'cortex', scanner: 'patterns',
     channels: ['cli'], web: 'none', browser: 'none',
-    credentials: 'keychain', skills: 'database', audit: 'database',
+    credentials: 'keychain', audit: 'database',
     sandbox: 'subprocess', scheduler: 'none',
   },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
@@ -232,7 +232,8 @@ describe('server workspace isolation', () => {
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
     // Workspace is NOT passed as a CLI arg to the agent — it's set via canonical env
-    // vars by the sandbox provider. Identity and skills come via stdin payload.
+    // vars by the sandbox provider. Identity comes via stdin payload; skills are
+    // now filesystem-based (loaded from workspace directories at agent startup).
     const spawnStart = source.indexOf('spawnCommand');
     const spawnEnd = source.indexOf('host_prepare', spawnStart);
     const spawnSection = source.slice(spawnStart, spawnEnd !== -1 ? spawnEnd : undefined);
@@ -240,12 +241,9 @@ describe('server workspace isolation', () => {
     expect(spawnSection).not.toContain("'--skills'");
     expect(spawnSection).not.toContain("'--agent-dir'");
 
-    // Skills are loaded from DocumentStore and sent via stdin payload, not
-    // mounted as a filesystem directory via overlayfs.
-    expect(source).toContain("loadSkillsFromDB");
-    expect(source).toContain("skills: skillsPayload");
-
-    // Must NOT have overlayfs merge or filesystem-based skills
+    // Skills are now filesystem-based — no longer loaded from DB or sent via payload
+    expect(source).not.toContain("loadSkillsFromDB");
+    expect(source).not.toContain("skills: skillsPayload");
     expect(source).not.toContain("mergeSkillsOverlay");
     expect(source).not.toContain("wsSkillsDir");
     expect(source).not.toContain("hostSkillsDir");

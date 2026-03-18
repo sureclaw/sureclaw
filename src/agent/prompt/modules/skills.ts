@@ -32,10 +32,10 @@ export class SkillsModule extends BasePromptModule {
       '## Available Skills',
       '',
       'Before replying, scan this list for a skill that matches the current task.',
-      'If exactly one skill clearly applies: call `skill({ type: "read" })` to load its full',
-      'instructions, then follow them. If multiple could apply: choose the most',
-      'specific one, then read and follow it. If none clearly apply: do not load',
-      'any skill \u2014 just respond normally.',
+      'If exactly one skill clearly applies: read the skill file from ./user/skills/ or',
+      './agent/skills/ to load its full instructions, then follow them. If multiple could',
+      'apply: choose the most specific one, then read and follow it. If none clearly',
+      'apply: do not load any skill \u2014 just respond normally.',
       '',
       'Never read more than one skill up front; only read after selecting.',
       '',
@@ -51,8 +51,8 @@ export class SkillsModule extends BasePromptModule {
         '### Missing Dependencies',
         '',
         'Some skills have missing binary dependencies (marked with \u26A0 above).',
-        'Use `skill({ type: "install", name: "<skill>", phase: "inspect" })` to check',
-        'what needs to be installed, then present the install steps to the user for approval.',
+        'Install them directly using package managers (npm, pip, brew, etc.)',
+        'and place binaries in `./user/bin/` so they persist across sessions.',
       );
     }
 
@@ -60,8 +60,9 @@ export class SkillsModule extends BasePromptModule {
       '',
       '### Creating Skills',
       '',
-      'You can create new skills using `skill({ type: "propose" })`. Skills are markdown',
-      'instruction files \u2014 like checklists, workflows, or domain-specific knowledge.',
+      'Create new skills by writing markdown files directly to `./user/skills/`.',
+      'File-based: `./user/skills/my-skill.md`',
+      'Directory-based: `./user/skills/my-skill/SKILL.md`',
       '',
       '**When to create a skill:**',
       '- You notice a recurring multi-step pattern in your work',
@@ -69,8 +70,7 @@ export class SkillsModule extends BasePromptModule {
       '- You need domain-specific knowledge packaged for reuse',
       '',
       '**After creating a skill:** Continue working on your current task.',
-      'The skill appears in your list on the next turn \u2014 do not pause or wait',
-      'for confirmation.',
+      'The skill appears in your list on the next session.',
     );
 
     return lines;
@@ -79,7 +79,7 @@ export class SkillsModule extends BasePromptModule {
   renderMinimal(ctx: PromptContext): string[] {
     return [
       '## Skills',
-      `${ctx.skills.length} skills available. Use \`skill({ type: "read" })\` to load as needed.`,
+      `${ctx.skills.length} skills available. Read skill files from ./user/skills/ or ./agent/skills/ as needed.`,
     ];
   }
 }

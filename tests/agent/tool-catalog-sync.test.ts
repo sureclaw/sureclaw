@@ -109,12 +109,12 @@ describe('tool-catalog <-> system prompt sync', () => {
     }
   });
 
-  test('skill propose operation is documented in SkillsModule', () => {
+  test('skill creation instructions are documented in SkillsModule', () => {
     const mod = new SkillsModule();
     const ctx = makePromptContext({ skills: [{ name: 'Dummy', description: 'dummy', path: 'dummy.md' }] });
     const rendered = mod.render(ctx).join('\n');
-    // Should reference the consolidated skill tool with propose type
-    expect(rendered, 'skill propose missing from SkillsModule system prompt').toContain('propose');
+    // Should reference filesystem-based skill creation
+    expect(rendered, 'skill creation path missing from SkillsModule system prompt').toContain('./user/skills/');
     expect(rendered, 'skill tool missing from SkillsModule system prompt').toContain('skill');
   });
 
@@ -200,6 +200,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'agent_response',
       // Workspace release (NATS mode — agent sends workspace file changes via IPC)
       'workspace_release',
+      // Web proxy domain governance (host-internal approval gate)
+      'web_proxy_approve',
     ]);
 
     for (const action of schemaActions) {

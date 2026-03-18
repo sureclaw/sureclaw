@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { getLogger } from '../logger.js';
 import { loadConfig } from '../config.js';
+import { screenReleaseChanges } from './workspace-release-screener.js';
 import { loadProviders } from './registry.js';
 import { sendError, sendSSEChunk, readBody } from './server-http.js';
 import type { OpenAIChatRequest } from './server-http.js';
@@ -449,11 +450,24 @@ async function main(): Promise<void> {
                 size: c.size,
               }));
 
-              if (providers.workspace?.setRemoteChanges) {
-                providers.workspace.setRemoteChanges(sessionId, changes);
+              // Screen skill files and binaries before committing
+              const screening = await screenReleaseChanges(changes, {
+                screener: providers.screener,
+                audit: providers.audit,
+                sessionId,
+              });
+              if (screening.rejected.length > 0) {
+                logger.warn('workspace_release_rejected_files', {
+                  requestId,
+                  rejected: screening.rejected.map(r => ({ path: r.path, reason: r.reason })),
+                });
               }
 
-              logger.info('workspace_release_stored', { requestId, stagingKey, changeCount: changes.length });
+              if (providers.workspace?.setRemoteChanges) {
+                providers.workspace.setRemoteChanges(sessionId, screening.accepted);
+              }
+
+              logger.info('workspace_release_stored', { requestId, stagingKey, changeCount: screening.accepted.length });
               return JSON.stringify({ ok: true });
             }
 
@@ -683,8 +697,20 @@ async function main(): Promise<void> {
           size: c.size,
         }));
 
+        // Screen skill files and binaries before committing
+        const screening = await screenReleaseChanges(changes, {
+          screener: providers.screener,
+          audit: providers.audit,
+          sessionId: entry.ctx.sessionId,
+        });
+        if (screening.rejected.length > 0) {
+          logger.warn('workspace_release_rejected_files', {
+            rejected: screening.rejected.map(r => ({ path: r.path, reason: r.reason })),
+          });
+        }
+
         if (providers.workspace?.setRemoteChanges) {
-          providers.workspace.setRemoteChanges(entry.ctx.sessionId, changes);
+          providers.workspace.setRemoteChanges(entry.ctx.sessionId, screening.accepted);
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });

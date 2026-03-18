@@ -262,34 +262,11 @@ async function handleAdminAPI(
   }
 
   // GET /admin/api/agents/:id/skills — list skills
-  const skillsListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills$/);
+  // Skills are now filesystem-based (in agent/skills/ and user/skills/ workspace directories).
+  // The admin API no longer provides centralized skill listing.
+  const skillsListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills/);
   if (skillsListMatch && method === 'GET') {
-    const id = decodeURIComponent(skillsListMatch[1]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const skills = await providers.skills.list();
-      sendJSON(res, skills);
-    } catch (err) {
-      logger.error('admin_skills_failed', { agentId: id, error: (err as Error).message });
-      sendError(res, 500, `Failed to list skills: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // GET /admin/api/agents/:id/skills/:name — read skill content
-  const skillReadMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills\/(.+)$/);
-  if (skillReadMatch && method === 'GET') {
-    const id = decodeURIComponent(skillReadMatch[1]);
-    const skillName = decodeURIComponent(skillReadMatch[2]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const content = await providers.skills.read(skillName);
-      sendJSON(res, { name: skillName, content });
-    } catch {
-      sendError(res, 404, 'Skill not found');
-    }
+    sendJSON(res, { message: 'Skills are now filesystem-based in workspace directories' });
     return;
   }
 

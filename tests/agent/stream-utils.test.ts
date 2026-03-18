@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { convertPiMessages, emitStreamEvents, loadSkills } from '../../src/agent/stream-utils.js';
+import { convertPiMessages, emitStreamEvents, loadSkills, loadSkillsMultiDir } from '../../src/agent/stream-utils.js';
 
 // ── convertPiMessages ────────────────────────────────────────────────
 
@@ -259,5 +259,48 @@ describe('loadSkills', () => {
 
   test('returns empty array when directory does not exist', () => {
     expect(loadSkills('/nonexistent/path')).toEqual([]);
+  });
+});
+
+// ── loadSkillsMultiDir ────────────────────────────────────────────────
+
+describe('loadSkillsMultiDir', () => {
+  const agentDir = join(tmpdir(), 'ax-test-multidir-agent-' + Date.now());
+  const userDir = join(tmpdir(), 'ax-test-multidir-user-' + Date.now());
+
+  beforeEach(() => {
+    mkdirSync(agentDir, { recursive: true });
+    mkdirSync(userDir, { recursive: true });
+  });
+  afterEach(() => {
+    rmSync(agentDir, { recursive: true, force: true });
+    rmSync(userDir, { recursive: true, force: true });
+  });
+
+  test('merges skills from multiple directories, user shadows agent', () => {
+    // Agent has deploy.md and shared.md
+    writeFileSync(join(agentDir, 'deploy.md'), '# Deploy\nDeploy to production');
+    writeFileSync(join(agentDir, 'shared.md'), '# Shared\nShared skill');
+
+    // User has deploy.md (shadows agent) and private.md
+    writeFileSync(join(userDir, 'deploy.md'), '# Deploy\nUser custom deploy');
+    writeFileSync(join(userDir, 'private.md'), '# Private\nUser only skill');
+
+    const skills = loadSkillsMultiDir([
+      { dir: agentDir, scope: 'agent' },
+      { dir: userDir, scope: 'user' },
+    ]);
+
+    expect(skills).toHaveLength(3); // deploy (user), shared (agent), private (user)
+    const deploy = skills.find(s => s.name === 'Deploy');
+    expect(deploy?.description).toBe('User custom deploy');
+  });
+
+  test('returns empty array when directories do not exist', () => {
+    const skills = loadSkillsMultiDir([
+      { dir: '/nonexistent/agent', scope: 'agent' },
+      { dir: '/nonexistent/user', scope: 'user' },
+    ]);
+    expect(skills).toEqual([]);
   });
 });

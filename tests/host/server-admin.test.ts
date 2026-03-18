@@ -23,7 +23,6 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
       web: 'none',
       browser: 'none',
       credentials: 'keychain',
-      skills: 'database',
       audit: 'database',
       sandbox: 'subprocess',
       scheduler: 'none',
@@ -82,12 +81,6 @@ async function mockDeps(configOverrides: Partial<Config['admin']> = {}): Promise
           list: vi.fn().mockResolvedValue(['main/persona.md']),
           get: vi.fn().mockResolvedValue('You are a helpful assistant.'),
         },
-      },
-      skills: {
-        list: vi.fn().mockResolvedValue([
-          { name: 'test-skill', description: 'A test skill', path: '/skills/test.md' },
-        ]),
-        read: vi.fn().mockResolvedValue('skill content here'),
       },
       workspace: {
         listFiles: vi.fn().mockResolvedValue([
@@ -433,16 +426,18 @@ describe('GET /admin/api/agents/:id/skills', () => {
 
   afterEach(() => { server.close(); });
 
-  it('returns skills list', async () => {
+  it('returns filesystem-based skills message', async () => {
     const res = await fetchAdmin(port, '/admin/api/agents/main/skills', { token: 'test-secret-token' });
     expect(res.status).toBe(200);
-    const skills = res.body as Array<{ name: string }>;
-    expect(Array.isArray(skills)).toBe(true);
+    const data = res.body as { message: string };
+    expect(data.message).toContain('filesystem-based');
   });
 
-  it('returns 404 for unknown agent', async () => {
+  it('returns same message for any agent (filesystem-based)', async () => {
     const res = await fetchAdmin(port, '/admin/api/agents/nonexistent/skills', { token: 'test-secret-token' });
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    const data = res.body as { message: string };
+    expect(data.message).toContain('filesystem-based');
   });
 });
 
@@ -498,10 +493,6 @@ describe('tab endpoints handle provider errors gracefully', () => {
             get: vi.fn().mockRejectedValue(new Error('database connection lost')),
           },
         },
-        skills: {
-          list: vi.fn().mockRejectedValue(new Error('skills table not found')),
-          read: vi.fn().mockRejectedValue(new Error('skills table not found')),
-        },
         workspace: {
           listFiles: vi.fn().mockRejectedValue(new Error('workspace unavailable')),
         },
@@ -530,12 +521,11 @@ describe('tab endpoints handle provider errors gracefully', () => {
     expect(body.error.message).toContain('database connection lost');
   });
 
-  it('skills endpoint returns 500 with specific error when provider fails', async () => {
+  it('skills endpoint returns 200 with filesystem message (no provider dependency)', async () => {
     const res = await fetchAdmin(port, '/admin/api/agents/main/skills', { token: 'test-secret-token' });
-    expect(res.status).toBe(500);
-    const body = res.body as { error: { message: string } };
-    expect(body.error.message).toContain('Failed to list skills');
-    expect(body.error.message).toContain('skills table not found');
+    expect(res.status).toBe(200);
+    const data = res.body as { message: string };
+    expect(data.message).toContain('filesystem-based');
   });
 
   it('workspace endpoint returns 500 with specific error when provider fails', async () => {

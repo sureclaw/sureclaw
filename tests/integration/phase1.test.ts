@@ -44,7 +44,7 @@ function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Con
     providers: {
       memory: 'cortex', scanner: 'patterns',
       channels: [], web: 'none', browser: 'none',
-      credentials: 'keychain', skills: 'database', audit: 'database',
+      credentials: 'keychain', audit: 'database',
       sandbox: 'subprocess', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
@@ -111,15 +111,6 @@ function mockProviders(opts?: {
       async set() {},
       async delete() {},
       async list() { return []; },
-    },
-    skills: {
-      async list() { return []; },
-      async read() { return ''; },
-      async propose() { return { id: 'p1', verdict: 'REJECT' as const, reason: 'test' }; },
-      async approve() {},
-      async reject() {},
-      async revert() {},
-      async log() { return []; },
     },
     audit: {
       async log(_entry: Partial<AuditEntry>) {},
@@ -224,7 +215,7 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(100), false); // user
 
     // Taint ratio = 400/500 = 80% > 10% threshold
-    const check = taintBudget.checkAction(sessionId, 'skill_propose');
+    const check = taintBudget.checkAction(sessionId, 'identity_write');
     expect(check.allowed).toBe(false);
     expect(check.reason).toContain('80.0%');
     expect(check.reason).toContain('10%');
@@ -242,7 +233,7 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(400), false); // user
 
     // Taint ratio = 100/500 = 20% < 30% threshold
-    const check = taintBudget.checkAction(sessionId, 'skill_propose');
+    const check = taintBudget.checkAction(sessionId, 'identity_write');
     expect(check.allowed).toBe(true);
   });
 
@@ -254,11 +245,11 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(100), false);
 
     // Initially blocked
-    expect(taintBudget.checkAction(sessionId, 'skill_propose').allowed).toBe(false);
+    expect(taintBudget.checkAction(sessionId, 'identity_write').allowed).toBe(false);
 
     // User override
-    taintBudget.addUserOverride(sessionId, 'skill_propose');
-    expect(taintBudget.checkAction(sessionId, 'skill_propose').allowed).toBe(true);
+    taintBudget.addUserOverride(sessionId, 'identity_write');
+    expect(taintBudget.checkAction(sessionId, 'identity_write').allowed).toBe(true);
 
     // Other sensitive actions are still blocked
     expect(taintBudget.checkAction(sessionId, 'oauth_call').allowed).toBe(false);
@@ -410,9 +401,6 @@ describe('Provider Map', () => {
 
     // Credential providers
     expect(PROVIDER_MAP.credentials).toHaveProperty('plaintext');
-
-    // Skills providers
-    expect(PROVIDER_MAP.skills).toHaveProperty('database');
 
     // Audit providers
     expect(PROVIDER_MAP.audit).toHaveProperty('database');

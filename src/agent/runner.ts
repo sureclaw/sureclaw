@@ -27,15 +27,6 @@ export interface ConversationTurn {
 
 export type AgentType = 'pi-coding-agent' | 'claude-code';
 
-/** A skill loaded from the host (via stdin payload or filesystem). */
-export interface SkillPayload {
-  name: string;
-  path: string;
-  description: string;
-  content: string;
-  scope: 'agent' | 'user';
-}
-
 /** Minimal IPC client interface satisfied by both IPCClient and HttpIPCClient. */
 export interface IIPCClient {
   call(request: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>>;
@@ -81,8 +72,6 @@ export interface AgentConfig {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
-  /** Pre-loaded skills from host (via stdin payload). Skips filesystem reads when present. */
-  skills?: SkillPayload[];
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -283,8 +272,6 @@ export interface StdinPayload {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (loaded from DocumentStore). */
   identity?: Partial<IdentityFiles>;
-  /** Pre-loaded skills from host (loaded from DocumentStore). */
-  skills?: SkillPayload[];
   /** Git URL for scratch workspace provisioning (k8s in-pod). */
   workspaceGitUrl?: string;
   /** Git ref for workspace checkout. */
@@ -342,9 +329,8 @@ export function parseStdinPayload(data: string): StdinPayload {
         agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
         userWorkspace: typeof parsed.userWorkspace === 'string' ? parsed.userWorkspace : undefined,
         workspaceProvider: typeof parsed.workspaceProvider === 'string' ? parsed.workspaceProvider : undefined,
-        // Identity and skills from host (loaded from DocumentStore)
+        // Identity from host (loaded from DocumentStore)
         identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
-        skills: Array.isArray(parsed.skills) ? parsed.skills as SkillPayload[] : undefined,
         // Workspace provisioning fields (sandbox-side providers provision in-pod)
         workspaceGitUrl: typeof parsed.workspaceGitUrl === 'string' ? parsed.workspaceGitUrl : undefined,
         workspaceGitRef: typeof parsed.workspaceGitRef === 'string' ? parsed.workspaceGitRef : undefined,
@@ -565,7 +551,7 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
   config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
   config.workspaceProvider = payload.workspaceProvider;
-  // Identity and skills from host (loaded from DocumentStore)
+  // Identity from host (loaded from DocumentStore; skills are now filesystem-based)
   if (payload.identity) {
     config.identity = {
       agents: payload.identity.agents ?? '',
@@ -577,7 +563,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       heartbeat: payload.identity.heartbeat ?? '',
     };
   }
-  config.skills = payload.skills;
 }
 
 /**

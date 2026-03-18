@@ -131,44 +131,6 @@ describe('agent-runner', () => {
     expect(nonSystemMsgs[2]).toEqual({ role: 'user', content: 'Do you remember?' });
   });
 
-  test('run() loads skills from payload', async () => {
-    let receivedMessages: any[] = [];
-    server = createMockIPCServer(socketPath, (req) => {
-      if (req.action === 'llm_call') {
-        receivedMessages = (req.messages as any[]) ?? [];
-        return {
-          ok: true,
-          chunks: [
-            { type: 'text', content: 'OK' },
-            { type: 'done', usage: { inputTokens: 10, outputTokens: 5 } },
-          ],
-        };
-      }
-      return { ok: true };
-    });
-    await new Promise<void>((r) => server.on('listening', r));
-
-    const origWrite = process.stdout.write;
-    process.stdout.write = (() => true) as typeof process.stdout.write;
-
-    try {
-      await run({
-        ipcSocket: socketPath,
-        workspace,
-        skills: [
-          { name: 'Greeting Skill', path: 'greeting.md', description: 'Always greet politely.', content: '# Greeting Skill\nAlways greet politely.', scope: 'agent' },
-        ],
-        userMessage: 'Test',
-      });
-    } finally {
-      process.stdout.write = origWrite;
-    }
-
-    const systemMsg = receivedMessages.find((m: any) => m.role === 'system');
-    expect(systemMsg).toBeTruthy();
-    expect(systemMsg.content).toContain('Greeting Skill');
-  });
-
   test('run() does nothing for empty message', async () => {
     // Should exit cleanly without connecting to IPC
     await run({
@@ -240,7 +202,7 @@ describe('parseStdinPayload with taint state', () => {
     expect(result.replyOptional).toBe(false);
   });
 
-  test('extracts identity and skills from payload', () => {
+  test('extracts identity from payload', () => {
     const payload = JSON.stringify({
       message: 'hello',
       history: [],
@@ -257,27 +219,20 @@ describe('parseStdinPayload with taint state', () => {
         userBootstrap: '',
         heartbeat: '',
       },
-      skills: [
-        { name: 'TestSkill', path: 'test.md', description: 'A test skill', content: '# TestSkill\nDoes stuff.', scope: 'agent' },
-      ],
     });
     const result = parseStdinPayload(payload);
     expect(result.identity).toBeDefined();
     expect(result.identity!.soul).toBe('# Soul');
     expect(result.identity!.agents).toBe('# Agents');
-    expect(result.skills).toHaveLength(1);
-    expect(result.skills![0].name).toBe('TestSkill');
-    expect(result.skills![0].scope).toBe('agent');
   });
 
-  test('defaults identity and skills to undefined when absent', () => {
+  test('defaults identity to undefined when absent', () => {
     const payload = JSON.stringify({
       message: 'hello',
       history: [],
     });
     const result = parseStdinPayload(payload);
     expect(result.identity).toBeUndefined();
-    expect(result.skills).toBeUndefined();
   });
 
   test('extracts ipcToken from JSON payload (NATS 503 fix)', () => {

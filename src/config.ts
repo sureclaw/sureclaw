@@ -55,7 +55,7 @@ const ConfigSchema = z.strictObject({
         }
         return val;
       }),
-    skills: providerEnum('skills'),
+    skills: z.string().optional(), // deprecated — skills are now filesystem-based
     audit: providerEnum('audit'),
     sandbox: providerEnum('sandbox'),
     scheduler: providerEnum('scheduler'),

@@ -34,8 +34,6 @@ const DEFAULT_SENSITIVE_ACTIONS = new Set([
   'identity_write',
   'user_write',
   'oauth_call',
-  'skill_propose',
-  'skill_install',
   'browser_navigate',
   'scheduler_add_cron',
 ]);

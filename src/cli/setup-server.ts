@@ -206,7 +206,6 @@ providers:
   web: none
   browser: none
   credentials: keychain
-  skills: database
   audit: database
   sandbox: subprocess
   scheduler: none

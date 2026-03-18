@@ -7,7 +7,8 @@
 import { getLogger } from '../logger.js';
 import { PromptBuilder } from './prompt/builder.js';
 import { loadIdentityFiles } from './identity-loader.js';
-import { loadSkills } from './stream-utils.js';
+import { loadSkillsMultiDir } from './stream-utils.js';
+import { join } from 'node:path';
 import type { AgentConfig } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 
@@ -31,10 +32,15 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  // Skills come via stdin payload (array), map to SkillSummary[] directly.
-  const skills: import('./prompt/types.js').SkillSummary[] = Array.isArray(config.skills)
-    ? config.skills.map(s => ({ name: s.name, description: s.description, path: s.path }))
-    : [];
+  // Load skills from workspace directories (user shadows agent)
+  const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [];
+  if (config.agentWorkspace) {
+    skillDirs.push({ dir: join(config.agentWorkspace, 'skills'), scope: 'agent' });
+  }
+  if (config.userWorkspace) {
+    skillDirs.push({ dir: join(config.userWorkspace, 'skills'), scope: 'user' });
+  }
+  const skills = loadSkillsMultiDir(skillDirs);
 
   // Identity is pre-loaded from host (via stdin payload from DocumentStore).
   const identityFiles = loadIdentityFiles({
@@ -67,7 +73,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
 
   const toolFilter: ToolFilterContext = {
     hasHeartbeat: !!identityFiles.heartbeat?.trim(),
-    hasSkills: skills.length > 0,
     hasWorkspaceScopes,
     hasGovernance,
   };

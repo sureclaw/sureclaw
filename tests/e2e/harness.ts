@@ -35,7 +35,7 @@ import type { FetchRequest, FetchResponse, SearchResult } from '../../src/provid
 import type { ChatChunk } from '../../src/providers/llm/types.js';
 import type { CronJobDef } from '../../src/providers/scheduler/types.js';
 import type { BrowserSession, PageSnapshot } from '../../src/providers/browser/types.js';
-import type { SkillProposal, ProposalResult, SkillMeta, SkillLogEntry } from '../../src/providers/skills/types.js';
+// Skills are now filesystem-based; the SkillStoreProvider is removed.
 import { FileAgentRegistry, type AgentRegistry, type AgentRegistryEntry } from '../../src/host/agent-registry.js';
 
 import { ScriptedLLM, textTurn, type LLMTurn } from './scripted-llm.js';
@@ -73,10 +73,6 @@ export interface HarnessOptions {
   browserSnapshot?: PageSnapshot;
   /** Initial memory entries to seed. */
   seedMemory?: MemoryEntry[];
-  /** Initial skills to seed. */
-  seedSkills?: { name: string; content: string }[];
-  /** Skill proposal verdict override. */
-  skillProposalVerdict?: ProposalResult;
   /** Whether skill screener is enabled. */
   enableSkillScreener?: boolean;
   /** Scanner input verdict override. */
@@ -110,8 +106,6 @@ export class TestHarness {
   readonly schedulerJobs: CronJobDef[] = [];
   readonly schedulerOnceJobs: { job: CronJobDef; fireAt: Date }[] = [];
   readonly skillStore = new Map<string, string>();
-  readonly skillProposals: { proposal: SkillProposal; result: ProposalResult }[] = [];
-  readonly skillLog: SkillLogEntry[] = [];
 
   // Browser state
   private browserSessions = new Map<string, { url?: string }>();
@@ -120,9 +114,6 @@ export class TestHarness {
   // Web stubs
   private webFetches: WebFetchStub[];
   private webSearches: WebSearchStub[];
-
-  // Skill config
-  private skillProposalVerdict: ProposalResult | undefined;
 
   private readonly mockChannel: ChannelProvider;
 
@@ -148,20 +139,12 @@ export class TestHarness {
       title: 'Test Page', url: 'https://example.com',
       text: 'Mock page content', refs: [{ ref: 0, tag: 'a', text: 'Link' }],
     };
-    this.skillProposalVerdict = opts.skillProposalVerdict;
 
     // Seed memory
     if (opts.seedMemory) {
       for (const entry of opts.seedMemory) {
         const id = entry.id ?? randomUUID();
         this.memoryStore.set(id, { ...entry, id });
-      }
-    }
-
-    // Seed skills
-    if (opts.seedSkills) {
-      for (const skill of opts.seedSkills) {
-        this.skillStore.set(skill.name, skill.content);
       }
     }
 
@@ -590,59 +573,6 @@ export class TestHarness {
         async set() {},
         async delete() {},
         async list() { return []; },
-      },
-
-      skills: {
-        async list(): Promise<SkillMeta[]> {
-          return [...self.skillStore.keys()].map(name => ({
-            name, path: `skills/${name}.md`,
-          }));
-        },
-        async read(name: string) {
-          return self.skillStore.get(name) ?? '';
-        },
-        async propose(proposal: SkillProposal): Promise<ProposalResult> {
-          const result: ProposalResult = self.skillProposalVerdict ?? {
-            id: randomUUID(),
-            verdict: 'AUTO_APPROVE',
-            reason: 'Test auto-approve',
-          };
-          self.skillProposals.push({ proposal, result });
-          if (result.verdict === 'AUTO_APPROVE') {
-            self.skillStore.set(proposal.skill, proposal.content);
-          }
-          self.skillLog.push({
-            id: result.id,
-            skill: proposal.skill,
-            action: 'propose',
-            timestamp: new Date(),
-            reason: proposal.reason,
-          });
-          return result;
-        },
-        async approve(proposalId: string) {
-          const entry = self.skillProposals.find(p => p.result.id === proposalId);
-          if (entry) {
-            self.skillStore.set(entry.proposal.skill, entry.proposal.content);
-            self.skillLog.push({
-              id: proposalId, skill: entry.proposal.skill,
-              action: 'approve', timestamp: new Date(),
-            });
-          }
-        },
-        async reject(proposalId: string) {
-          self.skillLog.push({
-            id: proposalId, skill: 'unknown',
-            action: 'reject', timestamp: new Date(),
-          });
-        },
-        async revert(commitId: string) {
-          self.skillLog.push({
-            id: commitId, skill: 'unknown',
-            action: 'revert', timestamp: new Date(),
-          });
-        },
-        async log() { return self.skillLog; },
       },
 
       audit: {
