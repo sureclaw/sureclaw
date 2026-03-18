@@ -89,7 +89,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
       const resolveImageFile = createImageResolver(ctx, resolvedAgentName);
       const chunks: unknown[] = [];
       for await (const chunk of providers.llm.chat({
-        model: req.model ?? 'claude-sonnet-4-20250514',
+        model: effectiveModel,
         messages: req.messages,
         tools: req.tools,
         taskType: req.taskType,

@@ -1,5 +1,17 @@
 # Provider Lessons: Scheduler
 
+### Scheduler must be started in BOTH server.ts AND host-process.ts
+**Date:** 2026-03-17
+**Context:** The scheduler was never started in k8s because `host-process.ts` (the k8s host entry point) didn't call `scheduler.start()`. Only `server.ts` (standalone mode) had the scheduler lifecycle. IPC handlers worked (list/add/remove jobs) but heartbeat and cron timers never ran.
+**Lesson:** Every feature wired in `server.ts` must also be wired in `host-process.ts`. The two files share providers via `loadProviders()` but have separate lifecycle management. After adding any provider lifecycle call (`.start()`, `.stop()`, `.connect()`) to `server.ts`, immediately check if `host-process.ts` needs the same. Keyword: check both entry points.
+**Tags:** scheduler, host-process, server, k8s, lifecycle, feature-parity
+
+### LLM IPC handler must use configModel for actual calls, not just logging
+**Date:** 2026-03-17
+**Context:** `ipc-handlers/llm.ts` computed `effectiveModel = configModel ?? req.model` for logging and context estimation, but the actual `providers.llm.chat()` call used `req.model` directly — ignoring the user's configured model. The agent always sends a default model (e.g., `claude-sonnet-4-5-20250929`), so the configured model was silently unused.
+**Lesson:** In `createLLMHandlers`, use `effectiveModel` for the actual LLM call, not just for logging. The `configModel` (from `config.models.default[0]`) is the user's intended model and should take priority over the agent's default.
+**Tags:** llm, ipc, model-routing, config
+
 ### Scheduler provider methods must await async JobStore operations
 **Date:** 2026-03-17
 **Context:** `addCron`, `removeCron`, `listJobs`, and `scheduleOnce` in plainjob.ts were sync wrappers around `KyselyJobStore` async methods. In-memory tests passed because `MemoryJobStore` is sync, but PostgreSQL (k8s) broke silently — `listJobs()` always returned `[]` since `Array.isArray(Promise)` is false, and `addCron` fire-and-forgot the DB write.

@@ -39,6 +39,8 @@ import type { StreamEvent } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
 import { natsConnectOptions } from '../utils/nats.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
+import { resolveDelivery } from './delivery.js';
+import type { InboundMessage } from '../providers/shared-types.js';
 
 const logger = getLogger().child({ component: 'host-process' });
 
@@ -101,6 +103,7 @@ async function main(): Promise<void> {
   mkdirSync(dataDir(), { recursive: true });
   const db = providers.storage.messages;
   const conversationStore = providers.storage.conversations;
+  const sessionStore = providers.storage.sessions;
   const taintBudget = new TaintBudget({ threshold: thresholdForProfile(config.profile) });
   const router = createRouter(providers, db, { taintBudget });
 
@@ -1050,11 +1053,84 @@ async function main(): Promise<void> {
     server.on('error', reject);
   });
 
+  // ── Start scheduler ──
+
+  await providers.scheduler.start(async (msg: InboundMessage) => {
+    const result = await router.processInbound(msg);
+    if (result.queued) {
+      sessionCanaries.set(result.sessionId, result.canaryToken);
+      const schedRequestId = `sched-${randomUUID().slice(0, 8)}`;
+      const { responseContent } = await processCompletionWithNATS(
+        msg.content, schedRequestId,
+        [{ role: 'user', content: msg.content }],
+        result.sessionId,
+      );
+
+      // Resolve delivery target and send if applicable
+      if (responseContent.trim()) {
+        let delivery: import('../providers/scheduler/types.js').CronDelivery | undefined;
+        let jobAgentId = agentName;
+
+        if (msg.sender.startsWith('cron:')) {
+          const jobId = msg.sender.slice(5);
+          const jobs = await providers.scheduler.listJobs?.() ?? [];
+          const job = jobs.find(j => j.id === jobId);
+          if (job) {
+            jobAgentId = job.agentId;
+            delivery = job.delivery ?? config.scheduler.defaultDelivery;
+          } else {
+            delivery = config.scheduler.defaultDelivery;
+          }
+        } else if (msg.sender === 'heartbeat') {
+          delivery = config.scheduler.defaultDelivery;
+        } else {
+          delivery = config.scheduler.defaultDelivery;
+        }
+
+        const resolution = await resolveDelivery(delivery, {
+          sessionStore,
+          agentId: jobAgentId,
+          defaultDelivery: config.scheduler.defaultDelivery,
+          channels: providers.channels,
+        });
+
+        if (resolution.mode === 'channel' && resolution.session && resolution.channelProvider) {
+          const outbound = await router.processOutbound(responseContent, result.sessionId, result.canaryToken);
+          if (!outbound.canaryLeaked) {
+            try {
+              await resolution.channelProvider.send(resolution.session, { content: outbound.content });
+              logger.info('cron_delivered', {
+                sender: msg.sender,
+                provider: resolution.session.provider,
+                contentLength: outbound.content.length,
+              });
+            } catch (err) {
+              logger.error('cron_delivery_failed', {
+                sender: msg.sender,
+                provider: resolution.session.provider,
+                error: (err as Error).message,
+              });
+            }
+          } else {
+            logger.warn('cron_delivery_canary_leaked', { sender: msg.sender });
+          }
+        }
+      }
+
+      logger.info('scheduler_message_processed', {
+        contentLength: responseContent.length,
+      });
+    }
+  });
+  logger.info('scheduler_started');
+
   // ── Graceful shutdown ──
 
   const shutdown = async () => {
     draining = true;
     logger.info('host_shutting_down');
+
+    await providers.scheduler.stop();
 
     server.close();
     if (webProxy) webProxy.stop();

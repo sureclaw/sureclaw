@@ -1,5 +1,13 @@
 # Scheduler Provider Journal
 
+## [2026-03-17 22:35] — Port scheduler startup to host-process.ts (k8s scheduler never ran)
+
+**Task:** Debug why the scheduler was not working in the k8s cluster
+**What I did:** Root-caused to `host-process.ts` never calling `scheduler.start()`. The scheduler was only started in `server.ts` (standalone mode). Ported the scheduler start/stop logic from `server.ts` to `host-process.ts`, including: delivery resolution, session store extraction, and cron/heartbeat message processing via `processCompletionWithNATS`. Also fixed model routing in `ipc-handlers/llm.ts` where `configModel` was used for logging but not the actual LLM call.
+**Files touched:** `src/host/host-process.ts`, `src/host/ipc-handlers/llm.ts`
+**Outcome:** Success — scheduler starts on host boot, existing cron jobs fire immediately, 2411/2411 tests pass. Deployed and verified in k8s cluster.
+**Notes:** Channel providers are loaded by `loadProviders()` but not connected in `host-process.ts` — delivery to Slack/Discord will fail until channel connection is also ported. The model routing fix ensures `configModel` (from config.yaml `models.default[0]`) takes priority over the agent's default model.
+
 ## [2026-03-17 20:50] — Fix async mismatch in plainjob scheduler (k8s job scheduling broken)
 
 **Task:** Scheduler not scheduling jobs in k8s
