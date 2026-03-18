@@ -228,3 +228,40 @@ nats sub "sandbox.work"
 - `src/agent/workspace-release.ts` -- Agent-side workspace file upload
 - `src/host/ipc-handlers/identity.ts` -- Identity read/write handler (queuing logic, taint gates)
 - `tests/agent/http-ipc-client.test.ts` -- Unit tests for HttpIPCClient
+
+## Fast Kind Cluster Dev Loop
+
+For iterating on code running in a real kind cluster (vs the local harnesses above):
+
+### One-time setup
+```bash
+npm run k8s:dev setup   # ~3-5 min — creates cluster, builds, deploys
+```
+
+### The fast loop
+```bash
+# Edit code, then:
+npm run k8s:dev cycle         # tsc + flush sandbox pods (~5-7s)
+npm run k8s:dev test "hello"  # send test request
+npm run k8s:dev logs sandbox  # check output
+
+# For host code changes:
+npm run k8s:dev cycle all     # also restarts host + pool-controller
+```
+
+### All commands
+| Command | What |
+|---|---|
+| `setup` | Create kind cluster + deploy AX |
+| `build` | tsc only |
+| `flush [all]` | Flush sandbox pods (or all) |
+| `cycle [all]` | build + flush |
+| `test "msg"` | Send chat completion request |
+| `logs [component]` | Tail logs (host/sandbox/pool-controller/all) |
+| `status` | Pod + warm pool status |
+| `debug host` | Port-forward host debugger (9229) |
+| `debug sandbox` | Enable --inspect-brk on next sandbox pod |
+| `db` | Interactive psql |
+| `db "query"` | Run SQL query |
+| `db reset` | Drop + recreate database |
+| `teardown` | Delete kind cluster |
