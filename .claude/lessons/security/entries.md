@@ -1,5 +1,23 @@
 # Security
 
+### MITM proxy canary detection must send HTTP response before destroying TLS socket
+**Date:** 2026-03-19
+**Context:** Implementing canary token scanning on decrypted HTTPS traffic in the MITM proxy
+**Lesson:** When detecting a canary in MITM-intercepted TLS traffic, calling `clientTls.destroy()` alone causes the client to see an opaque connection reset, not a meaningful error. Always write an HTTP 403 response to the TLS socket before calling `clientTls.end()` and `targetTls.destroy()`. This lets the client parse a clean 403 status code.
+**Tags:** web-proxy, mitm, tls, canary, security
+
+### node-forge SAN for IP addresses requires type 7, not type 2
+**Date:** 2026-03-19
+**Context:** Generating domain certs for MITM proxy — tests using 127.0.0.1 as hostname
+**Lesson:** In node-forge subjectAltName, DNS names use `{ type: 2, value: 'example.com' }` but IP addresses MUST use `{ type: 7, ip: '127.0.0.1' }`. Use `net.isIP()` to detect and switch. Using type 2 for IPs causes "IP is not in the cert's list" errors.
+**Tags:** tls, certificates, node-forge, san, ip-address
+
+### Domain cert cache must include CA identity in cache key
+**Date:** 2026-03-19
+**Context:** MITM proxy tests failing because domain certs were cached across tests using different CAs
+**Lesson:** When caching generated domain certs, key the cache by domain + CA hash (e.g., SHA-256 of CA cert), not just domain. Otherwise, a cert signed by CA1 gets returned for a request using CA2, causing "certificate signature failure". Use `createHash('sha256').update(ca.cert).digest('hex').slice(0, 16)` for the CA portion of the cache key.
+**Tags:** tls, certificates, caching, testing, mitm
+
 ### import.meta.resolve() is the secure way to resolve package names
 **Date:** 2026-02-28
 **Context:** Analyzing security of monorepo split — switching provider-map from relative paths to @ax/provider-* package names
