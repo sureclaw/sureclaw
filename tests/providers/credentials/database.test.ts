@@ -1,0 +1,106 @@
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { create as createSqliteDb } from '../../../src/providers/database/sqlite.js';
+import { create } from '../../../src/providers/credentials/database.js';
+import type { CredentialProvider } from '../../../src/providers/credentials/types.js';
+import type { DatabaseProvider } from '../../../src/providers/database/types.js';
+import type { Config } from '../../../src/types.js';
+
+const config = {} as Config;
+
+describe('credentials/database', () => {
+  let provider: CredentialProvider;
+  let database: DatabaseProvider;
+  let testHome: string;
+
+  beforeEach(async () => {
+    testHome = join(tmpdir(), `ax-creds-db-test-${randomUUID()}`);
+    mkdirSync(testHome, { recursive: true });
+    process.env.AX_HOME = testHome;
+    database = await createSqliteDb(config);
+    provider = await create(config, 'database', { database });
+  });
+
+  afterEach(async () => {
+    try { await database.close(); } catch {}
+    try { rmSync(testHome, { recursive: true, force: true }); } catch {}
+    delete process.env.AX_HOME;
+    delete process.env.DB_CREDS_TEST_KEY;
+  });
+
+  test('throws when no database provider given', async () => {
+    await expect(create(config, 'database'))
+      .rejects.toThrow('credentials/database requires a database provider');
+  });
+
+  test('set and get a credential', async () => {
+    await provider.set('MY_API_KEY', 'sk-test-123');
+    const value = await provider.get('MY_API_KEY');
+    expect(value).toBe('sk-test-123');
+  });
+
+  test('returns null for non-existent key', async () => {
+    expect(await provider.get('NONEXISTENT_KEY_XYZ')).toBeNull();
+  });
+
+  test('falls back to process.env on get', async () => {
+    process.env.DB_CREDS_TEST_KEY = 'from-env';
+    const value = await provider.get('DB_CREDS_TEST_KEY');
+    expect(value).toBe('from-env');
+  });
+
+  test('falls back to process.env with uppercase lookup', async () => {
+    process.env.DB_CREDS_TEST_KEY = 'from-env-upper';
+    const value = await provider.get('db_creds_test_key');
+    expect(value).toBe('from-env-upper');
+  });
+
+  test('credential store value takes precedence over process.env', async () => {
+    process.env.DB_CREDS_TEST_KEY = 'from-env';
+    await provider.set('DB_CREDS_TEST_KEY', 'from-store');
+    const value = await provider.get('DB_CREDS_TEST_KEY');
+    expect(value).toBe('from-store');
+  });
+
+  test('set overwrites existing value (upsert)', async () => {
+    await provider.set('KEY', 'v1');
+    await provider.set('KEY', 'v2');
+    expect(await provider.get('KEY')).toBe('v2');
+  });
+
+  test('delete removes a credential', async () => {
+    await provider.set('TO_DELETE', 'value');
+    await provider.delete('TO_DELETE');
+    expect(await provider.get('TO_DELETE')).toBeNull();
+  });
+
+  test('delete of non-existent key does not throw', async () => {
+    await expect(provider.delete('NOPE')).resolves.toBeUndefined();
+  });
+
+  test('list returns all stored keys', async () => {
+    await provider.set('KEY_A', 'a');
+    await provider.set('KEY_B', 'b');
+    const keys = await provider.list();
+    expect(keys).toContain('KEY_A');
+    expect(keys).toContain('KEY_B');
+  });
+
+  test('list returns empty array when no credentials stored', async () => {
+    expect(await provider.list()).toEqual([]);
+  });
+
+  test('set also updates process.env', async () => {
+    await provider.set('DB_CREDS_TEST_KEY', 'via-set');
+    expect(process.env.DB_CREDS_TEST_KEY).toBe('via-set');
+  });
+
+  test('persists across provider instances', async () => {
+    await provider.set('CROSS_INSTANCE', 'value-123');
+    const provider2 = await create(config, 'database', { database });
+    expect(await provider2.get('CROSS_INSTANCE')).toBe('value-123');
+  });
+});
