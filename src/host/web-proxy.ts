@@ -473,14 +473,14 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       cert: domainCert.cert,
     });
 
-    // Connect to the real target with TLS
-    // We don't verify the target's certificate — the proxy is the trusted intermediary.
-    // The security boundary is between the sandbox client and our MITM CA.
+    // Connect to the real target with TLS — verify the upstream cert.
+    // Extend the default trust store with our MITM CA so test targets
+    // (signed by the same CA) are trusted without disabling verification.
     const targetTls = tls.connect({
       host: resolvedIP,
       port,
       servername: hostname,
-      rejectUnauthorized: false,
+      ca: [...tls.rootCertificates, options.mitm!.ca.cert],
     });
 
     activeSockets.add(clientTls);
