@@ -54,6 +54,30 @@ All three are registered in `src/host/provider-map.ts` under the `web` kind.
 3. Add `<name>: '../providers/web/<name>.js'` to the `web` section in `src/host/provider-map.ts`.
 4. Add tests in `tests/providers/web/<name>.test.ts`.
 
+## Web Proxy — MITM Credential Injection
+
+When skills declare `requires.env` in their frontmatter (e.g., `LINEAR_API_KEY`), the host builds a `CredentialPlaceholderMap` at sandbox launch:
+
+1. Skills' `requires.env` are collected by scanning skill files in agent + user workspace
+2. For each env var, the host looks up the real value in `CredentialProvider`
+3. Opaque placeholder tokens (`ax-cred:<hex>`) replace real values
+4. Placeholders are injected as env vars into the sandbox
+5. The web proxy's MITM mode replaces placeholders with real values in intercepted HTTPS traffic
+
+**Key files:**
+- `src/host/proxy-ca.ts` — CA certificate generation and domain cert signing
+- `src/host/credential-placeholders.ts` — Placeholder token management
+- `src/host/web-proxy.ts` — MITM TLS inspection in `handleMITMConnect()`
+- `src/host/server-completions.ts` — Wiring: skill env collection, credential map build, CA trust injection
+
+**MITM TLS flow:**
+- Proxy generates self-signed root CA (persisted to `<agentDir>/ca/`)
+- CONNECT requests: proxy terminates client TLS with a dynamically-generated domain cert, opens new TLS to target
+- Decrypted traffic is scanned for credential placeholders (replaced) and canary tokens (blocked)
+- Audit entries include `credentialInjected: true` when replacement occurs
+- Domains in `config.mitm_bypass_domains` skip MITM (raw TCP tunnel for cert-pinning CLIs)
+- CA trust: `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` env vars set in sandbox
+
 ## Gotchas
 
 - **All web responses are auto-tainted** with `trust: 'external'`. Never strip or skip the taint tag.
@@ -61,3 +85,5 @@ All three are registered in `src/host/provider-map.ts` under the `web` kind.
 - **Agents have no direct network.** All web access routes through host-side IPC. The provider runs in the host process.
 - **Tavily needs an API key** at runtime (`TAVILY_API_KEY`). The fetch provider needs no credentials.
 - **`create()` is async** in all web providers (returns `Promise<WebProvider>`).
+- **Credential placeholders use `ax-cred:` prefix.** Never log or expose real credential values — only placeholders should appear in agent-side logs.
+- **MITM bypass list** (`config.mitm_bypass_domains`) is for cert-pinning CLIs only. Most HTTPS traffic should go through MITM for credential injection to work.

@@ -91,10 +91,13 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 Opt-in (`config.web_proxy`, disabled by default) HTTP forward proxy (`src/host/web-proxy.ts`) allows agents to make outbound HTTP/HTTPS requests (npm install, pip install, curl, git clone) while preserving `--network=none`. Security controls on the proxy:
 
 - **Private IP blocking (SSRF)**: Same private IP ranges as the fetch provider -- `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (cloud metadata), `::1`, `fe80:`, `fc/fd`.
-- **Canary token scanning**: HTTP request bodies scanned for canary tokens before forwarding. Blocks exfiltration attempts.
-- **Audit logging**: Every proxy request logged with method, URL, status, bytes, duration, and block reason.
+- **Canary token scanning**: HTTP request bodies scanned for canary tokens before forwarding. In MITM mode, canary scanning also applies to decrypted HTTPS traffic. Blocks exfiltration attempts.
+- **Audit logging**: Every proxy request logged with method, URL, status, bytes, duration, block reason, and `credentialInjected` flag.
 - **Transport**: Container sandboxes (Docker/Apple) reach the proxy via a mounted Unix socket (`web-proxy.sock` in IPC dir) + TCP loopback bridge (`web-proxy-bridge.ts`). K8s pods connect directly via a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Subprocess mode uses a TCP port.
-- **HTTPS CONNECT tunneling**: Proxy handles CONNECT method for TLS passthrough -- it never sees TLS plaintext.
+- **MITM TLS inspection**: When skills require third-party API keys, the proxy upgrades from blind CONNECT tunneling to TLS-terminating MITM. A host-generated CA cert is injected into sandboxes. The proxy generates per-domain certs, decrypts traffic, replaces credential placeholders with real values, and scans for canary tokens.
+- **Credential placeholder injection**: Skills declare `requires.env` in frontmatter. The host generates opaque `ax-cred:<hex>` tokens, injects them as env vars. The MITM proxy replaces them with real credentials in intercepted HTTPS headers/bodies. Real credentials never enter the container.
+- **MITM bypass**: `config.mitm_bypass_domains` (string array) lists domains that skip MITM inspection and use raw TCP tunneling (for cert-pinning CLIs).
+- **CA trust chain**: `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` env vars point to the AX CA cert in the sandbox.
 
 ## Install Validation
 
@@ -114,8 +117,8 @@ Opt-in (`config.web_proxy`, disabled by default) HTTP forward proxy (`src/host/w
 
 ## Invariants
 
-- Credentials never enter agent containers.
-- No network access from agent processes (TCP/IP denied; Unix socket IPC only). Opt-in web proxy provides controlled outbound HTTP with SSRF blocking and canary scanning.
+- Credentials never enter agent containers. Third-party API keys are injected as opaque placeholders; real values exist only in host memory and are substituted by the MITM proxy at request time.
+- No network access from agent processes (TCP/IP denied; Unix socket IPC only). Opt-in web proxy provides controlled outbound HTTP with SSRF blocking, canary scanning, and MITM credential injection.
 - All external content is taint-tagged before reaching the agent.
 - Provider loading uses static allowlist only -- no dynamic path construction from config.
 - Every file path from untrusted input passes through `safePath()`.
