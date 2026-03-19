@@ -20,6 +20,10 @@ import { execFileSync } from 'node:child_process';
 const mockedBinExists = vi.mocked(binExists);
 const mockedExecFileSync = vi.mocked(execFileSync);
 
+// Platform-aware expected shell args (matches shellCommand() in skill-installer)
+const expectedShell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+const expectedFlag = process.platform === 'win32' ? '/c' : '-c';
+
 describe('skill-installer', () => {
   let skillDir: string;
 
@@ -66,8 +70,8 @@ Browser skill`);
 
     expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
     expect(mockedExecFileSync).toHaveBeenCalledWith(
-      '/bin/sh',
-      ['-c', 'npm install -g playwright'],
+      expectedShell,
+      [expectedFlag, 'npm install -g playwright'],
       expect.objectContaining({
         timeout: 120_000,
         env: expect.objectContaining({
@@ -123,8 +127,8 @@ Deploy skill`);
     await installSkillDeps([skillDir], '/workspace/agent');
 
     expect(mockedExecFileSync).toHaveBeenCalledWith(
-      '/bin/sh',
-      ['-c', 'cargo install deploy-tool'],
+      expectedShell,
+      [expectedFlag, 'cargo install deploy-tool'],
       expect.objectContaining({
         env: expect.objectContaining({
           CARGO_INSTALL_ROOT: '/workspace/agent',

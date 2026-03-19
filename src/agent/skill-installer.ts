@@ -8,9 +8,10 @@
  * Called by runners after the web proxy bridge is up (so HTTP_PROXY is set)
  * and before the agent loop starts.
  *
- * Uses execFileSync('/bin/sh', ['-c', cmd]) rather than execSync(cmd)
+ * Uses execFileSync(shell, [flag, cmd]) rather than execSync(cmd)
  * because the `run` field is intentionally a shell command from a screened
- * SKILL.md — execFileSync makes the shell invocation explicit.
+ * SKILL.md — execFileSync makes the shell invocation explicit. Shell and
+ * flag are platform-aware: /bin/sh -c on POSIX, cmd.exe /c on Windows.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -26,12 +27,24 @@ const logger = getLogger().child({ component: 'skill-installer' });
 const INSTALL_TIMEOUT_MS = 120_000;
 
 /** Map process.platform to the os values used in SKILL.md install specs. */
-function currentOS(): string {
+function currentOS(): 'macos' | 'windows' | 'linux' | undefined {
   switch (process.platform) {
     case 'darwin': return 'macos';
     case 'win32': return 'windows';
-    default: return 'linux';
+    case 'linux':
+    case 'freebsd':
+    case 'openbsd':
+    case 'sunos':
+    case 'aix':
+      return 'linux';
+    default: return undefined;
   }
+}
+
+/** Return shell executable and arg prefix for the current platform. */
+function shellCommand(): { shell: string; flag: string } {
+  if (process.platform === 'win32') return { shell: 'cmd.exe', flag: '/c' };
+  return { shell: '/bin/sh', flag: '-c' };
 }
 
 /** Build env vars that redirect all package managers to install under prefix. */
@@ -96,6 +109,12 @@ export async function installSkillDeps(skillDirs: string[], prefix: string): Pro
   if (stepsToRun.length === 0) return;
 
   const os = currentOS();
+  if (!os) {
+    logger.warn('unsupported_platform', { platform: process.platform });
+    return;
+  }
+
+  const { shell, flag } = shellCommand();
   const env = buildInstallEnv(prefix);
   let installed = 0;
 
@@ -112,10 +131,10 @@ export async function installSkillDeps(skillDirs: string[], prefix: string): Pro
       continue;
     }
 
-    // Run install — shell command from screened SKILL.md, explicit /bin/sh invocation
+    // Run install — shell command from screened SKILL.md, explicit shell invocation
     try {
       logger.info('installing', { run: step.run, bin: step.bin, prefix });
-      execFileSync('/bin/sh', ['-c', step.run], { env, timeout: INSTALL_TIMEOUT_MS, stdio: 'pipe' });
+      execFileSync(shell, [flag, step.run], { env, timeout: INSTALL_TIMEOUT_MS, stdio: 'pipe' });
       installed++;
       logger.info('installed', { bin: step.bin });
     } catch (err) {
