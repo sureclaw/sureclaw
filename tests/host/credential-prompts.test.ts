@@ -71,4 +71,18 @@ describe('credential-prompts', () => {
     expect(result).toBe('ghp_secret');
     expect(events).toEqual(['requesting', 'providing', 'got:ghp_secret']);
   });
+
+  test('cleanupSession resolves all pending with null', async () => {
+    const { requestCredential, cleanupSession } = await import('../../src/host/credential-prompts.js');
+
+    const p1 = requestCredential('cleanup-test', 'KEY_A', 30_000);
+    const p2 = requestCredential('cleanup-test', 'KEY_B', 30_000);
+
+    // Cleanup should resolve both with null
+    cleanupSession('cleanup-test');
+
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toBeNull();
+    expect(r2).toBeNull();
+  });
 });

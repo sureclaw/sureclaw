@@ -1319,6 +1319,9 @@ export async function processCompletion(
       const { cleanupSession } = await import('./web-proxy-approvals.js');
       cleanupSession(sessionId);
     }
+    // Clean up credential prompts
+    const { cleanupSession: cleanupCredentialPrompts } = await import('./credential-prompts.js');
+    cleanupCredentialPrompts(sessionId);
     // Workspace provider: cleanup session scope for ephemeral sessions
     if (!isPersistent) {
       try { await providers.workspace.cleanup(sessionId); } catch {
