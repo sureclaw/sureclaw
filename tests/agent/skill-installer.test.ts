@@ -1,5 +1,5 @@
-import { describe, test, expect, vi, beforeEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -30,6 +30,10 @@ describe('skill-installer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     skillDir = mkdtempSync(join(tmpdir(), 'skill-install-test-'));
+  });
+
+  afterEach(() => {
+    if (skillDir) rmSync(skillDir, { recursive: true, force: true });
   });
 
   test('skips install when binary already exists', async () => {
@@ -85,27 +89,44 @@ Browser skill`);
     );
   });
 
-  test('filters by OS constraint', async () => {
-    writeFileSync(join(skillDir, 'mac-only.md'), `---
-name: mac-only
+  test('skips install when OS constraint excludes current platform', async () => {
+    // os: [nonexistent] never matches any real platform
+    writeFileSync(join(skillDir, 'alien.md'), `---
+name: alien
 metadata:
   openclaw:
     install:
-      - run: "brew install something"
+      - run: "alien-pkg install something"
         bin: something
-        os: [macos]
+        os: [nonexistent]
 ---
-Mac only`);
+Alien only`);
 
     mockedBinExists.mockResolvedValue(false);
 
     await installSkillDeps([{ skillDir, prefix: '/workspace/user' }]);
 
-    if (process.platform === 'darwin') {
-      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
-    } else {
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
-    }
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
+  });
+
+  test('runs install when OS constraint includes current platform', async () => {
+    // os includes all three recognized values — always matches
+    writeFileSync(join(skillDir, 'universal.md'), `---
+name: universal
+metadata:
+  openclaw:
+    install:
+      - run: "uni-pkg install something"
+        bin: something
+        os: [macos, linux, windows]
+---
+Universal`);
+
+    mockedBinExists.mockResolvedValue(false);
+
+    await installSkillDeps([{ skillDir, prefix: '/workspace/user' }]);
+
+    expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
   });
 
   test('handles directory-based skills (subdir/SKILL.md)', async () => {
