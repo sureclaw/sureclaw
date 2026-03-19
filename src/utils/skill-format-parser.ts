@@ -152,13 +152,17 @@ function toOAuthRequirements(raw: unknown): OAuthRequirement[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((item): item is Record<string, unknown> =>
-      item !== null && typeof item === 'object' && typeof (item as any).name === 'string')
+      item !== null && typeof item === 'object'
+      && typeof (item as any).name === 'string'
+      && typeof (item as any).authorize_url === 'string'
+      && typeof (item as any).token_url === 'string'
+      && typeof (item as any).client_id === 'string')
     .map(item => ({
       name: String(item.name),
-      authorize_url: String(item.authorize_url ?? ''),
-      token_url: String(item.token_url ?? ''),
+      authorize_url: String(item.authorize_url),
+      token_url: String(item.token_url),
       scopes: toStringArray(item.scopes),
-      client_id: String(item.client_id ?? ''),
+      client_id: String(item.client_id),
       ...(typeof item.client_secret_env === 'string' ? { client_secret_env: item.client_secret_env } : {}),
     }));
 }

@@ -90,61 +90,70 @@ export async function resolveOAuthCallback(
     return false;
   }
 
+  const { requirement: req, codeVerifier, redirectUri, sessionId } = flow;
+
+  // Remove pending state only after extracting flow data
   pendingFlows.delete(state);
   const states = sessionStates.get(flow.sessionId);
   states?.delete(state);
   if (states?.size === 0) sessionStates.delete(flow.sessionId);
 
-  const { requirement: req, codeVerifier, redirectUri, sessionId } = flow;
+  try {
+    // Resolve client_secret if needed
+    let clientSecret: string | undefined;
+    if (req.client_secret_env) {
+      clientSecret = await credentials.get(req.client_secret_env) ?? undefined;
+    }
 
-  // Resolve client_secret if needed
-  let clientSecret: string | undefined;
-  if (req.client_secret_env) {
-    clientSecret = await credentials.get(req.client_secret_env) ?? undefined;
-  }
-
-  // Exchange authorization code for tokens
-  const res = await fetch(req.token_url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({
+    // Exchange authorization code for tokens (RFC 6749 §4.1.3: form-urlencoded)
+    const body = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: req.client_id,
       code,
       redirect_uri: redirectUri,
       code_verifier: codeVerifier,
-      ...(clientSecret ? { client_secret: clientSecret } : {}),
-    }),
-  });
+    });
+    if (clientSecret) body.set('client_secret', clientSecret);
 
-  if (!res.ok) {
-    const text = await res.text();
-    logger.error('oauth_token_exchange_failed', { provider, status: res.status, body: text });
+    const res = await fetch(req.token_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+      body: body.toString(),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      logger.error('oauth_token_exchange_failed', { provider, status: res.status, body: text });
+      resolveCredential(sessionId, req.name, '');
+      return false;
+    }
+
+    const data = await res.json() as Record<string, unknown>;
+    const expiresIn = (data.expires_in as number) || 3600;
+
+    const blob: OAuthCredentialBlob = {
+      access_token: data.access_token as string,
+      refresh_token: data.refresh_token as string,
+      expires_at: Math.floor(Date.now() / 1000) + expiresIn,
+      token_url: req.token_url,
+      client_id: req.client_id,
+      ...(req.client_secret_env ? { client_secret_env: req.client_secret_env } : {}),
+      scopes: req.scopes,
+    };
+
+    // Store in credential provider
+    const credKey = `oauth:${req.name}`;
+    await credentials.set(credKey, JSON.stringify(blob));
+    logger.info('oauth_tokens_stored', { provider, credKey });
+
+    // Resolve the pending credential prompt so processCompletion unblocks
+    resolveCredential(sessionId, req.name, blob.access_token);
+    return true;
+  } catch (err) {
+    logger.error('oauth_callback_error', { provider, error: (err as Error).message });
     resolveCredential(sessionId, req.name, '');
     return false;
   }
-
-  const data = await res.json() as Record<string, unknown>;
-  const expiresIn = (data.expires_in as number) || 3600;
-
-  const blob: OAuthCredentialBlob = {
-    access_token: data.access_token as string,
-    refresh_token: data.refresh_token as string,
-    expires_at: Math.floor(Date.now() / 1000) + expiresIn,
-    token_url: req.token_url,
-    client_id: req.client_id,
-    ...(req.client_secret_env ? { client_secret_env: req.client_secret_env } : {}),
-    scopes: req.scopes,
-  };
-
-  // Store in credential provider
-  const credKey = `oauth:${req.name}`;
-  await credentials.set(credKey, JSON.stringify(blob));
-  logger.info('oauth_tokens_stored', { provider, credKey });
-
-  // Resolve the pending credential prompt so processCompletion unblocks
-  resolveCredential(sessionId, req.name, blob.access_token);
-  return true;
 }
 
 /**
@@ -181,15 +190,18 @@ export async function refreshOAuthToken(
 
   logger.info('oauth_token_refreshing', { credKey });
 
+  // RFC 6749 §6: refresh requests use form-urlencoded
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: blob.client_id,
+    refresh_token: blob.refresh_token,
+  });
+  if (clientSecret) body.set('client_secret', clientSecret);
+
   const res = await fetch(blob.token_url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'refresh_token',
-      client_id: blob.client_id,
-      refresh_token: blob.refresh_token,
-      ...(clientSecret ? { client_secret: clientSecret } : {}),
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+    body: body.toString(),
   });
 
   if (!res.ok) {

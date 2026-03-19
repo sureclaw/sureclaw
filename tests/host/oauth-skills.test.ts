@@ -182,15 +182,15 @@ describe('oauth-skills', () => {
 
     await refreshOAuthToken('oauth:WITH_SECRET', mockCredentials);
 
-    // Verify fetch was called with client_secret in the body
-    const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(fetchBody.client_secret).toBe('super-secret-value');
+    // Verify fetch was called with client_secret in the form-urlencoded body
+    const fetchBody = new URLSearchParams(mockFetch.mock.calls[0][1].body);
+    expect(fetchBody.get('client_secret')).toBe('super-secret-value');
   });
 
   test('cleanupSession clears pending flows', async () => {
     const { startOAuthFlow, resolveOAuthCallback, cleanupSession } = await import('../../src/host/oauth-skills.js');
 
-    startOAuthFlow('sess-cleanup', {
+    const url = startOAuthFlow('sess-cleanup', {
       name: 'TEST',
       authorize_url: 'https://example.com/auth',
       token_url: 'https://example.com/token',
@@ -198,11 +198,13 @@ describe('oauth-skills', () => {
       client_id: 'c1',
     }, 'http://localhost/callback/TEST');
 
+    const state = new URL(url).searchParams.get('state')!;
+
     cleanupSession('sess-cleanup');
 
     // resolveOAuthCallback should return false — pending was cleaned up
     const mockCredentials = { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() };
-    const result = await resolveOAuthCallback('TEST', 'code', 'any-state', mockCredentials);
+    const result = await resolveOAuthCallback('TEST', 'code', state, mockCredentials);
     expect(result).toBe(false);
   });
 });

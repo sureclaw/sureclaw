@@ -679,7 +679,9 @@ export async function createServer(
       const state = params.get('state');
 
       if (!provider || !code || !state) {
-        sendError(res, 400, 'Missing required parameters: code, state');
+        const html = '<html><body><h2>Bad request</h2><p>Missing required parameters (code, state).</p></body></html>';
+        res.writeHead(400, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
+        res.end(html);
         return;
       }
 
@@ -695,7 +697,9 @@ export async function createServer(
         res.end(html);
       } catch (err) {
         logger.error('oauth_callback_failed', { provider, error: (err as Error).message });
-        sendError(res, 500, 'OAuth callback processing failed');
+        const html = '<html><body><h2>Server error</h2><p>OAuth callback processing failed. Please try again.</p></body></html>';
+        res.writeHead(500, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
+        res.end(html);
       }
       return;
     }

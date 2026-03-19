@@ -751,14 +751,14 @@ export async function processCompletion(
           userWsPath ? join(userWsPath, 'skills') : undefined,
         );
 
-      // Track which env names are handled by OAuth (so plain env prompt is skipped)
+      // Track which env names were successfully resolved by OAuth
+      // (only marked after token is obtained, so plain env fallback still runs on failure)
       const oauthHandledNames = new Set<string>();
 
       // --- OAuth credentials: check stored blob, refresh if expired, or start flow ---
       const publicUrl = process.env.AX_PUBLIC_URL ?? `http://localhost:8080`;
 
       for (const oauthReq of skillOAuthRequirements) {
-        oauthHandledNames.add(oauthReq.name);
         const credKey = `oauth:${oauthReq.name}`;
         const stored = await providers.credentials.get(credKey);
 
@@ -768,6 +768,7 @@ export async function processCompletion(
           const accessToken = await refreshOAuthToken(credKey, providers.credentials);
           if (accessToken) {
             credentialMap.register(oauthReq.name, accessToken);
+            oauthHandledNames.add(oauthReq.name);
             reqLogger.debug('oauth_credential_resolved', { name: oauthReq.name, refreshed: true });
             continue;
           }
@@ -792,6 +793,7 @@ export async function processCompletion(
         const accessToken = await requestCredential(sessionId, oauthReq.name);
         if (accessToken) {
           credentialMap.register(oauthReq.name, accessToken);
+          oauthHandledNames.add(oauthReq.name);
           reqLogger.debug('oauth_credential_resolved', { name: oauthReq.name });
         } else {
           reqLogger.debug('oauth_credential_timeout', { name: oauthReq.name });
