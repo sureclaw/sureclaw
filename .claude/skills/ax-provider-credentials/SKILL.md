@@ -1,6 +1,6 @@
 ---
 name: ax-provider-credentials
-description: Use when modifying credential storage providers — plaintext env vars or OS keychain in src/providers/credentials/
+description: Use when modifying credential storage providers — plaintext env vars, OS keychain, or database-backed in src/providers/credentials/
 ---
 
 ## Overview
@@ -22,10 +22,13 @@ Defined in `src/providers/credentials/types.ts`:
 
 | Name | File | Storage Mechanism | Security Level |
 |------|------|-------------------|----------------|
-| plaintext | `src/providers/credentials/plaintext.ts` | `process.env` lookup (read-only) | Low -- plaintext in memory |
+| plaintext | `src/providers/credentials/plaintext.ts` | `~/.ax/credentials.yaml` with `process.env` fallback | Low -- plaintext on disk |
 | keychain | `src/providers/credentials/keychain.ts` | OS native keychain via `keytar` (macOS Keychain, GNOME Keyring, Windows Credential Locker) | High -- OS-managed |
+| database | `src/providers/credentials/database.ts` | Shared DatabaseProvider (SQLite or PostgreSQL) with `process.env` fallback | Medium -- durable across restarts, k8s-ready |
 
 All providers export `create(config: Config): Promise<CredentialProvider>`. Registered in `src/host/provider-map.ts` static allowlist (SC-SEC-002).
+
+The `database` provider also accepts `CreateOptions` with a `database` field (like `audit/database`). Its migration is in `src/providers/credentials/migrations.ts` and uses migration table `credential_migration`.
 
 ## Common Tasks
 
@@ -77,3 +80,6 @@ When a skill requires a credential that isn't in the store, the host prompts the
 - **Missing credentials trigger interactive prompts:** If `providers.credentials.get()` returns null and `web_proxy` is enabled, the host emits a `credential.required` event and blocks. If the user doesn't provide within 120s, the credential is skipped.
 - **Duplicate requests piggyback:** Multiple concurrent requests for the same credential (same session + envName) share a single pending entry.
 - **Session cleanup:** `cleanupSession()` is called when the completion ends, resolving any remaining pending prompts with null.
+- **Database provider needs DB loaded first:** When `credentials === 'database'`, the registry conditionally loads the database provider BEFORE credentials (reversed from the normal order). See `src/host/registry.ts`. For plaintext/keychain, the original order is preserved.
+- **Database credential_store has a scope column:** Currently always `'global'`, but the schema supports per-user/per-agent scoping via `UNIQUE(scope, env_name)`. Future work can add `user:<id>` or `agent:<id>` scopes.
+- **Helm chart default is 'database':** The k8s Helm chart (`charts/ax/values.yaml`) defaults to `credentials: database` so user-provided skill credentials survive pod restarts via PostgreSQL.

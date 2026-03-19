@@ -1,6 +1,14 @@
 # Providers: Credentials
 
-Credential storage provider implementations: plaintext, encrypted, keychain.
+Credential storage provider implementations: plaintext, keychain, database.
+
+## [2026-03-19 13:00] — Database-backed credential provider
+
+**Task:** Implement a database-backed credential provider for k8s durability
+**What I did:** Created `src/providers/credentials/database.ts` with migrations, registered in provider map, updated registry loading order to handle the DB-before-credentials dependency, updated Helm chart default from deprecated 'env' to 'database'
+**Files touched:** src/providers/credentials/database.ts, src/providers/credentials/migrations.ts, src/host/provider-map.ts, src/host/registry.ts, charts/ax/values.yaml, tests/providers/credentials/database.test.ts
+**Outcome:** Success — 213 test files, 2455 tests pass (13 new credential/database tests)
+**Notes:** The `scope` column (default: 'global') is future-proofing for per-user/per-agent credential isolation. Current implementation uses global scope only. Registry loading order is conditionally adjusted: when credentials=database, the database provider loads first. For plaintext/keychain, the original order is preserved.
 
 ## [2026-03-02 14:30] — Refactor credential providers: keychain default, plaintext fallback
 
