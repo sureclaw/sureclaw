@@ -4,10 +4,13 @@
  * Allows agents to make outbound HTTP/HTTPS requests (npm install, pip install,
  * curl, git clone) through a controlled proxy running on the host.
  *
- * Two request types:
+ * Three request modes:
  * - HTTP forwarding: receives full HTTP request, forwards it, streams response back
  * - HTTPS CONNECT tunneling: receives CONNECT host:port, establishes raw TCP
  *   connection, pipes bytes bidirectionally. Proxy never sees TLS plaintext.
+ * - MITM TLS inspection: when enabled, CONNECT requests are intercepted with a
+ *   dynamically-generated domain cert. Decrypted traffic is scanned for credential
+ *   placeholders (replaced with real values) and canary tokens (blocked).
  *
  * Security:
  * - Private IP blocking prevents SSRF against cloud metadata, internal services
@@ -18,10 +21,13 @@
 import { createServer, type Server } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import * as net from 'node:net';
+import * as tls from 'node:tls';
 import { lookup } from 'node:dns/promises';
 import { existsSync, unlinkSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { getLogger } from '../logger.js';
+import type { CAKeyPair } from './proxy-ca.js';
+import type { CredentialPlaceholderMap } from './credential-placeholders.js';
 
 const logger = getLogger().child({ component: 'web-proxy' });
 
@@ -43,6 +49,7 @@ export interface ProxyAuditEntry {
   responseBytes: number;
   durationMs: number;
   blocked?: string;
+  credentialInjected?: boolean;
 }
 
 export interface WebProxyOptions {
@@ -69,6 +76,18 @@ export interface WebProxyOptions {
   onApprove?: (domain: string, method: string, url: string) => Promise<{ approved: boolean; reason?: string }>;
   /** Domains pre-approved without calling onApprove (e.g. from config allowlist). */
   allowedDomains?: Set<string>;
+  /**
+   * MITM TLS inspection config. When provided, CONNECT requests are intercepted:
+   * the proxy terminates TLS with a dynamically-generated cert, inspects/modifies
+   * traffic (credential placeholder replacement), then forwards to the real server.
+   * Without this, CONNECT is a blind TCP tunnel (existing behavior).
+   */
+  mitm?: {
+    ca: CAKeyPair;
+    credentials: CredentialPlaceholderMap;
+    /** Domains that bypass MITM inspection (cert-pinning CLIs). Raw TCP tunnel. */
+    bypassDomains?: Set<string>;
+  };
 }
 
 // ── Private IP blocking ──────────────────────────────────────────────
@@ -354,7 +373,15 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       // Resolve and check for private IPs
       const resolvedIP = await resolveAndCheck(hostname, allowedIPs);
 
-      // Connect to target
+      // Check if MITM inspection should be used for this connection
+      const shouldMitm = options.mitm && !options.mitm.bypassDomains?.has(hostname);
+
+      if (shouldMitm) {
+        await handleMITMConnect(clientSocket, hostname, port, resolvedIP, head, startTime, target);
+        return;
+      }
+
+      // Connect to target (raw TCP tunnel — existing behavior)
       const targetSocket = net.connect(port, resolvedIP, () => {
         clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
         activeSockets.add(targetSocket);
@@ -419,6 +446,113 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
         blocked,
       });
     }
+  }
+
+  // ── MITM TLS inspection ──
+
+  async function handleMITMConnect(
+    clientSocket: net.Socket,
+    hostname: string,
+    port: number,
+    resolvedIP: string,
+    head: Buffer,
+    startTime: number,
+    target: string,
+  ): Promise<void> {
+    const { generateDomainCert } = await import('./proxy-ca.js');
+    const domainCert = generateDomainCert(hostname, options.mitm!.ca);
+    const credentials = options.mitm!.credentials;
+
+    // Tell client the tunnel is established
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+
+    // Terminate TLS on the client side with our generated cert
+    const clientTls = new tls.TLSSocket(clientSocket, {
+      isServer: true,
+      key: domainCert.key,
+      cert: domainCert.cert,
+    });
+
+    // Connect to the real target with TLS
+    // We don't verify the target's certificate — the proxy is the trusted intermediary.
+    // The security boundary is between the sandbox client and our MITM CA.
+    const targetTls = tls.connect({
+      host: resolvedIP,
+      port,
+      servername: hostname,
+      rejectUnauthorized: false,
+    });
+
+    activeSockets.add(clientTls);
+    activeSockets.add(targetTls);
+
+    let requestBytes = head.length;
+    let responseBytes = 0;
+    let credentialInjected = false;
+
+    // Pipe client → (replace credentials, scan canary) → target
+    clientTls.on('data', (chunk: Buffer) => {
+      requestBytes += chunk.length;
+
+      // Canary scanning on decrypted HTTPS traffic
+      if (canaryToken && chunk.includes(canaryToken)) {
+        audit({
+          action: 'proxy_request', sessionId, method: 'CONNECT', url: target,
+          status: 403, requestBytes, responseBytes: 0,
+          durationMs: Date.now() - startTime, blocked: 'canary_detected',
+        });
+        // Send a 403 response over the TLS channel before tearing down
+        clientTls.write('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n');
+        clientTls.end();
+        targetTls.destroy();
+        return;
+      }
+
+      const replaced = credentials.replaceAllBuffer(chunk);
+      if (replaced !== chunk) credentialInjected = true;
+      targetTls.write(replaced);
+    });
+
+    // Pipe target → client (no replacement needed on responses)
+    targetTls.on('data', (chunk: Buffer) => {
+      responseBytes += chunk.length;
+      clientTls.write(chunk);
+    });
+
+    // Write any buffered data from CONNECT handshake
+    if (head.length > 0) {
+      const replaced = credentials.replaceAllBuffer(head);
+      if (replaced !== head) credentialInjected = true;
+      targetTls.write(replaced);
+    }
+
+    // Cleanup
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      activeSockets.delete(clientTls);
+      activeSockets.delete(targetTls);
+      clientTls.destroy();
+      targetTls.destroy();
+
+      audit({
+        action: 'proxy_request',
+        sessionId,
+        method: 'CONNECT',
+        url: target,
+        status: 200,
+        requestBytes,
+        responseBytes,
+        durationMs: Date.now() - startTime,
+        credentialInjected: credentialInjected || undefined,
+      });
+    };
+
+    clientTls.on('close', cleanup);
+    clientTls.on('error', cleanup);
+    targetTls.on('close', cleanup);
+    targetTls.on('error', cleanup);
   }
 
   // ── Server setup ──

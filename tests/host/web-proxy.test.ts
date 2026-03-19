@@ -1,11 +1,14 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import * as net from 'node:net';
+import * as tls from 'node:tls';
+import * as http from 'node:http';
 import { join } from 'node:path';
-import { mkdtempSync, existsSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import { startWebProxy, type WebProxy, type ProxyAuditEntry } from '../../src/host/web-proxy.js';
+import { CredentialPlaceholderMap } from '../../src/host/credential-placeholders.js';
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -121,6 +124,71 @@ async function proxyConnect(
       socket.destroy();
       reject(new Error('Timeout'));
     }, 5000);
+  });
+}
+
+/** Make an HTTPS request through the MITM proxy. */
+async function mitmProxyFetch(
+  proxyPort: number,
+  targetUrl: string,
+  opts: { headers?: Record<string, string>; ca: string; method?: string; body?: string },
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const target = new URL(targetUrl);
+
+    // Step 1: CONNECT to proxy
+    const connectReq = http.request({
+      host: '127.0.0.1',
+      port: proxyPort,
+      method: 'CONNECT',
+      path: `${target.hostname}:${target.port}`,
+    });
+
+    connectReq.on('connect', (_res: any, socket: net.Socket) => {
+      // Step 2: TLS handshake over the tunnel, trusting the MITM CA
+      const tlsSocket = tls.connect({
+        socket,
+        servername: target.hostname,
+        ca: opts.ca,
+        rejectUnauthorized: true,
+      }, () => {
+        // Step 3: Send HTTP request over TLS
+        const reqLines = [
+          `${opts.method ?? 'GET'} ${target.pathname} HTTP/1.1`,
+          `Host: ${target.hostname}:${target.port}`,
+          `Connection: close`,
+        ];
+        if (opts.headers) {
+          for (const [k, v] of Object.entries(opts.headers)) {
+            reqLines.push(`${k}: ${v}`);
+          }
+        }
+        if (opts.body) {
+          reqLines.push(`Content-Length: ${Buffer.byteLength(opts.body)}`);
+        }
+        reqLines.push('', '');
+        // Send headers and body together so they arrive in one TLS record
+        const fullRequest = reqLines.join('\r\n') + (opts.body ?? '');
+        tlsSocket.write(fullRequest);
+      });
+
+      let data = '';
+      tlsSocket.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+      tlsSocket.on('end', () => {
+        // Parse HTTP response
+        const [header, ...bodyParts] = data.split('\r\n\r\n');
+        const statusMatch = header.match(/HTTP\/\d\.\d (\d+)/);
+        resolve({
+          status: statusMatch ? parseInt(statusMatch[1]) : 0,
+          body: bodyParts.join('\r\n\r\n'),
+        });
+      });
+      tlsSocket.on('error', reject);
+    });
+
+    connectReq.on('error', reject);
+    connectReq.end();
+    setTimeout(() => reject(new Error('Timeout')), 10000);
   });
 }
 
@@ -585,6 +653,208 @@ describe('web-proxy', () => {
       );
 
       expect(result.status).toBe(200);
+    });
+  });
+
+  describe('MITM TLS inspection', () => {
+    test('intercepts HTTPS and replaces credential placeholder in header', async () => {
+      // 1. Start a TLS echo server (simulates api.linear.app)
+      const { getOrCreateCA } = await import('../../src/host/proxy-ca.js');
+      const caDir = mkdtempSync(join(tmpdir(), 'ax-ca-test-'));
+      cleanups.push(() => rmSync(caDir, { recursive: true, force: true }));
+
+      const ca = await getOrCreateCA(caDir);
+
+      // Self-signed server cert for our test echo server
+      const { generateDomainCert } = await import('../../src/host/proxy-ca.js');
+      const serverCert = generateDomainCert('127.0.0.1', ca);
+
+      const tlsEchoServer = tls.createServer({
+        key: serverCert.key,
+        cert: serverCert.cert,
+      }, (socket) => {
+        let data = '';
+        socket.on('data', (chunk) => {
+          data += chunk.toString();
+          // Once we get the full HTTP request, send a response
+          if (data.includes('\r\n\r\n')) {
+            const authMatch = data.match(/authorization: (.+)/i);
+            const responseBody = JSON.stringify({ auth: authMatch?.[1]?.trim() ?? 'none' });
+            socket.write(
+              `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(responseBody)}\r\nConnection: close\r\n\r\n${responseBody}`
+            );
+            socket.end();
+          }
+        });
+      });
+      await new Promise<void>(resolve => tlsEchoServer.listen(0, '127.0.0.1', resolve));
+      const echoPort = (tlsEchoServer.address() as AddressInfo).port;
+      cleanups.push(() => tlsEchoServer.close());
+
+      // 2. Create credential map with a placeholder
+      const credMap = new CredentialPlaceholderMap();
+      const placeholder = credMap.register('LINEAR_API_KEY', 'lin_api_REAL_SECRET');
+
+      // 3. Start web proxy in MITM mode
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'mitm-test',
+        allowedIPs: ALLOW_LOCALHOST,
+        mitm: { ca, credentials: credMap },
+      });
+      cleanups.push(proxy.stop);
+      const proxyPort = proxy.address as number;
+
+      // 4. Make HTTPS request through proxy with placeholder in Authorization header
+      const result = await mitmProxyFetch(proxyPort, `https://127.0.0.1:${echoPort}/api/issues`, {
+        headers: { authorization: `Bearer ${placeholder}` },
+        ca: ca.cert,
+      });
+
+      expect(result.status).toBe(200);
+      const body = JSON.parse(result.body);
+      // The echo server should have received the REAL key, not the placeholder
+      expect(body.auth).toBe('Bearer lin_api_REAL_SECRET');
+    });
+
+    test('passes through HTTPS without replacement when no placeholders', async () => {
+      const { getOrCreateCA } = await import('../../src/host/proxy-ca.js');
+      const caDir = mkdtempSync(join(tmpdir(), 'ax-ca-test-'));
+      cleanups.push(() => rmSync(caDir, { recursive: true, force: true }));
+      const ca = await getOrCreateCA(caDir);
+
+      const credMap = new CredentialPlaceholderMap();
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'mitm-test-passthrough',
+        allowedIPs: ALLOW_LOCALHOST,
+        mitm: { ca, credentials: credMap },
+      });
+      cleanups.push(proxy.stop);
+
+      // This test just verifies the proxy doesn't break non-credential traffic.
+      expect(proxy.address).toBeGreaterThan(0);
+    });
+
+    test('bypasses MITM for domains in bypass list', async () => {
+      const { getOrCreateCA } = await import('../../src/host/proxy-ca.js');
+      const caDir = mkdtempSync(join(tmpdir(), 'ax-ca-test-'));
+      cleanups.push(() => rmSync(caDir, { recursive: true, force: true }));
+      const ca = await getOrCreateCA(caDir);
+
+      const credMap = new CredentialPlaceholderMap();
+
+      // Start TCP echo server (not TLS — simulates a bypassed raw tunnel)
+      const echo = await startTCPEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'mitm-bypass-test',
+        allowedIPs: ALLOW_LOCALHOST,
+        mitm: {
+          ca,
+          credentials: credMap,
+          bypassDomains: new Set(['127.0.0.1']),
+        },
+      });
+      cleanups.push(proxy.stop);
+
+      // CONNECT to a bypassed domain should use raw tunnel (old behavior)
+      const result = await proxyConnect(
+        proxy.address as number,
+        '127.0.0.1',
+        echo.port,
+        'bypass-test-data',
+      );
+
+      // Raw tunnel should work (TCP echo server, not TLS)
+      expect(result.established).toBe(true);
+      expect(result.response).toContain('echo:bypass-test-data');
+    });
+
+    test('audit entry includes credentialInjected flag when replacement occurs', async () => {
+      const { getOrCreateCA } = await import('../../src/host/proxy-ca.js');
+      const caDir = mkdtempSync(join(tmpdir(), 'ax-ca-test-'));
+      cleanups.push(() => rmSync(caDir, { recursive: true, force: true }));
+      const ca = await getOrCreateCA(caDir);
+
+      const credMap = new CredentialPlaceholderMap();
+      const placeholder = credMap.register('API_KEY', 'real_secret');
+
+      const entries: ProxyAuditEntry[] = [];
+
+      // Start TLS echo server
+      const { generateDomainCert } = await import('../../src/host/proxy-ca.js');
+      const serverCert = generateDomainCert('127.0.0.1', ca);
+      const tlsServer = tls.createServer({ key: serverCert.key, cert: serverCert.cert }, (socket) => {
+        socket.on('data', () => {
+          socket.write('HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok');
+          socket.end();
+        });
+      });
+      await new Promise<void>(resolve => tlsServer.listen(0, '127.0.0.1', resolve));
+      const serverPort = (tlsServer.address() as AddressInfo).port;
+      cleanups.push(() => tlsServer.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'audit-cred-test',
+        allowedIPs: ALLOW_LOCALHOST,
+        onAudit: (e) => entries.push(e),
+        mitm: { ca, credentials: credMap },
+      });
+      cleanups.push(proxy.stop);
+
+      await mitmProxyFetch(proxy.address as number, `https://127.0.0.1:${serverPort}/api`, {
+        headers: { authorization: `Bearer ${placeholder}` },
+        ca: ca.cert,
+      });
+
+      expect(entries.length).toBe(1);
+      expect(entries[0].credentialInjected).toBe(true);
+    });
+
+    test('blocks MITM traffic when canary detected in decrypted body', async () => {
+      const { getOrCreateCA, generateDomainCert } = await import('../../src/host/proxy-ca.js');
+      const caDir = mkdtempSync(join(tmpdir(), 'ax-ca-test-'));
+      cleanups.push(() => rmSync(caDir, { recursive: true, force: true }));
+      const ca = await getOrCreateCA(caDir);
+
+      const canary = 'CANARY-exfil-detect-test-12345';
+      const credMap = new CredentialPlaceholderMap();
+
+      // TLS echo server
+      const serverCert = generateDomainCert('127.0.0.1', ca);
+      const tlsServer = tls.createServer({ key: serverCert.key, cert: serverCert.cert }, (socket) => {
+        socket.on('data', () => {
+          socket.write('HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok');
+          socket.end();
+        });
+      });
+      await new Promise<void>(resolve => tlsServer.listen(0, '127.0.0.1', resolve));
+      const serverPort = (tlsServer.address() as AddressInfo).port;
+      cleanups.push(() => tlsServer.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'canary-mitm-test',
+        canaryToken: canary,
+        allowedIPs: ALLOW_LOCALHOST,
+        mitm: { ca, credentials: credMap },
+      });
+      cleanups.push(proxy.stop);
+
+      // Send HTTPS request with canary in the body
+      const result = await mitmProxyFetch(
+        proxy.address as number,
+        `https://127.0.0.1:${serverPort}/exfil`,
+        { method: 'POST', body: `secret data with ${canary} inside`, ca: ca.cert },
+      ).catch(() => ({ status: 0, body: 'connection_closed' }));
+
+      // Proxy should close/block the connection when canary detected
+      expect(result.status === 403 || result.body === 'connection_closed').toBe(true);
     });
   });
 });

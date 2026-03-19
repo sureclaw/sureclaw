@@ -9,6 +9,8 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { isIP } from 'node:net';
+import { createHash } from 'node:crypto';
 import * as forge from 'node-forge';
 import { getLogger } from '../logger.js';
 
@@ -79,7 +81,10 @@ export async function getOrCreateCA(dir: string): Promise<CAKeyPair> {
  * Results are cached in memory — one cert per domain for the process lifetime.
  */
 export function generateDomainCert(domain: string, ca: CAKeyPair): DomainCert {
-  const cached = domainCertCache.get(domain);
+  // Cache key includes CA cert hash so different CAs don't collide
+  const caHash = createHash('sha256').update(ca.cert).digest('hex').slice(0, 16);
+  const cacheKey = `${domain}:${caHash}`;
+  const cached = domainCertCache.get(cacheKey);
   if (cached) return cached;
 
   const caKey = forge.pki.privateKeyFromPem(ca.key);
@@ -94,10 +99,15 @@ export function generateDomainCert(domain: string, ca: CAKeyPair): DomainCert {
   cert.validity.notAfter = new Date();
   cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
 
+  // Use IP type (7) for IP addresses, DNS type (2) for hostnames
+  const altName = isIP(domain)
+    ? { type: 7, ip: domain }
+    : { type: 2, value: domain };
+
   cert.setSubject([{ name: 'commonName', value: domain }]);
   cert.setIssuer(caCert.subject.attributes);
   cert.setExtensions([
-    { name: 'subjectAltName', altNames: [{ type: 2, value: domain }] },
+    { name: 'subjectAltName', altNames: [altName] },
     { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
     { name: 'extKeyUsage', serverAuth: true },
   ]);
@@ -107,6 +117,6 @@ export function generateDomainCert(domain: string, ca: CAKeyPair): DomainCert {
     key: forge.pki.privateKeyToPem(keys.privateKey),
     cert: forge.pki.certificateToPem(cert),
   };
-  domainCertCache.set(domain, result);
+  domainCertCache.set(cacheKey, result);
   return result;
 }
