@@ -656,7 +656,7 @@ export async function createServer(
       try {
         const body = JSON.parse(await readBody(req));
         const { sessionId, envName, value } = body;
-        if (!sessionId || !envName || typeof value !== 'string') {
+        if (typeof sessionId !== 'string' || !sessionId || typeof envName !== 'string' || !envName || typeof value !== 'string') {
           sendError(res, 400, 'Missing required fields: sessionId, envName, value');
           return;
         }

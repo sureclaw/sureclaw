@@ -17,7 +17,7 @@ const logger = getLogger().child({ component: 'credential-prompts' });
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 interface PendingEntry {
-  resolve: (value: string | null) => void;
+  resolvers: Array<(value: string | null) => void>;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -38,11 +38,7 @@ export function requestCredential(
   if (sessionPending?.has(envName)) {
     return new Promise<string | null>((resolve) => {
       const existing = sessionPending.get(envName)!;
-      const origResolve = existing.resolve;
-      existing.resolve = (value) => {
-        origResolve(value);
-        resolve(value);
-      };
+      existing.resolvers.push(resolve);
     });
   }
 
@@ -53,15 +49,18 @@ export function requestCredential(
       pending.set(sessionId, map);
     }
 
-    const timer = setTimeout(() => {
-      map!.delete(envName);
-      if (map!.size === 0) pending.delete(sessionId);
-      logger.info('credential_prompt_timeout', { sessionId, envName });
-      resolve(null);
-    }, timeoutMs);
-    if (timer.unref) timer.unref();
+    const entry: PendingEntry = {
+      resolvers: [resolve],
+      timer: setTimeout(() => {
+        map!.delete(envName);
+        if (map!.size === 0) pending.delete(sessionId);
+        logger.info('credential_prompt_timeout', { sessionId, envName });
+        entry.resolvers.forEach(r => r(null));
+      }, timeoutMs),
+    };
+    if (entry.timer.unref) entry.timer.unref();
 
-    map.set(envName, { resolve, timer });
+    map.set(envName, entry);
     logger.debug('credential_prompt_requested', { sessionId, envName });
   });
 }
@@ -80,7 +79,7 @@ export function resolveCredential(sessionId: string, envName: string, value: str
   if (sessionPending!.size === 0) pending.delete(sessionId);
 
   logger.info('credential_prompt_resolved', { sessionId, envName });
-  entry.resolve(value);
+  entry.resolvers.forEach(r => r(value));
   return true;
 }
 
@@ -92,7 +91,7 @@ export function cleanupSession(sessionId: string): void {
   if (sessionPending) {
     for (const entry of sessionPending.values()) {
       clearTimeout(entry.timer);
-      entry.resolve(null);
+      entry.resolvers.forEach(r => r(null));
     }
     pending.delete(sessionId);
   }

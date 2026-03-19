@@ -40,6 +40,21 @@ describe('credential-prompts', () => {
     expect(r2).toBe('the_value');
   });
 
+  test('three or more piggybacked requests all resolve', async () => {
+    const { requestCredential, resolveCredential } = await import('../../src/host/credential-prompts.js');
+
+    const p1 = requestCredential('test-session', 'MULTI_KEY');
+    const p2 = requestCredential('test-session', 'MULTI_KEY');
+    const p3 = requestCredential('test-session', 'MULTI_KEY');
+
+    setTimeout(() => resolveCredential('test-session', 'MULTI_KEY', 'val'), 10);
+
+    const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+    expect(r1).toBe('val');
+    expect(r2).toBe('val');
+    expect(r3).toBe('val');
+  });
+
   test('resolveCredential returns false if no pending request', async () => {
     const { resolveCredential } = await import('../../src/host/credential-prompts.js');
     const found = resolveCredential('test-session', 'NOPE', 'val');

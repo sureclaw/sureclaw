@@ -487,6 +487,19 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     activeSockets.add(clientTls);
     activeSockets.add(targetTls);
 
+    // Handle upstream TLS handshake failures with accurate audit status
+    let tlsFailed = false;
+    targetTls.on('error', (err) => {
+      if (!tlsFailed) {
+        tlsFailed = true;
+        audit({
+          action: 'proxy_request', sessionId, method: 'CONNECT', url: target,
+          status: 502, requestBytes: head.length, responseBytes: 0,
+          durationMs: Date.now() - startTime, blocked: `tls_error: ${err.message}`,
+        });
+      }
+    });
+
     let requestBytes = head.length;
     let responseBytes = 0;
     let credentialInjected = false;
@@ -537,17 +550,20 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       clientTls.destroy();
       targetTls.destroy();
 
-      audit({
-        action: 'proxy_request',
-        sessionId,
-        method: 'CONNECT',
-        url: target,
-        status: 200,
-        requestBytes,
-        responseBytes,
-        durationMs: Date.now() - startTime,
-        credentialInjected: credentialInjected || undefined,
-      });
+      // Skip audit if TLS handshake error already logged with accurate status
+      if (!tlsFailed) {
+        audit({
+          action: 'proxy_request',
+          sessionId,
+          method: 'CONNECT',
+          url: target,
+          status: 200,
+          requestBytes,
+          responseBytes,
+          durationMs: Date.now() - startTime,
+          credentialInjected: credentialInjected || undefined,
+        });
+      }
     };
 
     clientTls.on('close', cleanup);

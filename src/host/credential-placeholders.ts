@@ -50,7 +50,10 @@ export class CredentialPlaceholderMap {
     return result;
   }
 
-  /** Replace all placeholders in a Buffer. Returns a new Buffer. */
+  /** Replace all placeholders in a Buffer. Returns a new Buffer.
+   *  Assumes UTF-8 content (HTTP headers, JSON bodies). Binary data
+   *  (file uploads, protobuf) passes through unchanged because placeholders
+   *  are ASCII strings that won't appear in non-text content. */
   replaceAllBuffer(input: Buffer): Buffer {
     const str = input.toString('utf-8');
     if (!this.hasPlaceholders(str)) return input;
@@ -109,7 +112,8 @@ export class SharedCredentialRegistry {
     return result;
   }
 
-  /** Replace placeholders in a Buffer across all active sessions. */
+  /** Replace placeholders in a Buffer across all active sessions.
+   *  Assumes UTF-8 content. See CredentialPlaceholderMap.replaceAllBuffer. */
   replaceAllBuffer(input: Buffer): Buffer {
     const str = input.toString('utf-8');
     if (!this.hasPlaceholders(str)) return input;
