@@ -651,6 +651,26 @@ export async function createServer(
       return;
     }
 
+    // POST /v1/credentials/provide — resolve a pending credential prompt
+    if (url === '/v1/credentials/provide' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const { sessionId, envName, value } = body;
+        if (!sessionId || !envName || typeof value !== 'string') {
+          sendError(res, 400, 'Missing required fields: sessionId, envName, value');
+          return;
+        }
+        const { resolveCredential } = await import('./credential-prompts.js');
+        const found = resolveCredential(sessionId, envName, value);
+        const responseBody = JSON.stringify({ ok: true, found });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
+        res.end(responseBody);
+      } catch (err) {
+        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      }
+      return;
+    }
+
     // Admin dashboard: /admin/*
     if (adminHandler && url.startsWith('/admin')) {
       try {

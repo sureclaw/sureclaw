@@ -386,6 +386,24 @@ async function handleAdminAPI(
     return;
   }
 
+  // POST /admin/api/credentials/provide — resolve a pending credential prompt
+  if (pathname === '/admin/api/credentials/provide' && method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { sessionId, envName, value } = body;
+      if (!sessionId || !envName || typeof value !== 'string') {
+        sendError(res, 400, 'Missing required fields: sessionId, envName, value');
+        return;
+      }
+      const { resolveCredential } = await import('./credential-prompts.js');
+      const found = resolveCredential(sessionId, envName, value);
+      sendJSON(res, { ok: true, found });
+    } catch (err) {
+      sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+    }
+    return;
+  }
+
   // GET /admin/api/events — SSE stream
   if (pathname.startsWith('/admin/api/events') && method === 'GET') {
     handleAdminSSE(req, res, deps);
