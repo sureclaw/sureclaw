@@ -45,4 +45,30 @@ describe('credential-prompts', () => {
     const found = resolveCredential('test-session', 'NOPE', 'val');
     expect(found).toBe(false);
   });
+
+  test('integration: emits event and blocks until credential provided', async () => {
+    const { requestCredential, resolveCredential } = await import('../../src/host/credential-prompts.js');
+
+    // Simulate the server-completions flow:
+    // 1. Detect missing credential
+    // 2. Emit event (we'll just verify the blocking behavior)
+    // 3. Block until resolved
+    const events: string[] = [];
+
+    const promise = (async () => {
+      events.push('requesting');
+      const value = await requestCredential('int-test', 'GITHUB_TOKEN', 5000);
+      events.push(`got:${value}`);
+      return value;
+    })();
+
+    // Simulate user providing credential after a delay
+    await new Promise(r => setTimeout(r, 20));
+    events.push('providing');
+    resolveCredential('int-test', 'GITHUB_TOKEN', 'ghp_secret');
+
+    const result = await promise;
+    expect(result).toBe('ghp_secret');
+    expect(events).toEqual(['requesting', 'providing', 'got:ghp_secret']);
+  });
 });

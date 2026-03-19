@@ -740,7 +740,29 @@ export async function processCompletion(
         userWsPath ? join(userWsPath, 'skills') : undefined,
       );
       for (const envName of skillEnvRequirements) {
-        const realValue = await providers.credentials.get(envName);
+        let realValue = await providers.credentials.get(envName);
+
+        // If credential is missing, prompt the user for it
+        if (!realValue) {
+          reqLogger.info('credential_prompt_emitting', { envName });
+          eventBus?.emit({
+            type: 'credential.required',
+            requestId,
+            timestamp: Date.now(),
+            data: { envName, sessionId },
+          });
+
+          const { requestCredential } = await import('./credential-prompts.js');
+          const provided = await requestCredential(sessionId, envName);
+          if (provided) {
+            // Store for future sessions
+            await providers.credentials.set(envName, provided).catch(() => {
+              reqLogger.debug('credential_store_failed', { envName });
+            });
+            realValue = provided;
+          }
+        }
+
         if (realValue) {
           credentialMap.register(envName, realValue);
           reqLogger.debug('credential_placeholder_registered', { envName });
