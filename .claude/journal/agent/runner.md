@@ -2,6 +2,14 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-19 08:20] — Add skill dependency installer
+
+**Task:** Auto-install skill-declared package manager dependencies (npm, pip, cargo, go, uv) into persistent workspace directories
+**What I did:** Fixed pip install to use --user flag for PYTHONUSERBASE compat. Created `src/agent/skill-installer.ts` that reads SKILL.md files from workspace skill dirs, parses install specs via parseAgentSkill(), checks binExists() for each declared binary, and runs missing installs with prefix env vars redirecting output to workspace paths. Wired into both pi-session and claude-code runners after web proxy bridge setup (so HTTP_PROXY is available for downloads) and before agent loop starts. Added 7 tests covering skip-existing, install-missing, OS filtering, directory-based skills, error resilience, no-install skills, and missing dirs.
+**Files touched:** src/utils/skill-format-parser.ts, tests/utils/skill-format-parser.test.ts, src/agent/skill-installer.ts, tests/agent/skill-installer.test.ts, src/agent/runners/pi-session.ts, src/agent/runners/claude-code.ts
+**Outcome:** Success — all 2405 tests pass
+**Notes:** Uses execFileSync('/bin/sh', ['-c', cmd]) rather than execSync to make shell invocation explicit. Install commands come from screened SKILL.md files. The existing web proxy provides network access — no sandbox changes needed.
+
 ## [2026-03-16 15:00] — Runner NATS work subscription mode (replace stdin)
 
 **Task:** In NATS/k8s mode, runner subscribes to agent.work.{POD_NAME} for work instead of reading stdin

@@ -79,7 +79,7 @@ const KIND_TO_RUN: Record<string, (pkg: string) => string> = {
   brew:   pkg => `brew install ${pkg}`,
   node:   pkg => `npm install -g ${pkg}`,
   npm:    pkg => `npm install -g ${pkg}`,
-  pip:    pkg => `pip install ${pkg}`,
+  pip:    pkg => `pip install --user ${pkg}`,
   go:     pkg => `go install ${pkg}@latest`,
   cargo:  pkg => `cargo install ${pkg}`,
   uv:     pkg => `uv tool install ${pkg}`,

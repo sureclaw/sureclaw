@@ -35,6 +35,7 @@ import { convertPiMessages, emitStreamEvents } from '../stream-utils.js';
 import { createProxyStreamFn } from '../proxy-stream.js';
 import { makeProxyErrorMessage } from '../proxy-stream.js';
 import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
+import { installSkillDeps } from '../skill-installer.js';
 import { getLogger, truncate } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'pi-session' });
@@ -378,6 +379,15 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     process.env.HTTPS_PROXY = webProxyEnvUrl;
     process.env.http_proxy = webProxyEnvUrl;
     process.env.https_proxy = webProxyEnvUrl;
+  }
+
+  // Install missing skill dependencies (proxy is already set for network access)
+  const installPrefix = config.userWorkspace ?? config.agentWorkspace;
+  if (installPrefix) {
+    const skillDirs: string[] = [];
+    if (config.agentWorkspace) skillDirs.push(join(config.agentWorkspace, 'skills'));
+    if (config.userWorkspace) skillDirs.push(join(config.userWorkspace, 'skills'));
+    await installSkillDeps(skillDirs, installPrefix);
   }
 
   // Decide LLM transport: proxy (direct Anthropic SDK) or IPC fallback

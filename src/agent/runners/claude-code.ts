@@ -28,6 +28,8 @@ import { createIPCMcpServer } from '../mcp-server.js';
 import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt } from '../agent-setup.js';
+import { installSkillDeps } from '../skill-installer.js';
+import { join } from 'node:path';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'claude-code' });
@@ -119,6 +121,15 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     } catch (err) {
       logger.warn('web_proxy_bridge_failed', { error: (err as Error).message });
     }
+  }
+
+  // Install missing skill dependencies (proxy is already set for network access)
+  const installPrefix = config.userWorkspace ?? config.agentWorkspace;
+  if (installPrefix) {
+    const skillDirs: string[] = [];
+    if (config.agentWorkspace) skillDirs.push(join(config.agentWorkspace, 'skills'));
+    if (config.userWorkspace) skillDirs.push(join(config.userWorkspace, 'skills'));
+    await installSkillDeps(skillDirs, installPrefix);
   }
 
   // 2. Connect IPC client for MCP tools

@@ -79,6 +79,23 @@ metadata:
       expect(skill.install[1].bin).toBe('my-tool');
     });
 
+    test('pip old-format install uses --user flag', () => {
+      const skill = parseAgentSkill(`---
+name: py-skill
+metadata:
+  openclaw:
+    install:
+      - kind: pip
+        package: some-tool
+        bins: [some-tool]
+---
+Body`);
+
+      expect(skill.install).toHaveLength(1);
+      expect(skill.install[0].run).toBe('pip install --user some-tool');
+      expect(skill.install[0].bin).toBe('some-tool');
+    });
+
     test('extracts new-format install specs with run field', () => {
       const skill = parseAgentSkill(`---
 name: my-tool

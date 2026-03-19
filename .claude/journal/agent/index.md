@@ -4,6 +4,7 @@ Agent process: runner, tools, prompt builder, MCP server, tool catalog.
 
 ## Entries
 
+- 2026-03-19 08:20 — Add skill dependency installer [runner.md](runner.md)
 - 2026-03-16 15:00 — Runner NATS work subscription mode (replace stdin) [runner.md](runner.md)
 - 2026-03-16 10:00 — Add NATS IPC transport support in runner.ts [runner.md](runner.md)
 - 2026-03-15 15:30 — Implement local sandbox execution (Tasks 1-11) [tools.md](tools.md)
