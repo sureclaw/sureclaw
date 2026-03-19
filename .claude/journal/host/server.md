@@ -2,6 +2,19 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-19 14:10] — Skill OAuth credential support (PKCE flow, auto-refresh, SSE events)
+
+**Task:** Add OAuth authentication support for skills so users can authenticate via browser redirect instead of pasting API keys
+**What I did:** Implemented the full OAuth PKCE flow for skill credentials:
+1. Extended `ParsedAgentSkill.requires` with `oauth: OAuthRequirement[]` type and parser in `skill-format-parser.ts`
+2. Created `src/host/oauth-skills.ts` — PKCE flow initiation, callback resolution with token exchange, token refresh with auto-expiry, session cleanup
+3. Updated credential resolution loop in `server-completions.ts` — OAuth credentials are resolved first (with auto-refresh), then falls back to plain env prompts; renamed `collectSkillEnvRequirements` → `collectSkillCredentialRequirements`
+4. Added `GET /v1/oauth/callback/:provider` route in `server.ts` for browser redirect handling
+5. Added `oauth.required` → `oauth_required` SSE event for web chat UIs
+**Files touched:** `src/providers/skills/types.ts`, `src/utils/skill-format-parser.ts`, `src/host/oauth-skills.ts` (new), `src/host/server-completions.ts`, `src/host/server.ts`, `tests/host/collect-skill-env.test.ts`, `tests/host/oauth-skills.test.ts` (new), `tests/host/server-credentials-sse.test.ts`
+**Outcome:** Success — 2467 tests pass, clean type-check
+**Notes:** Reuses PKCE helpers from `oauth.ts` (Claude Max auth) and pending/resolve pattern from `credential-prompts.ts`. OAuth blobs are stored as JSON in the credential provider under `oauth:<name>` keys.
+
 ## [2026-03-18 12:15] — Fix opaque "fetch failed" errors in HTTP IPC client
 
 **Task:** Make `ipc_llm_stream_error: fetch failed` errors actionable by extracting the real cause

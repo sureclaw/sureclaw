@@ -25,6 +25,7 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
 import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { parseAgentSkill } from '../utils/skill-format-parser.js';
+import type { OAuthRequirement } from '../providers/skills/types.js';
 import { connectIPCBridge } from './ipc-server.js';
 import { diagnoseError } from '../errors.js';
 import { buildLifecyclePlan, prepareGitWorkspace, finalizeGitWorkspace } from '../providers/workspace/lifecycle.js';
@@ -738,19 +739,71 @@ export async function processCompletion(
       userWsPath = userWsPath ?? enterpriseUserWs;
     }
 
-    // Build credential placeholders for skill-required env vars (now that workspace paths are set).
-    // Skills declare required env vars in requires.env — the host resolves them
-    // from the credential provider and injects placeholders into the sandbox.
-    // The MITM proxy replaces placeholders with real values in intercepted HTTPS traffic.
+    // Build credential placeholders for skill-required env vars and OAuth tokens.
+    // Skills declare required credentials in requires.env and requires.oauth —
+    // the host resolves them from the credential provider and injects placeholders
+    // into the sandbox. The MITM proxy replaces placeholders with real values in
+    // intercepted HTTPS traffic.
     if (config.web_proxy) {
-      const skillEnvRequirements = collectSkillEnvRequirements(
-        agentWsPath ? join(agentWsPath, 'skills') : undefined,
-        userWsPath ? join(userWsPath, 'skills') : undefined,
-      );
+      const { env: skillEnvRequirements, oauth: skillOAuthRequirements } =
+        collectSkillCredentialRequirements(
+          agentWsPath ? join(agentWsPath, 'skills') : undefined,
+          userWsPath ? join(userWsPath, 'skills') : undefined,
+        );
+
+      // Track which env names are handled by OAuth (so plain env prompt is skipped)
+      const oauthHandledNames = new Set<string>();
+
+      // --- OAuth credentials: check stored blob, refresh if expired, or start flow ---
+      const publicUrl = process.env.AX_PUBLIC_URL ?? `http://localhost:8080`;
+
+      for (const oauthReq of skillOAuthRequirements) {
+        oauthHandledNames.add(oauthReq.name);
+        const credKey = `oauth:${oauthReq.name}`;
+        const stored = await providers.credentials.get(credKey);
+
+        if (stored) {
+          // Credential exists — refresh if expired
+          const { refreshOAuthToken } = await import('./oauth-skills.js');
+          const accessToken = await refreshOAuthToken(credKey, providers.credentials);
+          if (accessToken) {
+            credentialMap.register(oauthReq.name, accessToken);
+            reqLogger.debug('oauth_credential_resolved', { name: oauthReq.name, refreshed: true });
+            continue;
+          }
+          // Refresh failed — fall through to re-auth
+        }
+
+        // No stored credential or refresh failed — start OAuth flow
+        const { startOAuthFlow } = await import('./oauth-skills.js');
+        const redirectUri = `${publicUrl}/v1/oauth/callback/${oauthReq.name}`;
+        const authorizeUrl = startOAuthFlow(sessionId, oauthReq, redirectUri);
+
+        reqLogger.info('oauth_prompt_emitting', { name: oauthReq.name });
+        eventBus?.emit({
+          type: 'oauth.required',
+          requestId,
+          timestamp: Date.now(),
+          data: { envName: oauthReq.name, sessionId, authorizeUrl },
+        });
+
+        // Block until user completes OAuth or timeout
+        const { requestCredential } = await import('./credential-prompts.js');
+        const accessToken = await requestCredential(sessionId, oauthReq.name);
+        if (accessToken) {
+          credentialMap.register(oauthReq.name, accessToken);
+          reqLogger.debug('oauth_credential_resolved', { name: oauthReq.name });
+        } else {
+          reqLogger.debug('oauth_credential_timeout', { name: oauthReq.name });
+        }
+      }
+
+      // --- Plain env credentials: prompt for any not handled by OAuth ---
       for (const envName of skillEnvRequirements) {
+        if (oauthHandledNames.has(envName)) continue;
+
         let realValue = await providers.credentials.get(envName);
 
-        // If credential is missing, prompt the user for it
         if (!realValue) {
           reqLogger.info('credential_prompt_emitting', { envName });
           eventBus?.emit({
@@ -763,7 +816,6 @@ export async function processCompletion(
           const { requestCredential } = await import('./credential-prompts.js');
           const provided = await requestCredential(sessionId, envName);
           if (provided) {
-            // Store for future sessions
             await providers.credentials.set(envName, provided).catch(() => {
               reqLogger.debug('credential_store_failed', { envName });
             });
@@ -1330,6 +1382,11 @@ export async function processCompletion(
     // Clean up credential prompts
     const { cleanupSession: cleanupCredentialPrompts } = await import('./credential-prompts.js');
     cleanupCredentialPrompts(sessionId);
+    // Clean up pending OAuth flows for this session
+    {
+      const { cleanupSession: cleanupOAuth } = await import('./oauth-skills.js');
+      cleanupOAuth(sessionId);
+    }
     // Deregister session from shared credential registry (k8s shared proxy)
     if (deps.sharedCredentialRegistry) {
       deps.sharedCredentialRegistry.deregister(sessionId);
@@ -1393,13 +1450,14 @@ export function isTransientAgentFailure(exitCode: number, stderr: string): boole
   return false;
 }
 
-/** Scan skill files in agent and user skill directories for requires.env declarations.
+/** Scan skill files in agent and user skill directories for requires.env and requires.oauth declarations.
  *  Handles both file-based skills (greeting.md) and directory-based skills (deploy/SKILL.md). */
-function collectSkillEnvRequirements(
+function collectSkillCredentialRequirements(
   agentSkillsDir?: string,
   userSkillsDir?: string,
-): Set<string> {
+): { env: Set<string>; oauth: OAuthRequirement[] } {
   const envVars = new Set<string>();
+  const oauthReqs: OAuthRequirement[] = [];
   for (const dir of [agentSkillsDir, userSkillsDir]) {
     if (!dir || !existsSync(dir)) continue;
     try {
@@ -1408,10 +1466,8 @@ function collectSkillEnvRequirements(
         try {
           let raw: string | undefined;
           if (entry.isFile() && entry.name.endsWith('.md')) {
-            // File-based skill: greeting.md
             raw = readFileSync(join(dir, entry.name), 'utf-8');
           } else if (entry.isDirectory()) {
-            // Directory-based skill: deploy/SKILL.md
             const skillMdPath = join(dir, entry.name, 'SKILL.md');
             if (existsSync(skillMdPath)) {
               raw = readFileSync(skillMdPath, 'utf-8');
@@ -1422,10 +1478,13 @@ function collectSkillEnvRequirements(
             for (const env of parsed.requires.env) {
               envVars.add(env);
             }
+            for (const oauth of parsed.requires.oauth) {
+              oauthReqs.push(oauth);
+            }
           }
         } catch { /* skip unparseable skills */ }
       }
     } catch { /* skip unreadable directories */ }
   }
-  return envVars;
+  return { env: envVars, oauth: oauthReqs };
 }

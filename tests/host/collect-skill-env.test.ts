@@ -20,6 +20,85 @@ describe('collectSkillEnvRequirements', () => {
     // Must check for directory-based skills (SKILL.md inside subdirectory)
     expect(source).toContain("entry.isDirectory()");
     expect(source).toContain("SKILL.md");
+    // Must handle OAuth requirements
+    expect(source).toContain("requires.oauth");
+    expect(source).toContain("oauth.required");
+  });
+
+  test('parseAgentSkill extracts requires.oauth from skill frontmatter', async () => {
+    const { parseAgentSkill } = await import('../../src/utils/skill-format-parser.js');
+
+    const skill = `---
+name: linear-bot
+metadata:
+  openclaw:
+    requires:
+      env:
+        - SLACK_TOKEN
+      oauth:
+        - name: LINEAR_API_KEY
+          authorize_url: https://linear.app/oauth/authorize
+          token_url: https://linear.app/oauth/token
+          scopes:
+            - read
+            - write
+          client_id: abc123
+          client_secret_env: LINEAR_OAUTH_CLIENT_SECRET
+---
+Linear integration.`;
+
+    const parsed = parseAgentSkill(skill);
+    expect(parsed.requires.oauth).toHaveLength(1);
+    expect(parsed.requires.oauth![0]).toEqual({
+      name: 'LINEAR_API_KEY',
+      authorize_url: 'https://linear.app/oauth/authorize',
+      token_url: 'https://linear.app/oauth/token',
+      scopes: ['read', 'write'],
+      client_id: 'abc123',
+      client_secret_env: 'LINEAR_OAUTH_CLIENT_SECRET',
+    });
+    // Plain env still parsed
+    expect(parsed.requires.env).toContain('SLACK_TOKEN');
+  });
+
+  test('parseAgentSkill returns empty oauth array when not declared', async () => {
+    const { parseAgentSkill } = await import('../../src/utils/skill-format-parser.js');
+
+    const skill = `---
+name: simple
+metadata:
+  openclaw:
+    requires:
+      env:
+        - API_KEY
+---
+Simple skill.`;
+
+    const parsed = parseAgentSkill(skill);
+    expect(parsed.requires.oauth).toEqual([]);
+  });
+
+  test('parseAgentSkill handles oauth without client_secret_env (PKCE-only)', async () => {
+    const { parseAgentSkill } = await import('../../src/utils/skill-format-parser.js');
+
+    const skill = `---
+name: github-bot
+metadata:
+  openclaw:
+    requires:
+      oauth:
+        - name: GITHUB_TOKEN
+          authorize_url: https://github.com/login/oauth/authorize
+          token_url: https://github.com/login/oauth/access_token
+          scopes: [repo, user]
+          client_id: gh-client-123
+---
+GitHub integration.`;
+
+    const parsed = parseAgentSkill(skill);
+    expect(parsed.requires.oauth).toHaveLength(1);
+    expect(parsed.requires.oauth![0].client_secret_env).toBeUndefined();
+    expect(parsed.requires.oauth![0].client_id).toBe('gh-client-123');
   });
 
   test('parseAgentSkill extracts requires.env from both skill formats', async () => {

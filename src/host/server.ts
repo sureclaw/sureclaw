@@ -671,6 +671,35 @@ export async function createServer(
       return;
     }
 
+    // GET /v1/oauth/callback/:provider — OAuth redirect callback
+    if (url.startsWith('/v1/oauth/callback/') && req.method === 'GET') {
+      const provider = url.split('/v1/oauth/callback/')[1]?.split('?')[0];
+      const params = new URL(req.url!, `http://${req.headers.host}`).searchParams;
+      const code = params.get('code');
+      const state = params.get('state');
+
+      if (!provider || !code || !state) {
+        sendError(res, 400, 'Missing required parameters: code, state');
+        return;
+      }
+
+      try {
+        const { resolveOAuthCallback } = await import('./oauth-skills.js');
+        const found = await resolveOAuthCallback(provider, code, state, providers.credentials);
+
+        const html = found
+          ? '<html><body><h2>Authentication successful</h2><p>You can close this tab and return to your conversation.</p></body></html>'
+          : '<html><body><h2>Authentication failed</h2><p>Invalid or expired OAuth flow. Please try again.</p></body></html>';
+        const status = found ? 200 : 400;
+        res.writeHead(status, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
+        res.end(html);
+      } catch (err) {
+        logger.error('oauth_callback_failed', { provider, error: (err as Error).message });
+        sendError(res, 500, 'OAuth callback processing failed');
+      }
+      return;
+    }
+
     // Admin dashboard: /admin/*
     if (adminHandler && url.startsWith('/admin')) {
       try {
@@ -877,6 +906,13 @@ export async function createServer(
                 },
               }],
             }, finish_reason: null }],
+          });
+        } else if (event.type === 'oauth.required' && event.data.envName) {
+          sendSSENamedEvent(res, 'oauth_required', {
+            envName: event.data.envName as string,
+            sessionId: event.data.sessionId as string,
+            authorizeUrl: event.data.authorizeUrl as string,
+            requestId,
           });
         } else if (event.type === 'credential.required' && event.data.envName) {
           // Emit as a named SSE event — web chat UIs show a credential input modal.

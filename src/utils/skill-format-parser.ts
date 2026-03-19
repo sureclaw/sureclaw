@@ -12,7 +12,7 @@
  */
 
 import { parse as parseYaml } from 'yaml';
-import type { ParsedAgentSkill, SkillInstallStep } from '../providers/skills/types.js';
+import type { ParsedAgentSkill, SkillInstallStep, OAuthRequirement } from '../providers/skills/types.js';
 
 // ═══════════════════════════════════════════════════════
 // Frontmatter extraction
@@ -148,6 +148,21 @@ function toStringArray(raw: unknown): string[] {
   return raw.map(String);
 }
 
+function toOAuthRequirements(raw: unknown): OAuthRequirement[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is Record<string, unknown> =>
+      item !== null && typeof item === 'object' && typeof (item as any).name === 'string')
+    .map(item => ({
+      name: String(item.name),
+      authorize_url: String(item.authorize_url ?? ''),
+      token_url: String(item.token_url ?? ''),
+      scopes: toStringArray(item.scopes),
+      client_id: String(item.client_id ?? ''),
+      ...(typeof item.client_secret_env === 'string' ? { client_secret_env: item.client_secret_env } : {}),
+    }));
+}
+
 export function parseAgentSkill(raw: string): ParsedAgentSkill {
   const { frontmatter: fm, body } = extractFrontmatter(raw);
   const meta = resolveMetadata(fm);
@@ -168,6 +183,7 @@ export function parseAgentSkill(raw: string): ParsedAgentSkill {
     requires: {
       bins: toStringArray(requires?.bins),
       env: toStringArray(requires?.env),
+      oauth: toOAuthRequirements(requires?.oauth),
       anyBins: Array.isArray(requires?.anyBins)
         ? (requires.anyBins as unknown[]).filter(Array.isArray).map(a => a.map(String))
         : undefined,

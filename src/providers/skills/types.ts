@@ -21,6 +21,15 @@ export interface SkillInstallStep {
   os?: string[];
 }
 
+export interface OAuthRequirement {
+  name: string;
+  authorize_url: string;
+  token_url: string;
+  scopes: string[];
+  client_id: string;
+  client_secret_env?: string;
+}
+
 export interface ParsedAgentSkill {
   name: string;
   description?: string;
@@ -30,6 +39,7 @@ export interface ParsedAgentSkill {
   requires: {
     bins: string[];
     env: string[];
+    oauth: OAuthRequirement[];
     anyBins?: string[][];
     config?: Record<string, string>;
   };

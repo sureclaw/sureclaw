@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-19 14:10 — Skill OAuth credential support (PKCE flow, auto-refresh, SSE events) [server.md](server.md)
 - 2026-03-18 22:15 — Enable web proxy for k8s sandboxes (npm install E2E fix) [sandbox-dispatch.md](sandbox-dispatch.md)
 - 2026-03-18 17:30 — Fix agent hang on network bash commands (npm install deadlock) [sandbox-dispatch.md](sandbox-dispatch.md)
 - 2026-03-16 18:00 — Update ax-host skill to reflect NATS IPC handler and deleted files [sandbox-dispatch.md](sandbox-dispatch.md)
