@@ -19,16 +19,33 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     await opts.pluginHost.startAll();
   }
 
-  // Load credential provider FIRST and seed process.env.
+  // When using database credentials, we need the DB connection first.
+  // For other credential providers (plaintext, keychain), keep original order.
+  let database: DatabaseProvider | undefined;
+  const needsDbForCreds = config.providers.credentials === 'database';
+
+  if (needsDbForCreds && config.providers.database) {
+    const dbModPath = resolveProviderPath('database', config.providers.database);
+    const dbMod = await import(dbModPath);
+    database = await dbMod.create(config);
+  }
+
+  // Load credential provider and seed process.env.
   // Other providers (e.g. Slack) read tokens from process.env at creation
   // time, so credentials must be available before they are loaded.
-  const credentials = await loadProvider('credentials', config.providers.credentials, config);
+  let credentials;
+  if (needsDbForCreds) {
+    const credModPath = resolveProviderPath('credentials', 'database');
+    const credMod = await import(credModPath);
+    credentials = await credMod.create(config, 'database', { database });
+  } else {
+    credentials = await loadProvider('credentials', config.providers.credentials, config);
+  }
   const { loadCredentials } = await import('../dotenv.js');
   await loadCredentials(credentials);
 
-  // Load database provider SECOND — storage, audit, memory all consume it.
-  let database: DatabaseProvider | undefined;
-  if (config.providers.database) {
+  // Load database provider if not already loaded above for credential provider.
+  if (!database && config.providers.database) {
     const dbModPath = resolveProviderPath('database', config.providers.database);
     const dbMod = await import(dbModPath);
     database = await dbMod.create(config);

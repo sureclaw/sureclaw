@@ -53,6 +53,7 @@ const _PROVIDER_MAP = {
   credentials: {
     plaintext: '../providers/credentials/plaintext.js',
     keychain:  '../providers/credentials/keychain.js',
+    database:  '../providers/credentials/database.js',
   },
   audit: {
     database: '../providers/audit/database.js',
