@@ -75,7 +75,7 @@ When a skill requires a credential that isn't in the store, the host prompts the
 ## Gotchas
 
 - **Credentials never enter agent containers:** The host holds credentials and injects them into outbound API requests via the MITM proxy. Agents receive opaque `ax-cred:<hex>` placeholder tokens as env vars, not real credentials.
-- **Plaintext provider is read-only:** `set()` and `delete()` throw errors. Use keychain for writes.
+- **Plaintext provider writes to `~/.ax/credentials.yaml`:** Supports `set()`, `delete()`, and `list()`. Falls back to `process.env` for `get()` lookups.
 - **Credential map is populated by reference:** The `CredentialPlaceholderMap` is created before the web proxy starts and populated later (after workspace paths are set). Since it's passed by reference, the proxy sees updates.
 - **Missing credentials trigger interactive prompts:** If `providers.credentials.get()` returns null and `web_proxy` is enabled, the host emits a `credential.required` event and blocks. If the user doesn't provide within 120s, the credential is skipped.
 - **Duplicate requests piggyback:** Multiple concurrent requests for the same credential (same session + envName) share a single pending entry.

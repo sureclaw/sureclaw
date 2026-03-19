@@ -55,32 +55,22 @@ export async function create(
     },
 
     async set(service: string, value: string): Promise<void> {
-      const existing = await db.selectFrom('credential_store')
-        .select('id')
-        .where('scope', '=', scope)
-        .where('env_name', '=', service)
-        .executeTakeFirst();
-
-      if (existing) {
-        await db.updateTable('credential_store')
-          .set({
+      const now = new Date().toISOString();
+      await db.insertInto('credential_store')
+        .values({
+          scope,
+          env_name: service,
+          value,
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflict(oc =>
+          oc.columns(['scope', 'env_name']).doUpdateSet({
             value,
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           })
-          .where('scope', '=', scope)
-          .where('env_name', '=', service)
-          .execute();
-      } else {
-        await db.insertInto('credential_store')
-          .values({
-            scope,
-            env_name: service,
-            value,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .execute();
-      }
+        )
+        .execute();
 
       // Also update process.env so the value is immediately available
       process.env[service] = value;

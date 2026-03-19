@@ -11,12 +11,26 @@ import type { Config } from '../../../src/types.js';
 
 const config = {} as Config;
 
+// All env keys tests may set — snapshot/restore prevents cross-test leakage.
+const ENV_KEYS = [
+  'AX_HOME',
+  'DB_CREDS_TEST_KEY',
+  'MY_API_KEY',
+  'KEY',
+  'TO_DELETE',
+  'KEY_A',
+  'KEY_B',
+  'CROSS_INSTANCE',
+] as const;
+
 describe('credentials/database', () => {
+  let envSnapshot: Record<string, string | undefined>;
   let provider: CredentialProvider;
   let database: DatabaseProvider;
   let testHome: string;
 
   beforeEach(async () => {
+    envSnapshot = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
     testHome = join(tmpdir(), `ax-creds-db-test-${randomUUID()}`);
     mkdirSync(testHome, { recursive: true });
     process.env.AX_HOME = testHome;
@@ -27,8 +41,11 @@ describe('credentials/database', () => {
   afterEach(async () => {
     try { await database.close(); } catch {}
     try { rmSync(testHome, { recursive: true, force: true }); } catch {}
-    delete process.env.AX_HOME;
-    delete process.env.DB_CREDS_TEST_KEY;
+    for (const key of ENV_KEYS) {
+      const original = envSnapshot[key];
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
   });
 
   test('throws when no database provider given', async () => {
@@ -71,6 +88,15 @@ describe('credentials/database', () => {
     expect(await provider.get('KEY')).toBe('v2');
   });
 
+  test('concurrent set does not throw (atomic upsert)', async () => {
+    await Promise.all([
+      provider.set('KEY', 'a'),
+      provider.set('KEY', 'b'),
+    ]);
+    const value = await provider.get('KEY');
+    expect(value === 'a' || value === 'b').toBe(true);
+  });
+
   test('delete removes a credential', async () => {
     await provider.set('TO_DELETE', 'value');
     await provider.delete('TO_DELETE');
@@ -98,9 +124,16 @@ describe('credentials/database', () => {
     expect(process.env.DB_CREDS_TEST_KEY).toBe('via-set');
   });
 
-  test('persists across provider instances', async () => {
+  test('persists across database connections', async () => {
     await provider.set('CROSS_INSTANCE', 'value-123');
-    const provider2 = await create(config, 'database', { database });
-    expect(await provider2.get('CROSS_INSTANCE')).toBe('value-123');
+    await database.close();
+
+    const database2 = await createSqliteDb(config);
+    try {
+      const provider2 = await create(config, 'database', { database: database2 });
+      expect(await provider2.get('CROSS_INSTANCE')).toBe('value-123');
+    } finally {
+      await database2.close();
+    }
   });
 });
