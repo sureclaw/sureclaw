@@ -1,3 +1,15 @@
+### node-forge requires default import, not namespace import
+**Date:** 2026-03-19
+**Context:** proxy-ca.ts used `import * as forge from 'node-forge'` which worked locally with tsx but crashed in k8s container with `Cannot read properties of undefined (reading 'rsa')`.
+**Lesson:** node-forge is a CJS module. `import * as forge` gives `{ default: {...}, 'module.exports': {...} }` — no named exports. Use `import forge from 'node-forge'` to get the actual namespace object with `pki`, `md`, etc.
+**Tags:** node-forge, esm, cjs, import, k8s
+
+### Chart-injected Config fields must be in the Zod schema
+**Date:** 2026-03-19
+**Context:** Added `namespace` to ConfigMap template but not to the Config Zod schema. Host crashed with "unknown field(s): namespace" because `loadConfig()` uses Zod strict mode.
+**Lesson:** Any field injected into ax.yaml by the Helm chart template (not from `.Values.config`) must also be added to the Config Zod schema in `src/config.ts`. The strict schema rejects unknown fields.
+**Tags:** config, zod, helm, strict-mode
+
 ### PodTemplate extra fields need specific index-signature types, not Record<string, unknown>
 **Date:** 2026-03-17
 **Context:** Adding extraVolumes/extraVolumeMounts to PodTemplate. Used `Array<Record<string, unknown>>` initially but tsc rejected it because the spread into volumes/volumeMounts arrays expects V1Volume/V1VolumeMount which require `name` and `mountPath`.

@@ -2,6 +2,19 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-19 23:00] — K8s deployment fixes from E2E validation
+
+**Task:** Validate full credential flow E2E on kind cluster; fix issues blocking deployment.
+**What I did:**
+- Fixed node-forge ESM import in proxy-ca.ts (`import * as forge` → `import forgeModule from`). The CJS module doesn't export named `pki` — need default import.
+- Added `namespace` to Config Zod schema — chart-injected field was rejected by strict validation.
+- Auto-inject namespace into ConfigMap template from Helm release namespace (so web proxy URL uses correct k8s service FQDN).
+- Fixed kind-dev-values.yaml: empty registry for local images, correct mount paths (`/opt/ax/dist`), OpenRouter API credentials.
+- E2E test showed host starts successfully, web proxy on port 3128 with MITM, LLM calls work. But sandbox pods never receive NATS work dispatch — tool calls stream back unexecuted.
+**Files touched:** src/host/proxy-ca.ts, src/config.ts, charts/ax/templates/configmap-ax-config.yaml, charts/ax/kind-dev-values.yaml
+**Outcome:** Partial — host deploys clean, web proxy starts, but NATS work dispatch to sandbox pods is non-functional (pre-existing issue)
+**Notes:** Sandbox pods show `[diag] waiting for work on sandbox.work` but never receive messages. This blocks all E2E validation of web proxy propagation, npm install, and credential flow.
+
 ## [2026-03-19 22:20] — Migrate web-proxy-approvals to event bus + diagnostic logging
 
 **Task:** Follow-up from live k8s debugging: (1) add diagnostic logging for web proxy URL propagation to sandbox pods, (2) migrate web-proxy-approvals.ts from in-memory promise map to event bus pattern (like credential-prompts.ts), (3) verify Helm chart web proxy config.
