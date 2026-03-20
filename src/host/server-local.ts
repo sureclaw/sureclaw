@@ -9,12 +9,10 @@
  */
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync, copyFileSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { axHome, agentIdentityDir, agentIdentityFilesDir } from '../paths.js';
 import type { Config } from '../types.js';
-import type { InboundMessage } from '../providers/channel/types.js';
 import { loadProviders } from './registry.js';
 import { getLogger } from '../logger.js';
 import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
@@ -22,19 +20,15 @@ import type { EventBus } from './event-bus.js';
 import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
 
 // Extracted modules
-import { sendError, readBody } from './server-http.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
-import { handleFileUpload, handleFileDownload } from './server-files.js';
 
 // Shared extraction modules
 import { initHostCore } from './server-init.js';
 import {
-  handleModels as sharedHandleModels,
-  handleCompletions as sharedHandleCompletions,
-  handleEventsSSE,
+  createRequestHandler,
   createSchedulerCallback,
 } from './server-request-handlers.js';
 import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
@@ -229,194 +223,42 @@ export async function createServer(
     });
   }
 
-  // ── Completion handler options ──
-  const completionOpts = {
+  // --- Request Handler (via shared factory) ---
+
+  const handleRequest = createRequestHandler({
     modelId,
     agentName,
     agentDirVal,
     eventBus,
-    runCompletion: async (
-      content: string | import('../types.js').ContentBlock[],
-      requestId: string,
-      messages: { role: string; content: string | import('../types.js').ContentBlock[] }[],
-      sessionId: string,
-      userId?: string,
-    ) => {
-      return processCompletion(completionDeps, content, requestId, messages, sessionId, undefined, userId);
-    },
-    preFlightCheck: (sessionId: string, userId: string | undefined) => {
-      if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
-        if (claimBootstrapAdmin(agentDirVal, userId)) {
-          logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
-          return undefined;
-        } else {
+    providers,
+    fileStore,
+    taintBudget,
+    completionOpts: {
+      modelId,
+      agentName,
+      agentDirVal,
+      eventBus,
+      runCompletion: async (content, requestId, messages, sessionId, userId) => {
+        return processCompletion(completionDeps, content, requestId, messages, sessionId, undefined, userId);
+      },
+      preFlightCheck: (sessionId: string, userId: string | undefined) => {
+        if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
+          if (claimBootstrapAdmin(agentDirVal, userId)) {
+            logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+            return undefined;
+          }
           return 'This agent is still being set up. Only admins can interact during bootstrap.';
         }
-      }
-      return undefined;
+        return undefined;
+      },
     },
-  };
-
-  // --- Request Handler ---
-
-  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    const url = req.url ?? '/';
-
-    // Reject new requests during shutdown (let health/models through)
-    if (draining && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix))) {
-      sendError(res, 503, 'Server is shutting down — not accepting new requests');
-      return;
-    }
-
-    if (url === '/health' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: draining ? 'draining' : 'ok' }));
-      return;
-    }
-
-    if (url === '/v1/models' && req.method === 'GET') {
-      sharedHandleModels(res, modelId);
-      return;
-    }
-
-    if (url === '/v1/chat/completions' && req.method === 'POST') {
-      trackRequestStart();
-      try {
-        await sharedHandleCompletions(req, res, completionOpts);
-      } catch (err) {
-        logger.error('request_failed', { error: (err as Error).message });
-        if (!res.headersSent) {
-          sendError(res, 500, 'Internal server error');
-        }
-      } finally {
-        trackRequestEnd();
-      }
-      return;
-    }
-
-    // File upload: POST /v1/files?agent=<name>&user=<id>
-    if (url.startsWith('/v1/files') && req.method === 'POST') {
-      try {
-        await handleFileUpload(req, res, { fileStore });
-      } catch (err) {
-        logger.error('file_upload_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'File upload failed');
-      }
-      return;
-    }
-
-    // File download: GET /v1/files/<fileId>?agent=<name>&user=<id>
-    if (url.startsWith('/v1/files/') && req.method === 'GET') {
-      try {
-        await handleFileDownload(req, res, { fileStore });
-      } catch (err) {
-        logger.error('file_download_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'File download failed');
-      }
-      return;
-    }
-
-    // SSE event stream: GET /v1/events?request_id=...&types=...
-    if (url.startsWith('/v1/events') && req.method === 'GET') {
-      handleEventsSSE(req, res, eventBus);
-      return;
-    }
-
-    // Webhooks: POST <prefix><name>
-    if (webhookHandler && url.startsWith(webhookPrefix)) {
-      const webhookName = url.slice(webhookPrefix.length).split('?')[0];
-      if (!webhookName) {
-        sendError(res, 404, 'Not found');
-        return;
-      }
-      trackRequestStart();
-      try {
-        await webhookHandler(req, res, webhookName);
-      } catch (err) {
-        logger.error('webhook_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'Webhook processing failed');
-      } finally {
-        trackRequestEnd();
-      }
-      return;
-    }
-
-    // POST /v1/credentials/provide — store a credential for future requests
-    if (url === '/v1/credentials/provide' && req.method === 'POST') {
-      try {
-        const body = JSON.parse(await readBody(req));
-        const { envName, value } = body;
-        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
-          sendError(res, 400, 'Missing required fields: envName, value');
-          return;
-        }
-        await providers.credentials.set(envName, value);
-        const responseBody = JSON.stringify({ ok: true });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
-        res.end(responseBody);
-      } catch (err) {
-        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
-      }
-      return;
-    }
-
-    // GET /v1/oauth/callback/:provider — OAuth redirect callback
-    if (url.startsWith('/v1/oauth/callback/') && req.method === 'GET') {
-      const provider = url.split('/v1/oauth/callback/')[1]?.split('?')[0];
-      const params = new URL(req.url!, `http://${req.headers.host}`).searchParams;
-      const code = params.get('code');
-      const state = params.get('state');
-
-      if (!provider || !code || !state) {
-        const html = '<html><body><h2>Bad request</h2><p>Missing required parameters (code, state).</p></body></html>';
-        res.writeHead(400, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
-        res.end(html);
-        return;
-      }
-
-      try {
-        const { resolveOAuthCallback } = await import('./oauth-skills.js');
-        const found = await resolveOAuthCallback(provider, code, state, providers.credentials, eventBus);
-
-        const html = found
-          ? '<html><body><h2>Authentication successful</h2><p>You can close this tab and return to your conversation.</p></body></html>'
-          : '<html><body><h2>Authentication failed</h2><p>Invalid or expired OAuth flow. Please try again.</p></body></html>';
-        const status = found ? 200 : 400;
-        res.writeHead(status, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
-        res.end(html);
-      } catch (err) {
-        logger.error('oauth_callback_failed', { provider, error: (err as Error).message });
-        const html = '<html><body><h2>Server error</h2><p>OAuth callback processing failed. Please try again.</p></body></html>';
-        res.writeHead(500, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(html) });
-        res.end(html);
-      }
-      return;
-    }
-
-    // Admin dashboard: /admin/*
-    if (adminHandler && url.startsWith('/admin')) {
-      try {
-        await adminHandler(req, res, url.split('?')[0]);
-      } catch (err) {
-        logger.error('admin_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'Admin request failed');
-      }
-      return;
-    }
-
-    sendError(res, 404, 'Not found');
-  }
+    webhookPrefix,
+    webhookHandler,
+    adminHandler,
+    isDraining: () => draining,
+    trackRequestStart,
+    trackRequestEnd,
+  });
 
   // --- Lifecycle ---
 
