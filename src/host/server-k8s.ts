@@ -94,10 +94,10 @@ async function main(): Promise<void> {
   // ── Shared initialization (storage, routing, IPC, templates, orchestrator) ──
   const core = await initHostCore({ config, providers, eventBus, verbose: process.env.AX_VERBOSE === '1' });
   const {
-    completionDeps, db, conversationStore, sessionStore, router, taintBudget, fileStore,
+    completionDeps, sessionStore, router, taintBudget, fileStore,
     handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
-    agentRegistry, agentName, agentDirVal, identityFilesDir, sessionCanaries,
-    workspaceMap, requestedCredentials, defaultUserId, modelId,
+    agentRegistry, agentName, agentDirVal, sessionCanaries,
+    defaultUserId, modelId,
   } = core;
 
   // ── Host-process-specific: shared credential registry for k8s MITM proxy ──
