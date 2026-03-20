@@ -89,6 +89,13 @@ export interface WebProxyOptions {
     /** Domains that bypass MITM inspection (cert-pinning CLIs). Raw TCP tunnel. */
     bypassDomains?: Set<string>;
   };
+  /**
+   * URL rewrite map: domain -> replacement base URL.
+   * When a request targets a domain in this map, the proxy rewrites the URL
+   * to use the replacement base URL instead.
+   * Works for both HTTP forwarding and HTTPS CONNECT tunneling.
+   */
+  urlRewrites?: Map<string, string>;
 }
 
 // ── Private IP blocking ──────────────────────────────────────────────
@@ -146,7 +153,7 @@ function containsCanary(body: Buffer, canaryToken?: string): boolean {
 // ── Proxy implementation ─────────────────────────────────────────────
 
 export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy> {
-  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains } = options;
+  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains, urlRewrites } = options;
   const activeSockets = new Set<net.Socket>();
   /** Per-domain decision cache — avoids repeated callbacks for the same domain. */
   const domainDecisions = new Map<string, boolean>();
@@ -188,6 +195,17 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     return null;
   }
 
+  /** Rewrite URL if domain matches a urlRewrites entry. Returns original if no match. */
+  function rewriteUrl(originalUrl: string): string {
+    if (!urlRewrites?.size) return originalUrl;
+    const parsed = new URL(originalUrl);
+    const replacement = urlRewrites.get(parsed.hostname);
+    if (!replacement) return originalUrl;
+    const target = new URL(replacement);
+    const basePath = target.pathname === '/' ? '' : target.pathname;
+    return `${target.origin}${basePath}${parsed.pathname}${parsed.search}`;
+  }
+
   // ── HTTP request forwarding ──
 
   async function handleHTTPRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -198,8 +216,9 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     let responseBytes = 0;
 
     try {
-      // Parse the full URL from the request
-      const targetUrl = new URL(url);
+      // Apply URL rewrite if domain matches
+      const rewrittenUrl = rewriteUrl(url);
+      const targetUrl = new URL(rewrittenUrl);
 
       // Resolve and check for private IPs
       const hostname = targetUrl.hostname.startsWith('[') && targetUrl.hostname.endsWith(']')
@@ -257,7 +276,7 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       }
 
       // Forward the request using fetch (streams response)
-      const response = await fetch(url, {
+      const response = await fetch(rewrittenUrl, {
         method,
         headers,
         body: body.length > 0 ? body : undefined,
@@ -357,6 +376,23 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     }
 
     try {
+      // URL rewrite — redirect CONNECT tunnel to mock target
+      const rewriteTarget = urlRewrites?.get(hostname);
+      if (rewriteTarget) {
+        const rTarget = new URL(rewriteTarget);
+        const connectHost = rTarget.hostname;
+        const connectPort = parseInt(rTarget.port || (rTarget.protocol === 'https:' ? '443' : '80'));
+        const socket = net.connect(connectPort, connectHost, () => {
+          clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+          socket.pipe(clientSocket);
+          clientSocket.pipe(socket);
+        });
+        socket.on('error', () => {
+          clientSocket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+        });
+        return;
+      }
+
       // Governance gate — check domain approval before tunneling
       const blockReason = await checkDomainApproval(hostname, 'CONNECT', target);
       if (blockReason) {

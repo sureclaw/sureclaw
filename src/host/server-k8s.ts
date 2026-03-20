@@ -148,6 +148,9 @@ async function main(): Promise<void> {
         credentials: sharedCredentialRegistry,
         bypassDomains: new Set(config.mitm_bypass_domains ?? []),
       },
+      urlRewrites: config.url_rewrites
+        ? new Map(Object.entries(config.url_rewrites))
+        : undefined,
     });
     logger.info('web_proxy_started', { port: webProxyPort, mitm: true });
   }

@@ -14,7 +14,9 @@ import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { safePath } from '../utils/safe-path.js';
 import { axHome } from '../paths.js';
 
-const CLAWHUB_API = 'https://clawhub.ai/api/v1';
+function clawHubApi(): string {
+  return process.env.CLAWHUB_API_URL || 'https://clawhub.ai/api/v1';
+}
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ClawHubSkillEntry {
@@ -210,7 +212,7 @@ export async function search(query: string, limit = 20): Promise<ClawHubSkillEnt
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  const url = `${CLAWHUB_API}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+  const url = `${clawHubApi()}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   const response = await fetchJson<{ results: ClawHubSkillEntry[] }>(url);
   await writeCache(cacheKey, JSON.stringify(response.results));
   return response.results;
@@ -226,7 +228,7 @@ export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
 
   // Download ZIP and search for metadata concurrently
   const [zipBytes, searchResults] = await Promise.all([
-    fetchBinary(`${CLAWHUB_API}/download?slug=${encodeURIComponent(slug)}`),
+    fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
     search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
   ]);
 
@@ -259,7 +261,7 @@ export interface ClawHubSkillPackage {
  */
 export async function fetchSkillPackage(slug: string): Promise<ClawHubSkillPackage> {
   const [zipBytes, searchResults] = await Promise.all([
-    fetchBinary(`${CLAWHUB_API}/download?slug=${encodeURIComponent(slug)}`),
+    fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
     search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
   ]);
 
@@ -301,7 +303,7 @@ export async function listPopular(limit = 20): Promise<ClawHubSkillEntry[]> {
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  const url = `${CLAWHUB_API}/skills?sort=downloads&limit=${limit}`;
+  const url = `${clawHubApi()}/skills?sort=downloads&limit=${limit}`;
   const response = await fetchJson<{
     items: Array<{
       slug: string;

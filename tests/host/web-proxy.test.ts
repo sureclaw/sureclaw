@@ -656,6 +656,127 @@ describe('web-proxy', () => {
     });
   });
 
+  describe('URL rewriting', () => {
+    test('URL rewrite redirects HTTP requests to mock target', async () => {
+      // Start a mock target that records what it receives
+      let receivedUrl = '';
+      let receivedMethod = '';
+      const mock = createServer((req, res) => {
+        receivedUrl = req.url ?? '';
+        receivedMethod = req.method ?? '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ mock: true }));
+      });
+      await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
+      const mockPort = (mock.address() as AddressInfo).port;
+      cleanups.push(() => mock.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test:rewrite:1',
+        allowedIPs: ALLOW_LOCALHOST,
+        urlRewrites: new Map([
+          ['api.linear.app', `http://127.0.0.1:${mockPort}`],
+        ]),
+      });
+      cleanups.push(proxy.stop);
+
+      // Send HTTP request through proxy targeting api.linear.app
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://api.linear.app/graphql`,
+        { method: 'POST', body: '{"query":"{ viewer { id } }"}' },
+      );
+
+      expect(result.status).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body).toEqual({ mock: true });
+      expect(receivedUrl).toBe('/graphql');
+      expect(receivedMethod).toBe('POST');
+    });
+
+    test('URL rewrite redirects CONNECT tunnel to mock target', async () => {
+      // Start a TCP echo server as the mock target
+      const echo = await startTCPEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test:rewrite:2',
+        allowedIPs: ALLOW_LOCALHOST,
+        urlRewrites: new Map([
+          ['api.linear.app', `http://127.0.0.1:${echo.port}`],
+        ]),
+      });
+      cleanups.push(proxy.stop);
+
+      // CONNECT to api.linear.app:443 should be redirected to the echo server
+      const result = await proxyConnect(
+        proxy.address as number,
+        'api.linear.app',
+        443,
+        'tunnel-rewrite-test',
+      );
+
+      expect(result.established).toBe(true);
+      expect(result.response).toContain('echo:tunnel-rewrite-test');
+    });
+
+    test('URL rewrite preserves path and query string', async () => {
+      let receivedUrl = '';
+      const mock = createServer((req, res) => {
+        receivedUrl = req.url ?? '';
+        res.writeHead(200);
+        res.end('ok');
+      });
+      await new Promise<void>((resolve) => mock.listen(0, '127.0.0.1', resolve));
+      const mockPort = (mock.address() as AddressInfo).port;
+      cleanups.push(() => mock.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test:rewrite:3',
+        allowedIPs: ALLOW_LOCALHOST,
+        urlRewrites: new Map([
+          ['example.com', `http://127.0.0.1:${mockPort}/base`],
+        ]),
+      });
+      cleanups.push(proxy.stop);
+
+      await proxyFetch(
+        proxy.address as number,
+        'http://example.com/api/v1/search?q=test&limit=10',
+      );
+
+      expect(receivedUrl).toBe('/base/api/v1/search?q=test&limit=10');
+    });
+
+    test('non-matching domains are not rewritten', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test:rewrite:4',
+        allowedIPs: ALLOW_LOCALHOST,
+        urlRewrites: new Map([
+          ['other.example.com', 'http://127.0.0.1:9999'],
+        ]),
+      });
+      cleanups.push(proxy.stop);
+
+      // Request to echo server (not rewritten) should pass through normally
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/hello`,
+      );
+
+      expect(result.status).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.url).toBe('/hello');
+    });
+  });
+
   describe('MITM TLS inspection', () => {
     test('intercepts HTTPS and replaces credential placeholder in header', async () => {
       // 1. Start a TLS echo server (simulates api.linear.app)

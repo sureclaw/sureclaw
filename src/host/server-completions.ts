@@ -604,6 +604,9 @@ export async function processCompletion(
           onAudit: webProxyAudit,
           onApprove: webProxyApprove,
           mitm: mitmConfig,
+          urlRewrites: config.url_rewrites
+            ? new Map(Object.entries(config.url_rewrites))
+            : undefined,
         });
         webProxyCleanup = webProxy.stop;
       } else {
@@ -615,6 +618,9 @@ export async function processCompletion(
           onAudit: webProxyAudit,
           onApprove: webProxyApprove,
           mitm: mitmConfig,
+          urlRewrites: config.url_rewrites
+            ? new Map(Object.entries(config.url_rewrites))
+            : undefined,
         });
         webProxyPort = webProxy.address as number;
         webProxyCleanup = webProxy.stop;

@@ -204,6 +204,21 @@ describe('clawhub-registry-client', () => {
     });
   });
 
+  describe('CLAWHUB_API_URL override', () => {
+    test('uses CLAWHUB_API_URL env override for search', async () => {
+      const mockUrl = 'http://localhost:19999/clawhub/api/v1';
+      process.env.CLAWHUB_API_URL = mockUrl;
+      try {
+        mockFetch.mockResolvedValueOnce(mockJsonResponse({ results: [] }));
+        const uniqueQuery = `override-test-${Date.now()}`;
+        await client.search(uniqueQuery);
+        expect(mockFetch.mock.calls[0][0]).toContain(mockUrl);
+      } finally {
+        delete process.env.CLAWHUB_API_URL;
+      }
+    });
+  });
+
   describe('listCached', () => {
     test('returns empty array when no cache exists', async () => {
       const results = await client.listCached();

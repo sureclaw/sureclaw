@@ -154,6 +154,8 @@ export interface Config {
   mitm_bypass_domains?: string[];
   /** K8s namespace for web proxy service discovery. */
   namespace?: string;
+  /** Domain-to-URL rewrite map for web proxy (testing/mocking). */
+  url_rewrites?: Record<string, string>;
 }
 
 export interface ProviderRegistry {

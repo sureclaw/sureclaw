@@ -1,0 +1,113 @@
+# Kind cluster overrides for automated regression tests
+#
+# Uses subprocess sandbox (no NATS bridge needed).
+# All external services mocked via mock-server on host.
+# URL rewrites redirect api.linear.app and mock-target.test to mock server.
+
+global:
+  imageTag: local
+  imageRepository: ax-test
+
+config:
+  agent: pi-coding-agent
+  profile: yolo
+  models:
+    default:
+      - openrouter/google/gemini-3-flash-preview
+  providers:
+    memory: cortex
+    audit: database
+    credentials: database
+    sandbox: subprocess
+    screener: static
+    scheduler: plainjob
+    browser: none
+    skills: git
+    channels: []
+    web: proxied
+    scanner: patterns
+    storage: database
+    database: postgresql
+    eventbus: nats
+    workspace: gcs
+  history:
+    max_turns: 50
+    thread_context_turns: 5
+    summarize: false
+    summarize_threshold: 40
+    summarize_keep_recent: 10
+    memory_recall: true
+    memory_recall_limit: 5
+    memory_recall_scope: "*"
+    embedding_model: deepinfra/Qwen/Qwen3-Embedding-0.6B
+    embedding_dimensions: 1024
+  workspace:
+    basePath: /workspace
+    bucket: ax-acceptance-workspace
+    maxFileSize: 10485760
+    maxFiles: 100
+    maxCommitSize: 52428800
+    ignorePatterns:
+      - "node_modules"
+      - ".git"
+  sandbox:
+    timeout_sec: 120
+    memory_mb: 512
+  scheduler:
+    active_hours:
+      start: "00:00"
+      end: "23:59"
+      timezone: UTC
+    max_token_budget: 4096
+    heartbeat_interval_min: 60
+  web_proxy: true
+
+namespace:
+  create: false
+  name: ax-acceptance
+
+host:
+  replicas: 1
+  resources:
+    requests: { cpu: "500m", memory: "1Gi" }
+    limits: { cpu: "1", memory: "2Gi" }
+
+agentRuntime:
+  enabled: true
+poolController:
+  enabled: false
+
+sandbox:
+  runtimeClass: ""
+
+postgresql:
+  external:
+    enabled: false
+  internal:
+    enabled: true
+    auth:
+      database: ax
+      username: ax
+    primary:
+      persistence:
+        size: 1Gi
+
+nats:
+  enabled: true
+  config:
+    cluster:
+      enabled: false
+    jetstream:
+      enabled: true
+      memoryStore:
+        enabled: true
+        maxSize: 256Mi
+
+networkPolicies:
+  enabled: false
+
+apiCredentials:
+  existingSecret: "ax-api-credentials"
+  envVars:
+    OPENROUTER_API_KEY: "openrouter-api-key"
+    DEEPINFRA_API_KEY: "deepinfra-api-key"

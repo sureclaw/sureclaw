@@ -2,6 +2,54 @@
 
 Acceptance test skill and framework for validating features against plan design goals.
 
+## [2026-03-20 09:45] — Implement automated regression test suite (12 tasks)
+
+**Task:** Create a full automated regression test suite per docs/plans/2026-03-20-automated-regression-tests.md
+**What I did:** Implemented all 12 tasks from the plan:
+- Tasks 1-3: Production code changes (CLAWHUB_API_URL override, web proxy urlRewrites, url_rewrites config wiring)
+- Tasks 4-6: Mock servers (GCS in-memory, OpenRouter with scripted turns, ClawHub ZIP builder, Linear GraphQL)
+- Task 7: Mock server router dispatching to all handlers
+- Task 8: AcceptanceClient with SSE parsing
+- Task 9: Global setup/teardown (kind cluster lifecycle)
+- Task 10: Vitest config + npm script
+- Task 11: 9-step regression test sequence
+- Task 12: E2E verification — all 2478 existing tests pass, mock servers verified
+**Files touched:** 20 files — 3 modified production files, 17 new test infrastructure files
+**Outcome:** SUCCESS. Full test suite passes. Mock server router verified end-to-end.
+**Notes:** CLAWHUB_API needed to be a function (not const) since env var is read after module load. Used parallel agents for independent mock server tasks.
+
+## [2026-03-20 10:25] — Create AcceptanceClient for automated acceptance tests
+
+**Task:** Implement an SSE-aware HTTP client for AX's /v1/chat/completions endpoint for use in acceptance tests.
+**What I did:** Created `tests/acceptance/automated/client.ts` with `AcceptanceClient` class. Reviewed `src/host/server-http.ts` for SSE format and `src/host/server.ts` for endpoint paths. Client supports: sendMessage (streaming SSE parsing), provideCredential (POST /v1/credentials/provide with envName/value body), and waitForReady (polling GET /health). SSE parser handles named events (credential_required, oauth_required), keepalive comments, content deltas, finish_reason, and [DONE] terminator.
+**Files touched:** tests/acceptance/automated/client.ts (created)
+**Outcome:** SUCCESS. File compiles cleanly with `npx tsc --noEmit --skipLibCheck`.
+**Notes:** Credential endpoint is `/v1/credentials/provide` (not `/credentials`), body uses `envName` field (not `name`). Named SSE events are stored in a Map keyed by event name for test assertions.
+
+## [2026-03-20 10:20] — Create mock OpenRouter server and scripted turns for automated acceptance tests
+
+**Task:** Implement the mock OpenRouter chat completions handler and scripted turn system for automated regression acceptance tests.
+**What I did:** Created `scripted-turns.ts` defining the ScriptedTurn interface and 9 scripted turns across BOOTSTRAP_TURNS (identity setup), CHAT_TURNS (persistence, web_fetch, bash, curl), and SKILL_TURNS (skill install, Linear). Created `openrouter.ts` mock handler supporting both streaming SSE and non-streaming OpenAI-format responses, with sequential turn matching and fallback search.
+**Files touched:** tests/acceptance/automated/scripted-turns.ts (created), tests/acceptance/automated/mock-server/openrouter.ts (created)
+**Outcome:** SUCCESS. Both files pass TypeScript type-checking cleanly.
+**Notes:** The mock supports /v1/models and /v1/chat/completions endpoints. Streaming splits content into word-level SSE chunks and tool calls into name+arguments chunk pairs. Turn matching tries from current index forward first, then falls back to searching all turns. No unit tests written per instructions -- will be tested through integration mock server.
+
+## [2026-03-20 10:15] — Create mock ClawHub and Linear API servers for acceptance tests
+
+**Task:** Create mock HTTP handlers for ClawHub registry and Linear GraphQL API for use in automated acceptance tests.
+**What I did:** Created `clawhub.ts` with handleClawHub export supporting /api/v1/search, /api/v1/download (returns valid ZIP with SKILL.md), and /api/v1/skills endpoints. Created `linear.ts` with handleLinear/getLastLinearAuth/resetLinear exports supporting POST /graphql with Bearer token validation (expects `lin_api_` prefix) and canned issue response.
+**Files touched:** tests/acceptance/automated/mock-server/clawhub.ts (created), tests/acceptance/automated/mock-server/linear.ts (created)
+**Outcome:** SUCCESS. Both files created with correct structure.
+**Notes:** ClawHub ZIP builder uses the same stored-ZIP approach as tests/clawhub/registry-client.test.ts. SKILL.md frontmatter includes `requires.env: [LINEAR_API_KEY]`. Linear mock tracks last auth header for test assertions on credential injection.
+
+## [2026-03-20 09:36] — Create mock GCS server for automated acceptance tests
+
+**Task:** Implement a minimal GCS-compatible HTTP handler backed by an in-memory Map for use with @google-cloud/storage SDK's STORAGE_EMULATOR_HOST.
+**What I did:** Created `gcs.ts` with handleGCS/resetGCS/getGCSFiles exports supporting resumable uploads, multipart uploads, list, download, metadata, and delete. Created `gcs.test.ts` with vitest tests covering the full CRUD cycle and multipart upload.
+**Files touched:** tests/acceptance/automated/mock-server/gcs.ts (created), tests/acceptance/automated/mock-server/gcs.test.ts (created)
+**Outcome:** SUCCESS. Both tests pass (2/2, 25ms).
+**Notes:** Handler uses node:http IncomingMessage/ServerResponse, stores files in Map keyed by `${bucket}/${name}`, URL-decodes object names for nested paths, uses crypto.randomUUID() for upload IDs.
+
 ## [2026-03-17 08:42] — E2E test of k8s networking simplification (HTTP IPC) via ax-debug harness
 
 **Task:** Test the k8s networking simplification plan (docs/plans/2026-03-17-k8s-networking-simplification.md) end-to-end using the HTTP IPC local debug harness.
