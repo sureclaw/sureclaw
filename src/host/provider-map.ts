@@ -41,10 +41,14 @@ const _PROVIDER_MAP = {
   channel: {
     slack:     '../providers/channel/slack.js',
   },
-  web: {
-    none:   '../providers/web/none.js',
-    fetch:  '../providers/web/fetch.js',
-    tavily: '../providers/web/tavily.js',
+  web_extract: {
+    none:   '../providers/web/none-extract.js',
+    tavily: '../providers/web/tavily-extract.js',
+  },
+  web_search: {
+    none:   '../providers/web/none-search.js',
+    tavily: '../providers/web/tavily-search.js',
+    brave:  '../providers/web/brave-search.js',
   },
   browser: {
     none:      '../providers/browser/none.js',
@@ -111,7 +115,8 @@ export type ImageProviderName      = keyof ProviderMapType['image'];
 export type MemoryProviderName     = keyof ProviderMapType['memory'];
 export type ScannerProviderName    = keyof ProviderMapType['scanner'];
 export type ChannelProviderName    = keyof ProviderMapType['channel'];
-export type WebProviderName        = keyof ProviderMapType['web'];
+export type WebExtractProviderName = keyof ProviderMapType['web_extract'];
+export type WebSearchProviderName  = keyof ProviderMapType['web_search'];
 export type BrowserProviderName    = keyof ProviderMapType['browser'];
 export type CredentialProviderName = keyof ProviderMapType['credentials'];
 export type DatabaseProviderName    = keyof ProviderMapType['database'];

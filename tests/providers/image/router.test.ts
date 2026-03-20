@@ -16,7 +16,7 @@ function imageRouterConfig(imageModels: string[]): Config {
     profile: 'balanced',
     providers: {
       memory: 'cortex', scanner: 'patterns',
-      channels: [], web: 'none', browser: 'none',
+      channels: [], web: { extract: 'none', search: 'none' }, browser: 'none',
       credentials: 'keychain', skills: 'database', audit: 'database',
       sandbox: 'subprocess', scheduler: 'none',
     },

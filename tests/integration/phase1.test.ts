@@ -43,7 +43,7 @@ function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Con
     models: { default: ['mock/default'] },
     providers: {
       memory: 'cortex', scanner: 'patterns',
-      channels: [], web: 'none', browser: 'none',
+      channels: [], web: { extract: 'none', search: 'none' }, browser: 'none',
       credentials: 'keychain', audit: 'database',
       sandbox: 'subprocess', scheduler: 'none',
     },
@@ -93,8 +93,13 @@ function mockProviders(opts?: {
       checkCanary(output: string, token: string) { return output.includes(token); },
     },
     channels: [],
-    web: {
-      async fetch() { return { status: 200, headers: {}, body: '', taint: { source: 'web', trust: 'external', timestamp: new Date() } }; },
+    webFetch: {
+      async fetch() { return { status: 200, headers: {}, body: '', taint: { source: 'web_fetch', trust: 'external', timestamp: new Date() } }; },
+    },
+    webExtract: {
+      async extract() { return { url: '', content: '', taint: { source: 'web_extract', trust: 'external', timestamp: new Date() } }; },
+    },
+    webSearch: {
       async search() { return []; },
     },
     browser: {
@@ -396,8 +401,11 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.channel).toHaveProperty('slack');
 
     // Web providers
-    expect(PROVIDER_MAP.web).toHaveProperty('none');
-    expect(PROVIDER_MAP.web).toHaveProperty('fetch');
+    expect(PROVIDER_MAP.web_extract).toHaveProperty('none');
+    expect(PROVIDER_MAP.web_extract).toHaveProperty('tavily');
+    expect(PROVIDER_MAP.web_search).toHaveProperty('none');
+    expect(PROVIDER_MAP.web_search).toHaveProperty('tavily');
+    expect(PROVIDER_MAP.web_search).toHaveProperty('brave');
 
     // Credential providers
     expect(PROVIDER_MAP.credentials).toHaveProperty('plaintext');

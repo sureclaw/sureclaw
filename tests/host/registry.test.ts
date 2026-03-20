@@ -8,7 +8,7 @@ const config: Config = {
     memory: 'cortex',
     scanner: 'patterns',
     channels: ['cli'],
-    web: 'none',
+    web: { extract: 'none', search: 'none' },
     browser: 'none',
     credentials: 'keychain',
     skills: 'database',

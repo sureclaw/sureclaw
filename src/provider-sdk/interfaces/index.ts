@@ -56,10 +56,12 @@ export type {
 
 // ── Web ──────────────────────────────────────────────
 export type {
-  WebProvider,
+  WebExtractProvider,
+  WebSearchProvider,
   FetchRequest,
   FetchResponse,
   SearchResult,
+  ExtractResult,
 } from '../../providers/web/types.js';
 
 // ── Browser ──────────────────────────────────────────

@@ -44,7 +44,10 @@ const ConfigSchema = z.strictObject({
     memory: providerEnum('memory'),
     scanner: providerEnum('scanner'),
     channels: z.array(providerEnum('channel')),
-    web: providerEnum('web'),
+    web: z.strictObject({
+      extract: providerEnum('web_extract'),
+      search: providerEnum('web_search'),
+    }),
     browser: providerEnum('browser'),
     credentials: z.union([providerEnum('credentials'), z.literal('env')])
       .transform((val) => {

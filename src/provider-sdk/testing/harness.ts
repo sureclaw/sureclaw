@@ -15,7 +15,7 @@ import type { MemoryProvider, MemoryEntry } from '../interfaces/index.js';
 import type { ScannerProvider } from '../interfaces/index.js';
 import type { AuditProvider } from '../interfaces/index.js';
 import type { CredentialProvider } from '../interfaces/index.js';
-import type { WebProvider } from '../interfaces/index.js';
+import type { WebExtractProvider, WebSearchProvider } from '../interfaces/index.js';
 import type { BrowserProvider } from '../interfaces/index.js';
 import type { LLMProvider } from '../interfaces/index.js';
 import type { ImageProvider } from '../interfaces/index.js';
@@ -46,7 +46,7 @@ export interface HarnessResult {
 
 export type ProviderKind =
   | 'llm' | 'image' | 'memory' | 'scanner' | 'channel'
-  | 'web' | 'browser' | 'credentials'
+  | 'web_extract' | 'web_search' | 'browser' | 'credentials'
   | 'audit' | 'sandbox' | 'scheduler';
 
 type ProviderForKind<K extends ProviderKind> =
@@ -55,7 +55,8 @@ type ProviderForKind<K extends ProviderKind> =
   K extends 'memory' ? MemoryProvider :
   K extends 'scanner' ? ScannerProvider :
   K extends 'channel' ? ChannelProvider :
-  K extends 'web' ? WebProvider :
+  K extends 'web_extract' ? WebExtractProvider :
+  K extends 'web_search' ? WebSearchProvider :
   K extends 'browser' ? BrowserProvider :
   K extends 'credentials' ? CredentialProvider :
   K extends 'audit' ? AuditProvider :
@@ -222,14 +223,19 @@ function credentialContract(): ContractTest<CredentialProvider>[] {
   ];
 }
 
-function webContract(): ContractTest<WebProvider>[] {
+function webExtractContract(): ContractTest<WebExtractProvider>[] {
   return [
     {
-      name: 'fetch is a function',
+      name: 'extract is a function',
       async run(provider) {
-        assertType(provider.fetch, 'function', 'fetch must be a function');
+        assertType(provider.extract, 'function', 'extract must be a function');
       },
     },
+  ];
+}
+
+function webSearchContract(): ContractTest<WebSearchProvider>[] {
+  return [
     {
       name: 'search is a function',
       async run(provider) {
@@ -402,7 +408,8 @@ const CONTRACTS: Record<ProviderKind, () => ContractTest<any>[]> = {
   memory: memoryContract,
   scanner: scannerContract,
   channel: channelContract,
-  web: webContract,
+  web_extract: webExtractContract,
+  web_search: webSearchContract,
   browser: browserContract,
   credentials: credentialContract,
   audit: auditContract,

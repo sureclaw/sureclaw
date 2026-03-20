@@ -5,7 +5,7 @@ import type { ImageProvider } from './providers/image/types.js';
 import type { MemoryProvider } from './providers/memory/types.js';
 import type { ScannerProvider } from './providers/scanner/types.js';
 import type { ChannelProvider, ChannelAccessConfig } from './providers/channel/types.js';
-import type { WebProvider } from './providers/web/types.js';
+import type { WebExtractProvider, WebSearchProvider, FetchRequest, FetchResponse } from './providers/web/types.js';
 import type { BrowserProvider } from './providers/browser/types.js';
 import type { CredentialProvider } from './providers/credentials/types.js';
 import type { SkillScreenerProvider } from './providers/screener/types.js';
@@ -18,7 +18,7 @@ import type { DatabaseProvider } from './providers/database/types.js';
 import type { WorkspaceProvider } from './providers/workspace/types.js';
 import type {
   MemoryProviderName, ScannerProviderName, ChannelProviderName,
-  WebProviderName, BrowserProviderName, CredentialProviderName,
+  WebExtractProviderName, WebSearchProviderName, BrowserProviderName, CredentialProviderName,
   AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
   DatabaseProviderName, WorkspaceProviderName,
@@ -76,7 +76,10 @@ export interface Config {
     memory: MemoryProviderName;
     scanner: ScannerProviderName;
     channels: ChannelProviderName[];
-    web: WebProviderName;
+    web: {
+      extract: WebExtractProviderName;
+      search: WebSearchProviderName;
+    };
     browser: BrowserProviderName;
     credentials: CredentialProviderName;
     audit: AuditProviderName;
@@ -164,7 +167,9 @@ export interface ProviderRegistry {
   memory: MemoryProvider;
   scanner: ScannerProvider;
   channels: ChannelProvider[];
-  web: WebProvider;
+  webFetch: { fetch(req: FetchRequest): Promise<FetchResponse> };
+  webExtract: WebExtractProvider;
+  webSearch: WebSearchProvider;
   browser: BrowserProvider;
   credentials: CredentialProvider;
   audit: AuditProvider;

@@ -42,7 +42,9 @@ config:
     browser: none
     skills: git
     channels: []
-    web: fetch
+    web:
+      extract: none
+      search: none
     scanner: patterns
     storage: database
     database: postgresql

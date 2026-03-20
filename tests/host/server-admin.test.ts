@@ -20,7 +20,7 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
       memory: 'cortex',
       scanner: 'patterns',
       channels: [],
-      web: 'none',
+      web: { extract: 'none', search: 'none' },
       browser: 'none',
       credentials: 'keychain',
       audit: 'database',

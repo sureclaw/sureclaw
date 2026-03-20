@@ -1,32 +1,89 @@
 ---
 name: ax-provider-web
-description: Use when modifying web access providers -- proxied HTTP fetch, DNS pinning, taint tagging, or web search in src/providers/web/
+description: Use when modifying web access providers -- proxied HTTP fetch, DNS pinning, taint tagging, text extraction, or web search in src/providers/web/
 ---
 
 ## Overview
 
-Web providers handle HTTP fetch and web search for agents, with DNS pinning to prevent SSRF and automatic taint tagging on all responses. Agents have no direct network access -- all web requests route through the host via IPC.
+Web functionality is split into three independent operations:
 
-## Interface (`src/providers/web/types.ts`)
+1. **Raw fetch** — always loaded, hardcoded (not configurable). DNS-pinned HTTP client with SSRF protection.
+2. **Extract** — configurable via `config.providers.web.extract`. Pulls cleaned text from web pages.
+3. **Search** — configurable via `config.providers.web.search`. Web search queries.
 
-| Type            | Key Fields                                            |
-|-----------------|-------------------------------------------------------|
-| `FetchRequest`  | `url`, `method?` (GET/HEAD), `headers?`, `timeoutMs?` |
-| `FetchResponse` | `status`, `headers`, `body`, `taint: TaintTag`        |
-| `SearchResult`  | `title`, `url`, `snippet`, `taint: TaintTag`          |
-| `WebProvider`   | `fetch(req)`, `search(query, maxResults?)`             |
+Agents have no direct network access — all web requests route through the host via IPC.
+
+## Interfaces (`src/providers/web/types.ts`)
+
+| Type                  | Key Fields                                            |
+|-----------------------|-------------------------------------------------------|
+| `FetchRequest`        | `url`, `method?` (GET/HEAD), `headers?`, `timeoutMs?` |
+| `FetchResponse`       | `status`, `headers`, `body`, `taint: TaintTag`        |
+| `ExtractResult`       | `url`, `content`, `taint: TaintTag`                   |
+| `SearchResult`        | `title`, `url`, `snippet`, `taint: TaintTag`          |
+| `WebExtractProvider`  | `extract(url): Promise<ExtractResult>`                |
+| `WebSearchProvider`   | `search(query, maxResults?): Promise<SearchResult[]>` |
 
 Every response carries a `TaintTag` with `trust: 'external'`.
 
+## Config Shape
+
+```yaml
+providers:
+  web:
+    extract: none    # or 'tavily'
+    search: none     # or 'tavily' or 'brave'
+```
+
+Two provider categories in the provider map: `web_extract` and `web_search`.
+
 ## Implementations
 
-| Name     | File                           | Purpose                                     |
-|----------|--------------------------------|---------------------------------------------|
-| `fetch`  | `src/providers/web/fetch.ts`   | Direct HTTP fetch with DNS pinning           |
-| `tavily` | `src/providers/web/tavily.ts`  | Tavily SDK for web search and page extraction |
-| `none`   | `src/providers/web/none.ts`    | Disabled stub (returns `disabledProvider()`)  |
+### Fetch (always loaded)
 
-All three are registered in `src/host/provider-map.ts` under the `web` kind.
+| File                          | Purpose                                      |
+|-------------------------------|----------------------------------------------|
+| `src/providers/web/fetch.ts`  | Direct HTTP fetch with DNS pinning (hardcoded)|
+
+### Extract Providers (`web_extract`)
+
+| Name     | File                                  | Purpose                              |
+|----------|---------------------------------------|--------------------------------------|
+| `tavily` | `src/providers/web/tavily-extract.ts` | Tavily Extract API (markdown output) |
+| `none`   | `src/providers/web/none-extract.ts`   | Disabled stub                        |
+
+### Search Providers (`web_search`)
+
+| Name     | File                                 | Purpose                              |
+|----------|--------------------------------------|--------------------------------------|
+| `tavily` | `src/providers/web/tavily-search.ts` | Tavily Search API                    |
+| `brave`  | `src/providers/web/brave-search.ts`  | Brave Search API                     |
+| `none`   | `src/providers/web/none-search.ts`   | Disabled stub                        |
+
+All registered in `src/host/provider-map.ts` under `web_extract` and `web_search` kinds.
+
+## ProviderRegistry Fields
+
+```typescript
+webFetch:   { fetch(req: FetchRequest): Promise<FetchResponse> };  // always loaded
+webExtract: WebExtractProvider;  // from web_extract provider
+webSearch:  WebSearchProvider;   // from web_search provider
+```
+
+## IPC Actions
+
+| Action        | Schema                  | Handler                           |
+|---------------|-------------------------|-----------------------------------|
+| `web_fetch`   | `WebFetchSchema`        | Routes to `webFetch.fetch()`      |
+| `web_extract` | `WebExtractSchema`      | Routes to `webExtract.extract()`  |
+| `web_search`  | `WebSearchSchema`       | Routes to `webSearch.search()`    |
+
+## Tool Catalog
+
+The `web` tool has three variants via `type` discriminator:
+- `type: "fetch"` → `web_fetch` IPC action
+- `type: "extract"` → `web_extract` IPC action
+- `type: "search"` → `web_search` IPC action
 
 ## Fetch Provider (`fetch.ts`)
 
@@ -35,24 +92,23 @@ All three are registered in `src/host/provider-map.ts` under the `web` kind.
 - **Body size limit:** 1 MB max, streaming reader with truncation.
 - **Timeout:** Default 10s, configurable via `timeoutMs`.
 - **Protocol:** Only `http:` and `https:` allowed.
-- **Search:** Not implemented -- throws with message to use `tavily`.
 - **Testing:** `allowedIPs` option bypasses private-range blocking for tests.
-
-## Tavily Provider (`tavily.ts`)
-
-- Uses `@tavily/core` SDK. Requires `TAVILY_API_KEY` env var.
-- **fetch():** Uses Tavily Extract API (returns markdown content).
-- **search():** Uses Tavily Search API. Default 5 results, max 20.
-- Both methods taint-tag results as `external`.
 
 ## Common Tasks
 
-### Adding a new web provider
+### Adding a new extract provider
 
-1. Create `src/providers/web/<name>.ts` implementing `WebProvider`.
-2. Export `create(config: Config): Promise<WebProvider>`.
-3. Add `<name>: '../providers/web/<name>.js'` to the `web` section in `src/host/provider-map.ts`.
-4. Add tests in `tests/providers/web/<name>.test.ts`.
+1. Create `src/providers/web/<name>-extract.ts` implementing `WebExtractProvider`.
+2. Export `create(config: Config): Promise<WebExtractProvider>`.
+3. Add `<name>: '../providers/web/<name>-extract.js'` to `web_extract` in `src/host/provider-map.ts`.
+4. Add tests in `tests/providers/web/<name>-extract.test.ts`.
+
+### Adding a new search provider
+
+1. Create `src/providers/web/<name>-search.ts` implementing `WebSearchProvider`.
+2. Export `create(config: Config): Promise<WebSearchProvider>`.
+3. Add `<name>: '../providers/web/<name>-search.js'` to `web_search` in `src/host/provider-map.ts`.
+4. Add tests in `tests/providers/web/<name>-search.test.ts`.
 
 ## Web Proxy — MITM Credential Injection
 
@@ -71,21 +127,13 @@ When skills declare `requires.env` in their frontmatter (e.g., `LINEAR_API_KEY`)
 - `src/host/server-completions.ts` — Wiring: skill env collection, credential map build, CA trust injection
 - `src/host/credential-prompts.ts` — Interactive credential prompting registry (request/resolve/cleanup)
 
-**MITM TLS flow:**
-- Proxy generates self-signed root CA (persisted to `<agentDir>/ca/`)
-- CONNECT requests: proxy terminates client TLS with a dynamically-generated domain cert, opens new TLS to target
-- Decrypted traffic is scanned for credential placeholders (replaced) and canary tokens (blocked)
-- Audit entries include `credentialInjected: true` when replacement occurs
-- Domains in `config.mitm_bypass_domains` skip MITM (raw TCP tunnel for cert-pinning CLIs)
-- CA trust: `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` env vars set in sandbox
-- **Interactive credential prompting**: When a required credential is missing from the store, the host emits a `credential.required` event and blocks until the user provides it (via SSE + HTTP POST). See `src/host/credential-prompts.ts`.
-
 ## Gotchas
 
 - **All web responses are auto-tainted** with `trust: 'external'`. Never strip or skip the taint tag.
 - **DNS pinning prevents SSRF.** The fetch provider resolves DNS once and connects to the pinned IP. Do not bypass this.
 - **Agents have no direct network.** All web access routes through host-side IPC. The provider runs in the host process.
-- **Tavily needs an API key** at runtime (`TAVILY_API_KEY`). The fetch provider needs no credentials.
-- **`create()` is async** in all web providers (returns `Promise<WebProvider>`).
+- **Tavily and Brave need API keys** at runtime (`TAVILY_API_KEY`, `BRAVE_API_KEY`). The fetch provider needs no credentials.
+- **`create()` is async** in all web providers.
+- **Config is nested:** `config.providers.web.extract` and `config.providers.web.search`, not `config.providers.web` as a string.
 - **Credential placeholders use `ax-cred:` prefix.** Never log or expose real credential values — only placeholders should appear in agent-side logs.
 - **MITM bypass list** (`config.mitm_bypass_domains`) is for cert-pinning CLIs only. Most HTTPS traffic should go through MITM for credential injection to work.

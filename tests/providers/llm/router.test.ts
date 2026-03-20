@@ -17,7 +17,7 @@ function routerConfig(model: string, fallbacks?: string[], extras?: Partial<Mode
     profile: 'balanced',
     providers: {
       memory: 'cortex', scanner: 'patterns',
-      channels: [], web: 'none', browser: 'none',
+      channels: [], web: { extract: 'none', search: 'none' }, browser: 'none',
       credentials: 'keychain', skills: 'database', audit: 'database',
       sandbox: 'subprocess', scheduler: 'none',
     },

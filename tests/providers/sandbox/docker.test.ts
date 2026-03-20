@@ -7,7 +7,7 @@ function mockConfig(): Config {
     profile: 'balanced',
     providers: {
       memory: 'cortex', scanner: 'patterns',
-      channels: ['cli'], web: 'none', browser: 'none',
+      channels: ['cli'], web: { extract: 'none', search: 'none' }, browser: 'none',
       credentials: 'keychain', skills: 'database', audit: 'database',
       sandbox: 'docker', scheduler: 'none',
     },

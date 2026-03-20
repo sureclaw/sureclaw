@@ -20,7 +20,7 @@ export interface ProfileDefaults {
   agent: AgentType;
   memory: string;
   scanner: string;
-  web: string;
+  web: { extract: string; search: string };
   browser: string;
   credentials: string;
   audit: string;
@@ -38,7 +38,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     agent: 'pi-coding-agent',
     memory: 'cortex',
     scanner: 'patterns',
-    web: 'none',
+    web: { extract: 'none', search: 'none' },
     browser: 'none',
     credentials: 'keychain',
 
@@ -52,7 +52,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     agent: 'pi-coding-agent',
     memory: 'cortex',
     scanner: 'patterns',
-    web: 'fetch',
+    web: { extract: 'none', search: 'none' },
     browser: 'none',
     credentials: 'keychain',
 
@@ -67,7 +67,7 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
     agent: 'pi-coding-agent',
     memory: 'cortex',
     scanner: 'patterns',
-    web: 'fetch',
+    web: { extract: 'none', search: 'none' },
     browser: 'container',
     credentials: 'keychain',
 
@@ -171,7 +171,8 @@ export const DEFAULT_IMAGE_MODELS: Record<ImageProviderChoice, string> = {
 export const PROVIDER_CHOICES = {
   memory: ['cortex'],
   scanner: ['patterns'],
-  web: ['none', 'fetch'],
+  web_extract: ['none', 'tavily'],
+  web_search: ['none', 'tavily', 'brave'],
   browser: ['none', 'container'],
   credentials: ['keychain', 'plaintext'],
   audit: ['database'],

@@ -45,10 +45,9 @@ function mockRegistry(): ProviderRegistry {
       },
     },
     channels: [],
-    web: {
-      async fetch() { throw new Error('Provider disabled'); },
-      async search() { throw new Error('Provider disabled'); },
-    },
+    webFetch: { async fetch() { throw new Error('Provider disabled'); } },
+    webExtract: { async extract() { throw new Error('Provider disabled'); } },
+    webSearch: { async search() { throw new Error('Provider disabled'); } },
     browser: {
       async launch() { throw new Error('Provider disabled'); },
       async navigate() { throw new Error('Provider disabled'); },
