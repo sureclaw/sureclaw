@@ -23,7 +23,9 @@ providers:
   memory: cortex
   scanner: patterns
   channels: []
-  web: none
+  web:
+    extract: none
+    search: none
   browser: none
   credentials: env
   skills: database
@@ -49,7 +51,9 @@ providers:
   memory: cortex
   scanner: patterns
   channels: []
-  web: none
+  web:
+    extract: none
+    search: none
   browser: none
   credentials: env
   skills: database
@@ -79,7 +83,9 @@ providers:
   memory: cortex
   scanner: patterns
   channels: []
-  web: none
+  web:
+    extract: none
+    search: none
   browser: none
   credentials: env
   skills: database

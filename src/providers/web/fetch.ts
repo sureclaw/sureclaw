@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import type { WebProvider, FetchRequest, FetchResponse } from './types.js';
+import type { FetchRequest, FetchResponse } from './types.js';
 import type { Config, TaintTag } from '../../types.js';
 
 const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
@@ -49,7 +49,7 @@ export interface WebFetchOptions {
   allowedIPs?: Set<string>;
 }
 
-export async function create(_config: Config, opts?: WebFetchOptions): Promise<WebProvider> {
+export async function create(_config: Config, opts?: WebFetchOptions): Promise<{ fetch(req: FetchRequest): Promise<FetchResponse> }> {
   const allowedIPs = opts?.allowedIPs;
 
   function isBlocked(ip: string): boolean {
@@ -152,8 +152,5 @@ export async function create(_config: Config, opts?: WebFetchOptions): Promise<W
       }
     },
 
-    async search() {
-      throw new Error('Web search not implemented — use the tavily provider');
-    },
   };
 }

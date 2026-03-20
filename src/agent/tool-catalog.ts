@@ -89,10 +89,11 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'web',
     label: 'Web',
     description:
-    'Retrieve web content.\n\n' +
-    'If the user message contains a URL, ALWAYS use `type: "fetch"` with `url`.\n' +
-    'Only use `type: "search"` when no URL is provided and the user is asking to find information on the web.\n' +
-    'Never put a URL in `query`.',
+      'Retrieve web content.\n\n' +
+      'Use `type: "fetch"` to get the raw HTTP response body (HTML, JSON, etc.) — best for APIs or when you need exact response content.\n' +
+      'Use `type: "extract"` to get cleaned, readable text from a webpage — best for articles and page content.\n' +
+      'Use `type: "search"` to find information on the web when you don\'t have a specific URL.\n' +
+      'Never put a URL in `query`.',
     parameters: Type.Union([
       Type.Object({
         type: Type.Literal('fetch'),
@@ -100,6 +101,10 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
         method: Type.Optional(Type.Union([Type.Literal('GET'), Type.Literal('HEAD')])),
         headers: Type.Optional(Type.Record(Type.String(), Type.String())),
         timeoutMs: Type.Optional(Type.Number()),
+      }),
+      Type.Object({
+        type: Type.Literal('extract'),
+        url: Type.String(),
       }),
       Type.Object({
         type: Type.Literal('search'),
@@ -110,6 +115,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     category: 'web',
     actionMap: {
       fetch: 'web_fetch',
+      extract: 'web_extract',
       search: 'web_search',
     },
   },

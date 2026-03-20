@@ -41,7 +41,7 @@ function powerUserConfig(): Config {
     profile: 'yolo',
     providers: {
       memory: 'cortex', scanner: 'guardian',
-      channels: [], web: 'tavily', browser: 'container',
+      channels: [], web: { extract: 'tavily', search: 'tavily' }, browser: 'container',
       credentials: 'keychain', audit: 'database',
       sandbox: 'docker', scheduler: 'plainjob',
     },
@@ -94,8 +94,13 @@ function mockProviders(opts?: {
       checkCanary(output: string, token: string) { return output.includes(token); },
     },
     channels: [],
-    web: {
-      async fetch() { return { status: 200, headers: {}, body: '', taint: { source: 'web_search', trust: 'external' as const, timestamp: new Date() } }; },
+    webFetch: {
+      async fetch() { return { status: 200, headers: {}, body: '', taint: { source: 'web_fetch', trust: 'external' as const, timestamp: new Date() } }; },
+    },
+    webExtract: {
+      async extract() { return { url: '', content: '', taint: { source: 'web_extract', trust: 'external' as const, timestamp: new Date() } }; },
+    },
+    webSearch: {
       async search() { return [{ title: 'test', url: 'https://example.com', snippet: 'test', taint: { source: 'web_search', trust: 'external' as const, timestamp: new Date() } }]; },
     },
     browser: {
@@ -185,7 +190,9 @@ describe('Phase 2 Provider Map', () => {
     expect(PROVIDER_MAP.memory).toHaveProperty('cortex');
     expect(PROVIDER_MAP.scanner).toHaveProperty('guardian');
     expect(PROVIDER_MAP.channel).toHaveProperty('slack');
-    expect(PROVIDER_MAP.web).toHaveProperty('tavily');
+    expect(PROVIDER_MAP.web_extract).toHaveProperty('tavily');
+    expect(PROVIDER_MAP.web_search).toHaveProperty('tavily');
+    expect(PROVIDER_MAP.web_search).toHaveProperty('brave');
     expect(PROVIDER_MAP.browser).toHaveProperty('container');
     expect(PROVIDER_MAP.credentials).toHaveProperty('keychain');
     expect(PROVIDER_MAP.llm).toHaveProperty('router');

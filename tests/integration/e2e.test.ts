@@ -101,10 +101,9 @@ function createTestProviders(tmpDir: string) {
       },
     },
     channels: [],
-    web: {
-      async fetch() { throw new Error('Provider disabled (provider: none)'); },
-      async search() { throw new Error('Provider disabled (provider: none)'); },
-    },
+    webFetch: { async fetch() { throw new Error('Provider disabled (provider: none)'); } },
+    webExtract: { async extract() { throw new Error('Provider disabled (provider: none)'); } },
+    webSearch: { async search() { throw new Error('Provider disabled (provider: none)'); } },
     browser: {
       async launch() { throw new Error('Provider disabled (provider: none)'); },
       async navigate() { throw new Error('Provider disabled (provider: none)'); },

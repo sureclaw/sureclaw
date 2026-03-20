@@ -57,7 +57,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     memory: defaults.memory,
     scanner: defaults.scanner,
     channels: answers.channels,
-    web: answers.webProvider || defaults.web,
+    web: defaults.web,
     browser: defaults.browser,
     credentials: defaults.credentials,
     audit: defaults.audit,

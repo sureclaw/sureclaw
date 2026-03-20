@@ -1,6 +1,8 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import { create } from '../../../src/providers/web/fetch.js';
-import type { WebProvider } from '../../../src/providers/web/types.js';
+import type { FetchRequest, FetchResponse } from '../../../src/providers/web/types.js';
+
+type WebFetchProvider = { fetch(req: FetchRequest): Promise<FetchResponse> };
 import type { Config } from '../../../src/types.js';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 
@@ -36,7 +38,7 @@ describe('web-fetch provider', () => {
   // ── Tests that hit a local server (allowedIPs bypasses SSRF check) ──
 
   describe('basic fetch', () => {
-    let web: WebProvider;
+    let web: WebFetchProvider;
 
     beforeEach(async () => {
       web = await create(config, testOpts);
@@ -142,7 +144,7 @@ describe('web-fetch provider', () => {
   // ── SSRF protection (default provider, no allowedIPs) ──
 
   describe('SSRF protection', () => {
-    let web: WebProvider;
+    let web: WebFetchProvider;
 
     beforeEach(async () => {
       web = await create(config);
@@ -201,7 +203,7 @@ describe('web-fetch provider', () => {
   // ── Protocol restrictions ──
 
   describe('protocol restrictions', () => {
-    let web: WebProvider;
+    let web: WebFetchProvider;
 
     beforeEach(async () => {
       web = await create(config);
@@ -220,12 +222,4 @@ describe('web-fetch provider', () => {
     });
   });
 
-  // ── search stub ──
-
-  test('search throws not implemented', async () => {
-    const web = await create(config);
-    await expect(
-      web.search('test query')
-    ).rejects.toThrow(/not implemented|not available/i);
-  });
 });

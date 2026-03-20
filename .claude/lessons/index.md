@@ -97,6 +97,8 @@
 - Many skills have no metadata block — static analysis is essential [providers/skills.md](providers/skills.md)
 - OpenClaw's security failures validate AX's zero-trust architecture [providers/skills.md](providers/skills.md)
 - Tool filtering must align with prompt module shouldInclude() [providers/skills.md](providers/skills.md)
+- Splitting a provider category has massive blast radius [providers/web.md](providers/web.md)
+- disabledProvider() proxy throws synchronously, not as rejected promise [providers/web.md](providers/web.md)
 - child.killed is true after ANY kill() call, not just after the process is dead [providers/sandbox.md](providers/sandbox.md)
 - Never use tsx binary as a process wrapper — use node --import tsx/esm instead [providers/sandbox.md](providers/sandbox.md)
 - Apple Container --publish-socket requires listener-ready signaling [providers/sandbox.md](providers/sandbox.md)

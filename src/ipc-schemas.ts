@@ -116,6 +116,10 @@ export const WebSearchSchema = ipcAction('web_search', {
   maxResults: z.number().int().min(1).max(20).optional(),
 });
 
+export const WebExtractSchema = ipcAction('web_extract', {
+  url: z.url().max(2048),
+});
+
 // ── Browser ──────────────────────────────────────────
 
 const browserSession = safeString(128);

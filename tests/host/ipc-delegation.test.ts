@@ -19,10 +19,9 @@ function mockProviders(): ProviderRegistry {
       checkCanary: vi.fn(() => false),
     },
     channels: [],
-    web: {
-      fetch: vi.fn(),
-      search: vi.fn(async () => []),
-    },
+    webFetch: { fetch: vi.fn() },
+    webExtract: { extract: vi.fn() },
+    webSearch: { search: vi.fn(async () => []) },
     browser: {
       launch: vi.fn(),
       navigate: vi.fn(),

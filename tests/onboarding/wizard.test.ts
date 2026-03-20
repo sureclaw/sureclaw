@@ -39,7 +39,7 @@ describe('Onboarding Wizard', () => {
     const config = parseYaml(readFileSync(configPath, 'utf-8'));
     expect(config.profile).toBe('paranoid');
     expect(config.providers.scanner).toBe('patterns');
-    expect(config.providers.web).toBe('none');
+    expect(config.providers.web).toEqual({ extract: 'none', search: 'none' });
 
     expect(config.providers.channels).toEqual(['cli']);
   });
@@ -58,7 +58,7 @@ describe('Onboarding Wizard', () => {
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('balanced');
-    expect(config.providers.web).toBe('fetch');
+    expect(config.providers.web).toEqual({ extract: 'none', search: 'none' });
 
     expect(config.providers.memory).toBe('cortex');
   });

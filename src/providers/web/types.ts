@@ -22,7 +22,16 @@ export interface SearchResult {
   taint: TaintTag;
 }
 
-export interface WebProvider {
-  fetch(req: FetchRequest): Promise<FetchResponse>;
+export interface ExtractResult {
+  url: string;
+  content: string;
+  taint: TaintTag;
+}
+
+export interface WebExtractProvider {
+  extract(url: string): Promise<ExtractResult>;
+}
+
+export interface WebSearchProvider {
   search(query: string, maxResults?: number): Promise<SearchResult[]>;
 }
