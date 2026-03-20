@@ -10,39 +10,34 @@
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Server as NetServer } from 'node:net';
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, copyFileSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
-import { axHome, dataDir, dataFile, isValidSessionId, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
-import type { Config, ProviderRegistry } from '../types.js';
+import { axHome, agentIdentityDir, agentIdentityFilesDir } from '../paths.js';
+import type { Config } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
 import { loadProviders } from './registry.js';
-import { createRouter } from './router.js';
-import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
-import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { getLogger } from '../logger.js';
-import { resolveDelivery } from './delivery.js';
-import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
+import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
 import type { EventBus } from './event-bus.js';
 import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
-import { createOrchestrator, type Orchestrator } from './orchestration/orchestrator.js';
 
 // Extracted modules
-import { sendError, sendSSEChunk, sendSSENamedEvent, readBody } from './server-http.js';
-import type { OpenAIChatRequest, OpenAIChatResponse, OpenAIStreamChunk } from './server-http.js';
+import { sendError, readBody } from './server-http.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
-import { FileStore } from '../file-store.js';
-import { createWebhookHandler } from './server-webhooks.js';
-import { createWebhookTransform } from './webhook-transform.js';
-import { createAdminHandler } from './server-admin.js';
-import { createAgentRegistry } from './agent-registry.js';
-import { webhookTransformPath } from '../paths.js';
+
+// Shared extraction modules
+import { initHostCore } from './server-init.js';
+import {
+  handleModels as sharedHandleModels,
+  handleCompletions as sharedHandleCompletions,
+  handleEventsSSE,
+  createSchedulerCallback,
+} from './server-request-handlers.js';
+import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
 
 // =====================================================
 // Types
@@ -72,7 +67,7 @@ export interface AxServer {
 // Helpers (re-exported from server-admin-helpers.ts)
 // =====================================================
 
-import { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
+import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
 export { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
 
 // =====================================================
@@ -98,7 +93,6 @@ export async function createServer(
   logger.debug('providers_loaded');
 
   // Use the eventbus provider (loaded by registry alongside other providers).
-  // The provider implements the EventBus interface — no direct createEventBus() call needed.
   const eventBus: EventBus = providers.eventbus;
 
   const usePrettyEvents = (process.stdout.isTTY ?? false) && !opts.verbose && !opts.json;
@@ -117,29 +111,17 @@ export async function createServer(
     providers.channels.push(...opts.channels);
   }
 
-  // Initialize storage + Taint Budget + Router + IPC
-  // The storage provider wraps MessageQueue, ConversationStore, and SessionStore.
-  mkdirSync(dataDir(), { recursive: true });
-  const db = providers.storage.messages;
-  const conversationStore = providers.storage.conversations;
-  const sessionStore = providers.storage.sessions;
-  const fileStore = await FileStore.create(providers.database);
-  const taintBudget = new TaintBudget({
-    threshold: thresholdForProfile(config.profile),
-  });
-  const router = createRouter(providers, db, { taintBudget });
+  // ── Shared initialization (storage, routing, IPC, templates, orchestrator) ──
+  const core = await initHostCore({ config, providers, eventBus, verbose: opts.verbose });
+  const {
+    completionDeps, db, conversationStore, sessionStore, router, taintBudget, fileStore,
+    handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
+    agentRegistry, agentName, agentDirVal, identityFilesDir, sessionCanaries,
+    workspaceMap, defaultUserId, modelId,
+  } = core;
 
-  const agentName = 'main';
-  const agentDirVal = agentDirPath(agentName);
+  // ── Legacy migration (server.ts-only): move files from flat layout to subdirectories ──
   const agentConfigDir = agentIdentityDir(agentName);
-  const identityFilesDir = agentIdentityFilesDir(agentName);
-  mkdirSync(agentDirVal, { recursive: true });
-  mkdirSync(agentConfigDir, { recursive: true });
-  mkdirSync(identityFilesDir, { recursive: true });
-
-  // Migration: move identity files from legacy flat layout to new subdirectories.
-  // Before restructure, all files lived directly in agentDirVal (~/.ax/agents/main/).
-  // Now: identity files → agent/identity/, config files → agent/, admin files stay at top.
   const legacyIdentityFiles = ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'HEARTBEAT.md'];
   for (const file of legacyIdentityFiles) {
     const legacySrc = join(agentDirVal, file);
@@ -157,329 +139,64 @@ export async function createServer(
     }
   }
   // Cleanup: USER_BOOTSTRAP.md should NOT be in identityFilesDir (it's passed via stdin).
-  // Remove stale copy if present (from earlier migration that placed it there).
   try { unlinkSync(join(identityFilesDir, 'USER_BOOTSTRAP.md')); } catch { /* may not exist */ }
 
-  // Let scheduler know where the identity files dir is (for HEARTBEAT.md loading)
-  config.scheduler.agent_dir = identityFilesDir;
-
-  // First-run: copy default templates into the correct directories.
-  // Identity files (AGENTS.md, HEARTBEAT.md) → identityFilesDir (mounted as /workspace/identity)
-  // Config files (capabilities.yaml) → agentConfigDir (not in sandbox)
-  // Bootstrap files (BOOTSTRAP.md, USER_BOOTSTRAP.md) → both agentConfigDir (authoritative)
-  //   AND identityFilesDir (agent-readable copy in sandbox mount)
-  const templatesDir = resolveTemplatesDir();
-  const documents = providers.storage.documents;
-
-  // Check both filesystem AND DocumentStore — bootstrap is complete when both
-  // SOUL.md and IDENTITY.md exist in either location (DocumentStore is authoritative
-  // for GCS/cloud setups, filesystem for local dev).
-  const fsBootstrapComplete =
-    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
-  let dbBootstrapComplete = false;
-  try {
-    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
-    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
-    dbBootstrapComplete = !!(dbSoul && dbIdentity);
-  } catch { /* DocumentStore may not support get-or-null, treat as not complete */ }
-  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
-
-  // Identity files → identityFilesDir + DocumentStore
-  for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
-    const dest = join(identityFilesDir, file);
-    const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) {
-      copyFileSync(src, dest);
-    }
-    // Also seed to DocumentStore (idempotent — only if not already present)
-    if (existsSync(src)) {
-      const key = `${agentName}/${file}`;
-      try {
-        const existing = await documents.get('identity', key);
-        if (!existing) {
-          await documents.put('identity', key, readFileSync(src, 'utf-8'));
-        }
-      } catch { /* non-fatal */ }
-    }
-  }
-
-  // Config files → agentConfigDir
-  for (const file of ['capabilities.yaml']) {
-    const dest = join(agentConfigDir, file);
-    const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) {
-      copyFileSync(src, dest);
-    }
-  }
-
-  // BOOTSTRAP.md → both agentConfigDir (authoritative) and identityFilesDir (agent-readable copy)
-  // + DocumentStore (so loadIdentityFromDB finds it on GCS/cloud setups)
-  // Don't re-create BOOTSTRAP.md if bootstrap already completed
-  if (!bootstrapAlreadyComplete) {
-    const src = join(templatesDir, 'BOOTSTRAP.md');
-    if (existsSync(src)) {
-      const configDest = join(agentConfigDir, 'BOOTSTRAP.md');
-      const identityDest = join(identityFilesDir, 'BOOTSTRAP.md');
-      if (!existsSync(configDest)) copyFileSync(src, configDest);
-      if (!existsSync(identityDest)) copyFileSync(src, identityDest);
-      // Seed to DocumentStore
-      const key = `${agentName}/BOOTSTRAP.md`;
-      try {
-        const existing = await documents.get('identity', key);
-        if (!existing) {
-          await documents.put('identity', key, readFileSync(src, 'utf-8'));
-        }
-      } catch { /* non-fatal */ }
-    }
-  }
-
-  // USER_BOOTSTRAP.md → agentConfigDir only (passed to agent via stdin payload, not mounted)
-  // + DocumentStore (so loadIdentityFromDB finds it)
+  // USER_BOOTSTRAP.md → agentConfigDir (filesystem copy, server.ts-specific)
   {
+    const templatesDir = resolveTemplatesDir();
     const src = join(templatesDir, 'USER_BOOTSTRAP.md');
     if (existsSync(src)) {
       const configDest = join(agentConfigDir, 'USER_BOOTSTRAP.md');
       if (!existsSync(configDest)) copyFileSync(src, configDest);
-      // Seed to DocumentStore (only if bootstrap not complete)
-      if (!bootstrapAlreadyComplete) {
-        const key = `${agentName}/USER_BOOTSTRAP.md`;
-        try {
-          const existing = await documents.get('identity', key);
-          if (!existing) {
-            await documents.put('identity', key, readFileSync(src, 'utf-8'));
-          }
-        } catch { /* non-fatal */ }
-      }
     }
   }
 
-  // First-run: seed skills from <project-root>/skills/ into persistent ~/.ax location
-  const persistentSkillsDir = agentSkillsDir(agentName);
-  mkdirSync(persistentSkillsDir, { recursive: true });
-  try {
-    const existingSkills = readdirSync(persistentSkillsDir).filter(f => f.endsWith('.md'));
-    const existingDirs = readdirSync(persistentSkillsDir, { withFileTypes: true })
-      .filter(d => d.isDirectory() && existsSync(join(persistentSkillsDir, d.name, 'SKILL.md')));
-    if (existingSkills.length === 0 && existingDirs.length === 0) {
-      const seedDir = resolveSeedSkillsDir();
-      if (existsSync(seedDir)) {
-        const seedEntries = readdirSync(seedDir, { withFileTypes: true });
-        for (const entry of seedEntries) {
-          if (entry.isFile() && entry.name.endsWith('.md')) {
-            copyFileSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name));
-          } else if (entry.isDirectory()) {
-            // Copy directory-based skills recursively
-            cpSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name), { recursive: true });
-          }
-        }
-      }
-    }
-  } catch {
-    // Non-fatal: skills seeding failure shouldn't block server startup
-  }
-
-  // Default user ID for IPC context (not used for admin seeding)
-  const defaultUserId = process.env.USER ?? 'default';
-
-  // Create empty admins file on first run; the first user to connect via a
-  // channel (CLI, Slack, etc.) will be auto-promoted via claimBootstrapAdmin.
-  const adminsPath = join(agentDirVal, 'admins');
-  if (!existsSync(adminsPath)) {
-    writeFileSync(adminsPath, '', 'utf-8');
-  }
-
-  // IPC socket server (internal agent-to-host socket)
-  const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
-  const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
-
-  // Session tracking for canary tokens
-  const sessionCanaries = new Map<string, string>();
-
-  // Shared workspace mapping: sessionId → workspace directory.
-  // Populated by processCompletion() before agent spawn, consumed by sandbox tool IPC handlers.
-  const workspaceMap = new Map<string, string>();
-
-  // Tracks credential_request IPC calls per session. Consumed by processCompletion post-agent loop.
-  const requestedCredentials = new Map<string, Set<string>>();
-
-  // Deduplication
+  // ── Deduplication (server.ts-only) ──
   const deduplicator = new ChannelDeduplicator({
     windowMs: opts.dedupeWindowMs,
   });
 
-  // Model ID for API responses
-  const modelId = providers.llm.name;
-
-  // Shared completion dependencies
-  const completionDeps: CompletionDeps = {
-    config,
-    providers,
-    db,
-    conversationStore,
-    router,
-    taintBudget,
-    sessionCanaries,
-    ipcSocketPath,
-    ipcSocketDir,
-    logger,
-    verbose: opts.verbose,
-    fileStore,
-    eventBus,
-    workspaceMap,
-    requestedCredentials,
-  };
-
-  // Delegation callback: spawn a child agent via processCompletion with
-  // optional runner/model overrides. The child agent gets its own sandbox,
-  // IPC socket, and taint budget — full isolation.
-  async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
-    // Resolve resource tier for the child container
-    const tier = req.resourceTier ?? 'default';
-    const tierConfig = config.sandbox.tiers?.[tier] ?? (tier === 'heavy'
-      ? { memory_mb: 2048, cpus: 4 }
-      : { memory_mb: config.sandbox.memory_mb, cpus: 1 });
-
-    // Build a temporary config override for the child agent
-    const childConfig: Config = {
-      ...config,
-      ...(req.runner ? { agent: req.runner } : {}),
-      ...(req.model ? { models: { default: [req.model] } } : {}),
-      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      sandbox: {
-        ...config.sandbox,
-        memory_mb: tierConfig.memory_mb,
-        tiers: {
-          default: tierConfig,
-          heavy: config.sandbox.tiers?.heavy ?? { memory_mb: 2048, cpus: 4 },
-        },
-        ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
-      },
-    };
-
-    const childDeps: CompletionDeps = {
-      ...completionDeps,
-      config: childConfig,
-    };
-
-    const taskPrompt = req.context
-      ? `${req.context}\n\n---\n\nTask: ${req.task}`
-      : req.task;
-
-    const requestId = req.requestId ?? `delegate-${randomUUID().slice(0, 8)}`;
-    const result = await processCompletion(
-      childDeps,
-      taskPrompt,
-      requestId,
-      [],           // no client message history for delegated tasks
-      undefined,    // no persistent session
-      undefined,    // no pre-processed message (will go through router)
-      ctx.userId,
-    );
-
-    return result.responseContent;
-  }
-
-  // Create orchestrator for agent lifecycle management and async delegation
-  const orchestrator = createOrchestrator(eventBus, providers.audit);
-  // Enable auto-state inference: maps llm.start/tool.call/llm.done events
-  // to supervisor state transitions, which emit agent.state events that
-  // the heartbeat monitor uses as proof of life.
-  const disableAutoState = orchestrator.enableAutoState();
-
-  // Create shared agent registry
-  const agentRegistry = await createAgentRegistry(providers.database);
-  await agentRegistry.ensureDefault();
-
-  const handleIPC = createIPCHandler(providers, {
-    taintBudget,
-    agentDir: identityFilesDir,
-    agentName,
-    profile: config.profile,
-    configModel: config.models?.default?.[0],
-    onDelegate: handleDelegate,
-    delegation: config.delegation ? {
-      maxConcurrent: config.delegation.max_concurrent,
-      maxDepth: config.delegation.max_depth,
-    } : undefined,
-    eventBus,
-    orchestrator,
-    agentRegistry,
-    workspaceMap,
-    requestedCredentials,
-  });
-  completionDeps.ipcHandler = handleIPC;
-
-  // Webhook path prefix (configurable, defaults to '/webhooks/')
+  // ── Webhook handler ──
   const webhookPrefix = config.webhooks?.path
     ? (config.webhooks.path.endsWith('/') ? config.webhooks.path : config.webhooks.path + '/')
     : '/webhooks/';
 
-  // Webhook handler (optional — only if config has webhooks.enabled)
-  const webhookHandler = config.webhooks?.enabled
-    ? createWebhookHandler({
-        config: {
-          token: config.webhooks.token,
-          maxBodyBytes: config.webhooks.max_body_bytes,
-          model: config.webhooks.model,
-          allowedAgentIds: config.webhooks.allowed_agent_ids,
-        },
-        transform: createWebhookTransform(
-          providers.llm,
-          config.webhooks.model ?? config.models?.fast?.[0] ?? config.models?.default?.[0] ?? 'claude-haiku-4-5-20251001',
-        ),
-        dispatch: (result, runId) => {
-          const childConfig: Config = {
-            ...config,
-            ...(result.agentId ? { agent_name: result.agentId } : {}),
-            ...(result.model ? { models: { default: [result.model] } } : {}),
-            ...(result.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: result.timeoutSec } } : {}),
-          };
-          const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
-          void processCompletion(
-            childDeps,
-            result.message,
-            runId,
-            [],
-            undefined,
-            undefined,
-            'webhook',
-          ).catch(err => {
-            logger.error('webhook_dispatch_failed', { runId, error: (err as Error).message });
-          });
-        },
-        logger,
-        transformExists: (name) => existsSync(webhookTransformPath(name)),
-        readTransform: (name) => readFileSync(webhookTransformPath(name), 'utf-8'),
-        recordTaint: (sessionId, content, isTainted) => {
-          taintBudget.recordContent(sessionId, content, isTainted);
-        },
-        audit: (entry) => {
-          providers.audit.log({
-            action: entry.action,
-            sessionId: entry.runId ?? 'webhook',
-            args: { webhook: entry.webhook, ip: entry.ip },
-            result: 'success',
-            durationMs: 0,
-          }).catch(() => {});
-        },
-      })
-    : null;
+  const webhookHandler = setupWebhookHandler({
+    config,
+    providers,
+    logger,
+    taintBudget,
+    dispatch: (result, runId) => {
+      const childConfig: Config = {
+        ...config,
+        ...(result.agentId ? { agent_name: result.agentId } : {}),
+        ...(result.model ? { models: { default: [result.model] } } : {}),
+        ...(result.timeoutSec ? { sandbox: { ...config.sandbox, timeout_sec: result.timeoutSec } } : {}),
+      };
+      const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
+      void processCompletion(
+        childDeps,
+        result.message,
+        runId,
+        [],
+        undefined,
+        undefined,
+        'webhook',
+      ).catch(err => {
+        logger.error('webhook_dispatch_failed', { runId, error: (err as Error).message });
+      });
+    },
+  });
 
-  // Admin dashboard handler (optional — only if config has admin.enabled)
+  // ── Admin handler ──
   const startTime = Date.now();
-  const adminHandler = config.admin.enabled
-    ? createAdminHandler({
-        config,
-        providers,
-        eventBus,
-        agentRegistry,
-        startTime,
-      })
-    : null;
-
-  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
-  const ipcServer: NetServer = await createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
-  logger.debug('ipc_server_started', { socket: ipcSocketPath });
+  const adminHandler = setupAdminHandler({
+    config,
+    providers,
+    eventBus,
+    agentRegistry,
+    startTime,
+  });
 
   let httpServer: HttpServer | null = null;
   let tcpServer: HttpServer | null = null;
@@ -489,7 +206,7 @@ export async function createServer(
   // In-flight request tracking for graceful shutdown
   let inflightCount = 0;
   let drainResolve: (() => void) | null = null;
-  const DRAIN_TIMEOUT_MS = 30_000; // Max time to wait for in-flight requests to complete
+  const DRAIN_TIMEOUT_MS = 30_000;
 
   function trackRequestStart(): void { inflightCount++; }
   function trackRequestEnd(): void {
@@ -499,12 +216,10 @@ export async function createServer(
     }
   }
 
-  /** Wait for all in-flight requests to complete, with a hard timeout. */
   function waitForDrain(): Promise<void> {
     if (inflightCount <= 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
       drainResolve = resolve;
-      // Hard timeout: don't wait forever for hung requests
       setTimeout(() => {
         if (inflightCount > 0) {
           logger.warn('drain_timeout', { inflight: inflightCount, timeoutMs: DRAIN_TIMEOUT_MS });
@@ -513,6 +228,34 @@ export async function createServer(
       }, DRAIN_TIMEOUT_MS);
     });
   }
+
+  // ── Completion handler options ──
+  const completionOpts = {
+    modelId,
+    agentName,
+    agentDirVal,
+    eventBus,
+    runCompletion: async (
+      content: string | import('../types.js').ContentBlock[],
+      requestId: string,
+      messages: { role: string; content: string | import('../types.js').ContentBlock[] }[],
+      sessionId: string,
+      userId?: string,
+    ) => {
+      return processCompletion(completionDeps, content, requestId, messages, sessionId, undefined, userId);
+    },
+    preFlightCheck: (sessionId: string, userId: string | undefined) => {
+      if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
+        if (claimBootstrapAdmin(agentDirVal, userId)) {
+          logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+          return undefined;
+        } else {
+          return 'This agent is still being set up. Only admins can interact during bootstrap.';
+        }
+      }
+      return undefined;
+    },
+  };
 
   // --- Request Handler ---
 
@@ -543,14 +286,14 @@ export async function createServer(
     }
 
     if (url === '/v1/models' && req.method === 'GET') {
-      handleModels(res);
+      sharedHandleModels(res, modelId);
       return;
     }
 
     if (url === '/v1/chat/completions' && req.method === 'POST') {
       trackRequestStart();
       try {
-        await handleCompletions(req, res);
+        await sharedHandleCompletions(req, res, completionOpts);
       } catch (err) {
         logger.error('request_failed', { error: (err as Error).message });
         if (!res.headersSent) {
@@ -586,7 +329,7 @@ export async function createServer(
 
     // SSE event stream: GET /v1/events?request_id=...&types=...
     if (url.startsWith('/v1/events') && req.method === 'GET') {
-      handleEvents(req, res);
+      handleEventsSSE(req, res, eventBus);
       return;
     }
 
@@ -675,294 +418,6 @@ export async function createServer(
     sendError(res, 404, 'Not found');
   }
 
-  function handleModels(res: ServerResponse): void {
-    const body = JSON.stringify({
-      object: 'list',
-      data: [{ id: modelId, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'ax' }],
-    });
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
-    res.end(body);
-  }
-
-  /** SSE keepalive interval (ms). */
-  const SSE_KEEPALIVE_MS = 15_000;
-
-  function handleEvents(req: IncomingMessage, res: ServerResponse): void {
-    // Parse query params from URL
-    const parsedUrl = new URL(req.url ?? '/', 'http://localhost');
-    const requestIdFilter = parsedUrl.searchParams.get('request_id') ?? undefined;
-    const typesParam = parsedUrl.searchParams.get('types') ?? undefined;
-    const typeFilter = typesParam ? new Set(typesParam.split(',').map(t => t.trim()).filter(Boolean)) : undefined;
-
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-
-    // Send initial comment so the client knows the connection is alive
-    res.write(':connected\n\n');
-
-    const listener = (event: import('./event-bus.js').StreamEvent) => {
-      // Apply type filter
-      if (typeFilter && !typeFilter.has(event.type)) return;
-      try {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-      } catch {
-        // Client disconnected — unsubscribe handled below
-      }
-    };
-
-    // Subscribe: use request-scoped if request_id provided, global otherwise
-    const unsubscribe = requestIdFilter
-      ? eventBus.subscribeRequest(requestIdFilter, listener)
-      : eventBus.subscribe(listener);
-
-    // Keepalive comment every 15s to prevent proxy/LB timeouts
-    const keepalive = setInterval(() => {
-      try {
-        res.write(':keepalive\n\n');
-      } catch {
-        // Client gone
-      }
-    }, SSE_KEEPALIVE_MS);
-
-    // Cleanup on client disconnect
-    const cleanup = () => {
-      clearInterval(keepalive);
-      unsubscribe();
-    };
-    req.on('close', cleanup);
-    req.on('error', cleanup);
-  }
-
-  async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const requestId = `chatcmpl-${randomUUID()}`;
-    const created = Math.floor(Date.now() / 1000);
-
-    // Read and parse body
-    let body: string;
-    try {
-      body = await readBody(req);
-    } catch {
-      sendError(res, 413, 'Request body too large');
-      return;
-    }
-
-    let chatReq: OpenAIChatRequest;
-    try {
-      chatReq = JSON.parse(body);
-    } catch {
-      sendError(res, 400, 'Invalid JSON in request body');
-      return;
-    }
-
-    if (!chatReq.messages || !Array.isArray(chatReq.messages) || chatReq.messages.length === 0) {
-      sendError(res, 400, 'messages array is required and must not be empty');
-      return;
-    }
-
-    // Validate session_id if provided
-    if (chatReq.session_id !== undefined && !isValidSessionId(chatReq.session_id)) {
-      sendError(res, 400, 'Invalid session_id: must be a valid UUID or colon-separated session ID (e.g. main:cli:default)');
-      return;
-    }
-
-    const requestModel = chatReq.model ?? modelId;
-
-    // Derive a stable session ID for the workspace.
-    // Priority: explicit session_id > user field (userId/conversationId) > random UUID.
-    // The user field follows the OpenAI convention: "<userId>/<conversationId>".
-    let sessionId = chatReq.session_id;
-    if (!sessionId && chatReq.user) {
-      const parts = chatReq.user.split('/');
-      if (parts.length >= 2 && parts[0] && parts[1]) {
-        // Extract agent name from model field (e.g. "agent:main" → "main")
-        const agentPrefix = chatReq.model?.startsWith('agent:')
-          ? chatReq.model.slice(6)
-          : 'main';
-        const candidate = `${agentPrefix}:http:${parts[0]}:${parts[1]}`;
-        if (isValidSessionId(candidate)) {
-          sessionId = candidate;
-        }
-      }
-    }
-    if (!sessionId) {
-      sessionId = randomUUID();
-    }
-
-    // Extract last user message content (may be string or ContentBlock[])
-    const lastMsg = chatReq.messages[chatReq.messages.length - 1];
-    const content = lastMsg?.content ?? '';
-
-    // Extract userId from user field (first segment before /)
-    const userId = chatReq.user?.split('/')[0] || undefined;
-
-    // Bootstrap gate: auto-promote the first HTTP user to admin (same as channel handler).
-    if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
-      if (claimBootstrapAdmin(agentDirVal, userId)) {
-        logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
-      } else {
-        sendError(res, 403, 'This agent is still being set up. Only admins can interact during bootstrap.');
-        return;
-      }
-    }
-
-    logger.info('chat_request', {
-      requestId,
-      sessionId,
-      stream: !!chatReq.stream,
-      model: requestModel,
-      userId: userId ?? 'anonymous',
-      messageCount: chatReq.messages.length,
-    });
-
-    if (chatReq.stream) {
-      // ── Streaming mode: subscribe to event bus and forward llm.chunk events as OpenAI SSE ──
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Request-Id': requestId,
-        'X-Accel-Buffering': 'no',
-      });
-
-      // Role chunk
-      sendSSEChunk(res, {
-        id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-        choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
-      });
-
-      // Track whether we streamed any content via event bus
-      let streamedContent = false;
-
-      // Track tool call index for OpenAI-compatible incremental indexing
-      let toolCallIndex = 0;
-      let hasToolCalls = false;
-
-      // Subscribe to event bus for this request's llm events.
-      // Events are emitted synchronously during processCompletion, so the
-      // listener fires inline and we can res.write() in real-time.
-      const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
-        if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
-          streamedContent = true;
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
-          });
-        } else if (event.type === 'tool.call' && event.data.toolName) {
-          streamedContent = true;
-          hasToolCalls = true;
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: {
-              tool_calls: [{
-                index: toolCallIndex++,
-                id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
-                type: 'function',
-                function: {
-                  name: event.data.toolName as string,
-                  arguments: JSON.stringify(event.data.args ?? {}),
-                },
-              }],
-            }, finish_reason: null }],
-          });
-        } else if (event.type === 'oauth.required' && event.data.envName) {
-          sendSSENamedEvent(res, 'oauth_required', {
-            envName: event.data.envName as string,
-            sessionId: event.data.sessionId as string,
-            authorizeUrl: event.data.authorizeUrl as string,
-            requestId,
-          });
-        } else if (event.type === 'credential.required' && event.data.envName) {
-          // Emit as a named SSE event — web chat UIs show a credential input modal.
-          // This is NOT an OpenAI-format chunk; clients that don't understand named
-          // events will safely ignore it.
-          sendSSENamedEvent(res, 'credential_required', {
-            envName: event.data.envName as string,
-            sessionId: event.data.sessionId as string,
-            requestId,
-          });
-        }
-      });
-
-      // Keepalive comment every 15s to prevent proxy/LB timeouts
-      const keepalive = setInterval(() => {
-        try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
-      }, 15_000);
-
-      // Stop keepalive + event listener when client disconnects mid-stream.
-      // Without this, the timer keeps firing until processCompletion finishes.
-      const onClientGone = () => {
-        clearInterval(keepalive);
-        unsubscribe();
-      };
-      req.on('close', onClientGone);
-      req.on('error', onClientGone);
-
-      try {
-        // Run completion — blocks while agent processes, but event callbacks fire during execution
-        const { responseContent, finishReason } = await processCompletion(
-          completionDeps, content, requestId, chatReq.messages, sessionId,
-          undefined, userId,
-        );
-
-        // Fallback: if no llm.chunk events were emitted (e.g. claude-code runner
-        // bypasses the IPC LLM handler), send the full response as a single chunk.
-        if (!streamedContent && responseContent) {
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: responseContent }, finish_reason: null }],
-          });
-        }
-
-        // Finish chunk — use 'tool_calls' finish reason when the response included tool calls
-        const streamFinishReason = hasToolCalls && finishReason === 'stop' ? 'tool_calls' as const : finishReason;
-        sendSSEChunk(res, {
-          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-          choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
-        });
-
-        res.write('data: [DONE]\n\n');
-        res.end();
-      } catch (err) {
-        logger.error('stream_completion_failed', { requestId, error: (err as Error).message });
-        if (!res.writableEnded) {
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: '\n\nInternal processing error' }, finish_reason: 'stop' }],
-          });
-          res.write('data: [DONE]\n\n');
-          res.end();
-        }
-      } finally {
-        clearInterval(keepalive);
-        unsubscribe();
-      }
-    } else {
-      // ── Non-streaming mode ──
-      const { responseContent, finishReason } = await processCompletion(
-        completionDeps, content, requestId, chatReq.messages, sessionId,
-        undefined, userId,
-      );
-
-      const response: OpenAIChatResponse = {
-        id: requestId, object: 'chat.completion', created, model: requestModel,
-        choices: [{
-          index: 0,
-          message: { role: 'assistant', content: responseContent },
-          finish_reason: finishReason,
-        }],
-        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-      };
-
-      const responseBody = JSON.stringify(response);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
-      res.end(responseBody);
-    }
-  }
-
   // --- Lifecycle ---
 
   async function startServer(): Promise<void> {
@@ -1023,76 +478,19 @@ export async function createServer(
       } });
 
     // Start scheduler
-    await providers.scheduler.start(async (msg: InboundMessage) => {
-      const result = await router.processInbound(msg);
-      if (result.queued) {
-        sessionCanaries.set(result.sessionId, result.canaryToken);
-        const { responseContent } = await processCompletion(
-          completionDeps, msg.content, `sched-${randomUUID().slice(0, 8)}`, [], undefined,
-          { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
-        );
-
-        // Resolve delivery target and send if applicable
-        if (responseContent.trim()) {
-          let delivery: import('../providers/scheduler/types.js').CronDelivery | undefined;
-          let jobAgentId = agentName;
-
-          if (msg.sender.startsWith('cron:')) {
-            const jobId = msg.sender.slice(5);
-            const jobs = await providers.scheduler.listJobs?.() ?? [];
-            const job = jobs.find(j => j.id === jobId);
-            if (job) {
-              jobAgentId = job.agentId;
-              delivery = job.delivery ?? config.scheduler.defaultDelivery;
-            } else {
-              // Job may have been auto-deleted (runOnce) — use default delivery
-              delivery = config.scheduler.defaultDelivery;
-            }
-          } else if (msg.sender === 'heartbeat') {
-            delivery = config.scheduler.defaultDelivery;
-          } else {
-            // hint or other scheduler message — use default
-            delivery = config.scheduler.defaultDelivery;
-          }
-
-          const resolution = await resolveDelivery(delivery, {
-            sessionStore,
-            agentId: jobAgentId,
-            defaultDelivery: config.scheduler.defaultDelivery,
-            channels: providers.channels,
-          });
-
-          if (resolution.mode === 'channel' && resolution.session && resolution.channelProvider) {
-            const outbound = await router.processOutbound(responseContent, result.sessionId, result.canaryToken);
-            if (!outbound.canaryLeaked) {
-              try {
-                await resolution.channelProvider.send(resolution.session, { content: outbound.content });
-                logger.info('cron_delivered', {
-                  sender: msg.sender,
-                  provider: resolution.session.provider,
-                  contentLength: outbound.content.length,
-                });
-              } catch (err) {
-                logger.error('cron_delivery_failed', {
-                  sender: msg.sender,
-                  provider: resolution.session.provider,
-                  error: (err as Error).message,
-                });
-              }
-            } else {
-              logger.warn('cron_delivery_canary_leaked', { sender: msg.sender });
-            }
-          }
-        }
-
-        logger.info('scheduler_message_processed', {
-          sender: msg.sender,
-          sessionId: result.sessionId,
-          contentLength: responseContent.length,
-          hasResponse: responseContent.trim().length > 0,
-        });
-      }
+    const schedulerCallback = createSchedulerCallback({
+      config,
+      router,
+      sessionCanaries,
+      sessionStore,
+      agentName,
+      channels: providers.channels,
+      scheduler: providers.scheduler,
+      runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
+        return processCompletion(completionDeps, content, requestId, messages, sessionId, preProcessed, userId);
+      },
     });
+    await providers.scheduler.start(schedulerCallback);
 
     // Connect channel providers (Slack, Discord, etc.)
     for (const channel of providers.channels) {
@@ -1177,8 +575,7 @@ export async function createServer(
     // Flush and shut down OTel tracing
     await shutdownTracing();
 
-    // Clean up sockets — ENOENT is expected if httpServer.close() already
-    // unlinked the socket file (Node.js behavior varies by version).
+    // Clean up sockets
     try { unlinkSync(socketPath); } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
         logger.debug('socket_cleanup_failed', { socketPath, error: (err as Error).message });
