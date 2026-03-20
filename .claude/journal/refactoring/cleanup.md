@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-03-20 08:40] — Phase 2: createRequestHandler() shared route factory
+
+**Task:** Extract remaining duplicated HTTP route dispatch from server-local.ts and server-k8s.ts into a shared createRequestHandler() factory
+**What I did:** (1) Added createRequestHandler() factory to server-request-handlers.ts with all shared routes (CORS, health, models, completions, files, SSE events, webhooks, credentials, OAuth, admin, root redirect, 404) plus hooks for extraRoutes and graceful drain. (2) Rewrote server-local.ts to use createRequestHandler() -- replaced ~160-line inline handleRequest. (3) Rewrote server-k8s.ts to use createRequestHandler() with handleInternalRoutes for /internal/* routes. (4) Removed inline NATS SSE handler from k8s (NATS eventbus provider already bridges events to EventBus). (5) Added graceful drain tracking to k8s shutdown. (6) Cleaned up unused imports.
+**Files touched:** src/host/server-request-handlers.ts, src/host/server-local.ts, src/host/server-k8s.ts
+**Outcome:** Success — all 215 test files pass (2473 tests), build clean. server-local.ts dropped 188 lines, server-k8s.ts dropped 90 net lines. Both servers now gain file routes, OAuth, credentials, bootstrap gate, and root redirect from the shared handler.
+**Notes:** Key discovery: NATS eventbus provider (src/providers/eventbus/nats.ts) already implements the full EventBus interface by subscribing to NATS subjects and dispatching to listeners. The inline NATS SSE handler in server-k8s.ts was redundant with the shared handleEventsSSE that uses EventBus.subscribe/subscribeRequest. Server-k8s.ts was previously missing: file upload/download, OAuth callback, bootstrap gate pre-flight, root->admin redirect, and graceful drain.
+
 ## [2026-03-20 08:05] — Rename server.ts to server-local.ts, host-process.ts to server-k8s.ts
 
 **Task:** Rename server entry points to reflect their semantic role (local vs k8s) and update all imports across the codebase

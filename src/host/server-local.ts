@@ -11,7 +11,7 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import { existsSync, copyFileSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { axHome, agentIdentityDir, agentIdentityFilesDir } from '../paths.js';
+import { axHome, agentIdentityDir } from '../paths.js';
 import type { Config } from '../types.js';
 import { loadProviders } from './registry.js';
 import { getLogger } from '../logger.js';
@@ -108,10 +108,10 @@ export async function createServer(
   // ── Shared initialization (storage, routing, IPC, templates, orchestrator) ──
   const core = await initHostCore({ config, providers, eventBus, verbose: opts.verbose });
   const {
-    completionDeps, db, conversationStore, sessionStore, router, taintBudget, fileStore,
-    handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
+    completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore,
+    ipcServer, ipcSocketDir, orchestrator, disableAutoState,
     agentRegistry, agentName, agentDirVal, identityFilesDir, sessionCanaries,
-    workspaceMap, defaultUserId, modelId,
+    modelId,
   } = core;
 
   // ── Legacy migration (server.ts-only): move files from flat layout to subdirectories ──

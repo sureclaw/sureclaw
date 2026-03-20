@@ -1,5 +1,11 @@
 # Architecture
 
+### NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed
+**Date:** 2026-03-20
+**Context:** Extracting shared HTTP route dispatch from server-k8s.ts. The k8s server had an inline NATS-based SSE handler that subscribed directly to NATS subjects and forwarded events to SSE clients.
+**Lesson:** The NATS eventbus provider (`src/providers/eventbus/nats.ts`) already implements subscribe/subscribeRequest by subscribing to NATS subjects and dispatching to listener callbacks. The shared `handleEventsSSE` which uses `eventBus.subscribe()` works correctly in k8s mode because the eventBus IS backed by NATS. When deduplicating handlers, check whether the EventBus abstraction already bridges the underlying transport before keeping mode-specific handlers.
+**Tags:** eventbus, nats, sse, server-k8s, abstraction-layer
+
 ### Use callback injection to share HTTP handlers between server modes
 **Date:** 2026-03-20
 **Context:** Extracting duplicated handleCompletions/scheduler callback from server.ts and host-process.ts into shared modules
