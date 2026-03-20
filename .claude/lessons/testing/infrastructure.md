@@ -1,5 +1,11 @@
 # Testing Infrastructure
 
+### Module-level const from env var won't reflect runtime changes
+**Date:** 2026-03-20
+**Context:** CLAWHUB_API_URL env override didn't work because `const CLAWHUB_API = process.env.CLAWHUB_API_URL || '...'` is evaluated at module load time, not at call time.
+**Lesson:** When an env var needs to be overridable at runtime (e.g., in tests that set env vars after import), use a getter function instead of a module-level const. `function clawHubApi() { return process.env.X || default; }` reads the env var each time it's called.
+**Tags:** env-var, module-loading, testing, runtime-override
+
 ### NATS agents subscribe to sandbox.work queue group — never publish to agent.work.{podName}
 **Date:** 2026-03-17
 **Context:** K8s path E2E tests timed out because publishWork sent to `agent.work.{podName}` but agents subscribe to `sandbox.work` queue group.
