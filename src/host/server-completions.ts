@@ -762,6 +762,8 @@ export async function processCompletion(
       // Track which env names were successfully resolved by OAuth
       // (only marked after token is obtained, so plain env fallback still runs on failure)
       const oauthHandledNames = new Set<string>();
+      // Collect names of credentials that need user input — return early if any are missing
+      const missingCredentials: string[] = [];
 
       // --- OAuth credentials: check stored blob, refresh if expired, or start flow ---
       const publicUrl = process.env.AX_PUBLIC_URL ?? `http://localhost:8080`;
@@ -795,17 +797,7 @@ export async function processCompletion(
           timestamp: Date.now(),
           data: { envName: oauthReq.name, sessionId, authorizeUrl },
         });
-
-        // Block until user completes OAuth or timeout
-        const { requestCredential } = await import('./credential-prompts.js');
-        const accessToken = await requestCredential(sessionId, oauthReq.name, eventBus!, requestId);
-        if (accessToken) {
-          credentialMap.register(oauthReq.name, accessToken);
-          oauthHandledNames.add(oauthReq.name);
-          reqLogger.debug('oauth_credential_resolved', { name: oauthReq.name });
-        } else {
-          reqLogger.debug('oauth_credential_timeout', { name: oauthReq.name });
-        }
+        missingCredentials.push(oauthReq.name);
       }
 
       // --- Plain env credentials: prompt for any not handled by OAuth ---
@@ -822,23 +814,25 @@ export async function processCompletion(
             timestamp: Date.now(),
             data: { envName, sessionId },
           });
-
-          const { requestCredential } = await import('./credential-prompts.js');
-          const provided = await requestCredential(sessionId, envName, eventBus!, requestId);
-          if (provided) {
-            await providers.credentials.set(envName, provided).catch(() => {
-              reqLogger.debug('credential_store_failed', { envName });
-            });
-            realValue = provided;
-          }
+          missingCredentials.push(envName);
         }
 
         if (realValue) {
           credentialMap.register(envName, realValue);
           reqLogger.debug('credential_placeholder_registered', { envName });
-        } else {
-          reqLogger.debug('credential_not_found', { envName });
         }
+      }
+
+      // If any credentials are missing, return early with a message instead of
+      // blocking. The user provides credentials out-of-band (via /v1/credentials/provide
+      // or the admin UI), then sends a new message to retry.
+      if (missingCredentials.length > 0) {
+        reqLogger.info('credential_early_return', { missing: missingCredentials });
+        const names = missingCredentials.join(', ');
+        return {
+          responseContent: `I need the following credentials to proceed: ${names}. Please provide them and try again.`,
+          finishReason: 'stop',
+        };
       }
     }
 
@@ -1271,6 +1265,7 @@ export async function processCompletion(
 
       // Collect credentials for env vars that are actually required and missing
       const collectedEnvNames: string[] = [];
+      const postAgentMissing: string[] = [];
       for (const envName of newRequirements) {
         if (credentialMap.toEnvMap()[envName]) continue; // Already registered
 
@@ -1284,15 +1279,7 @@ export async function processCompletion(
             timestamp: Date.now(),
             data: { envName, sessionId },
           });
-
-          const { requestCredential } = await import('./credential-prompts.js');
-          const provided = await requestCredential(sessionId, envName, eventBus, requestId);
-          if (provided) {
-            await providers.credentials.set(envName, provided).catch(() => {
-              reqLogger.debug('credential_store_failed', { envName });
-            });
-            realValue = provided;
-          }
+          postAgentMissing.push(envName);
         }
 
         if (realValue) {
@@ -1302,65 +1289,13 @@ export async function processCompletion(
         }
       }
 
-      // If any new credentials were collected, re-spawn the agent
-      if (collectedEnvNames.length > 0) {
-        reqLogger.info('post_agent_respawn', { credentials: collectedEnvNames });
-
-        // Update the sandbox config env with new credential placeholders
-        const updatedEnv = {
-          ...sandboxConfig.extraEnv,
-          ...credentialMap.toEnvMap(),
-        };
-        const respawnConfig = { ...sandboxConfig, extraEnv: updatedEnv };
-
-        // Build new stdin payload with credential notification
-        const credMessage = `Credentials have been collected and are now available as environment variables: ${collectedEnvNames.join(', ')}. Confirm to the user that the skill is ready to use.`;
-        const respawnPayload = JSON.stringify({
-          history: [],
-          message: credMessage,
-          taintRatio: 0,
-          taintThreshold: 1,
-          profile: config.profile,
-          sandboxType: config.providers.sandbox,
-          userId: currentUserId,
-          sessionId,
-          requestId,
-          sessionScope: sessionScope ?? 'dm',
-          agentId: agentName,
-          agentWorkspace: agentWsPath,
-          userWorkspace: userWsPath,
-          workspaceProvider: config.providers.workspace,
-          identity: identityPayload,
-        });
-
-        // Re-spawn agent
-        const credProc = await agentSandbox.spawn(respawnConfig);
-
-        try {
-          credProc.stdin.write(respawnPayload);
-          credProc.stdin.end();
-        } catch {
-          // Process may have exited early
-        }
-
-        // Collect response
-        let credResponse = '';
-        for await (const chunk of credProc.stdout) {
-          credResponse += chunk.toString();
-        }
-        // Drain stderr
-        for await (const chunk of credProc.stderr) {
-          // just drain
-        }
-
-        const credExitCode = await credProc.exitCode;
-        if (credExitCode === 0 && credResponse.trim()) {
-          response = credResponse;
-          reqLogger.info('post_agent_respawn_done', { responseLength: credResponse.length });
-        } else {
-          reqLogger.warn('post_agent_respawn_failed', { exitCode: credExitCode });
-          // Fall through with original response
-        }
+      // If any credentials are missing after skill install, append a note to the
+      // response so the user knows what to provide. The next turn will pick them
+      // up from the credential store once the user provides them.
+      if (postAgentMissing.length > 0) {
+        reqLogger.info('post_agent_credentials_needed', { missing: postAgentMissing });
+        const names = postAgentMissing.join(', ');
+        response += `\n\nTo use the newly installed skill, I need the following credentials: ${names}. Please provide them and try again.`;
       }
     }
 
