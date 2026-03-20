@@ -1,4 +1,4 @@
-// src/host/host-process.ts — Unified host pod process for k8s deployment.
+// src/host/server-k8s.ts — Unified host pod process for k8s deployment.
 //
 // Handles HTTP requests, SSE streaming, webhooks, admin dashboard,
 // AND runs processCompletion() directly (merged agent-runtime).
@@ -7,7 +7,7 @@
 // starts per-turn NATS IPC handler + LLM proxy, and streams events
 // back to SSE clients via the NATS EventBus.
 //
-// For local development, use server.ts instead (all-in-one process).
+// For local development, use server-local.ts instead (all-in-one process).
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';

@@ -21,7 +21,7 @@
  */
 
 import { loadConfig } from '../../../src/config.js';
-import { createServer } from '../../../src/host/server.js';
+import { createServer } from '../../../src/host/server-local.js';
 import { create as createNATSSubprocess } from './nats-subprocess.js';
 import { initLogger } from '../../../src/logger.js';
 

@@ -14,7 +14,7 @@ imageDefaults:
 
 host:
   replicas: 1
-  command: ["node", "--inspect=0.0.0.0:9229", "/opt/ax/dist/host/host-process.js"]
+  command: ["node", "--inspect=0.0.0.0:9229", "/opt/ax/dist/host/server-k8s.js"]
   env:
     - name: LOG_LEVEL
       value: "debug"

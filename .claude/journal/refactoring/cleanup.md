@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-03-20 08:05] — Rename server.ts to server-local.ts, host-process.ts to server-k8s.ts
+
+**Task:** Rename server entry points to reflect their semantic role (local vs k8s) and update all imports across the codebase
+**What I did:** Used `git mv` for both renames. Updated imports in 8 source/test files (cli/index.ts, cli/reload.ts, 4 test files, 2 test harnesses). Updated Dockerfile CMD, Helm chart commands (values.yaml, kind-dev-values.yaml), k8s archive YAML. Fixed 3 test files that read source by filename (sandbox-isolation, workspace-provision-fixes, gcs-remote-transport). Updated 5 skill files (ax-host, ax-debug, ax-provider-credentials, ax-provider-sandbox, acceptance-test). Updated internal comments in server-k8s.ts and server-init.ts.
+**Files touched:** src/host/server.ts (renamed), src/host/host-process.ts (renamed), src/cli/index.ts, src/cli/reload.ts, tests/host/server.test.ts, tests/host/server-multimodal.test.ts, tests/host/server-history.test.ts, tests/host/admin-gate.test.ts, tests/e2e/server-harness.ts, tests/providers/sandbox/run-nats-local.ts, tests/sandbox-isolation.test.ts, tests/agent/workspace-provision-fixes.test.ts, tests/providers/workspace/gcs-remote-transport.test.ts, container/agent/Dockerfile, charts/ax/values.yaml, charts/ax/kind-dev-values.yaml, k8s/archive/host.yaml, src/host/server-init.ts, .claude/skills/ax-host/SKILL.md, .claude/skills/ax-debug/SKILL.md, .claude/skills/ax-provider-credentials/SKILL.md, .claude/skills/ax-provider-sandbox/SKILL.md, .claude/skills/acceptance-test/SKILL.md
+**Outcome:** Success — `npx tsc --noEmit` clean, all 215 test files pass (2473 tests)
+**Notes:** Source-reading tests (sandbox-isolation, gcs-remote-transport, workspace-provision-fixes) reference filenames as string literals to readFileSync, not as imports. These needed manual updates beyond grep for import patterns. Historical acceptance test results/plans/lessons left as-is per append-only policy.
+
 ## [2026-03-20 08:00] — Server init extraction: deduplicate server.ts and host-process.ts
 
 **Task:** Extract ~700 lines of duplicated initialization, request handling, and lifecycle code from server.ts and host-process.ts into shared modules

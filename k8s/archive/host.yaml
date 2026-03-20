@@ -30,7 +30,7 @@ spec:
       containers:
         - name: host
           image: ax/host:latest
-          command: ["node", "dist/host/host-process.js"]
+          command: ["node", "dist/host/server-k8s.js"]
           ports:
             - name: http
               containerPort: 8080

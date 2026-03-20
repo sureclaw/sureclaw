@@ -213,7 +213,7 @@ async function runServe(args: string[]): Promise<void> {
 
   // Load config and create server
   const { loadConfig } = await import('../config.js');
-  const { createServer } = await import('../host/server.js');
+  const { createServer } = await import('../host/server-local.js');
 
   logger.debug('loading_config');
   let config = loadConfig(configPath);

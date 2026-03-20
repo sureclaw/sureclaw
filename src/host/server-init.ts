@@ -1,4 +1,4 @@
-// src/host/server-init.ts — Shared host initialization for both local server and k8s host-process.
+// src/host/server-init.ts — Shared host initialization for both server-local.ts and server-k8s.ts.
 //
 // Encapsulates the duplicated setup: storage → routing → taint budget → agent dir →
 // template seeding → skills seeding → admins → IPC socket → CompletionDeps → delegation →

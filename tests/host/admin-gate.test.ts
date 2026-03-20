@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { unlinkSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
-import { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin, createServer, type AxServer } from '../../src/host/server.js';
+import { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin, createServer, type AxServer } from '../../src/host/server-local.js';
 import { loadConfig } from '../../src/config.js';
 import type { ChannelProvider, InboundMessage, OutboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
 

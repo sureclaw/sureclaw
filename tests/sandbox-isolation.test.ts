@@ -390,14 +390,14 @@ describe('IPC error messages do not expose host paths', () => {
 // ── Spawn Command Paths ──────────────────────────────────────────────
 
 describe('spawn command construction', () => {
-  test('server.ts uses import.meta.url-based asset resolvers for tsx and agent-runner paths (host-side)', async () => {
-    // The spawn command in server.ts uses asset resolvers from utils/assets.ts
+  test('server-local.ts uses import.meta.url-based asset resolvers for tsx and agent-runner paths (host-side)', async () => {
+    // The spawn command in server-local.ts uses asset resolvers from utils/assets.ts
     // which resolve paths relative to import.meta.url (not CWD). This ensures
     // the host process can find tsx and runner.ts regardless of working directory.
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/host/server.ts'), 'utf-8');
+    const source = readFileSync(resolve('src/host/server-local.ts'), 'utf-8');
 
-    // Verify server.ts imports the asset resolvers
+    // Verify server-local.ts imports the asset resolvers
     expect(source).toContain("from '../utils/assets.js'");
     // Verify it calls them to get paths
     expect(source).not.toContain("resolve('node_modules/.bin/tsx')");
@@ -406,7 +406,7 @@ describe('spawn command construction', () => {
 
   test('agent-runner parseArgs does not expose paths beyond what is passed in', () => {
     // The agent-runner receives paths from CLI args (--workspace, --skills, --ipc-socket).
-    // These are already workspace-local paths set by server.ts.
+    // These are already workspace-local paths set by server-local.ts.
     // Verify it doesn't use resolve() or process.cwd() to construct additional paths.
     const { readFileSync } = require('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');

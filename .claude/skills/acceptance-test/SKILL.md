@@ -850,7 +850,7 @@ Use these to quickly find the relevant code when tracing failures:
 
 | Feature Area | Key Source Paths |
 |-------------|-----------------|
-| Server & HTTP API | `src/host/server.ts`, `src/host/server-completions.ts`, `src/host/server-http.ts` |
+| Server & HTTP API | `src/host/server-local.ts`, `src/host/server-completions.ts`, `src/host/server-http.ts` |
 | IPC & Schemas | `src/ipc-schemas.ts`, `src/host/ipc-server.ts`, `src/host/ipc-handlers/` |
 | Router & Message Flow | `src/host/router.ts` |
 | Agent Process | `src/agent/runner.ts`, `src/agent/ipc-client.ts`, `src/agent/tool-catalog.ts` |

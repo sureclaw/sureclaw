@@ -17,7 +17,7 @@ vi.mock('../../src/host/server-completions.js', async (importOriginal) => {
   };
 });
 
-import { createServer, type AxServer } from '../../src/host/server.js';
+import { createServer, type AxServer } from '../../src/host/server-local.js';
 import { loadConfig } from '../../src/config.js';
 import { processCompletion } from '../../src/host/server-completions.js';
 

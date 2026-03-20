@@ -69,7 +69,7 @@ When a skill requires a credential that isn't in the store, the host prompts the
 
 **Key files:**
 - `src/host/credential-prompts.ts` — Pending prompt registry (request/resolve/cleanup)
-- `src/host/server.ts` — SSE event emission + `POST /v1/credentials/provide` endpoint
+- `src/host/server-local.ts` — SSE event emission + `POST /v1/credentials/provide` endpoint
 - `src/host/server-admin.ts` — `POST /admin/api/credentials/provide` endpoint
 
 ## Gotchas
