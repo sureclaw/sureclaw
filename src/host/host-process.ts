@@ -11,9 +11,8 @@
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, copyFileSync, cpSync, writeFileSync, readdirSync, unlinkSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { getLogger } from '../logger.js';
@@ -21,19 +20,9 @@ import { loadConfig } from '../config.js';
 import { screenReleaseChanges } from './workspace-release-screener.js';
 import { loadProviders } from './registry.js';
 import { sendError, sendSSEChunk, readBody } from './server-http.js';
-import type { OpenAIChatRequest } from './server-http.js';
-import { isValidSessionId, webhookTransformPath, dataDir, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
-import { createWebhookHandler } from './server-webhooks.js';
-import { createWebhookTransform } from './webhook-transform.js';
-import { createAdminHandler } from './server-admin.js';
-import { createAgentRegistry } from './agent-registry.js';
-import { createRouter } from './router.js';
-import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
-import { TaintBudget, thresholdForProfile } from './taint-budget.js';
+import { agentDir as agentDirPath, webhookTransformPath } from '../paths.js';
+import type { IPCContext } from './ipc-server.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
-import { createOrchestrator } from './orchestration/orchestrator.js';
-import { FileStore } from '../file-store.js';
-import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { SharedCredentialRegistry } from './credential-placeholders.js';
 import { decode, eventSubject } from './nats-session-protocol.js';
@@ -41,8 +30,16 @@ import type { StreamEvent } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
 import { natsConnectOptions } from '../utils/nats.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
-import { resolveDelivery } from './delivery.js';
 import type { InboundMessage } from '../providers/shared-types.js';
+
+// Shared extraction modules
+import { initHostCore } from './server-init.js';
+import {
+  handleModels as sharedHandleModels,
+  handleCompletions as sharedHandleCompletions,
+  createSchedulerCallback,
+} from './server-request-handlers.js';
+import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
 
 const logger = getLogger().child({ component: 'host-process' });
 
@@ -100,189 +97,20 @@ async function main(): Promise<void> {
   const stagingCleanupInterval = setInterval(cleanupStaging, 60_000);
   stagingCleanupInterval.unref();
 
-  // ── Initialize storage, routing, IPC (merged from agent-runtime) ──
+  // ── Shared initialization (storage, routing, IPC, templates, orchestrator) ──
+  const core = await initHostCore({ config, providers, eventBus, verbose: process.env.AX_VERBOSE === '1' });
+  const {
+    completionDeps, db, conversationStore, sessionStore, router, taintBudget, fileStore,
+    handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
+    agentRegistry, agentName, agentDirVal, identityFilesDir, sessionCanaries,
+    workspaceMap, requestedCredentials, defaultUserId, modelId,
+  } = core;
 
-  mkdirSync(dataDir(), { recursive: true });
-  const db = providers.storage.messages;
-  const conversationStore = providers.storage.conversations;
-  const sessionStore = providers.storage.sessions;
-  const taintBudget = new TaintBudget({ threshold: thresholdForProfile(config.profile) });
-  const router = createRouter(providers, db, { taintBudget });
-
-  const agentName = 'main';
-  const agentDirVal = agentDirPath(agentName);
-  const agentConfigDir = agentIdentityDir(agentName);
-  const identityFilesDir = agentIdentityFilesDir(agentName);
-  mkdirSync(agentDirVal, { recursive: true });
-  mkdirSync(agentConfigDir, { recursive: true });
-  mkdirSync(identityFilesDir, { recursive: true });
-
-  // Template seeding — seed to both filesystem and DocumentStore
-  const templatesDir = resolveTemplatesDir();
-  const documents = providers.storage.documents;
-
-  // Check both filesystem AND DocumentStore for bootstrap completion
-  const fsBootstrapComplete =
-    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
-  let dbBootstrapComplete = false;
-  try {
-    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
-    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
-    dbBootstrapComplete = !!(dbSoul && dbIdentity);
-  } catch { /* non-fatal */ }
-  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
-
-  for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
-    const dest = join(identityFilesDir, file);
-    const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
-    if (existsSync(src)) {
-      const key = `${agentName}/${file}`;
-      try {
-        const existing = await documents.get('identity', key);
-        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
-      } catch { /* non-fatal */ }
-    }
-  }
-  for (const file of ['capabilities.yaml']) {
-    const dest = join(agentConfigDir, file);
-    const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
-  }
-  if (!bootstrapAlreadyComplete) {
-    const src = join(templatesDir, 'BOOTSTRAP.md');
-    if (existsSync(src)) {
-      if (!existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(agentConfigDir, 'BOOTSTRAP.md'));
-      if (!existsSync(join(identityFilesDir, 'BOOTSTRAP.md'))) copyFileSync(src, join(identityFilesDir, 'BOOTSTRAP.md'));
-      const key = `${agentName}/BOOTSTRAP.md`;
-      try {
-        const existing = await documents.get('identity', key);
-        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
-      } catch { /* non-fatal */ }
-    }
-    const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
-    if (existsSync(ubSrc)) {
-      const key = `${agentName}/USER_BOOTSTRAP.md`;
-      try {
-        const existing = await documents.get('identity', key);
-        if (!existing) await documents.put('identity', key, readFileSync(ubSrc, 'utf-8'));
-      } catch { /* non-fatal */ }
-    }
-  }
-
-  // Skills seeding
-  const persistentSkillsDir = agentSkillsDir(agentName);
-  mkdirSync(persistentSkillsDir, { recursive: true });
-  try {
-    const existingSkills = readdirSync(persistentSkillsDir).filter(f => f.endsWith('.md'));
-    const existingDirs = readdirSync(persistentSkillsDir, { withFileTypes: true })
-      .filter(d => d.isDirectory() && existsSync(join(persistentSkillsDir, d.name, 'SKILL.md')));
-    if (existingSkills.length === 0 && existingDirs.length === 0) {
-      const seedDir = resolveSeedSkillsDir();
-      if (existsSync(seedDir)) {
-        const seedEntries = readdirSync(seedDir, { withFileTypes: true });
-        for (const entry of seedEntries) {
-          if (entry.isFile() && entry.name.endsWith('.md')) {
-            copyFileSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name));
-          } else if (entry.isDirectory()) {
-            cpSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name), { recursive: true });
-          }
-        }
-      }
-    }
-  } catch { /* non-fatal */ }
-
-  const defaultUserId = process.env.USER ?? 'default';
-
-  // Admins file
-  const adminsPath = join(agentDirVal, 'admins');
-  if (!existsSync(adminsPath)) writeFileSync(adminsPath, '', 'utf-8');
-
-  // IPC server (Unix socket for local sandbox fallback)
-  const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
-  const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
-  const sessionCanaries = new Map<string, string>();
-  const workspaceMap = new Map<string, string>();
-  const requestedCredentials = new Map<string, Set<string>>();
-  const fileStore = await FileStore.create(providers.database);
-
+  // ── Host-process-specific: shared credential registry for k8s MITM proxy ──
   const agentSandbox = providers.sandbox;
-
   const sharedCredentialRegistry = new SharedCredentialRegistry();
-  const completionDeps: CompletionDeps = {
-    config,
-    providers: { ...providers, sandbox: agentSandbox },
-    db,
-    conversationStore,
-    router,
-    taintBudget,
-    sessionCanaries,
-    ipcSocketPath,
-    ipcSocketDir,
-    logger,
-    verbose: process.env.AX_VERBOSE === '1',
-    fileStore,
-    eventBus,
-    workspaceMap,
-    requestedCredentials,
-    sharedCredentialRegistry,
-  };
-
-  // Delegation handler
-  async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
-    const tier = req.resourceTier ?? 'default';
-    const tierConfig = config.sandbox.tiers?.[tier] ?? (tier === 'heavy'
-      ? { memory_mb: 2048, cpus: 4 }
-      : { memory_mb: config.sandbox.memory_mb, cpus: 1 });
-
-    const childConfig = {
-      ...config,
-      ...(req.runner ? { agent: req.runner } : {}),
-      ...(req.model ? { models: { default: [req.model] } } : {}),
-      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
-      sandbox: {
-        ...config.sandbox,
-        memory_mb: tierConfig.memory_mb,
-        tiers: {
-          default: tierConfig,
-          heavy: config.sandbox.tiers?.heavy ?? { memory_mb: 2048, cpus: 4 },
-        },
-        ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
-      },
-    };
-    const childDeps: CompletionDeps = { ...completionDeps, config: childConfig };
-    const taskPrompt = req.context ? `${req.context}\n\n---\n\nTask: ${req.task}` : req.task;
-    const childRequestId = req.requestId ?? `delegate-${randomUUID().slice(0, 8)}`;
-    const result = await processCompletion(childDeps, taskPrompt, childRequestId, [], undefined, undefined, ctx.userId);
-    return result.responseContent;
-  }
-
-  const orchestrator = createOrchestrator(eventBus, providers.audit);
-  const disableAutoState = orchestrator.enableAutoState();
-  const agentRegistry = await createAgentRegistry(providers.database);
-  await agentRegistry.ensureDefault();
-
-  const handleIPC = createIPCHandler(providers, {
-    taintBudget,
-    agentDir: identityFilesDir,
-    agentName,
-    profile: config.profile,
-    configModel: config.models?.default?.[0],
-    onDelegate: handleDelegate,
-    delegation: config.delegation ? {
-      maxConcurrent: config.delegation.max_concurrent,
-      maxDepth: config.delegation.max_depth,
-    } : undefined,
-    eventBus,
-    orchestrator,
-    agentRegistry,
-    workspaceMap,
-    requestedCredentials,
-  });
-  completionDeps.ipcHandler = handleIPC;
-
-  const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
-  const ipcServer = await createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
+  completionDeps.providers = { ...providers, sandbox: agentSandbox };
+  completionDeps.sharedCredentialRegistry = sharedCredentialRegistry;
 
   // ── NATS connection (for EventBus SSE streaming) ──
 
@@ -295,14 +123,9 @@ async function main(): Promise<void> {
   let webProxy: WebProxy | undefined;
   if (config.web_proxy) {
     const webProxyPort = parseInt(process.env.AX_PROXY_LISTEN_PORT ?? '3128', 10);
-    // K8s shared proxy: governance gate uses the approval registry keyed by
-    // the requesting session. The session ID is not available from the HTTP
-    // proxy request itself (it's a transparent forward proxy), so the k8s
-    // shared proxy uses a global approval scope ('host-process').
     const { requestApproval } = await import('./web-proxy-approvals.js');
 
     // MITM config for credential injection — shared across all sessions.
-    // Per-session credential maps are registered/deregistered by processCompletion.
     const { getOrCreateCA } = await import('./proxy-ca.js');
     const caDir = join(agentDirPath(agentName), 'ca');
     const ca = await getOrCreateCA(caDir);
@@ -322,8 +145,6 @@ async function main(): Promise<void> {
       },
       onApprove: async (domain, method, url) => {
         logger.info('web_proxy_approval_required', { domain, method, url });
-        // K8s shared proxy: generate a unique requestId per domain approval
-        // so the event bus can route the response back to this specific waiter.
         const proxyRequestId = `proxy-${randomUUID().slice(0, 8)}`;
         const approved = await requestApproval('host-process', domain, eventBus, proxyRequestId);
         return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
@@ -339,69 +160,45 @@ async function main(): Promise<void> {
 
   const port = parseInt(process.env.PORT ?? '8080', 10);
   const agentType = config.agent ?? 'pi-coding-agent';
-  const modelId = providers.llm.name;
   let draining = false;
 
-  // ── Webhook handler (optional — only if config has webhooks.enabled) ──
+  // ── Webhook handler ──
 
   const webhookPrefix = config.webhooks?.path
     ? (config.webhooks.path.endsWith('/') ? config.webhooks.path : config.webhooks.path + '/')
     : '/webhooks/';
 
-  const webhookHandler = config.webhooks?.enabled
-    ? createWebhookHandler({
-        config: {
-          token: config.webhooks.token,
-          maxBodyBytes: config.webhooks.max_body_bytes,
-          model: config.webhooks.model,
-          allowedAgentIds: config.webhooks.allowed_agent_ids,
-        },
-        transform: createWebhookTransform(
-          providers.llm,
-          config.webhooks.model ?? config.models?.fast?.[0] ?? config.models?.default?.[0] ?? 'claude-haiku-4-5-20251001',
-        ),
-        dispatch: (result, runId) => {
-          // Fire-and-forget: process webhook completion asynchronously
-          const targetAgent = result.agentId ?? agentType;
-          const whSessionId = result.sessionKey ?? `webhook:${runId}`;
-          void processCompletionWithNATS(
-            result.message,
-            runId,
-            [{ role: 'user', content: result.message }],
-            whSessionId,
-            'webhook',
-            targetAgent,
-          ).catch((err) => {
-            logger.error('webhook_completion_failed', { runId, error: (err as Error).message });
-          });
-        },
-        logger,
-        transformExists: (name) => existsSync(webhookTransformPath(name)),
-        readTransform: (name) => readFileSync(webhookTransformPath(name), 'utf-8'),
-        audit: (entry) => {
-          providers.audit.log({
-            action: entry.action,
-            sessionId: entry.runId ?? 'webhook',
-            args: { webhook: entry.webhook, ip: entry.ip },
-            result: 'success',
-            durationMs: 0,
-          }).catch(() => {});
-        },
-      })
-    : null;
+  const webhookHandler = setupWebhookHandler({
+    config,
+    providers,
+    logger,
+    taintBudget,
+    dispatch: (result, runId) => {
+      const targetAgent = result.agentId ?? agentType;
+      const whSessionId = result.sessionKey ?? `webhook:${runId}`;
+      void processCompletionWithNATS(
+        result.message,
+        runId,
+        [{ role: 'user', content: result.message }],
+        whSessionId,
+        'webhook',
+        targetAgent,
+      ).catch((err) => {
+        logger.error('webhook_completion_failed', { runId, error: (err as Error).message });
+      });
+    },
+  });
 
-  // ── Admin dashboard handler (optional — only if config has admin.enabled) ──
+  // ── Admin handler ──
 
   const startTime = Date.now();
-  const adminHandler = config.admin?.enabled
-    ? createAdminHandler({
-        config,
-        providers,
-        eventBus: providers.eventbus,
-        agentRegistry,
-        startTime,
-      })
-    : null;
+  const adminHandler = setupAdminHandler({
+    config,
+    providers,
+    eventBus: providers.eventbus,
+    agentRegistry,
+    startTime,
+  });
 
   // ── processCompletion wrapper with per-turn NATS IPC ──
 
@@ -440,7 +237,6 @@ async function main(): Promise<void> {
 
       // Prevent unhandled rejection crash if the promise rejects after
       // processCompletion has already returned (e.g. timer fires late).
-      // The real error handling happens in server-completions.ts try/catch.
       agentResponsePromise.catch(() => {});
     }
 
@@ -509,7 +305,6 @@ async function main(): Promise<void> {
       : handleIPC;
 
     // Register turn token for HTTP IPC route (/internal/ipc).
-    // This allows the sandbox pod to call the host via HTTP with bearer token auth.
     if (isK8s) {
       activeTokens.set(turnToken, {
         handleIPC: wrappedHandleIPC,
@@ -519,18 +314,10 @@ async function main(): Promise<void> {
       logger.info('token_registered', { sessionId, requestId, turnToken });
     }
 
-    // NATS work publisher — uses sandbox.work queue group for both warm pool
-    // claiming and cold-start delivery. All runners subscribe to sandbox.work,
-    // so we always use nc.request('sandbox.work') and let NATS route to an
-    // available pod. For cold starts, we retry until the new pod subscribes.
-    // NOTE: payload is already a JSON string (from JSON.stringify in server-completions).
-    // Use TextEncoder directly — NOT encode() which adds an extra JSON.stringify wrapper,
-    // causing double-encoding that destroys the payload structure on the receiver side.
+    // NATS work publisher
     const publishWork = isK8s
       ? async (podName: string | undefined, payload: string): Promise<string> => {
           const encoded = new TextEncoder().encode(payload);
-          // Cold-start path: the pod may take a few seconds to start and subscribe
-          // to NATS. Retry nc.request until it connects (up to 60s).
           const maxAttempts = podName ? 120 : 1;
           const retryDelayMs = 500;
 
@@ -554,7 +341,6 @@ async function main(): Promise<void> {
               throw err;
             }
           }
-          // Unreachable, but TypeScript needs it
           throw new Error('publishWork: exhausted retries');
         }
       : undefined;
@@ -565,9 +351,7 @@ async function main(): Promise<void> {
       extraSandboxEnv: {
         AX_IPC_TOKEN: turnToken,
         AX_IPC_REQUEST_ID: requestId,
-        // Host URL — sandbox pods use this for workspace staging uploads
         AX_HOST_URL: `http://ax-host.${config.namespace ?? 'ax'}.svc`,
-        // Web proxy — sandbox pods connect directly via k8s Service
         ...(config.web_proxy ? { AX_WEB_PROXY_URL: `http://ax-web-proxy.${config.namespace ?? 'ax'}.svc:3128` } : {}),
       },
       ...(agentResponsePromise ? { agentResponsePromise } : {}),
@@ -629,18 +413,21 @@ async function main(): Promise<void> {
     }
 
     if (url === '/v1/models' && req.method === 'GET') {
-      const body = JSON.stringify({
-        object: 'list',
-        data: [{ id: modelId, object: 'model', created: Math.floor(Date.now() / 1000), owned_by: 'ax' }],
-      });
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(body);
+      sharedHandleModels(res, modelId);
       return;
     }
 
     if (url === '/v1/chat/completions' && req.method === 'POST') {
       try {
-        await handleCompletions(req, res);
+        await sharedHandleCompletions(req, res, {
+          modelId,
+          agentName,
+          agentDirVal,
+          eventBus,
+          runCompletion: async (content, requestId, messages, sessionId, userId) => {
+            return processCompletionWithNATS(content, requestId, messages, sessionId, userId, agentType);
+          },
+        });
       } catch (err) {
         logger.error('request_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Internal server error');
@@ -762,8 +549,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Workspace provision: sandbox pods download scope files from host (host has GCS credentials, pods don't).
-    // Mirrors the release endpoint — release uploads pod→host→GCS, provision downloads GCS→host→pod.
+    // Workspace provision: sandbox pods download scope files from host
     if (url.startsWith('/internal/workspace/provision') && req.method === 'GET') {
       const token = req.headers.authorization?.replace('Bearer ', '');
       const entry = token ? activeTokens.get(token) : undefined;
@@ -780,8 +566,6 @@ async function main(): Promise<void> {
           sendError(res, 400, 'Missing scope/id or workspace provider has no downloadScope');
           return;
         }
-        // Validate requested scope/id against the token's bound context to prevent
-        // a pod from requesting other users'/sessions' workspace data.
         if (entry.provisionIds) {
           const expectedId = entry.provisionIds[scope];
           if (expectedId !== undefined && id !== expectedId) {
@@ -791,10 +575,10 @@ async function main(): Promise<void> {
           }
         }
         const files = await providers.workspace.downloadScope(scope, id);
-        const json = JSON.stringify({
+        const jsonStr = JSON.stringify({
           files: files.map(f => ({ path: f.path, content_base64: f.content.toString('base64'), size: f.content.length })),
         });
-        const gzipped = gzipSync(Buffer.from(json));
+        const gzipped = gzipSync(Buffer.from(jsonStr));
         logger.info('workspace_provision', { scope, id, fileCount: files.length, bytes: gzipped.length });
         res.writeHead(200, { 'Content-Type': 'application/gzip', 'Content-Length': String(gzipped.length) });
         res.end(gzipped);
@@ -816,8 +600,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    // LLM proxy over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
-    // Agent sends requests to /internal/llm-proxy/v1/messages with per-turn token as x-api-key.
+    // LLM proxy over HTTP from sandbox pods
     if (url.startsWith('/internal/llm-proxy/') && req.method === 'POST') {
       const token = req.headers['x-api-key'] as string;
       const entry = token ? activeTokens.get(token) : undefined;
@@ -843,7 +626,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    // IPC over HTTP from sandbox pods (k8s, AX_IPC_TRANSPORT=http)
+    // IPC over HTTP from sandbox pods
     if (url === '/internal/ipc' && req.method === 'POST') {
       const token = req.headers.authorization?.replace('Bearer ', '');
       const entry = token ? activeTokens.get(token) : undefined;
@@ -870,7 +653,6 @@ async function main(): Promise<void> {
   // ── Workspace staging endpoint (k8s pod file upload) ──
 
   async function handleWorkspaceStaging(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Read the gzipped request body
     const chunks: Buffer[] = [];
     let totalSize = 0;
 
@@ -896,184 +678,6 @@ async function main(): Promise<void> {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ staging_key: key }));
-  }
-
-  // ── Completions: direct processCompletion ──
-
-  async function handleCompletions(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const requestId = `chatcmpl-${randomUUID()}`;
-    const created = Math.floor(Date.now() / 1000);
-
-    let body: string;
-    try {
-      body = await readBody(req);
-    } catch {
-      sendError(res, 413, 'Request body too large');
-      return;
-    }
-
-    let chatReq: OpenAIChatRequest;
-    try {
-      chatReq = JSON.parse(body);
-    } catch {
-      sendError(res, 400, 'Invalid JSON');
-      return;
-    }
-
-    if (!chatReq.messages?.length) {
-      sendError(res, 400, 'messages array is required');
-      return;
-    }
-
-    if (chatReq.session_id !== undefined && !isValidSessionId(chatReq.session_id)) {
-      sendError(res, 400, 'Invalid session_id');
-      return;
-    }
-
-    const requestModel = chatReq.model ?? modelId;
-
-    // Derive session ID
-    let sessionId = chatReq.session_id;
-    if (!sessionId && chatReq.user) {
-      const parts = chatReq.user.split('/');
-      if (parts.length >= 2 && parts[0] && parts[1]) {
-        const agentPrefix = chatReq.model?.startsWith('agent:')
-          ? chatReq.model.slice(6) : 'main';
-        const candidate = `${agentPrefix}:http:${parts[0]}:${parts[1]}`;
-        if (isValidSessionId(candidate)) sessionId = candidate;
-      }
-    }
-    if (!sessionId) sessionId = randomUUID();
-
-    const lastMsg = chatReq.messages[chatReq.messages.length - 1];
-    const content = lastMsg?.content ?? '';
-    const userId = chatReq.user?.split('/')[0] || undefined;
-
-    if (chatReq.stream) {
-      // ── Streaming mode ──
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'X-Request-Id': requestId,
-        'X-Accel-Buffering': 'no',
-      });
-
-      // Role chunk
-      sendSSEChunk(res, {
-        id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-        choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }],
-      });
-
-      let toolCallIndex = 0;
-      let hasToolCalls = false;
-      let streamedContent = false;
-
-      // Subscribe to EventBus events for this request
-      const unsubscribe = eventBus.subscribeRequest(requestId, (event: StreamEvent) => {
-        try {
-          if (event.type === 'llm.chunk' && typeof event.data.content === 'string') {
-            streamedContent = true;
-            sendSSEChunk(res, {
-              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-              choices: [{ index: 0, delta: { content: event.data.content as string }, finish_reason: null }],
-            });
-          } else if (event.type === 'tool.call' && event.data.toolName) {
-            streamedContent = true;
-            hasToolCalls = true;
-            sendSSEChunk(res, {
-              id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-              choices: [{ index: 0, delta: {
-                tool_calls: [{
-                  index: toolCallIndex++,
-                  id: (event.data.toolId as string) ?? `call_${toolCallIndex}`,
-                  type: 'function',
-                  function: {
-                    name: event.data.toolName as string,
-                    arguments: JSON.stringify(event.data.args ?? {}),
-                  },
-                }],
-              }, finish_reason: null }],
-            });
-          }
-        } catch { /* client gone, skip */ }
-      });
-
-      // Keepalive
-      const keepalive = setInterval(() => {
-        try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
-      }, SSE_KEEPALIVE_MS);
-
-      // Stop keepalive + event listener when client disconnects mid-stream.
-      // Without this, the timer keeps firing until processCompletion finishes.
-      const onClientGone = () => {
-        clearInterval(keepalive);
-        unsubscribe();
-      };
-      req.on('close', onClientGone);
-      req.on('error', onClientGone);
-
-      try {
-        const result = await processCompletionWithNATS(
-          content, requestId, chatReq.messages, sessionId, userId, agentType,
-        );
-
-        // Fallback: if no streaming events, send full response as single chunk
-        if (!streamedContent && result.responseContent) {
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: result.responseContent }, finish_reason: null }],
-          });
-        }
-
-        // Finish chunk
-        const streamFinishReason = hasToolCalls && result.finishReason === 'stop'
-          ? 'tool_calls' as const : result.finishReason;
-        sendSSEChunk(res, {
-          id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-          choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
-        });
-        res.write('data: [DONE]\n\n');
-        res.end();
-      } catch (err) {
-        logger.error('completion_failed', { requestId, error: (err as Error).message });
-        if (!res.writableEnded) {
-          sendSSEChunk(res, {
-            id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
-            choices: [{ index: 0, delta: { content: 'Internal processing error' }, finish_reason: 'stop' }],
-          });
-          res.write('data: [DONE]\n\n');
-          res.end();
-        }
-      } finally {
-        clearInterval(keepalive);
-        unsubscribe();
-      }
-    } else {
-      // ── Non-streaming mode ──
-      try {
-        const result = await processCompletionWithNATS(
-          content, requestId, chatReq.messages, sessionId, userId, agentType,
-        );
-
-        const response = {
-          id: requestId, object: 'chat.completion', created, model: requestModel,
-          choices: [{
-            index: 0,
-            message: { role: 'assistant', content: result.responseContent },
-            finish_reason: result.finishReason,
-          }],
-          usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-        };
-
-        const responseBody = JSON.stringify(response);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(responseBody);
-      } catch (err) {
-        logger.error('completion_failed', { requestId, error: (err as Error).message });
-        sendError(res, 500, 'Internal server error');
-      }
-    }
   }
 
   // ── SSE events via NATS ──
@@ -1135,79 +739,26 @@ async function main(): Promise<void> {
 
   // ── Start scheduler ──
 
-  await providers.scheduler.start(async (msg: InboundMessage) => {
-    const result = await router.processInbound(msg);
-    if (result.queued) {
-      sessionCanaries.set(result.sessionId, result.canaryToken);
-      const schedRequestId = `sched-${randomUUID().slice(0, 8)}`;
-      const { responseContent } = await processCompletionWithNATS(
-        msg.content, schedRequestId,
-        [{ role: 'user', content: msg.content }],
-        result.sessionId,
+  const schedulerCallback = createSchedulerCallback({
+    config,
+    router,
+    sessionCanaries,
+    sessionStore,
+    agentName,
+    channels: providers.channels,
+    scheduler: providers.scheduler,
+    runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
+      return processCompletionWithNATS(
+        content, requestId,
+        messages as { role: string; content: string | import('../types.js').ContentBlock[] }[],
+        sessionId,
+        userId,
         undefined,
-        undefined,
-        { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
+        preProcessed,
       );
-
-      // Resolve delivery target and send if applicable
-      if (responseContent.trim()) {
-        let delivery: import('../providers/scheduler/types.js').CronDelivery | undefined;
-        let jobAgentId = agentName;
-
-        if (msg.sender.startsWith('cron:')) {
-          const jobId = msg.sender.slice(5);
-          const jobs = await providers.scheduler.listJobs?.() ?? [];
-          const job = jobs.find(j => j.id === jobId);
-          if (job) {
-            jobAgentId = job.agentId;
-            delivery = job.delivery ?? config.scheduler.defaultDelivery;
-          } else {
-            delivery = config.scheduler.defaultDelivery;
-          }
-        } else if (msg.sender === 'heartbeat') {
-          delivery = config.scheduler.defaultDelivery;
-        } else {
-          delivery = config.scheduler.defaultDelivery;
-        }
-
-        const resolution = await resolveDelivery(delivery, {
-          sessionStore,
-          agentId: jobAgentId,
-          defaultDelivery: config.scheduler.defaultDelivery,
-          channels: providers.channels,
-        });
-
-        if (resolution.mode === 'channel' && resolution.session && resolution.channelProvider) {
-          const outbound = await router.processOutbound(responseContent, result.sessionId, result.canaryToken);
-          if (!outbound.canaryLeaked) {
-            try {
-              await resolution.channelProvider.send(resolution.session, { content: outbound.content });
-              logger.info('cron_delivered', {
-                sender: msg.sender,
-                provider: resolution.session.provider,
-                contentLength: outbound.content.length,
-              });
-            } catch (err) {
-              logger.error('cron_delivery_failed', {
-                sender: msg.sender,
-                provider: resolution.session.provider,
-                error: (err as Error).message,
-              });
-            }
-          } else {
-            logger.warn('cron_delivery_canary_leaked', { sender: msg.sender });
-          }
-        }
-      }
-
-      logger.info('scheduler_message_processed', {
-        sender: msg.sender,
-        sessionId: result.sessionId,
-        contentLength: responseContent.length,
-        hasResponse: responseContent.trim().length > 0,
-      });
-    }
+    },
   });
+  await providers.scheduler.start(schedulerCallback);
   logger.info('scheduler_started');
 
   // ── Graceful shutdown ──
