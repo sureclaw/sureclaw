@@ -1,16 +1,150 @@
 ---
 name: ax-debug
-description: Use when debugging k8s-related issues, NATS IPC problems, HTTP IPC problems, workspace release failures, or any issue in the sandbox/host/agent communication pipeline — runs the full k8s code path in a local kind cluster with hot-reload via host volume mounts, or locally with debuggable processes
+description: Use when debugging k8s-related issues, NATS IPC problems, HTTP IPC problems, workspace release failures, or any issue in the sandbox/host/agent communication pipeline — starts with e2e test infrastructure for fast repro, falls back to full kind cluster or local process harnesses only when needed
 ---
 
 ## Overview
 
-Two debugging modes, depending on fidelity needed:
+Three debugging tiers, in order of preference:
 
-1. **Kind cluster** (`scripts/k8s-dev.sh`) — Real k8s pods with host volume mounts for ~5s iteration. Use this for production-parity debugging.
-2. **Local processes** (`run-http-local.ts` / `run-nats-local.ts`) — Spawns child processes with NATS env. Use this when you don't need real k8s (simpler, faster startup).
+1. **E2E test infrastructure** (`tests/e2e/`) — Automated vitest suite with mock providers, scripted LLM responses, and a kind cluster managed by `global-setup.ts`. **Start here.** Fastest iteration, deterministic, CI-friendly.
+2. **Kind cluster dev loop** (`scripts/k8s-dev.sh`) — Real k8s pods with host volume mounts for ~5s iteration. Use this when you need production-parity pod behavior (network policies, PVCs, NATS bridge, multi-pod communication) that the e2e suite can't replicate.
+3. **Local process harnesses** (`run-http-local.ts` / `run-nats-local.ts`) — Spawns child processes with NATS env. Use this when you need to attach a debugger to individual processes or test IPC edge cases without k8s overhead.
 
-## Kind Cluster Dev Loop (recommended)
+**Always try Tier 1 first.** Most bugs can be reproduced and fixed with a new scripted turn + test case in under a minute. Only escalate when the bug genuinely requires real k8s infrastructure or manual debugging.
+
+---
+
+## Tier 1: E2E Test Infrastructure (preferred)
+
+The `tests/e2e/` suite runs against a live AX server deployed in kind, but with all external services mocked. LLM responses are deterministic (scripted turns), so tests are reproducible.
+
+### Architecture
+
+```
+global-setup.ts
+  ├── Starts mock-server (OpenRouter, ClawHub, GCS, Linear)
+  ├── Creates kind cluster (or uses AX_SERVER_URL if set)
+  ├── Builds + loads Docker image
+  ├── Deploys AX via Helm (kind-values.yaml)
+  ├── Port-forwards AX service
+  └── Sets AX_SERVER_URL + MOCK_SERVER_PORT env vars
+
+regression.test.ts
+  ├── AcceptanceClient (SSE-aware HTTP client)
+  └── Sequential test cases: health → bootstrap → persistence → tools → files → ...
+
+mock-server/
+  ├── index.ts        — Router dispatching to handlers
+  ├── openrouter.ts   — Scripted LLM responses (ScriptedTurn queue)
+  ├── clawhub.ts      — Mock skill registry
+  ├── gcs.ts          — In-memory GCS storage
+  └── linear.ts       — Mock Linear API
+
+scripts/
+  ├── types.ts        — ScriptedTurn { match, response, finishReason }
+  ├── index.ts        — ALL_TURNS aggregate
+  ├── bootstrap.ts    — Bootstrap scenario turns
+  ├── chat.ts         — Basic chat turns
+  ├── memory.ts       — Memory lifecycle turns
+  ├── scheduler.ts    — Scheduler turns
+  └── skills.ts       — Skill install turns
+```
+
+### Debugging workflow
+
+```
+1. Reproduce: Write a failing test case in regression.test.ts
+2. Add scripted turn(s) in scripts/ if the test needs new LLM responses
+3. Run: npm run test:e2e
+4. Read logs: check kind pod logs or AX_SERVER_URL server logs
+5. Fix the code
+6. Re-run: npm run test:e2e
+7. Green? Done. Commit the test as a regression guard.
+```
+
+### Commands
+
+```bash
+# Full suite (creates kind cluster, runs tests, tears down)
+npm run test:e2e
+
+# Against an existing server (skips cluster creation/teardown)
+AX_SERVER_URL=http://localhost:8080 npm run test:e2e
+
+# Run a single test by name
+npx vitest run --config tests/e2e/vitest.config.ts -t "server health check"
+```
+
+### Adding a reproduction test
+
+1. **Add a scripted turn** in the relevant `tests/e2e/scripts/<category>.ts`:
+
+```typescript
+export const MY_BUG_TURNS: ScriptedTurn[] = [
+  {
+    match: /trigger the bug/i,
+    response: {
+      content: 'I will now call the problematic tool.',
+      tool_calls: [{
+        id: 'call_bug1',
+        type: 'function',
+        function: { name: 'bash', arguments: JSON.stringify({ command: 'echo repro' }) },
+      }],
+    },
+  },
+];
+```
+
+2. **Register it** in `tests/e2e/scripts/index.ts` (add to `ALL_TURNS`).
+
+3. **Add the test case** in `regression.test.ts`:
+
+```typescript
+test('XX. repro: description of the bug', async () => {
+  const sessionId = `${SESSION_PREFIX}:repro`;
+  const res = await client.sendMessage(
+    'trigger the bug',
+    { sessionId, user: 'testuser', timeoutMs: 90_000 },
+  );
+  expect(res.status).toBe(200);
+  // Assert the correct behavior after the fix
+}, 120_000);
+```
+
+4. **Run it**: `npm run test:e2e`
+
+### Adding a mock endpoint
+
+If your bug involves an external service not yet mocked, add a handler in `tests/e2e/mock-server/`:
+
+1. Create `tests/e2e/mock-server/<service>.ts` with a `handle<Service>(req, res)` function
+2. Wire it into `tests/e2e/mock-server/index.ts` route dispatch
+3. Add `url_rewrites` to `tests/e2e/kind-values.yaml` so the agent's requests route to the mock
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `tests/e2e/regression.test.ts` | Sequential regression test suite |
+| `tests/e2e/client.ts` | `AcceptanceClient` — SSE-aware HTTP client |
+| `tests/e2e/global-setup.ts` | Kind cluster lifecycle, mock server, port-forward |
+| `tests/e2e/vitest.config.ts` | Separate vitest config (`npm run test:e2e`) |
+| `tests/e2e/kind-values.yaml` | Helm overrides (subprocess sandbox, mock URLs, url_rewrites) |
+| `tests/e2e/mock-server/` | Mock external services |
+| `tests/e2e/scripts/` | ScriptedTurn definitions for deterministic LLM responses |
+
+### When to escalate to Tier 2 or 3
+
+- Bug only reproduces with real NATS bridge (not subprocess sandbox)
+- Bug requires network policies, PVCs, or multi-pod communication
+- Bug is in pod lifecycle (warm pool, pool controller, pod restart)
+- Bug requires attaching a Node.js debugger to a running process
+- Bug is in Docker container isolation specifics
+
+---
+
+## Tier 2: Kind Cluster Dev Loop
 
 Uses host volume mounts so `dist/`, `templates/`, and `skills/` are shared directly into kind pods. After `tsc`, changes are instantly visible — just restart node processes (not pods).
 
@@ -108,7 +242,9 @@ The base Docker image still provides Node.js, `node_modules/`, and OS packages. 
 - `scripts/k8s-dev.sh` — Main entry-point script with all subcommands
 - `charts/ax/kind-dev-values.yaml` — Dev Helm values overlay with hostPath mounts and `--inspect` flags
 
-## Local Process Debugging (alternative)
+---
+
+## Tier 3: Local Process Debugging
 
 For issues that don't require real k8s (IPC protocol, LLM proxy, workspace release logic), use the local harnesses. Simpler setup, faster startup.
 
@@ -224,6 +360,14 @@ nats sub "sandbox.work"
 | `LOG_LEVEL` | `debug` | Log level for both host and agent |
 | `ANTHROPIC_API_KEY` | (required) | Real API key — injected by LLM proxy into forwarded requests |
 
+### Local Harness Files
+
+- `tests/providers/sandbox/nats-subprocess.ts` — The sandbox provider (spawns local processes with NATS env, supports `ipcTransport: 'http'` option)
+- `tests/providers/sandbox/run-http-local.ts` — Test harness for HTTP IPC mode (full host route surface)
+- `tests/providers/sandbox/run-nats-local.ts` — Test harness for NATS IPC mode
+
+---
+
 ## Message Flow
 
 ### HTTP IPC mode (production k8s path)
@@ -260,6 +404,8 @@ nats sub "sandbox.work"
 10. Host resolves completion, returns to caller
 ```
 
+---
+
 ## Debugging Specific Issues
 
 ### LLM responses hanging
@@ -267,56 +413,53 @@ nats sub "sandbox.work"
 **Root cause:** Agent's `ANTHROPIC_BASE_URL` is set to `${AX_HOST_URL}/internal/llm-proxy` but the host doesn't have that route, or the token is not in `activeTokens`.
 
 **Debug steps:**
-1. Check agent stderr for HTTP errors from the LLM proxy
-2. Add `console.log` in `src/host/llm-proxy-core.ts:forwardLLMRequest()` to see if requests arrive
-3. Verify `ANTHROPIC_API_KEY` is set in the host process environment
-4. Check `llm-proxy-core.ts:138-142` — `transfer-encoding` is stripped from upstream response headers; verify the agent SDK handles unbuffered streaming correctly
+1. **Tier 1**: Add a scripted turn that triggers the LLM call path, check if mock OpenRouter receives the request
+2. **Tier 3**: Check agent stderr for HTTP errors from the LLM proxy
+3. Add `console.log` in `src/host/llm-proxy-core.ts:forwardLLMRequest()` to see if requests arrive
+4. Verify `ANTHROPIC_API_KEY` is set in the host process environment
 
 ### Identity not being saved
 
 **Root cause:** Identity writes go through IPC `identity_write` handler. In k8s, the handler may queue writes instead of applying them.
 
 **Debug steps:**
-1. Add `console.log` in `src/host/ipc-handlers/identity.ts:identity_write` handler
-2. Check if `hasAnyAdmin()` returns true — if so, non-admin users are blocked
-3. Check profile setting — `paranoid` always queues writes, `balanced` applies when taint is clean
-4. Check taint budget — high taint ratio blocks writes
-5. Look for `{ queued: true }` responses in IPC logs — agent gets "queued" but interprets it as success
-6. Verify DocumentStore backend — SQLite is per-pod in k8s (ephemeral), PostgreSQL persists across pods
+1. **Tier 1**: Add a bootstrap test that writes identity and verifies persistence in a new session
+2. Add `console.log` in `src/host/ipc-handlers/identity.ts:identity_write` handler
+3. Check if `hasAnyAdmin()` returns true — if so, non-admin users are blocked
+4. Check profile setting — `paranoid` always queues writes, `balanced` applies when taint is clean
+5. Check taint budget — high taint ratio blocks writes
 
 ### Workspace release failures
 
 **Debug steps:**
-1. Check agent stderr for HTTP errors from `/internal/workspace/release`
-2. The agent uses `workspace-cli.ts` as a subprocess — check its exit code
-3. In legacy mode, check staging_key lifecycle: upload → staging_key → IPC workspace_release
-4. Staging entries expire after 5 minutes — if the agent takes too long, the key is gone
+1. **Tier 1**: Add a file-create test case, check if GCS mock receives the upload
+2. **Tier 3**: Check agent stderr for HTTP errors from `/internal/workspace/release`
+3. The agent uses `workspace-cli.ts` as a subprocess — check its exit code
+4. In legacy mode, check staging_key lifecycle: upload → staging_key → IPC workspace_release
 
 ### npm/pip install hangs in sandbox
 
 **Root cause tree (check in order):**
 1. `config.web_proxy` not set → host never starts proxy → `AX_WEB_PROXY_URL` never sent to sandboxes
 2. Helm `webProxy.enabled: false` → no Service, no NetworkPolicy for port 3128
-3. Service selector mismatch → service has no endpoints (check `kubectl get endpoints ax-web-proxy`)
-4. Host NetworkPolicy blocks inbound port 3128 (only 8080 allowed by default)
-5. Web proxy bound to 127.0.0.1 → unreachable from other pods (needs `bindHost: '0.0.0.0'`)
-6. `AX_WEB_PROXY_URL` not in NATS payload → warm pool pods don't get it
-7. `parseStdinPayload()` doesn't extract `webProxyUrl` → runner never sets `HTTP_PROXY`
+3. Service selector mismatch → service has no endpoints
+4. Host NetworkPolicy blocks inbound port 3128
+5. Web proxy bound to 127.0.0.1 → unreachable from other pods
 
 **Debug steps:**
-1. Check host logs for `web_proxy_started` — if missing, `config.web_proxy` is false
-2. `kubectl get endpoints ax-web-proxy -n ax` — if empty, service selector is wrong
+1. **Tier 1**: The e2e suite uses `web_proxy: true` in kind-values.yaml — check if proxy tests pass
+2. **Tier 2**: Check host logs for `web_proxy_started`, check `kubectl get endpoints ax-web-proxy -n ax`
 3. `kubectl exec <sandbox-pod> -- node -e "..."` to test TCP connectivity to host:3128
-4. Check sandbox logs for `tool_execute name=bash` without subsequent `tool_result` — confirms hang
-5. Check host logs for `proxy_request` with `CONNECT registry.npmjs.org:443` — confirms proxy is processing traffic
 
 ### Agent never responds (timeout)
 
 **Debug steps:**
-1. Check if agent process started: look for `[run-http-local] Work claimed by:` in host logs
-2. Check if agent received work: look for NATS subscribe/reply in agent stderr
+1. **Tier 1**: Check if the health check test passes, then check if scripted turns are being consumed
+2. **Tier 3**: Check if agent process started: look for `[run-http-local] Work claimed by:` in host logs
 3. Check if runner crashes: look for stack traces in agent stderr
-4. Use `AX_DEBUG_AGENT=1` (local) or `npm run k8s:dev debug sandbox` (kind) to attach debugger
+4. Use `AX_DEBUG_AGENT=1` (Tier 3) or `npm run k8s:dev debug sandbox` (Tier 2) to attach debugger
+
+---
 
 ## Common Issues
 
@@ -334,23 +477,8 @@ nats sub "sandbox.work"
 | IPC calls timing out | Token mismatch | Check `AX_IPC_TOKEN` and `AX_IPC_REQUEST_ID` match between host and agent |
 | Kind pods not picking up changes | Volume mounts not working | Verify `npm run k8s:dev status`, check `kind get nodes` has mounts |
 | Pod restart loop after flush | Code error in dist/ | Check `npm run k8s:dev logs sandbox` for stack trace, fix, `cycle` again |
-| npm/pip install hangs in sandbox | No web proxy or HTTP_PROXY not set | Enable `webProxy.enabled` + `config.web_proxy: true` in Helm values. Check: (1) `ax-web-proxy` service has endpoints, (2) host-network policy allows port 3128 ingress, (3) sandbox-web-proxy-egress policy exists, (4) `AX_WEB_PROXY_URL` in NATS payload via `webProxyUrl` field |
-| Host crashes with `ERR_SOCKET_BAD_PORT` NaN | K8s service `ax-web-proxy` auto-generates `AX_WEB_PROXY_PORT=tcp://IP:PORT` | Never use env var names that collide with k8s service discovery. Our env var is `AX_PROXY_LISTEN_PORT` (not `AX_WEB_PROXY_PORT`) |
-| Web proxy unreachable from sandbox (ECONNREFUSED) | Proxy bound to 127.0.0.1 or service selector mismatch | Check `bindHost: '0.0.0.0'` in host-process.ts startWebProxy call. Verify service selector matches host pod labels (`ax.selectorLabels`) |
+| npm/pip install hangs in sandbox | No web proxy or HTTP_PROXY not set | Enable `webProxy.enabled` + `config.web_proxy: true` in Helm values |
+| Host crashes with `ERR_SOCKET_BAD_PORT` NaN | K8s service auto-generates conflicting env var | Our env var is `AX_PROXY_LISTEN_PORT` (not `AX_WEB_PROXY_PORT`) |
+| Web proxy unreachable from sandbox | Proxy bound to 127.0.0.1 or service selector mismatch | Check `bindHost: '0.0.0.0'`, verify service selector matches host pod labels |
 | Warm pool pod missing per-request env vars | Env var only in cold-spawn pod spec, not in NATS payload | Add to stdinPayload in server-completions.ts AND parseStdinPayload()+applyPayload() in runner.ts |
-
-## Key Files
-
-- `scripts/k8s-dev.sh` — Kind cluster dev loop entry point (setup, build, flush, cycle, test, logs, debug, db, teardown)
-- `charts/ax/kind-dev-values.yaml` — Dev Helm values overlay with hostPath mounts and `--inspect` flags
-- `tests/providers/sandbox/nats-subprocess.ts` — The sandbox provider (spawns local processes with NATS env, supports `ipcTransport: 'http'` option)
-- `tests/providers/sandbox/run-http-local.ts` — Test harness for HTTP IPC mode (full host route surface: IPC, LLM proxy, workspace release/staging)
-- `tests/providers/sandbox/run-nats-local.ts` — Test harness for NATS IPC mode (starts AX host with nats-subprocess)
-- `src/host/server-k8s.ts` — Host-side k8s orchestration (`processCompletionWithNATS`, `activeTokens`, all `/internal/*` routes)
-- `src/host/llm-proxy-core.ts` — LLM credential injection and streaming proxy (shared by socket proxy and HTTP route)
-- `src/agent/runner.ts` — Agent entry point, transport selection (`AX_IPC_TRANSPORT`), NATS work reception
-- `src/agent/http-ipc-client.ts` — Agent-side HTTP IPC client (POST to `/internal/ipc`)
-- `src/agent/runners/claude-code.ts` — claude-code runner (sets `ANTHROPIC_BASE_URL` to host LLM proxy)
-- `src/agent/workspace-release.ts` — Agent-side workspace file upload
-- `src/host/ipc-handlers/identity.ts` — Identity read/write handler (queuing logic, taint gates)
-- `tests/agent/http-ipc-client.test.ts` — Unit tests for HttpIPCClient
+| E2E test fails with "no scripted turn" | Mock OpenRouter ran out of turns | Add missing `ScriptedTurn` entries in `tests/e2e/scripts/` |
