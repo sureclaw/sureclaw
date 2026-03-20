@@ -1,5 +1,11 @@
 # Architecture
 
+### parseAgentSkill requires fallback checks direct frontmatter fields
+**Date:** 2026-03-19
+**Context:** Debugging why `requires.env` was always empty when parsing skills with direct-frontmatter `requires` blocks (not nested under `metadata.openclaw`).
+**Lesson:** `parseAgentSkill()` resolves `requires` from `resolveMetadata(fm)?.requires` which only checks nested `fm.metadata.{openclaw,clawdbot,clawdis}.requires`. Skills using simple direct frontmatter `requires:` blocks (the common format) were silently ignored. Always check both `meta?.requires ?? fm.requires` for fallback. The silent `catch {}` blocks in `collectSkillCredentialRequirements` made this hard to diagnose.
+**Tags:** skill-parser, frontmatter, requires, credentials, silent-failure
+
 ### In-memory promise maps create hidden session affinity requirements
 **Date:** 2026-03-19
 **Context:** Replacing credential-prompts.ts in-memory promise map with event bus coordination for mid-request credential collection.

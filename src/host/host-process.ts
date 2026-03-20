@@ -688,6 +688,33 @@ async function main(): Promise<void> {
       return;
     }
 
+    // POST /v1/credentials/provide — resolve a pending credential prompt
+    if (url === '/v1/credentials/provide' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const { sessionId, envName, value, requestId: credRequestId } = body;
+        if (typeof sessionId !== 'string' || !sessionId ||
+            typeof envName !== 'string' || !envName ||
+            typeof value !== 'string' ||
+            typeof credRequestId !== 'string' || !credRequestId) {
+          sendError(res, 400, 'Missing required fields: sessionId, envName, value, requestId');
+          return;
+        }
+        await providers.credentials.set(envName, value);
+        eventBus.emit({
+          type: 'credential.resolved',
+          requestId: credRequestId,
+          timestamp: Date.now(),
+          data: { envName, sessionId, value },
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      }
+      return;
+    }
+
     // Direct workspace release from sandbox pods (k8s HTTP mode)
     if (url === '/internal/workspace/release' && req.method === 'POST') {
       const token = req.headers.authorization?.replace('Bearer ', '');

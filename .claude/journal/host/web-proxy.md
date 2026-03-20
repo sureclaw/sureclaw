@@ -2,6 +2,19 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-19 23:45] — E2E credential collection verified in k8s
+
+**Task:** Verify end-to-end skill install with mid-request credential collection in k8s kind cluster
+**What I did:**
+- Fixed network policy template: gated on `networkPolicies.enabled` (was only `webProxy.enabled`), added IPC port 8080, NATS port 4222, and DNS to egress rules for sandbox pods
+- Fixed API credentials secret: populated with real OpenRouter/DeepInfra keys from .env.test
+- Fixed `parseAgentSkill()` in skill-format-parser.ts: `requires` was only checked in `meta?.requires` (OpenClaw nested metadata format), not in direct frontmatter `fm.requires`. Added fallback: `(meta?.requires ?? fm.requires)`
+- Added `/v1/credentials/provide` route to host-process.ts (was only in server.ts for dev mode)
+- E2E verified: skill with `requires.env: [WEATHER_API_KEY]` triggers `credential.required` event, SSE stream blocks with keepalives, credential provided via admin API unblocks stream, credential persisted in database for future requests
+**Files touched:** charts/ax/templates/network-policy.yaml, src/utils/skill-format-parser.ts, src/host/host-process.ts, src/host/server-completions.ts (diag cleanup)
+**Outcome:** Success — full credential collection flow verified end-to-end in k8s, 2479 tests pass
+**Notes:** Key discoveries: (1) network policy only allowed port 3128 egress, blocking HTTP IPC on port 8080 and NATS on 4222; (2) `parseAgentSkill` silently returned empty env array for direct-frontmatter `requires` fields; (3) process.stderr.write diag output intermittently not captured by kubectl logs — use pino logger or console.log instead
+
 ## [2026-03-19 23:00] — K8s deployment fixes from E2E validation
 
 **Task:** Validate full credential flow E2E on kind cluster; fix issues blocking deployment.
