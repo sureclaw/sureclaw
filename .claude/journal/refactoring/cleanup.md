@@ -2,6 +2,18 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-03-20 08:00] — Server init extraction: deduplicate server.ts and host-process.ts
+
+**Task:** Extract ~700 lines of duplicated initialization, request handling, and lifecycle code from server.ts and host-process.ts into shared modules
+**What I did:** Created 4 new shared modules and rewrote both server.ts and host-process.ts to use them:
+- `server-admin-helpers.ts` — pure admin functions (isAdmin, claimBootstrapAdmin, etc.)
+- `server-init.ts` — `initHostCore()` shared initialization (storage, routing, IPC, templates, orchestrator)
+- `server-request-handlers.ts` — shared HTTP handlers (completions, events SSE, scheduler callback, models)
+- `server-webhook-admin.ts` — shared webhook + admin handler factories
+**Files touched:** Created: src/host/server-admin-helpers.ts, src/host/server-init.ts, src/host/server-request-handlers.ts, src/host/server-webhook-admin.ts. Modified: src/host/server.ts, src/host/host-process.ts, src/host/server-completions.ts, src/host/ipc-handlers/identity.ts, src/host/ipc-handlers/governance.ts
+**Outcome:** Success — all 215 test files pass (2473 tests), build clean. server.ts shrank from ~1250 to ~500 lines, host-process.ts from ~1248 to ~630 lines.
+**Notes:** Key pattern: shared `runCompletion` callback lets server.ts pass `processCompletion` directly while host-process.ts wraps with `processCompletionWithNATS`. Legacy migration and USER_BOOTSTRAP filesystem copy kept as server.ts-specific post-init steps. NATS-based SSE events kept in host-process.ts since they use a fundamentally different subscription mechanism.
+
 ## [2026-03-13 09:15] — Phase 2: Drop file-based StorageProvider
 
 **Task:** Remove `src/providers/storage/file.ts` and all file-based storage code; make database storage the only option.

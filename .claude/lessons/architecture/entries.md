@@ -1,5 +1,11 @@
 # Architecture
 
+### Use callback injection to share HTTP handlers between server modes
+**Date:** 2026-03-20
+**Context:** Extracting duplicated handleCompletions/scheduler callback from server.ts and host-process.ts into shared modules
+**Lesson:** When two modules share 90% of HTTP handler logic but differ in the completion runner (processCompletion vs processCompletionWithNATS), use a `runCompletion` callback parameter in the shared handler. The caller injects its mode-specific runner. Same pattern works for `preFlightCheck` (bootstrap gate in server.ts, absent in host-process.ts). This avoids conditional mode flags inside shared code.
+**Tags:** refactoring, server, host-process, callback-injection, composition
+
 ### parseAgentSkill requires fallback checks direct frontmatter fields
 **Date:** 2026-03-19
 **Context:** Debugging why `requires.env` was always empty when parsing skills with direct-frontmatter `requires` blocks (not nested under `metadata.openclaw`).
