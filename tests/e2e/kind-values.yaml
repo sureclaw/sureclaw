@@ -24,7 +24,7 @@ config:
     browser: none
     skills: git
     channels: []
-    web: proxied
+    web: fetch
     scanner: patterns
     storage: database
     database: postgresql
