@@ -18,7 +18,7 @@ import { request as httpRequest } from 'node:http';
 
 import { initLogger, resetLogger } from '../../src/logger.js';
 import { loadConfig } from '../../src/config.js';
-import { createServer, type AxServer } from '../../src/host/server.js';
+import { createServer, type AxServer } from '../../src/host/server-local.js';
 import type { Config, ProviderRegistry } from '../../src/types.js';
 import type { LLMProvider } from '../../src/providers/llm/types.js';
 import type { SandboxProvider } from '../../src/providers/sandbox/types.js';

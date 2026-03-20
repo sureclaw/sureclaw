@@ -1,5 +1,17 @@
 # Architecture
 
+### NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed
+**Date:** 2026-03-20
+**Context:** Extracting shared HTTP route dispatch from server-k8s.ts. The k8s server had an inline NATS-based SSE handler that subscribed directly to NATS subjects and forwarded events to SSE clients.
+**Lesson:** The NATS eventbus provider (`src/providers/eventbus/nats.ts`) already implements subscribe/subscribeRequest by subscribing to NATS subjects and dispatching to listener callbacks. The shared `handleEventsSSE` which uses `eventBus.subscribe()` works correctly in k8s mode because the eventBus IS backed by NATS. When deduplicating handlers, check whether the EventBus abstraction already bridges the underlying transport before keeping mode-specific handlers.
+**Tags:** eventbus, nats, sse, server-k8s, abstraction-layer
+
+### Use callback injection to share HTTP handlers between server modes
+**Date:** 2026-03-20
+**Context:** Extracting duplicated handleCompletions/scheduler callback from server.ts and host-process.ts into shared modules
+**Lesson:** When two modules share 90% of HTTP handler logic but differ in the completion runner (processCompletion vs processCompletionWithNATS), use a `runCompletion` callback parameter in the shared handler. The caller injects its mode-specific runner. Same pattern works for `preFlightCheck` (bootstrap gate in server.ts, absent in host-process.ts). This avoids conditional mode flags inside shared code.
+**Tags:** refactoring, server, host-process, callback-injection, composition
+
 ### parseAgentSkill requires fallback checks direct frontmatter fields
 **Date:** 2026-03-19
 **Context:** Debugging why `requires.env` was always empty when parsing skills with direct-frontmatter `requires` blocks (not nested under `metadata.openclaw`).

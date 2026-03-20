@@ -10,7 +10,7 @@ import type { IPCContext } from '../ipc-server.js';
 import { join } from 'node:path';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir } from '../../paths.js';
-import { isAdmin } from '../server.js';
+import { isAdmin } from '../server-admin-helpers.js';
 
 /**
  * Returns true when the admins file exists and contains at least one entry.

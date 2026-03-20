@@ -67,6 +67,7 @@
 
 ### architecture
 
+- NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed [architecture/entries.md](architecture/entries.md)
 - In-memory promise maps create hidden session affinity requirements [architecture/entries.md](architecture/entries.md)
 - Post-agent credential loop pattern [architecture/entries.md](architecture/entries.md)
 - Shared outbound proxies need per-turn auth to preserve session identity [architecture/entries.md](architecture/entries.md)

@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { workspaceDir, agentWorkspaceDir, userWorkspaceDir, agentDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
-import { isAdmin } from './server.js';
+import { isAdmin } from './server-admin-helpers.js';
 import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
 import { safePath } from '../utils/safe-path.js';
 import type { InboundMessage } from '../providers/channel/types.js';

@@ -104,14 +104,14 @@ describe('P1 fix: HTTP GCS path provisions git workspace', () => {
 
 describe('P1 fix: workspace provision validates scope IDs against token context', () => {
   test('provision endpoint validates id against provisionIds', () => {
-    const source = readFileSync(resolve('src/host/host-process.ts'), 'utf-8');
+    const source = readFileSync(resolve('src/host/server-k8s.ts'), 'utf-8');
     // The provision endpoint must check entry.provisionIds[scope] against id
     expect(source).toContain('entry.provisionIds');
     expect(source).toContain('Scope ID does not match token context');
   });
 
   test('activeTokens.set includes provisionIds with agent, user, session', () => {
-    const source = readFileSync(resolve('src/host/host-process.ts'), 'utf-8');
+    const source = readFileSync(resolve('src/host/server-k8s.ts'), 'utf-8');
     // Token registration must store provisionIds
     expect(source).toContain('provisionIds:');
     expect(source).toContain('agent: agentName');
@@ -126,7 +126,7 @@ describe('P1 fix: workspace provision validates scope IDs against token context'
   });
 
   test('provision endpoint returns 403 on id mismatch', () => {
-    const source = readFileSync(resolve('src/host/host-process.ts'), 'utf-8');
+    const source = readFileSync(resolve('src/host/server-k8s.ts'), 'utf-8');
     // The endpoint should return 403 when the id doesn't match
     expect(source).toContain("sendError(res, 403, 'Scope ID does not match token context')");
     expect(source).toContain('workspace_provision_id_mismatch');

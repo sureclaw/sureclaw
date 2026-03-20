@@ -1,6 +1,6 @@
 // src/cli/reload.ts
 import { watchFile, unwatchFile } from 'node:fs';
-import type { AxServer } from '../host/server.js';
+import type { AxServer } from '../host/server-local.js';
 import type { Config } from '../types.js';
 import type { Logger } from '../logger.js';
 

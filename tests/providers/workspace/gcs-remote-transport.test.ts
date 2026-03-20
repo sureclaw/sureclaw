@@ -108,18 +108,18 @@ describe('GCS RemoteTransport (k8s NATS mode)', () => {
   // ── Host staging endpoint integration ──
 
   describe('host staging endpoint', () => {
-    test('host-process.ts has /internal/workspace-staging endpoint', async () => {
+    test('server-k8s.ts has /internal/workspace-staging endpoint', async () => {
       const { readFileSync } = await import('node:fs');
-      const source = readFileSync('src/host/host-process.ts', 'utf-8');
+      const source = readFileSync('src/host/server-k8s.ts', 'utf-8');
 
       expect(source).toContain('/internal/workspace-staging');
       expect(source).toContain('handleWorkspaceStaging');
       expect(source).toContain('staging_key');
     });
 
-    test('host-process.ts decompresses gzipped staging data on workspace_release', async () => {
+    test('server-k8s.ts decompresses gzipped staging data on workspace_release', async () => {
       const { readFileSync } = await import('node:fs');
-      const source = readFileSync('src/host/host-process.ts', 'utf-8');
+      const source = readFileSync('src/host/server-k8s.ts', 'utf-8');
 
       // workspace_release IPC now uses staging_key to look up stored data
       expect(source).toContain('stagingStore.get(stagingKey)');
@@ -129,7 +129,7 @@ describe('GCS RemoteTransport (k8s NATS mode)', () => {
 
     test('host passes AX_HOST_URL to sandbox pods', async () => {
       const { readFileSync } = await import('node:fs');
-      const source = readFileSync('src/host/host-process.ts', 'utf-8');
+      const source = readFileSync('src/host/server-k8s.ts', 'utf-8');
 
       expect(source).toContain('AX_HOST_URL');
       expect(source).toContain('ax-host');

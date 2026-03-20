@@ -11,7 +11,11 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 
 | File | Responsibility |
 |---|---|
-| `src/host/server.ts` | HTTP server, request lifecycle, agent spawn, channel/scheduler wiring, file handlers, SSE events, port flag |
+| `src/host/server-local.ts` | HTTP server composition root (local mode): Unix socket + TCP lifecycle, channel connect/disconnect, legacy migration, file upload/download, OAuth callbacks, graceful drain. Delegates shared init to `server-init.ts` and shared handlers to `server-request-handlers.ts` |
+| `src/host/server-init.ts` | Shared initialization for both server-local.ts and server-k8s.ts: `initHostCore()` sets up storage, routing, taint budget, agent dirs, template seeding, skills seeding, admins, IPC, CompletionDeps, delegation, orchestrator, agent registry |
+| `src/host/server-request-handlers.ts` | Shared HTTP handlers: `handleModels`, `handleCompletions` (body parsing + streaming + non-streaming via `runCompletion` callback), `handleEventsSSE` (EventBus-based SSE), `createSchedulerCallback` factory |
+| `src/host/server-admin-helpers.ts` | Pure admin functions: `isAgentBootstrapMode`, `isAdmin`, `addAdmin`, `claimBootstrapAdmin` (used by server-local.ts, server-completions.ts, IPC handlers) |
+| `src/host/server-webhook-admin.ts` | Shared webhook + admin handler factories: `setupWebhookHandler`, `setupAdminHandler` |
 | `src/host/server-completions.ts` | Completion processing, workspace setup, history loading, image extraction, agent spawning, response parsing. Container sandboxes (Docker/Apple) use three-phase orchestration: provision (network) → run (no network) → cleanup (network) |
 | `src/host/server-channels.ts` | Channel ingestion, message deduplication, thread gating/backfill, emoji reactions, attachment handling |
 | `src/host/server-files.ts` | File upload/download API, workspace file storage, MIME type handling |
@@ -37,7 +41,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics) |
-| `src/host/host-process.ts` | Unified host pod process for k8s deployment — HTTP, SSE, webhooks, admin, and processCompletion() in one process. Per-turn NATS IPC handler + LLM proxy. Starts web proxy on TCP port (default 3128) when `config.web_proxy` enabled; passes `AX_WEB_PROXY_URL` to sandbox pods via k8s Service. Hosts `/internal/workspace-staging` (POST, release) and `/internal/workspace/provision` (GET, provision) endpoints for HTTP workspace file transfer. Passes `AX_HOST_URL` to sandbox pods. Use server.ts for local dev |
+| `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection, `processCompletionWithNATS` wrapper (staging, agent_response, workspace interception), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
 | `src/host/nats-ipc-handler.ts` | NATS-based IPC handler for k8s sandbox pods. Subscribes to `ipc.request.{requestId}.{token}`, routes through existing `handleIPC` pipeline (same as Unix socket path). Per-turn capability token prevents rogue sandboxes. One instance per turn |
 | `src/host/nats-llm-proxy.ts` | NATS-based LLM proxy for claude-code in k8s — proxies requests to Anthropic API with credential injection |
 | `src/host/nats-session-protocol.ts` | NATS session protocol for k8s sandbox coordination |
@@ -57,7 +61,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/provider-map.ts` | Static allowlist mapping config names to provider modules (SC-SEC-002), plugin registration runtime allowlist |
 | `src/host/registry.ts` | Loads and assembles ProviderRegistry from config; three loading patterns (simple, manual-import with deps, custom); plugin host integration |
 
-## Request Lifecycle (server.ts + server-completions.ts)
+## Request Lifecycle (server-local.ts + server-completions.ts)
 
 ### HTTP Completion Request
 
@@ -197,7 +201,7 @@ For Kubernetes deployments, NATS-based components handle communication between t
 
 ### Workspace Provision & Release (K8s)
 
-In k8s mode, `host-process.ts` handles symmetric workspace file transfer between GCS and sandbox pods. The host is the single GCS credential holder — pods never access GCS directly.
+In k8s mode, `server-k8s.ts` handles symmetric workspace file transfer between GCS and sandbox pods. The host is the single GCS credential holder — pods never access GCS directly.
 
 **Provision** (GCS → host → pod):
 1. **Provision endpoint** (`GET /internal/workspace/provision?scope=<agent|user|session>&id=<id>`): Reads scope files from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64-encoded file contents. Auth via `Authorization: Bearer <ipcToken>`.
@@ -228,7 +232,7 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 ## Common Tasks
 
 **Adding a new HTTP endpoint:**
-1. Add URL match in `handleRequest()` in `server.ts`
+1. Add URL match in `handleRequest()` in `server-local.ts`
 2. Create handler function (follow existing patterns)
 3. Return JSON with `Content-Length` header
 4. For streaming endpoints, use SSE format (handleEvents pattern)

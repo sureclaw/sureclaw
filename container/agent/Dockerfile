@@ -5,7 +5,7 @@
 # audit gate for pre-execution approval.
 #
 # Entry points:
-#   - Host:            node dist/host/host-process.js
+#   - Host:            node dist/host/server-k8s.js
 #   - Agent runtime:   node dist/host/agent-runtime-process.js
 #   - Pool controller: node dist/pool-controller/main.js
 
@@ -27,4 +27,4 @@ RUN groupadd -r ax && useradd -r -g ax -m ax
 USER ax
 
 ENTRYPOINT ["node"]
-CMD ["dist/host/host-process.js"]
+CMD ["dist/host/server-k8s.js"]

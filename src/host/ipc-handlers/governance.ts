@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { agentDir as agentDirPath, agentIdentityDir, proposalsDir } from '../../paths.js';
-import { isAdmin } from '../server.js';
+import { isAdmin } from '../server-admin-helpers.js';
 import type { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {

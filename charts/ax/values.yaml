@@ -68,7 +68,7 @@ host:
     repository: ax
     tag: ""  # Defaults to Chart.appVersion
     pullPolicy: ""  # Defaults to imageDefaults.pullPolicy
-  command: ["node", "dist/host/host-process.js"]
+  command: ["node", "dist/host/server-k8s.js"]
   extraVolumes: []
   extraVolumeMounts: []
   ports:

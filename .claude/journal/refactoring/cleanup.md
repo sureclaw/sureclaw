@@ -2,6 +2,34 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-03-20 08:40] — Phase 2: createRequestHandler() shared route factory
+
+**Task:** Extract remaining duplicated HTTP route dispatch from server-local.ts and server-k8s.ts into a shared createRequestHandler() factory
+**What I did:** (1) Added createRequestHandler() factory to server-request-handlers.ts with all shared routes (CORS, health, models, completions, files, SSE events, webhooks, credentials, OAuth, admin, root redirect, 404) plus hooks for extraRoutes and graceful drain. (2) Rewrote server-local.ts to use createRequestHandler() -- replaced ~160-line inline handleRequest. (3) Rewrote server-k8s.ts to use createRequestHandler() with handleInternalRoutes for /internal/* routes. (4) Removed inline NATS SSE handler from k8s (NATS eventbus provider already bridges events to EventBus). (5) Added graceful drain tracking to k8s shutdown. (6) Cleaned up unused imports.
+**Files touched:** src/host/server-request-handlers.ts, src/host/server-local.ts, src/host/server-k8s.ts
+**Outcome:** Success — all 215 test files pass (2473 tests), build clean. server-local.ts dropped 188 lines, server-k8s.ts dropped 90 net lines. Both servers now gain file routes, OAuth, credentials, bootstrap gate, and root redirect from the shared handler.
+**Notes:** Key discovery: NATS eventbus provider (src/providers/eventbus/nats.ts) already implements the full EventBus interface by subscribing to NATS subjects and dispatching to listeners. The inline NATS SSE handler in server-k8s.ts was redundant with the shared handleEventsSSE that uses EventBus.subscribe/subscribeRequest. Server-k8s.ts was previously missing: file upload/download, OAuth callback, bootstrap gate pre-flight, root->admin redirect, and graceful drain.
+
+## [2026-03-20 08:05] — Rename server.ts to server-local.ts, host-process.ts to server-k8s.ts
+
+**Task:** Rename server entry points to reflect their semantic role (local vs k8s) and update all imports across the codebase
+**What I did:** Used `git mv` for both renames. Updated imports in 8 source/test files (cli/index.ts, cli/reload.ts, 4 test files, 2 test harnesses). Updated Dockerfile CMD, Helm chart commands (values.yaml, kind-dev-values.yaml), k8s archive YAML. Fixed 3 test files that read source by filename (sandbox-isolation, workspace-provision-fixes, gcs-remote-transport). Updated 5 skill files (ax-host, ax-debug, ax-provider-credentials, ax-provider-sandbox, acceptance-test). Updated internal comments in server-k8s.ts and server-init.ts.
+**Files touched:** src/host/server.ts (renamed), src/host/host-process.ts (renamed), src/cli/index.ts, src/cli/reload.ts, tests/host/server.test.ts, tests/host/server-multimodal.test.ts, tests/host/server-history.test.ts, tests/host/admin-gate.test.ts, tests/e2e/server-harness.ts, tests/providers/sandbox/run-nats-local.ts, tests/sandbox-isolation.test.ts, tests/agent/workspace-provision-fixes.test.ts, tests/providers/workspace/gcs-remote-transport.test.ts, container/agent/Dockerfile, charts/ax/values.yaml, charts/ax/kind-dev-values.yaml, k8s/archive/host.yaml, src/host/server-init.ts, .claude/skills/ax-host/SKILL.md, .claude/skills/ax-debug/SKILL.md, .claude/skills/ax-provider-credentials/SKILL.md, .claude/skills/ax-provider-sandbox/SKILL.md, .claude/skills/acceptance-test/SKILL.md
+**Outcome:** Success — `npx tsc --noEmit` clean, all 215 test files pass (2473 tests)
+**Notes:** Source-reading tests (sandbox-isolation, gcs-remote-transport, workspace-provision-fixes) reference filenames as string literals to readFileSync, not as imports. These needed manual updates beyond grep for import patterns. Historical acceptance test results/plans/lessons left as-is per append-only policy.
+
+## [2026-03-20 08:00] — Server init extraction: deduplicate server.ts and host-process.ts
+
+**Task:** Extract ~700 lines of duplicated initialization, request handling, and lifecycle code from server.ts and host-process.ts into shared modules
+**What I did:** Created 4 new shared modules and rewrote both server.ts and host-process.ts to use them:
+- `server-admin-helpers.ts` — pure admin functions (isAdmin, claimBootstrapAdmin, etc.)
+- `server-init.ts` — `initHostCore()` shared initialization (storage, routing, IPC, templates, orchestrator)
+- `server-request-handlers.ts` — shared HTTP handlers (completions, events SSE, scheduler callback, models)
+- `server-webhook-admin.ts` — shared webhook + admin handler factories
+**Files touched:** Created: src/host/server-admin-helpers.ts, src/host/server-init.ts, src/host/server-request-handlers.ts, src/host/server-webhook-admin.ts. Modified: src/host/server.ts, src/host/host-process.ts, src/host/server-completions.ts, src/host/ipc-handlers/identity.ts, src/host/ipc-handlers/governance.ts
+**Outcome:** Success — all 215 test files pass (2473 tests), build clean. server.ts shrank from ~1250 to ~500 lines, host-process.ts from ~1248 to ~630 lines.
+**Notes:** Key pattern: shared `runCompletion` callback lets server.ts pass `processCompletion` directly while host-process.ts wraps with `processCompletionWithNATS`. Legacy migration and USER_BOOTSTRAP filesystem copy kept as server.ts-specific post-init steps. NATS-based SSE events kept in host-process.ts since they use a fundamentally different subscription mechanism.
+
 ## [2026-03-13 09:15] — Phase 2: Drop file-based StorageProvider
 
 **Task:** Remove `src/providers/storage/file.ts` and all file-based storage code; make database storage the only option.

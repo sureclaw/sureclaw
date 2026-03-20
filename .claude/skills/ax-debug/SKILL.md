@@ -138,7 +138,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   -d '{"model":"default","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-The HTTP IPC harness replicates the full host-process.ts k8s route surface:
+The HTTP IPC harness replicates the full server-k8s.ts k8s route surface:
 - `/internal/ipc` — IPC over HTTP with per-turn token auth
 - `/internal/llm-proxy/*` — LLM credential injection proxy (claude-code sets `ANTHROPIC_BASE_URL` here)
 - `/internal/workspace/release` — Direct workspace file upload from agent
@@ -172,14 +172,14 @@ Key files to instrument:
 
 | What to debug | File | Key functions/lines |
 |---|---|---|
-| Work delivery (host->agent) | `src/host/host-process.ts` | `processCompletionWithNATS()`, `publishWork()` |
-| HTTP IPC route (host) | `src/host/host-process.ts:718` | `/internal/ipc` POST handler, `activeTokens` |
-| LLM proxy route (host) | `src/host/host-process.ts:692` | `/internal/llm-proxy/*`, token auth via `x-api-key` |
+| Work delivery (host->agent) | `src/host/server-k8s.ts` | `processCompletionWithNATS()`, `publishWork()` |
+| HTTP IPC route (host) | `src/host/server-k8s.ts:718` | `/internal/ipc` POST handler, `activeTokens` |
+| LLM proxy route (host) | `src/host/server-k8s.ts:692` | `/internal/llm-proxy/*`, token auth via `x-api-key` |
 | LLM proxy core (host) | `src/host/llm-proxy-core.ts` | `forwardLLMRequest()` — credential injection + streaming |
-| Workspace release (host) | `src/host/host-process.ts:636` | `/internal/workspace/release` direct upload |
-| Workspace staging (host) | `src/host/host-process.ts:680` | `/internal/workspace-staging` legacy upload |
-| Workspace release IPC (host) | `src/host/host-process.ts:415` | `workspace_release` IPC intercept with staging_key |
-| Agent response (host) | `src/host/host-process.ts:444` | `agent_response` IPC intercept |
+| Workspace release (host) | `src/host/server-k8s.ts:636` | `/internal/workspace/release` direct upload |
+| Workspace staging (host) | `src/host/server-k8s.ts:680` | `/internal/workspace-staging` legacy upload |
+| Workspace release IPC (host) | `src/host/server-k8s.ts:415` | `workspace_release` IPC intercept with staging_key |
+| Agent response (host) | `src/host/server-k8s.ts:444` | `agent_response` IPC intercept |
 | NATS work reception (agent) | `src/agent/runner.ts` | `waitForNATSWork()` |
 | HTTP IPC client (agent) | `src/agent/http-ipc-client.ts` | `call()`, `setContext()` |
 | LLM base URL setup (agent) | `src/agent/runners/claude-code.ts:184` | Sets `ANTHROPIC_BASE_URL` to host proxy |
@@ -346,7 +346,7 @@ nats sub "sandbox.work"
 - `tests/providers/sandbox/nats-subprocess.ts` — The sandbox provider (spawns local processes with NATS env, supports `ipcTransport: 'http'` option)
 - `tests/providers/sandbox/run-http-local.ts` — Test harness for HTTP IPC mode (full host route surface: IPC, LLM proxy, workspace release/staging)
 - `tests/providers/sandbox/run-nats-local.ts` — Test harness for NATS IPC mode (starts AX host with nats-subprocess)
-- `src/host/host-process.ts` — Host-side k8s orchestration (`processCompletionWithNATS`, `activeTokens`, all `/internal/*` routes)
+- `src/host/server-k8s.ts` — Host-side k8s orchestration (`processCompletionWithNATS`, `activeTokens`, all `/internal/*` routes)
 - `src/host/llm-proxy-core.ts` — LLM credential injection and streaming proxy (shared by socket proxy and HTTP route)
 - `src/agent/runner.ts` — Agent entry point, transport selection (`AX_IPC_TRANSPORT`), NATS work reception
 - `src/agent/http-ipc-client.ts` — Agent-side HTTP IPC client (POST to `/internal/ipc`)
