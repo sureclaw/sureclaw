@@ -322,7 +322,10 @@ async function main(): Promise<void> {
       },
       onApprove: async (domain, method, url) => {
         logger.info('web_proxy_approval_required', { domain, method, url });
-        const approved = await requestApproval('host-process', domain);
+        // K8s shared proxy: generate a unique requestId per domain approval
+        // so the event bus can route the response back to this specific waiter.
+        const proxyRequestId = `proxy-${randomUUID().slice(0, 8)}`;
+        const approved = await requestApproval('host-process', domain, eventBus, proxyRequestId);
         return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
       },
       mitm: {

@@ -249,12 +249,16 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
 
     web_proxy_approve: async (req: any, ctx: IPCContext) => {
       const { resolveApproval, preApproveDomain } = await import('../web-proxy-approvals.js');
+      const eventBus = providers.eventbus;
 
-      // Try session-scoped key first (per-session proxy in server-completions),
-      // then global key (k8s shared proxy in host-process keyed as 'host-process').
-      let found = resolveApproval(ctx.sessionId, req.domain, req.approved);
-      if (!found) {
-        found = resolveApproval('host-process', req.domain, req.approved);
+      // Publish approval via event bus — reaches the waiter on any replica.
+      // Use the request's requestId for session-scoped proxy (server-completions),
+      // and req.proxyRequestId for the k8s shared proxy (host-process).
+      if (ctx.requestId) {
+        resolveApproval(ctx.sessionId, req.domain, req.approved, eventBus, ctx.requestId);
+      }
+      if (req.proxyRequestId) {
+        resolveApproval('host-process', req.domain, req.approved, eventBus, req.proxyRequestId);
       }
 
       // Pre-cache the decision for future requests so the proxy's onApprove
@@ -275,9 +279,8 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         sessionId: ctx.sessionId,
         domain: req.domain,
         approved: req.approved,
-        found,
       });
-      return { ok: true, found };
+      return { ok: true };
     },
   };
 }

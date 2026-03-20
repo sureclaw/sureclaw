@@ -552,6 +552,13 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   // so the host sends it in the payload. Set it in process.env so the runner picks it up.
   if (payload.webProxyUrl && !process.env.AX_WEB_PROXY_URL) {
     process.env.AX_WEB_PROXY_URL = payload.webProxyUrl;
+    logger.info('web_proxy_url_set', { source: 'payload', url: payload.webProxyUrl });
+  } else if (process.env.AX_WEB_PROXY_URL) {
+    logger.info('web_proxy_url_set', { source: 'env', url: process.env.AX_WEB_PROXY_URL });
+  } else if (payload.webProxyUrl) {
+    logger.debug('web_proxy_url_skip', { reason: 'already_set', env: process.env.AX_WEB_PROXY_URL });
+  } else {
+    logger.debug('web_proxy_url_absent', { envSet: !!process.env.AX_WEB_PROXY_URL, payloadSet: !!payload.webProxyUrl });
   }
   // Enterprise fields — prefer canonical env vars (set by sandbox provider)
   // over payload (which carries host paths).

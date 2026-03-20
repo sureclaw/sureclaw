@@ -370,16 +370,18 @@ async function handleAdminAPI(
   if (pathname === '/admin/api/proxy/approve' && method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
-      const { sessionId, domain, approved } = body;
+      const { sessionId, domain, approved, requestId: proxyRequestId } = body;
       if (!sessionId || !domain || typeof approved !== 'boolean') {
         sendError(res, 400, 'Missing required fields: sessionId, domain, approved');
         return;
       }
-      const found = resolveApproval(sessionId, domain, approved);
+      if (proxyRequestId) {
+        resolveApproval(sessionId, domain, approved, deps.eventBus, proxyRequestId);
+      }
       if (approved) {
         preApproveDomain(sessionId, domain);
       }
-      sendJSON(res, { ok: true, found });
+      sendJSON(res, { ok: true });
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
     }

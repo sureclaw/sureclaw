@@ -2,6 +2,20 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-19 22:20] — Migrate web-proxy-approvals to event bus + diagnostic logging
+
+**Task:** Follow-up from live k8s debugging: (1) add diagnostic logging for web proxy URL propagation to sandbox pods, (2) migrate web-proxy-approvals.ts from in-memory promise map to event bus pattern (like credential-prompts.ts), (3) verify Helm chart web proxy config.
+**What I did:**
+- Added diagnostic logging in runner.ts:applyPayload() to show whether webProxyUrl came from payload vs env
+- Added logging in pi-session.ts and claude-code.ts to show which proxy mode (bridge/URL/port) was selected
+- Rewrote web-proxy-approvals.ts: replaced in-memory pending Map with event bus subscribeRequest/emit pattern. requestApproval() now takes EventBus + requestId, resolveApproval() publishes event. Kept approvedCache/deniedCache as local short-circuit caches.
+- Updated all callers: server-completions.ts, host-process.ts, server-admin.ts, ipc-handlers/sandbox-tools.ts
+- Rewrote tests to use createEventBus() — 11 tests including timeout, requestId mismatch, cache, session isolation
+- Verified Helm chart: service selector matches host labels, containerPort 3128 conditional, network policies correct
+**Files touched:** src/agent/runner.ts, src/agent/runners/pi-session.ts, src/agent/runners/claude-code.ts, src/host/web-proxy-approvals.ts, src/host/server-completions.ts, src/host/host-process.ts, src/host/server-admin.ts, src/host/ipc-handlers/sandbox-tools.ts, tests/host/web-proxy-approvals.test.ts
+**Outcome:** Success — all 2479 tests pass, clean TypeScript compilation
+**Notes:** resolveApproval() changed from returning boolean (found) to void — it publishes to event bus, so there's no "found" concept. Admin API and IPC handler now accept requestId/proxyRequestId fields.
+
 ## [2026-03-19 08:15] — Host-Side Credential Prompting During Skill Install
 
 **Task:** Implement interactive credential prompting when skills require API keys not in the credential store

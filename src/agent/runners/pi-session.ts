@@ -379,6 +379,16 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     process.env.HTTPS_PROXY = webProxyEnvUrl;
     process.env.http_proxy = webProxyEnvUrl;
     process.env.https_proxy = webProxyEnvUrl;
+    logger.info('web_proxy_env_set', {
+      url: webProxyEnvUrl,
+      source: webProxyBridge ? 'bridge' : webProxyUrl ? 'AX_WEB_PROXY_URL' : 'AX_PROXY_LISTEN_PORT',
+    });
+  } else {
+    logger.info('web_proxy_env_none', {
+      socket: webProxySocket ?? 'unset',
+      url: webProxyUrl ?? 'unset',
+      port: webProxyPort ?? 'unset',
+    });
   }
 
   // Install missing skill dependencies — each workspace installs to its own prefix

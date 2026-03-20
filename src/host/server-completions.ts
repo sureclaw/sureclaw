@@ -578,7 +578,9 @@ export async function processCompletion(
           timestamp: Date.now(),
           data: { domain, method, url, sessionId },
         });
-        const approved = await requestApproval(sessionId, domain);
+        const approved = eventBus
+          ? await requestApproval(sessionId, domain, eventBus, requestId)
+          : false;
         return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
       };
 

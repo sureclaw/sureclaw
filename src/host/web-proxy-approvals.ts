@@ -1,27 +1,24 @@
 /**
- * Pending approval registry for the web proxy governance gate.
+ * Web proxy approval coordination via event bus.
  *
- * When the proxy encounters a new domain, it calls requestApproval() which
- * blocks until the domain is approved/denied via resolveApproval() (called
- * from the web_proxy_approve IPC handler) or times out.
+ * requestApproval() subscribes to the event bus for proxy.approval events
+ * and returns a Promise that resolves when the domain is approved/denied
+ * or times out. Works across stateless host replicas: in-process event bus
+ * for local/Docker, NATS-backed event bus for k8s.
  *
- * Keyed by sessionId + domain. Each domain is asked at most once per session.
+ * Replaces the old in-memory promise map pattern that required session affinity.
+ *
+ * Caches (approved/denied) remain in-memory since they're only used to
+ * short-circuit repeated lookups within the same request lifetime.
  */
 
+import type { EventBus } from './event-bus.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'web-proxy-approvals' });
 
 /** How long to wait for user approval before auto-denying. */
 const APPROVAL_TIMEOUT_MS = 120_000;
-
-interface PendingEntry {
-  resolve: (approved: boolean) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-/** sessionId → Map<domain, PendingEntry> */
-const pending = new Map<string, Map<string, PendingEntry>>();
 
 /** sessionId → Set<approved domain> */
 const approvedCache = new Map<string, Set<string>>();
@@ -44,68 +41,85 @@ export function isDomainDenied(sessionId: string, domain: string): boolean {
 }
 
 /**
- * Request approval for a domain. Returns a Promise that resolves when
- * the user approves/denies or the timeout expires.
+ * Wait for a domain approval to be provided via the event bus.
+ *
+ * Subscribes to events for the given requestId and resolves when a
+ * proxy.approval event with matching domain arrives. Returns true if
+ * approved, false if denied or timed out.
  */
-export function requestApproval(sessionId: string, domain: string): Promise<boolean> {
-  // Already decided
+export function requestApproval(
+  sessionId: string,
+  domain: string,
+  eventBus: EventBus,
+  requestId: string,
+  timeoutMs = APPROVAL_TIMEOUT_MS,
+): Promise<boolean> {
+  // Already decided — short-circuit from cache
   if (isDomainApproved(sessionId, domain)) return Promise.resolve(true);
   if (isDomainDenied(sessionId, domain)) return Promise.resolve(false);
 
-  // Already pending — piggyback on the existing request
-  const sessionPending = pending.get(sessionId);
-  if (sessionPending?.has(domain)) {
-    return new Promise<boolean>((resolve) => {
-      const existing = sessionPending.get(domain)!;
-      const origResolve = existing.resolve;
-      existing.resolve = (approved) => {
-        origResolve(approved);
-        resolve(approved);
-      };
-    });
-  }
-
   return new Promise<boolean>((resolve) => {
-    let map = pending.get(sessionId);
-    if (!map) {
-      map = new Map();
-      pending.set(sessionId, map);
-    }
+    let settled = false;
+
+    const unsubscribe = eventBus.subscribeRequest(requestId, (event) => {
+      if (settled) return;
+      if (event.type !== 'proxy.approval') return;
+      if (event.data?.domain !== domain) return;
+
+      settled = true;
+      clearTimeout(timer);
+      unsubscribe();
+
+      const approved = event.data.approved === true;
+
+      // Cache the decision
+      if (approved) {
+        let set = approvedCache.get(sessionId);
+        if (!set) { set = new Set(); approvedCache.set(sessionId, set); }
+        set.add(domain);
+      } else {
+        let set = deniedCache.get(sessionId);
+        if (!set) { set = new Set(); deniedCache.set(sessionId, set); }
+        set.add(domain);
+      }
+
+      logger.info('approval_resolved_via_event', { sessionId, domain, approved, requestId });
+      resolve(approved);
+    });
 
     const timer = setTimeout(() => {
-      map!.delete(domain);
-      if (map!.size === 0) pending.delete(sessionId);
+      if (settled) return;
+      settled = true;
+      unsubscribe();
 
       // Cache the denial
       let denied = deniedCache.get(sessionId);
       if (!denied) { denied = new Set(); deniedCache.set(sessionId, denied); }
       denied.add(domain);
 
-      logger.info('approval_timeout', { sessionId, domain });
+      logger.info('approval_timeout', { sessionId, domain, requestId });
       resolve(false);
-    }, APPROVAL_TIMEOUT_MS);
+    }, timeoutMs);
+
     // Don't prevent process exit
     if (timer.unref) timer.unref();
 
-    map.set(domain, { resolve, timer });
-    logger.debug('approval_requested', { sessionId, domain });
+    logger.debug('approval_requested', { sessionId, domain, requestId });
   });
 }
 
 /**
- * Resolve a pending approval. Called from the web_proxy_approve IPC handler.
- * Returns true if a pending request was found and resolved.
+ * Resolve a pending approval via the event bus.
+ * Publishes a proxy.approval event so any replica waiting on requestApproval() receives it.
  */
-export function resolveApproval(sessionId: string, domain: string, approved: boolean): boolean {
-  const sessionPending = pending.get(sessionId);
-  const entry = sessionPending?.get(domain);
-  if (!entry) return false;
-
-  clearTimeout(entry.timer);
-  sessionPending!.delete(domain);
-  if (sessionPending!.size === 0) pending.delete(sessionId);
-
-  // Cache the decision
+export function resolveApproval(
+  sessionId: string,
+  domain: string,
+  approved: boolean,
+  eventBus: EventBus,
+  requestId: string,
+): void {
+  // Cache locally too (for same-replica short-circuit on subsequent requests)
   if (approved) {
     let set = approvedCache.get(sessionId);
     if (!set) { set = new Set(); approvedCache.set(sessionId, set); }
@@ -116,9 +130,14 @@ export function resolveApproval(sessionId: string, domain: string, approved: boo
     set.add(domain);
   }
 
-  logger.info('approval_resolved', { sessionId, domain, approved });
-  entry.resolve(approved);
-  return true;
+  eventBus.emit({
+    type: 'proxy.approval',
+    requestId,
+    timestamp: Date.now(),
+    data: { domain, approved, sessionId },
+  });
+
+  logger.info('approval_resolved', { sessionId, domain, approved, requestId });
 }
 
 /**
@@ -139,14 +158,6 @@ export function preApproveDomain(sessionId: string, domain: string): void {
  * Clean up all approval state for a session. Call when the session ends.
  */
 export function cleanupSession(sessionId: string): void {
-  const sessionPending = pending.get(sessionId);
-  if (sessionPending) {
-    for (const entry of sessionPending.values()) {
-      clearTimeout(entry.timer);
-      entry.resolve(false);
-    }
-    pending.delete(sessionId);
-  }
   approvedCache.delete(sessionId);
   deniedCache.delete(sessionId);
 }
