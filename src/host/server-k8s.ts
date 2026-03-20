@@ -11,7 +11,7 @@
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { existsSync, readFileSync, unlinkSync, rmSync } from 'node:fs';
+import { unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
@@ -19,32 +19,26 @@ import { getLogger } from '../logger.js';
 import { loadConfig } from '../config.js';
 import { screenReleaseChanges } from './workspace-release-screener.js';
 import { loadProviders } from './registry.js';
-import { sendError, sendSSEChunk, readBody } from './server-http.js';
-import { agentDir as agentDirPath, webhookTransformPath } from '../paths.js';
+import { sendError, readBody } from './server-http.js';
+import { agentDir as agentDirPath } from '../paths.js';
 import type { IPCContext } from './ipc-server.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { SharedCredentialRegistry } from './credential-placeholders.js';
-import { decode, eventSubject } from './nats-session-protocol.js';
-import type { StreamEvent } from './event-bus.js';
 import type { EventBus } from './event-bus.js';
 import { natsConnectOptions } from '../utils/nats.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
-import type { InboundMessage } from '../providers/shared-types.js';
 
 // Shared extraction modules
 import { initHostCore } from './server-init.js';
 import {
-  handleModels as sharedHandleModels,
-  handleCompletions as sharedHandleCompletions,
+  createRequestHandler,
   createSchedulerCallback,
 } from './server-request-handlers.js';
 import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
+import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
 
 const logger = getLogger().child({ component: 'host-process' });
-
-/** SSE keepalive interval. */
-const SSE_KEEPALIVE_MS = 15_000;
 
 /** Max staging upload size (50MB uncompressed). */
 const MAX_STAGING_BYTES = 50 * 1024 * 1024;
@@ -385,114 +379,62 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── Request Handler ──
+  // ── Graceful drain tracking ──
 
-  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  let inflightCount = 0;
+  let drainResolve: (() => void) | null = null;
+  const DRAIN_TIMEOUT_MS = 30_000;
 
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
+  function trackRequestStart(): void { inflightCount++; }
+  function trackRequestEnd(): void {
+    inflightCount--;
+    if (draining && inflightCount <= 0 && drainResolve) drainResolve();
+  }
 
-    const url = req.url ?? '/';
+  function waitForDrain(): Promise<void> {
+    if (inflightCount <= 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      drainResolve = resolve;
+      setTimeout(() => {
+        if (inflightCount > 0) logger.warn('drain_timeout', { inflight: inflightCount, timeoutMs: DRAIN_TIMEOUT_MS });
+        resolve();
+      }, DRAIN_TIMEOUT_MS);
+    });
+  }
 
-    if (draining && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix))) {
-      sendError(res, 503, 'Server is shutting down');
-      return;
-    }
+  // ── Workspace staging endpoint (k8s pod file upload) ──
 
-    if (url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: draining ? 'draining' : 'ok' }));
-      return;
-    }
+  async function handleWorkspaceStaging(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const chunks: Buffer[] = [];
+    let totalSize = 0;
 
-    if (url === '/v1/models' && req.method === 'GET') {
-      sharedHandleModels(res, modelId);
-      return;
-    }
-
-    if (url === '/v1/chat/completions' && req.method === 'POST') {
-      try {
-        await sharedHandleCompletions(req, res, {
-          modelId,
-          agentName,
-          agentDirVal,
-          eventBus,
-          runCompletion: async (content, requestId, messages, sessionId, userId) => {
-            return processCompletionWithNATS(content, requestId, messages, sessionId, userId, agentType);
-          },
-        });
-      } catch (err) {
-        logger.error('request_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'Internal server error');
-      }
-      return;
-    }
-
-    // SSE event stream: subscribe to NATS events
-    if (url.startsWith('/v1/events') && req.method === 'GET') {
-      handleEvents(req, res);
-      return;
-    }
-
-    // Webhooks
-    if (webhookHandler && url.startsWith(webhookPrefix)) {
-      const webhookName = url.slice(webhookPrefix.length).split('?')[0];
-      if (!webhookName) {
-        sendError(res, 404, 'Not found');
+    for await (const chunk of req) {
+      totalSize += chunk.length;
+      if (totalSize > MAX_STAGING_BYTES) {
+        sendError(res, 413, 'Staging payload too large');
         return;
       }
-      try {
-        await webhookHandler(req, res, webhookName);
-      } catch (err) {
-        logger.error('webhook_handler_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'Webhook processing failed');
-      }
+      chunks.push(chunk as Buffer);
+    }
+
+    const body = Buffer.concat(chunks);
+    if (body.length === 0) {
+      sendError(res, 400, 'Empty staging payload');
       return;
     }
 
-    // Redirect root to admin dashboard
-    if (adminHandler && (url === '/' || url === '')) {
-      res.writeHead(302, { Location: '/admin' });
-      res.end();
-      return;
-    }
+    const key = randomUUID();
+    stagingStore.set(key, { data: body, createdAt: Date.now() });
 
-    // Admin dashboard: /admin/*
-    if (adminHandler && url.startsWith('/admin')) {
-      try {
-        await adminHandler(req, res, url.split('?')[0]);
-      } catch (err) {
-        logger.error('admin_failed', { error: (err as Error).message });
-        if (!res.headersSent) sendError(res, 500, 'Admin request failed');
-      }
-      return;
-    }
+    logger.info('workspace_staging_stored', { key, bytes: body.length });
 
-    // POST /v1/credentials/provide — store a credential for future requests
-    if (url === '/v1/credentials/provide' && req.method === 'POST') {
-      try {
-        const body = JSON.parse(await readBody(req));
-        const { envName, value } = body;
-        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
-          sendError(res, 400, 'Missing required fields: envName, value');
-          return;
-        }
-        await providers.credentials.set(envName, value);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
-      } catch (err) {
-        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
-      }
-      return;
-    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ staging_key: key }));
+  }
 
+  // ── k8s-specific /internal/* routes ──
+
+  async function handleInternalRoutes(req: IncomingMessage, res: ServerResponse, url: string): Promise<boolean> {
     // Direct workspace release from sandbox pods (k8s HTTP mode)
     if (url === '/internal/workspace/release' && req.method === 'POST') {
       const token = req.headers.authorization?.replace('Bearer ', '');
@@ -500,7 +442,7 @@ async function main(): Promise<void> {
       if (!entry) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'invalid token' }));
-        return;
+        return true;
       }
       try {
         const chunks: Buffer[] = [];
@@ -509,7 +451,7 @@ async function main(): Promise<void> {
           totalSize += (chunk as Buffer).length;
           if (totalSize > MAX_STAGING_BYTES) {
             sendError(res, 413, 'Payload too large');
-            return;
+            return true;
           }
           chunks.push(chunk as Buffer);
         }
@@ -546,7 +488,7 @@ async function main(): Promise<void> {
         logger.error('workspace_release_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Workspace release failed');
       }
-      return;
+      return true;
     }
 
     // Workspace provision: sandbox pods download scope files from host
@@ -556,7 +498,7 @@ async function main(): Promise<void> {
       if (!entry) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'invalid token' }));
-        return;
+        return true;
       }
       try {
         const params = new URL(url, 'http://localhost').searchParams;
@@ -564,14 +506,14 @@ async function main(): Promise<void> {
         const id = params.get('id');
         if (!scope || !id || !providers.workspace?.downloadScope) {
           sendError(res, 400, 'Missing scope/id or workspace provider has no downloadScope');
-          return;
+          return true;
         }
         if (entry.provisionIds) {
           const expectedId = entry.provisionIds[scope];
           if (expectedId !== undefined && id !== expectedId) {
             logger.warn('workspace_provision_id_mismatch', { scope, requestedId: id, expectedId });
             sendError(res, 403, 'Scope ID does not match token context');
-            return;
+            return true;
           }
         }
         const files = await providers.workspace.downloadScope(scope, id);
@@ -586,7 +528,7 @@ async function main(): Promise<void> {
         logger.error('workspace_provision_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Workspace provision failed');
       }
-      return;
+      return true;
     }
 
     // Workspace staging upload from sandbox pods (k8s, legacy)
@@ -597,7 +539,7 @@ async function main(): Promise<void> {
         logger.error('workspace_staging_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Staging upload failed');
       }
-      return;
+      return true;
     }
 
     // LLM proxy over HTTP from sandbox pods
@@ -607,7 +549,7 @@ async function main(): Promise<void> {
       if (!entry) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'invalid token' }));
-        return;
+        return true;
       }
       try {
         const targetPath = url.replace('/internal/llm-proxy', '');
@@ -623,7 +565,7 @@ async function main(): Promise<void> {
         logger.error('internal_llm_proxy_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 502, 'LLM proxy request failed');
       }
-      return;
+      return true;
     }
 
     // IPC over HTTP from sandbox pods
@@ -633,7 +575,7 @@ async function main(): Promise<void> {
       if (!entry) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'invalid token' }));
-        return;
+        return true;
       }
       try {
         const body = await readBody(req, 1_048_576); // 1MB max
@@ -644,87 +586,49 @@ async function main(): Promise<void> {
         logger.error('internal_ipc_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'IPC request failed');
       }
-      return;
+      return true;
     }
 
-    sendError(res, 404, 'Not found');
+    return false;
   }
 
-  // ── Workspace staging endpoint (k8s pod file upload) ──
+  // ── Request Handler (via shared factory) ──
 
-  async function handleWorkspaceStaging(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const chunks: Buffer[] = [];
-    let totalSize = 0;
-
-    for await (const chunk of req) {
-      totalSize += chunk.length;
-      if (totalSize > MAX_STAGING_BYTES) {
-        sendError(res, 413, 'Staging payload too large');
-        return;
-      }
-      chunks.push(chunk as Buffer);
-    }
-
-    const body = Buffer.concat(chunks);
-    if (body.length === 0) {
-      sendError(res, 400, 'Empty staging payload');
-      return;
-    }
-
-    const key = randomUUID();
-    stagingStore.set(key, { data: body, createdAt: Date.now() });
-
-    logger.info('workspace_staging_stored', { key, bytes: body.length });
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ staging_key: key }));
-  }
-
-  // ── SSE events via NATS ──
-
-  function handleEvents(req: IncomingMessage, res: ServerResponse): void {
-    const parsedUrl = new URL(req.url ?? '/', 'http://localhost');
-    const requestIdFilter = parsedUrl.searchParams.get('request_id') ?? undefined;
-    const typesParam = parsedUrl.searchParams.get('types') ?? undefined;
-    const typeFilter = typesParam ? new Set(typesParam.split(',').map(t => t.trim()).filter(Boolean)) : undefined;
-
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    });
-    res.write(':connected\n\n');
-
-    // Subscribe to NATS events
-    const natsSubject = requestIdFilter
-      ? eventSubject(requestIdFilter)
-      : 'events.global';
-
-    const sub = nc.subscribe(natsSubject);
-
-    const keepalive = setInterval(() => {
-      try { res.write(':keepalive\n\n'); } catch { /* client gone */ }
-    }, SSE_KEEPALIVE_MS);
-
-    // Forward NATS events to SSE
-    (async () => {
-      for await (const msg of sub) {
-        try {
-          const event = decode<StreamEvent>(msg.data);
-          if (typeFilter && !typeFilter.has(event.type)) continue;
-          res.write(`data: ${JSON.stringify(event)}\n\n`);
-        } catch { /* skip malformed */ }
-      }
-    })().catch(() => {});
-
-    const cleanup = () => {
-      clearInterval(keepalive);
-      sub.unsubscribe();
-    };
-    req.on('close', cleanup);
-    req.on('error', cleanup);
-  }
+  const handleRequest = createRequestHandler({
+    modelId,
+    agentName,
+    agentDirVal,
+    eventBus,
+    providers,
+    fileStore: core.fileStore,
+    taintBudget: core.taintBudget,
+    completionOpts: {
+      modelId,
+      agentName,
+      agentDirVal,
+      eventBus,
+      runCompletion: async (content, requestId, messages, sessionId, userId) => {
+        return processCompletionWithNATS(content, requestId, messages, sessionId, userId, agentType);
+      },
+      preFlightCheck: (sessionId: string, userId: string | undefined) => {
+        if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
+          if (claimBootstrapAdmin(agentDirVal, userId)) {
+            logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+            return undefined;
+          }
+          return 'This agent is still being set up. Only admins can interact during bootstrap.';
+        }
+        return undefined;
+      },
+    },
+    webhookPrefix,
+    webhookHandler,
+    adminHandler,
+    isDraining: () => draining,
+    trackRequestStart,
+    trackRequestEnd,
+    extraRoutes: handleInternalRoutes,
+  });
 
   // ── Start HTTP server ──
 
@@ -766,6 +670,12 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     draining = true;
     logger.info('host_shutting_down');
+
+    if (inflightCount > 0) {
+      logger.info('graceful_drain_start', { inflight: inflightCount });
+      await waitForDrain();
+      logger.info('graceful_drain_complete');
+    }
 
     await providers.scheduler.stop();
 
