@@ -19,7 +19,8 @@
     "serve": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts serve",
     "send": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts send",
     "configure": "NODE_NO_WARNINGS=1 tsx src/cli/index.ts configure",
-    "k8s:dev": "bash scripts/k8s-dev.sh"
+    "k8s:dev": "bash scripts/k8s-dev.sh",
+    "test:acceptance": "vitest run --config tests/acceptance/automated/vitest.config.ts"
   },
   "keywords": [
     "ai",
