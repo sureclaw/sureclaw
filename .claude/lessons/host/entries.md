@@ -1,5 +1,11 @@
 # Host
 
+### Post-agent credential detection must not gate on agent behavior
+**Date:** 2026-03-20
+**Context:** The post-agent credential loop only ran if the agent explicitly called `credential_request` AND `config.web_proxy` was truthy. Both conditions failed in practice.
+**Lesson:** Never gate host-side detection on agent cooperation. The agent (especially smaller models) may not follow prompt instructions. Make detection unconditional — compare before/after workspace state, use ClawHub fallback for metadata when skill files lack frontmatter. Also: don't gate credential scanning on `config.web_proxy` since credentials are needed regardless of proxy config.
+**Tags:** host, credentials, skills, defensive-design, model-agnostic
+
 ### LLM handler model precedence: req.model before configModel
 **Date:** 2026-03-18
 **Context:** Delegation passes `req.model` to override the default model, but `configModel ?? req.model` made the config default win

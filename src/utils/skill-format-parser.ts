@@ -171,8 +171,8 @@ export function parseAgentSkill(raw: string): ParsedAgentSkill {
   const { frontmatter: fm, body } = extractFrontmatter(raw);
   const meta = resolveMetadata(fm);
 
-  // Extract requires from metadata (if present)
-  const requires = meta?.requires as Record<string, unknown> | undefined;
+  // Extract requires from metadata (OpenClaw format) or direct frontmatter
+  const requires = (meta?.requires ?? fm.requires) as Record<string, unknown> | undefined;
 
   // Extract code blocks from the body
   const codeBlocks = extractCodeBlocks(body);

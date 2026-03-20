@@ -370,34 +370,35 @@ async function handleAdminAPI(
   if (pathname === '/admin/api/proxy/approve' && method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
-      const { sessionId, domain, approved } = body;
+      const { sessionId, domain, approved, requestId: proxyRequestId } = body;
       if (!sessionId || !domain || typeof approved !== 'boolean') {
         sendError(res, 400, 'Missing required fields: sessionId, domain, approved');
         return;
       }
-      const found = resolveApproval(sessionId, domain, approved);
+      if (proxyRequestId) {
+        resolveApproval(sessionId, domain, approved, deps.eventBus, proxyRequestId);
+      }
       if (approved) {
         preApproveDomain(sessionId, domain);
       }
-      sendJSON(res, { ok: true, found });
+      sendJSON(res, { ok: true });
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
     }
     return;
   }
 
-  // POST /admin/api/credentials/provide — resolve a pending credential prompt
+  // POST /admin/api/credentials/provide — store a credential for future requests
   if (pathname === '/admin/api/credentials/provide' && method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
-      const { sessionId, envName, value } = body;
-      if (typeof sessionId !== 'string' || !sessionId || typeof envName !== 'string' || !envName || typeof value !== 'string') {
-        sendError(res, 400, 'Missing required fields: sessionId, envName, value');
+      const { envName, value } = body;
+      if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
+        sendError(res, 400, 'Missing required fields: envName, value');
         return;
       }
-      const { resolveCredential } = await import('./credential-prompts.js');
-      const found = resolveCredential(sessionId, envName, value);
-      sendJSON(res, { ok: true, found });
+      await deps.providers.credentials.set(envName, value);
+      sendJSON(res, { ok: true });
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
     }

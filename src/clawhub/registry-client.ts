@@ -88,6 +88,73 @@ async function fetchBinary(url: string): Promise<Buffer> {
 }
 
 /**
+ * Extract ALL text files from a ZIP buffer using the Central Directory.
+ * Skips directories and binary-looking entries. Returns a map of path → content.
+ * Strips a single common root prefix if all entries share one (e.g. "slug/SKILL.md" → "SKILL.md").
+ */
+export function extractAllFromZip(buf: Buffer): Map<string, string> {
+  const files = new Map<string, string>();
+
+  // Locate EOCD
+  let eocdPos = -1;
+  const searchStart = Math.max(0, buf.length - 65558);
+  for (let i = buf.length - 22; i >= searchStart; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocdPos = i; break; }
+  }
+  if (eocdPos === -1) throw new Error('ZIP: EOCD record not found');
+
+  const cdCount = buf.readUInt16LE(eocdPos + 10);
+  const cdOffset = buf.readUInt32LE(eocdPos + 16);
+
+  let pos = cdOffset;
+  for (let i = 0; i < cdCount; i++) {
+    if (buf.readUInt32LE(pos) !== 0x02014b50) break;
+
+    const method = buf.readUInt16LE(pos + 10);
+    const compressedSize = buf.readUInt32LE(pos + 20);
+    const fileNameLen = buf.readUInt16LE(pos + 28);
+    const extraLen = buf.readUInt16LE(pos + 30);
+    const commentLen = buf.readUInt16LE(pos + 32);
+    const localHeaderOffset = buf.readUInt32LE(pos + 42);
+    const fileName = buf.toString('utf8', pos + 46, pos + 46 + fileNameLen);
+
+    pos += 46 + fileNameLen + extraLen + commentLen;
+
+    // Skip directories and unsupported compression methods
+    if (fileName.endsWith('/') || (method !== 0 && method !== 8)) continue;
+    // Skip obviously binary files
+    if (/\.(png|jpg|jpeg|gif|ico|woff|woff2|ttf|eot|zip|gz|tar|bin|exe|dll|so|dylib)$/i.test(fileName)) continue;
+
+    const lhFileNameLen = buf.readUInt16LE(localHeaderOffset + 26);
+    const lhExtraLen = buf.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + lhFileNameLen + lhExtraLen;
+    const data = buf.subarray(dataStart, dataStart + compressedSize);
+    try {
+      const content = (method === 0 ? data : inflateRawSync(data)).toString('utf8');
+      files.set(fileName, content);
+    } catch {
+      // Skip undecompressable entries
+    }
+  }
+
+  // Strip common root prefix (many ZIPs have a single root directory)
+  if (files.size > 0) {
+    const paths = [...files.keys()];
+    const firstSlash = paths[0].indexOf('/');
+    if (firstSlash > 0) {
+      const prefix = paths[0].slice(0, firstSlash + 1);
+      if (paths.every(p => p.startsWith(prefix))) {
+        const stripped = new Map<string, string>();
+        for (const [p, c] of files) stripped.set(p.slice(prefix.length), c);
+        return stripped;
+      }
+    }
+  }
+
+  return files;
+}
+
+/**
  * Extract a named file from a ZIP buffer using the Central Directory.
  * Supports stored (method 0) and deflate-compressed (method 8) entries.
  * Returns null if the file is not found.
@@ -178,6 +245,52 @@ export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
 
   await writeCache(cacheKey, JSON.stringify(detail));
   return detail;
+}
+
+export interface ClawHubSkillPackage {
+  slug: string;
+  displayName: string;
+  files: Array<{ path: string; content: string }>;
+  requiresEnv: string[];
+}
+
+/**
+ * Download a skill package: all files from the ZIP plus parsed requires.env.
+ */
+export async function fetchSkillPackage(slug: string): Promise<ClawHubSkillPackage> {
+  const [zipBytes, searchResults] = await Promise.all([
+    fetchBinary(`${CLAWHUB_API}/download?slug=${encodeURIComponent(slug)}`),
+    search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
+  ]);
+
+  const allFiles = extractAllFromZip(zipBytes);
+  if (allFiles.size === 0) {
+    throw new Error(`ClawHub: no files found in zip for "${slug}"`);
+  }
+
+  // Parse SKILL.md for requires.env
+  const skillMd = allFiles.get('SKILL.md');
+  let requiresEnv: string[] = [];
+  if (skillMd) {
+    try {
+      // Dynamic import to avoid circular dep at module level
+      const { parseAgentSkill } = await import('../utils/skill-format-parser.js');
+      const parsed = parseAgentSkill(skillMd);
+      requiresEnv = parsed.requires.env;
+    } catch {
+      // Best effort — if parsing fails, we still return the files
+    }
+  }
+
+  const meta = searchResults[0];
+  const files = [...allFiles.entries()].map(([path, content]) => ({ path, content }));
+
+  return {
+    slug,
+    displayName: meta?.displayName ?? slug,
+    files,
+    requiresEnv,
+  };
 }
 
 /**

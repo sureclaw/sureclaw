@@ -85,12 +85,13 @@ describe('PromptBuilder', () => {
     expect(result.metadata.modules).toContain('injection-defense');
   });
 
-  test('empty context and skills are excluded', () => {
+  test('skills module always included (for install guidance)', () => {
     const builder = new PromptBuilder();
     const ctx = makeContext();
     const result = builder.build(ctx);
 
-    expect(result.metadata.modules).not.toContain('skills');
+    // Skills module is always included for ClawHub install guidance
+    expect(result.metadata.modules).toContain('skills');
   });
 
   test('metadata includes per-module token breakdown', () => {

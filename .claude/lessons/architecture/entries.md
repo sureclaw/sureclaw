@@ -1,5 +1,23 @@
 # Architecture
 
+### parseAgentSkill requires fallback checks direct frontmatter fields
+**Date:** 2026-03-19
+**Context:** Debugging why `requires.env` was always empty when parsing skills with direct-frontmatter `requires` blocks (not nested under `metadata.openclaw`).
+**Lesson:** `parseAgentSkill()` resolves `requires` from `resolveMetadata(fm)?.requires` which only checks nested `fm.metadata.{openclaw,clawdbot,clawdis}.requires`. Skills using simple direct frontmatter `requires:` blocks (the common format) were silently ignored. Always check both `meta?.requires ?? fm.requires` for fallback. The silent `catch {}` blocks in `collectSkillCredentialRequirements` made this hard to diagnose.
+**Tags:** skill-parser, frontmatter, requires, credentials, silent-failure
+
+### In-memory promise maps create hidden session affinity requirements
+**Date:** 2026-03-19
+**Context:** Replacing credential-prompts.ts in-memory promise map with event bus coordination for mid-request credential collection.
+**Lesson:** In-memory Maps that store pending Promises (like `Map<sessionId, resolver>`) create an implicit requirement that the same process handles both the request and the resolution. In a multi-replica environment (k8s), the HTTP endpoint that receives the credential may hit a different replica than the one waiting on the Promise. Use the event bus (in-process for local, NATS-backed for k8s) to coordinate instead — subscribe per-requestId and emit from any replica.
+**Tags:** event-bus, session-affinity, k8s, credential-prompts, architecture
+
+### Post-agent credential loop pattern
+**Date:** 2026-03-19
+**Context:** Implementing mid-request credential collection where agent requests credentials during execution, then host collects and re-spawns.
+**Lesson:** When an agent needs credentials mid-turn: (1) agent calls credential_request IPC to signal what it needs, (2) host records in shared Map<sessionId, Set<envName>>, (3) after agent exits, host checks the map, re-scans skills, emits credential.required events via SSE, waits for user input via event bus, (4) re-spawns agent with credentials in env. The re-spawn needs a minimal stdin payload — keep it simple and let the agent confirm success.
+**Tags:** credential-collection, agent-respawn, post-agent-loop, processCompletion
+
 ### Shared outbound proxies need per-turn auth to preserve session identity
 **Date:** 2026-03-19
 **Context:** Designing a generalized HTTPS proxy that could support MITM credential injection for sandboxed CLI tools in Docker and k8s.

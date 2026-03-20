@@ -11,7 +11,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
-import * as forge from 'node-forge';
+import forgeModule from 'node-forge';
+// node-forge is a CJS module — default import gets the namespace object
+const forge = forgeModule as typeof forgeModule;
 import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'proxy-ca' });

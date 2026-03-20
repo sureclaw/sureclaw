@@ -85,6 +85,8 @@ export interface IPCHandlerOptions {
   orchestrator?: Orchestrator;
   /** Maps sessionId → workspace directory path. Populated by processCompletion(), consumed by sandbox tool handlers. */
   workspaceMap?: Map<string, string>;
+  /** Tracks credential_request IPC calls per session. Consumed by processCompletion post-agent loop. */
+  requestedCredentials?: Map<string, Set<string>>;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -99,7 +101,9 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
     ...createBrowserHandlers(providers),
-    ...createSkillsHandlers(providers),
+    ...createSkillsHandlers(providers, {
+      requestedCredentials: opts?.requestedCredentials,
+    }),
     ...createIdentityHandlers(providers, {
       agentName,
       profile,

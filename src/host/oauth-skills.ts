@@ -2,15 +2,15 @@
  * OAuth PKCE flow for skill credentials.
  *
  * Manages pending OAuth flows (start → callback → token exchange → store),
- * and handles token refresh for expired credentials. Reuses PKCE helpers
- * from oauth.ts and the pending/resolve pattern from credential-prompts.ts.
+ * and handles token refresh for expired credentials. Uses event bus for
+ * cross-replica coordination instead of in-memory resolveCredential().
  */
 
 import { generateCodeVerifier, generateCodeChallenge, generateState } from './oauth.js';
-import { resolveCredential } from './credential-prompts.js';
 import { getLogger } from '../logger.js';
 import type { OAuthRequirement } from '../providers/skills/types.js';
 import type { CredentialProvider } from '../providers/credentials/types.js';
+import type { EventBus } from './event-bus.js';
 
 const logger = getLogger().child({ component: 'oauth-skills' });
 
@@ -27,6 +27,7 @@ export interface OAuthCredentialBlob {
 
 interface PendingOAuthFlow {
   sessionId: string;
+  requestId: string;
   requirement: OAuthRequirement;
   codeVerifier: string;
   redirectUri: string;
@@ -44,6 +45,7 @@ const sessionStates = new Map<string, Set<string>>();
  */
 export function startOAuthFlow(
   sessionId: string,
+  requestId: string,
   req: OAuthRequirement,
   redirectUri: string,
 ): string {
@@ -51,7 +53,7 @@ export function startOAuthFlow(
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();
 
-  pendingFlows.set(state, { sessionId, requirement: req, codeVerifier, redirectUri });
+  pendingFlows.set(state, { sessionId, requestId, requirement: req, codeVerifier, redirectUri });
 
   let states = sessionStates.get(sessionId);
   if (!states) {
@@ -76,13 +78,14 @@ export function startOAuthFlow(
 
 /**
  * Handle the OAuth callback — validate state, exchange code for tokens,
- * store the credential blob, and resolve the pending credential prompt.
+ * store the credential blob, and emit credential.resolved via event bus.
  */
 export async function resolveOAuthCallback(
   provider: string,
   code: string,
   state: string,
   credentials: CredentialProvider,
+  eventBus: EventBus,
 ): Promise<boolean> {
   const flow = pendingFlows.get(state);
   if (!flow) {
@@ -90,7 +93,7 @@ export async function resolveOAuthCallback(
     return false;
   }
 
-  const { requirement: req, codeVerifier, redirectUri, sessionId } = flow;
+  const { requirement: req, codeVerifier, redirectUri, sessionId, requestId } = flow;
 
   // Remove pending state only after extracting flow data
   pendingFlows.delete(state);
@@ -124,7 +127,6 @@ export async function resolveOAuthCallback(
     if (!res.ok) {
       const text = await res.text();
       logger.error('oauth_token_exchange_failed', { provider, status: res.status, body: text });
-      resolveCredential(sessionId, req.name, '');
       return false;
     }
 
@@ -145,13 +147,9 @@ export async function resolveOAuthCallback(
     const credKey = `oauth:${req.name}`;
     await credentials.set(credKey, JSON.stringify(blob));
     logger.info('oauth_tokens_stored', { provider, credKey });
-
-    // Resolve the pending credential prompt so processCompletion unblocks
-    resolveCredential(sessionId, req.name, blob.access_token);
     return true;
   } catch (err) {
     logger.error('oauth_callback_error', { provider, error: (err as Error).message });
-    resolveCredential(sessionId, req.name, '');
     return false;
   }
 }

@@ -30,10 +30,17 @@ const NETWORK_COMMAND_DOMAINS: [RegExp, string[]][] = [
   [/\bgo\s+(get|install|mod\s+download)\b/, ['proxy.golang.org', 'sum.golang.org']],
 ];
 
+/** Extract domains from URLs in commands that use network (git clone, curl, wget). */
+const URL_COMMAND_PATTERN = /\b(?:git\s+clone|curl|wget)\s+(?:-[^\s]*\s+)*https?:\/\/([^/\s]+)/g;
+
 export function extractNetworkDomains(command: string): string[] {
   const domains: string[] = [];
   for (const [pattern, doms] of NETWORK_COMMAND_DOMAINS) {
     if (pattern.test(command)) domains.push(...doms);
+  }
+  // Also extract explicit URL domains from git clone, curl, wget
+  for (const match of command.matchAll(URL_COMMAND_PATTERN)) {
+    if (match[1]) domains.push(match[1]);
   }
   return [...new Set(domains)];
 }

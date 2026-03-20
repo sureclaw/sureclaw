@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { createEventBus } from '../../src/host/event-bus.js';
 
 // Mock global fetch for token exchange tests
 const mockFetch = vi.fn();
@@ -12,7 +13,7 @@ describe('oauth-skills', () => {
   test('startOAuthFlow returns authorize URL with PKCE params', async () => {
     const { startOAuthFlow } = await import('../../src/host/oauth-skills.js');
 
-    const url = startOAuthFlow('sess-1', {
+    const url = startOAuthFlow('sess-1', 'req-1', {
       name: 'LINEAR_API_KEY',
       authorize_url: 'https://linear.app/oauth/authorize',
       token_url: 'https://linear.app/oauth/token',
@@ -33,9 +34,10 @@ describe('oauth-skills', () => {
 
   test('resolveOAuthCallback exchanges code and resolves pending flow', async () => {
     const { startOAuthFlow, resolveOAuthCallback, cleanupSession } = await import('../../src/host/oauth-skills.js');
+    const eventBus = createEventBus();
 
     // Start a flow to create the pending entry
-    const url = startOAuthFlow('sess-2', {
+    const url = startOAuthFlow('sess-2', 'req-2', {
       name: 'GH_TOKEN',
       authorize_url: 'https://github.com/login/oauth/authorize',
       token_url: 'https://github.com/login/oauth/access_token',
@@ -62,7 +64,7 @@ describe('oauth-skills', () => {
       list: vi.fn().mockResolvedValue([]),
     };
 
-    const result = await resolveOAuthCallback('GH_TOKEN', 'auth-code-xyz', state, mockCredentials);
+    const result = await resolveOAuthCallback('GH_TOKEN', 'auth-code-xyz', state, mockCredentials, eventBus);
     expect(result).toBe(true);
 
     // Should have stored the credential blob
@@ -80,6 +82,7 @@ describe('oauth-skills', () => {
 
   test('resolveOAuthCallback returns false for invalid state', async () => {
     const { resolveOAuthCallback } = await import('../../src/host/oauth-skills.js');
+    const eventBus = createEventBus();
 
     const mockCredentials = {
       get: vi.fn().mockResolvedValue(null),
@@ -88,7 +91,7 @@ describe('oauth-skills', () => {
       list: vi.fn().mockResolvedValue([]),
     };
 
-    const result = await resolveOAuthCallback('UNKNOWN', 'code', 'bad-state', mockCredentials);
+    const result = await resolveOAuthCallback('UNKNOWN', 'code', 'bad-state', mockCredentials, eventBus);
     expect(result).toBe(false);
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -189,8 +192,9 @@ describe('oauth-skills', () => {
 
   test('cleanupSession clears pending flows', async () => {
     const { startOAuthFlow, resolveOAuthCallback, cleanupSession } = await import('../../src/host/oauth-skills.js');
+    const eventBus = createEventBus();
 
-    const url = startOAuthFlow('sess-cleanup', {
+    const url = startOAuthFlow('sess-cleanup', 'req-cleanup', {
       name: 'TEST',
       authorize_url: 'https://example.com/auth',
       token_url: 'https://example.com/token',
@@ -204,7 +208,7 @@ describe('oauth-skills', () => {
 
     // resolveOAuthCallback should return false — pending was cleaned up
     const mockCredentials = { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() };
-    const result = await resolveOAuthCallback('TEST', 'code', state, mockCredentials);
+    const result = await resolveOAuthCallback('TEST', 'code', state, mockCredentials, eventBus);
     expect(result).toBe(false);
   });
 });

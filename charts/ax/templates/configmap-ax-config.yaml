@@ -7,4 +7,5 @@ metadata:
     {{- include "ax.labels" . | nindent 4 }}
 data:
   ax.yaml: |
+    namespace: {{ include "ax.namespace" . }}
     {{- .Values.config | toYaml | nindent 4 }}

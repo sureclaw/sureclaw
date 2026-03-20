@@ -191,21 +191,37 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     },
   },
 
-  // ── Skill Search ──
+  // ── Skill ──
   {
     name: 'skill',
     label: 'Skill',
     description:
-      'Search for skills in the ClawHub registry.\n\n' +
-      'Use `type: "search"` to find skills by query.',
-    parameters: Type.Object({
-      type: Type.Literal('search'),
-      query: Type.String({ description: 'Search query' }),
-      limit: Type.Optional(Type.Number({ description: 'Max results (1-50, default 20)' })),
-    }),
+      'Manage skills: search, download from ClawHub, or request credentials.\n\n' +
+      'Use `type: "search"` to find skills by query.\n' +
+      'Use `type: "download"` to download a skill package by slug. Returns all files and required credentials.\n' +
+      'Use `type: "request_credential"` to request a credential (e.g. API key) that a skill needs.\n' +
+      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
+      're-invoked with the credential available as an environment variable.',
+    parameters: Type.Union([
+      Type.Object({
+        type: Type.Literal('search'),
+        query: Type.String({ description: 'Search query' }),
+        limit: Type.Optional(Type.Number({ description: 'Max results (1-50, default 20)' })),
+      }),
+      Type.Object({
+        type: Type.Literal('download'),
+        slug: Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' }),
+      }),
+      Type.Object({
+        type: Type.Literal('request_credential'),
+        envName: Type.String({ description: 'Environment variable name the skill requires (e.g. LINEAR_API_KEY)' }),
+      }),
+    ]),
     category: 'skill',
     actionMap: {
       search: 'skill_search',
+      download: 'skill_download',
+      request_credential: 'credential_request',
     },
   },
 

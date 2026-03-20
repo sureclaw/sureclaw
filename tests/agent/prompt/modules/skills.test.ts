@@ -25,14 +25,23 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
 }
 
 describe('SkillsModule', () => {
-  test('not included when no skills', () => {
+  test('always included (even with no skills, for install guidance)', () => {
     const mod = new SkillsModule();
-    expect(mod.shouldInclude(makeContext())).toBe(false);
+    expect(mod.shouldInclude(makeContext())).toBe(true);
   });
 
   test('included when skills present', () => {
     const mod = new SkillsModule();
     expect(mod.shouldInclude(makeContext({ skills: [makeSkill('Safety', 'Be safe')] }))).toBe(true);
+  });
+
+  test('renders install guidance when no skills loaded', () => {
+    const mod = new SkillsModule();
+    const text = mod.render(makeContext()).join('\n');
+    expect(text).toContain('No skills are currently installed');
+    expect(text).toContain('Installing Skills from ClawHub');
+    expect(text).toContain('skill({ type: "download"');
+    expect(text).toContain('request_credential');
   });
 
   test('renders compact skill table instead of full content', () => {

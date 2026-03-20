@@ -155,6 +155,14 @@ export const SkillSearchSchema = ipcAction('skill_search', {
   limit: z.number().int().min(1).max(50).optional(),
 });
 
+export const SkillDownloadSchema = ipcAction('skill_download', {
+  slug: safeString(200),
+});
+
+export const CredentialRequestSchema = ipcAction('credential_request', {
+  envName: safeString(200),
+});
+
 // ── Audit ────────────────────────────────────────────
 
 export const AuditQuerySchema = ipcAction('audit_query', {

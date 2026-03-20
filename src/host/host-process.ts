@@ -203,6 +203,7 @@ async function main(): Promise<void> {
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
   const sessionCanaries = new Map<string, string>();
   const workspaceMap = new Map<string, string>();
+  const requestedCredentials = new Map<string, Set<string>>();
   const fileStore = await FileStore.create(providers.database);
 
   const agentSandbox = providers.sandbox;
@@ -223,6 +224,7 @@ async function main(): Promise<void> {
     fileStore,
     eventBus,
     workspaceMap,
+    requestedCredentials,
     sharedCredentialRegistry,
   };
 
@@ -275,6 +277,7 @@ async function main(): Promise<void> {
     orchestrator,
     agentRegistry,
     workspaceMap,
+    requestedCredentials,
   });
   completionDeps.ipcHandler = handleIPC;
 
@@ -319,7 +322,10 @@ async function main(): Promise<void> {
       },
       onApprove: async (domain, method, url) => {
         logger.info('web_proxy_approval_required', { domain, method, url });
-        const approved = await requestApproval('host-process', domain);
+        // K8s shared proxy: generate a unique requestId per domain approval
+        // so the event bus can route the response back to this specific waiter.
+        const proxyRequestId = `proxy-${randomUUID().slice(0, 8)}`;
+        const approved = await requestApproval('host-process', domain, eventBus, proxyRequestId);
         return { approved, reason: approved ? undefined : `Network access to ${domain} requires user approval` };
       },
       mitm: {
@@ -678,6 +684,24 @@ async function main(): Promise<void> {
       } catch (err) {
         logger.error('admin_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Admin request failed');
+      }
+      return;
+    }
+
+    // POST /v1/credentials/provide — store a credential for future requests
+    if (url === '/v1/credentials/provide' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const { envName, value } = body;
+        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
+          sendError(res, 400, 'Missing required fields: envName, value');
+          return;
+        }
+        await providers.credentials.set(envName, value);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
       }
       return;
     }

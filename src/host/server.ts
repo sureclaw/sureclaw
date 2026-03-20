@@ -346,6 +346,9 @@ export async function createServer(
   // Populated by processCompletion() before agent spawn, consumed by sandbox tool IPC handlers.
   const workspaceMap = new Map<string, string>();
 
+  // Tracks credential_request IPC calls per session. Consumed by processCompletion post-agent loop.
+  const requestedCredentials = new Map<string, Set<string>>();
+
   // Deduplication
   const deduplicator = new ChannelDeduplicator({
     windowMs: opts.dedupeWindowMs,
@@ -370,6 +373,7 @@ export async function createServer(
     fileStore,
     eventBus,
     workspaceMap,
+    requestedCredentials,
   };
 
   // Delegation callback: spawn a child agent via processCompletion with
@@ -448,6 +452,7 @@ export async function createServer(
     orchestrator,
     agentRegistry,
     workspaceMap,
+    requestedCredentials,
   });
   completionDeps.ipcHandler = handleIPC;
 
@@ -651,18 +656,17 @@ export async function createServer(
       return;
     }
 
-    // POST /v1/credentials/provide — resolve a pending credential prompt
+    // POST /v1/credentials/provide — store a credential for future requests
     if (url === '/v1/credentials/provide' && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req));
-        const { sessionId, envName, value } = body;
-        if (typeof sessionId !== 'string' || !sessionId || typeof envName !== 'string' || !envName || typeof value !== 'string') {
-          sendError(res, 400, 'Missing required fields: sessionId, envName, value');
+        const { envName, value } = body;
+        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
+          sendError(res, 400, 'Missing required fields: envName, value');
           return;
         }
-        const { resolveCredential } = await import('./credential-prompts.js');
-        const found = resolveCredential(sessionId, envName, value);
-        const responseBody = JSON.stringify({ ok: true, found });
+        await providers.credentials.set(envName, value);
+        const responseBody = JSON.stringify({ ok: true });
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(responseBody) });
         res.end(responseBody);
       } catch (err) {
@@ -687,7 +691,7 @@ export async function createServer(
 
       try {
         const { resolveOAuthCallback } = await import('./oauth-skills.js');
-        const found = await resolveOAuthCallback(provider, code, state, providers.credentials);
+        const found = await resolveOAuthCallback(provider, code, state, providers.credentials, eventBus);
 
         const html = found
           ? '<html><body><h2>Authentication successful</h2><p>You can close this tab and return to your conversation.</p></body></html>'

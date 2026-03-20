@@ -2,6 +2,46 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-19 23:45] — E2E credential collection verified in k8s
+
+**Task:** Verify end-to-end skill install with mid-request credential collection in k8s kind cluster
+**What I did:**
+- Fixed network policy template: gated on `networkPolicies.enabled` (was only `webProxy.enabled`), added IPC port 8080, NATS port 4222, and DNS to egress rules for sandbox pods
+- Fixed API credentials secret: populated with real OpenRouter/DeepInfra keys from .env.test
+- Fixed `parseAgentSkill()` in skill-format-parser.ts: `requires` was only checked in `meta?.requires` (OpenClaw nested metadata format), not in direct frontmatter `fm.requires`. Added fallback: `(meta?.requires ?? fm.requires)`
+- Added `/v1/credentials/provide` route to host-process.ts (was only in server.ts for dev mode)
+- E2E verified: skill with `requires.env: [WEATHER_API_KEY]` triggers `credential.required` event, SSE stream blocks with keepalives, credential provided via admin API unblocks stream, credential persisted in database for future requests
+**Files touched:** charts/ax/templates/network-policy.yaml, src/utils/skill-format-parser.ts, src/host/host-process.ts, src/host/server-completions.ts (diag cleanup)
+**Outcome:** Success — full credential collection flow verified end-to-end in k8s, 2479 tests pass
+**Notes:** Key discoveries: (1) network policy only allowed port 3128 egress, blocking HTTP IPC on port 8080 and NATS on 4222; (2) `parseAgentSkill` silently returned empty env array for direct-frontmatter `requires` fields; (3) process.stderr.write diag output intermittently not captured by kubectl logs — use pino logger or console.log instead
+
+## [2026-03-19 23:00] — K8s deployment fixes from E2E validation
+
+**Task:** Validate full credential flow E2E on kind cluster; fix issues blocking deployment.
+**What I did:**
+- Fixed node-forge ESM import in proxy-ca.ts (`import * as forge` → `import forgeModule from`). The CJS module doesn't export named `pki` — need default import.
+- Added `namespace` to Config Zod schema — chart-injected field was rejected by strict validation.
+- Auto-inject namespace into ConfigMap template from Helm release namespace (so web proxy URL uses correct k8s service FQDN).
+- Fixed kind-dev-values.yaml: empty registry for local images, correct mount paths (`/opt/ax/dist`), OpenRouter API credentials.
+- E2E test showed host starts successfully, web proxy on port 3128 with MITM, LLM calls work. But sandbox pods never receive NATS work dispatch — tool calls stream back unexecuted.
+**Files touched:** src/host/proxy-ca.ts, src/config.ts, charts/ax/templates/configmap-ax-config.yaml, charts/ax/kind-dev-values.yaml
+**Outcome:** Partial — host deploys clean, web proxy starts, but NATS work dispatch to sandbox pods is non-functional (pre-existing issue)
+**Notes:** Sandbox pods show `[diag] waiting for work on sandbox.work` but never receive messages. This blocks all E2E validation of web proxy propagation, npm install, and credential flow.
+
+## [2026-03-19 22:20] — Migrate web-proxy-approvals to event bus + diagnostic logging
+
+**Task:** Follow-up from live k8s debugging: (1) add diagnostic logging for web proxy URL propagation to sandbox pods, (2) migrate web-proxy-approvals.ts from in-memory promise map to event bus pattern (like credential-prompts.ts), (3) verify Helm chart web proxy config.
+**What I did:**
+- Added diagnostic logging in runner.ts:applyPayload() to show whether webProxyUrl came from payload vs env
+- Added logging in pi-session.ts and claude-code.ts to show which proxy mode (bridge/URL/port) was selected
+- Rewrote web-proxy-approvals.ts: replaced in-memory pending Map with event bus subscribeRequest/emit pattern. requestApproval() now takes EventBus + requestId, resolveApproval() publishes event. Kept approvedCache/deniedCache as local short-circuit caches.
+- Updated all callers: server-completions.ts, host-process.ts, server-admin.ts, ipc-handlers/sandbox-tools.ts
+- Rewrote tests to use createEventBus() — 11 tests including timeout, requestId mismatch, cache, session isolation
+- Verified Helm chart: service selector matches host labels, containerPort 3128 conditional, network policies correct
+**Files touched:** src/agent/runner.ts, src/agent/runners/pi-session.ts, src/agent/runners/claude-code.ts, src/host/web-proxy-approvals.ts, src/host/server-completions.ts, src/host/host-process.ts, src/host/server-admin.ts, src/host/ipc-handlers/sandbox-tools.ts, tests/host/web-proxy-approvals.test.ts
+**Outcome:** Success — all 2479 tests pass, clean TypeScript compilation
+**Notes:** resolveApproval() changed from returning boolean (found) to void — it publishes to event bus, so there's no "found" concept. Admin API and IPC handler now accept requestId/proxyRequestId fields.
+
 ## [2026-03-19 08:15] — Host-Side Credential Prompting During Skill Install
 
 **Task:** Implement interactive credential prompting when skills require API keys not in the credential store
