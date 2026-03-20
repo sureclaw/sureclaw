@@ -1,7 +1,8 @@
 // src/host/server-request-handlers.ts — Shared HTTP request handlers for server.ts and host-process.ts.
 //
 // Extracts: handleModels, handleCompletions (body parsing + streaming + non-streaming),
-// handleEventsSSE (EventBus-based SSE), and createSchedulerCallback factory.
+// handleEventsSSE (EventBus-based SSE), createSchedulerCallback factory,
+// and createRequestHandler() — the unified HTTP route dispatch factory.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +15,9 @@ import type { EventBus, StreamEvent } from './event-bus.js';
 import type { Router } from './router.js';
 import type { Config, ProviderRegistry, ContentBlock } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
+import { handleFileUpload, handleFileDownload } from './server-files.js';
+import type { FileStore } from '../file-store.js';
+import type { TaintBudget } from './taint-budget.js';
 
 const logger = getLogger();
 
@@ -394,5 +398,223 @@ export function createSchedulerCallback(opts: SchedulerCallbackOpts): (msg: Inbo
       sender: msg.sender, sessionId: result.sessionId,
       contentLength: responseContent.length, hasResponse: true,
     });
+  };
+}
+
+// ── Shared request handler factory ──
+
+export type WebhookHandler = (req: IncomingMessage, res: ServerResponse, webhookName: string) => Promise<void>;
+export type AdminHandler = (req: IncomingMessage, res: ServerResponse, path: string) => Promise<void>;
+
+export interface RequestHandlerOpts {
+  // Core dependencies
+  modelId: string;
+  agentName: string;
+  agentDirVal: string;
+  eventBus: EventBus;
+  providers: ProviderRegistry;
+  fileStore: FileStore;
+  taintBudget: TaintBudget;
+
+  // Completion
+  completionOpts: CompletionHandlerOpts;
+
+  // Webhook
+  webhookPrefix: string;
+  webhookHandler: WebhookHandler | null;
+
+  // Admin
+  adminHandler: AdminHandler | null;
+
+  // Drain state — caller manages the boolean; handler reads it
+  isDraining: () => boolean;
+
+  // Inflight tracking — caller provides start/end hooks for graceful drain
+  trackRequestStart?: () => void;
+  trackRequestEnd?: () => void;
+
+  // Mode-specific routes — called BEFORE the 404 fallback.
+  // Return true if the route was handled, false to fall through.
+  extraRoutes?: (req: IncomingMessage, res: ServerResponse, url: string) => Promise<boolean>;
+}
+
+export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const {
+    modelId, eventBus, providers, fileStore,
+    completionOpts, webhookPrefix, webhookHandler, adminHandler,
+    isDraining, trackRequestStart, trackRequestEnd, extraRoutes,
+  } = opts;
+
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    // CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const url = req.url ?? '/';
+
+    // Reject new requests during shutdown
+    if (isDraining() && (url === '/v1/chat/completions' || url.startsWith(webhookPrefix))) {
+      sendError(res, 503, 'Server is shutting down — not accepting new requests');
+      return;
+    }
+
+    // Health
+    if (url === '/health' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: isDraining() ? 'draining' : 'ok' }));
+      return;
+    }
+
+    // Models
+    if (url === '/v1/models' && req.method === 'GET') {
+      handleModels(res, modelId);
+      return;
+    }
+
+    // Completions
+    if (url === '/v1/chat/completions' && req.method === 'POST') {
+      trackRequestStart?.();
+      try {
+        await handleCompletions(req, res, completionOpts);
+      } catch (err) {
+        logger.error('request_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Internal server error');
+      } finally {
+        trackRequestEnd?.();
+      }
+      return;
+    }
+
+    // File upload
+    if (url.startsWith('/v1/files') && req.method === 'POST') {
+      try {
+        await handleFileUpload(req, res, { fileStore });
+      } catch (err) {
+        logger.error('file_upload_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'File upload failed');
+      }
+      return;
+    }
+
+    // File download
+    if (url.startsWith('/v1/files/') && req.method === 'GET') {
+      try {
+        await handleFileDownload(req, res, { fileStore });
+      } catch (err) {
+        logger.error('file_download_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'File download failed');
+      }
+      return;
+    }
+
+    // SSE events
+    if (url.startsWith('/v1/events') && req.method === 'GET') {
+      handleEventsSSE(req, res, eventBus);
+      return;
+    }
+
+    // Webhooks
+    if (webhookHandler && url.startsWith(webhookPrefix)) {
+      const webhookName = url.slice(webhookPrefix.length).split('?')[0];
+      if (!webhookName) {
+        sendError(res, 404, 'Not found');
+        return;
+      }
+      trackRequestStart?.();
+      try {
+        await webhookHandler(req, res, webhookName);
+      } catch (err) {
+        logger.error('webhook_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Webhook processing failed');
+      } finally {
+        trackRequestEnd?.();
+      }
+      return;
+    }
+
+    // Credential provide
+    if (url === '/v1/credentials/provide' && req.method === 'POST') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const { envName, value } = body;
+        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
+          sendError(res, 400, 'Missing required fields: envName, value');
+          return;
+        }
+        await providers.credentials.set(envName, value);
+        const responseBody = JSON.stringify({ ok: true });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(responseBody)) });
+        res.end(responseBody);
+      } catch (err) {
+        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    // OAuth callback
+    if (url.startsWith('/v1/oauth/callback/') && req.method === 'GET') {
+      const provider = url.split('/v1/oauth/callback/')[1]?.split('?')[0];
+      const params = new URL(req.url!, `http://${req.headers.host}`).searchParams;
+      const code = params.get('code');
+      const state = params.get('state');
+
+      if (!provider || !code || !state) {
+        const html = '<html><body><h2>Bad request</h2><p>Missing required parameters (code, state).</p></body></html>';
+        res.writeHead(400, { 'Content-Type': 'text/html', 'Content-Length': String(Buffer.byteLength(html)) });
+        res.end(html);
+        return;
+      }
+
+      try {
+        const { resolveOAuthCallback } = await import('./oauth-skills.js');
+        const found = await resolveOAuthCallback(provider, code, state, providers.credentials, eventBus);
+
+        const html = found
+          ? '<html><body><h2>Authentication successful</h2><p>You can close this tab and return to your conversation.</p></body></html>'
+          : '<html><body><h2>Authentication failed</h2><p>Invalid or expired OAuth flow. Please try again.</p></body></html>';
+        const status = found ? 200 : 400;
+        res.writeHead(status, { 'Content-Type': 'text/html', 'Content-Length': String(Buffer.byteLength(html)) });
+        res.end(html);
+      } catch (err) {
+        logger.error('oauth_callback_failed', { provider, error: (err as Error).message });
+        const html = '<html><body><h2>Server error</h2><p>OAuth callback processing failed. Please try again.</p></body></html>';
+        res.writeHead(500, { 'Content-Type': 'text/html', 'Content-Length': String(Buffer.byteLength(html)) });
+        res.end(html);
+      }
+      return;
+    }
+
+    // Root → admin redirect
+    if (adminHandler && (url === '/' || url === '')) {
+      res.writeHead(302, { Location: '/admin' });
+      res.end();
+      return;
+    }
+
+    // Admin dashboard
+    if (adminHandler && url.startsWith('/admin')) {
+      try {
+        await adminHandler(req, res, url.split('?')[0]);
+      } catch (err) {
+        logger.error('admin_failed', { error: (err as Error).message });
+        if (!res.headersSent) sendError(res, 500, 'Admin request failed');
+      }
+      return;
+    }
+
+    // Mode-specific routes (k8s /internal/*, etc.)
+    if (extraRoutes) {
+      const handled = await extraRoutes(req, res, url);
+      if (handled) return;
+    }
+
+    sendError(res, 404, 'Not found');
   };
 }
