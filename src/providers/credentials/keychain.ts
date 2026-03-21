@@ -25,6 +25,11 @@ interface KeytarModule {
   findCredentials(service: string): Promise<{ account: string; password: string }[]>;
 }
 
+function scopedAccount(service: string, scope?: string): string {
+  if (!scope) return service;
+  return `${scope}::${service}`;
+}
+
 export async function create(config: Config): Promise<CredentialProvider> {
   let keytar: KeytarModule | null = null;
 
@@ -44,24 +49,36 @@ export async function create(config: Config): Promise<CredentialProvider> {
   }
 
   return {
-    async get(service: string): Promise<string | null> {
-      const value = await keytar!.getPassword(SERVICE_NAME, service);
+    async get(service: string, scope?: string): Promise<string | null> {
+      const account = scopedAccount(service, scope);
+      const value = await keytar!.getPassword(SERVICE_NAME, account);
       if (value !== null) return value;
-      // Fall back to process.env so shell-exported vars still work
-      return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
+      if (!scope) {
+        // Fall back to process.env so shell-exported vars still work
+        return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
+      }
+      return null;
     },
 
-    async set(service: string, value: string): Promise<void> {
-      await keytar!.setPassword(SERVICE_NAME, service, value);
+    async set(service: string, value: string, scope?: string): Promise<void> {
+      const account = scopedAccount(service, scope);
+      await keytar!.setPassword(SERVICE_NAME, account, value);
     },
 
-    async delete(service: string): Promise<void> {
-      await keytar!.deletePassword(SERVICE_NAME, service);
+    async delete(service: string, scope?: string): Promise<void> {
+      const account = scopedAccount(service, scope);
+      await keytar!.deletePassword(SERVICE_NAME, account);
     },
 
-    async list(): Promise<string[]> {
+    async list(scope?: string): Promise<string[]> {
       const creds = await keytar!.findCredentials(SERVICE_NAME);
-      return creds.map(c => c.account);
+      if (!scope) {
+        return creds.filter(c => !c.account.includes('::')).map(c => c.account);
+      }
+      const prefix = `${scope}::`;
+      return creds
+        .filter(c => c.account.startsWith(prefix))
+        .map(c => c.account.slice(prefix.length));
     },
   };
 }

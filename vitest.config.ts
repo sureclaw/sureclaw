@@ -8,7 +8,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/.worktrees/**',
-      'dashboard/tests/**',
+      'ui/admin/tests/**',
       'tests/e2e/**',
     ],
   },

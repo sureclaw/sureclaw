@@ -17,6 +17,11 @@ import { axHome } from '../paths.js';
 function clawHubApi(): string {
   return process.env.CLAWHUB_API_URL || 'https://clawhub.ai/api/v1';
 }
+
+function authHeaders(): Record<string, string> {
+  const token = process.env.CLAWHUB_TOKEN;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface ClawHubSkillEntry {
@@ -69,7 +74,7 @@ async function writeCache(key: string, data: string): Promise<void> {
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'ax-agent/1.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': 'ax-agent/1.0', ...authHeaders() },
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) {
@@ -80,7 +85,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 
 async function fetchBinary(url: string): Promise<Buffer> {
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'ax-agent/1.0' },
+    headers: { 'User-Agent': 'ax-agent/1.0', ...authHeaders() },
     signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) {

@@ -2,6 +2,38 @@
 
 Credential storage provider implementations: plaintext, keychain, database.
 
+## [2026-03-20 18:56] — Update plaintext credential provider to use scope parameter
+
+**Task:** Task 3 — Update the plaintext credential provider to support the `scope` parameter added to the CredentialProvider interface
+**What I did:** Added `scopedKey()` helper that namespaces keys as `scope::service`. Updated all four methods (`get`, `set`, `delete`, `list`) to accept and use the optional scope parameter. Scoped keys are stored in the same YAML file. Unscoped calls preserve backward compatibility (env fallback, process.env sync). `list()` filters keys by scope prefix and strips it from results.
+**Files touched:** src/providers/credentials/plaintext.ts, tests/providers/credentials/plaintext.test.ts
+**Outcome:** Success — all 13 tests pass (11 existing + 2 new scope tests)
+**Notes:** Scoped `set`/`delete` do NOT sync to process.env since env vars are a global namespace and scoped credentials are meant for isolation. Scoped `get` does NOT fall back to process.env — only unscoped calls do.
+
+## [2026-03-20 19:10] — Update keychain credential provider to use scope parameter
+
+**Task:** Task 4 — Update keychain.ts to use the scope parameter added in Task 1
+**What I did:** Added `scopedAccount()` helper that prefixes service names with `scope::` when a scope is provided. Updated all four methods (get, set, delete, list) to use scoped accounts. The `get` method only falls back to process.env when no scope is specified. The `list` method filters by scope prefix or excludes scoped entries when no scope is given.
+**Files touched:** src/providers/credentials/keychain.ts
+**Outcome:** Success — TypeScript build compiles cleanly
+**Notes:** Keychain tests require keytar which may not be available in CI, so only compilation was verified. The `list()` filtering ensures unscoped calls don't leak scoped credentials and vice versa.
+
+## [2026-03-20 18:55] — Update database credential provider to use scope parameter
+
+**Task:** Task 2 — Update the database implementation to use the `scope` parameter added to CredentialProvider in Task 1
+**What I did:** Removed the closure-captured `const scope = DEFAULT_SCOPE` and updated all four methods (`get`, `set`, `delete`, `list`) to accept `scope?: string` and compute `effectiveScope = scope ?? DEFAULT_SCOPE`. process.env fallback/update now only happens for unscoped (global) calls. Added 3 new tests: scoped isolation, scoped list, and scoped delete.
+**Files touched:** src/providers/credentials/database.ts, tests/providers/credentials/database.test.ts
+**Outcome:** Success — all 17 credential/database tests pass (14 existing + 3 new scoped tests)
+**Notes:** Scoped calls (`scope` explicitly provided) never read from or write to `process.env`. Only default/global calls (no scope argument) maintain the process.env synchronization behavior.
+
+## [2026-03-20 18:53] — Add optional scope parameter to CredentialProvider interface
+
+**Task:** Add optional `scope` parameter to all CredentialProvider methods (Task 1 of multi-step plan)
+**What I did:** Added `scope?: string` as the last parameter to `get`, `set`, `delete`, and `list` methods in the CredentialProvider interface
+**Files touched:** src/providers/credentials/types.ts
+**Outcome:** Success — all 29 existing credential tests pass (3 test files). Parameter is optional so no implementations need updating yet.
+**Notes:** This is the interface-only change. Implementations (plaintext, keychain, database, encrypted) will be updated in subsequent tasks to use the scope parameter.
+
 ## [2026-03-19 13:00] — Database-backed credential provider
 
 **Task:** Implement a database-backed credential provider for k8s durability

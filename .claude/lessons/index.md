@@ -115,6 +115,8 @@
 - SQLiteJobStore belongs in types.ts alongside MemoryJobStore [providers/scheduler.md](providers/scheduler.md)
 - Pre-existing provider-map path regex failures [providers/scheduler.md](providers/scheduler.md)
 - Check dependency chain before implementing plan tasks — missing prereqs block you [providers/memory.md](providers/memory.md)
+- Identity content and injection patterns are semantically identical [providers/scanner.md](providers/scanner.md)
+- Check the audit_log table when identity persistence fails [providers/scanner.md](providers/scanner.md)
 
 ### host
 

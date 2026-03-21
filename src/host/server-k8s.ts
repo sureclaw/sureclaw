@@ -483,6 +483,13 @@ async function main(): Promise<void> {
 
         if (providers.workspace?.setRemoteChanges) {
           providers.workspace.setRemoteChanges(entry.ctx.sessionId, screening.accepted);
+        } else if (screening.accepted.length > 0) {
+          logger.warn('workspace_release_no_provider', {
+            sessionId: entry.ctx.sessionId,
+            changeCount: screening.accepted.length,
+            hint: 'Workspace changes received but no workspace provider supports remote changes. ' +
+                  'Set providers.workspace to "gcs" (not "none") in config.',
+          });
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });

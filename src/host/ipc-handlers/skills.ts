@@ -4,6 +4,7 @@
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import * as clawhub from '../../clawhub/registry-client.js';
+import { resolveCredential } from '../credential-scopes.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'ipc-skills' });
@@ -61,13 +62,18 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
         }
         envNames.add(envName);
       }
-      logger.info('credential_request_recorded', { envName, sessionId: ctx.sessionId });
+
+      // Check if credential is already available (user scope → agent scope)
+      const agentName = ctx.agentId ?? 'main';
+      const available = (await resolveCredential(providers.credentials, envName, agentName, ctx.userId)) !== null;
+
+      logger.info('credential_request_recorded', { envName, sessionId: ctx.sessionId, available });
       await providers.audit.log({
         action: 'credential_request',
         sessionId: ctx.sessionId,
-        args: { envName },
+        args: { envName, available },
       });
-      return { ok: true };
+      return { ok: true, available };
     },
   };
 }

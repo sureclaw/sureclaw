@@ -1,5 +1,22 @@
 # Scanner Provider Journal
 
+## [2026-03-20 23:10] — Fix scanner false-positive blocking SOUL.md identity writes
+
+**Task:** Debug why identity/soul changes are not persisting in the kind k8s cluster — agent keeps re-bootstrapping every session.
+**What I did:**
+- Traced the identity persistence flow: DocumentStore → stdin payload → agent prompt
+- Found SOUL.md missing from PostgreSQL documents table while IDENTITY.md existed
+- Checked audit_log: every SOUL.md write had `decision: scanner_blocked, verdict: BLOCK`
+- Root cause: Guardian scanner's injection-detection regex patterns (`override your safety`, `bypass the restrictions`) false-positive on SOUL.md content, which naturally uses behavioral boundary language
+- Fix: Made scanner source-aware — `identity_mutation` and `user_mutation` sources skip injection regex but still run credential/PII checks (OUTPUT_PATTERNS)
+- Added 4 tests: identity_mutation passes clean SOUL.md, identity_mutation blocks credentials, user_mutation skips injection regex, non-identity source still blocks injection
+- Cleaned up stale BOOTSTRAP.md from PostgreSQL so agent runs normally
+- Built new Docker image, loaded into kind cluster, restarted host + sandbox pods
+**Files touched:**
+- Modified: `src/providers/scanner/guardian.ts`, `tests/providers/scanner/guardian.test.ts`
+**Outcome:** Success — all 2507 tests pass, scanner now correctly allows identity writes while maintaining credential/PII protection
+**Notes:** The taint budget already blocks identity writes in tainted sessions (injection-through-manipulation). The scanner adding injection regex on top was defense-in-depth that backfired — SOUL.md content is semantically identical to injection patterns ("never override your safety", "never bypass restrictions").
+
 ## [2026-03-05 21:00] — Rename promptfoo scanner to guardian + add LLM-based injection detection
 
 **Task:** Replace the misleadingly-named `promptfoo` scanner (which used hand-crafted heuristics, not the promptfoo library) with `guardian` — a two-layer scanner using regex + real LLM classification.

@@ -12,7 +12,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:dashboard": "cd dashboard && npm install && npm run build",
+    "build:admin": "cd ui/admin && npm install && npm run build",
+    "build:chat": "cd ui/chat && npm install && npm run build",
+    "build:ui": "npm run build:admin && npm run build:chat",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fuzz": "vitest run tests/ipc-fuzz.test.ts",

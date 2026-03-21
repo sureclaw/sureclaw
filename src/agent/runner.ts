@@ -512,6 +512,13 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       token: payload.ipcToken,
     });
   }
+  // IPC token — warm pool pods don't have AX_IPC_TOKEN in their pod spec,
+  // so the host sends it in the payload. Set it in process.env so workspace-release.ts
+  // can use it for direct HTTP release (bypassing the legacy staging path).
+  if (payload.ipcToken && !process.env.AX_IPC_TOKEN) {
+    process.env.AX_IPC_TOKEN = payload.ipcToken;
+  }
+
   // Web proxy URL — warm pool pods don't have AX_WEB_PROXY_URL in their pod spec,
   // so the host sends it in the payload. Set it in process.env so the runner picks it up.
   if (payload.webProxyUrl && !process.env.AX_WEB_PROXY_URL) {

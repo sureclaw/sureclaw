@@ -103,6 +103,25 @@ describe('creds-plaintext provider', () => {
     expect(await fresh.list()).toEqual([]);
     await fresh.set('NEW_KEY', 'new-value');
     expect(await fresh.get('NEW_KEY')).toBe('new-value');
-    try { rmSync(freshDir, { recursive: true }); } catch {}
+    try { rmSync(freshDir, { recursive: true }); } catch {};
+  });
+
+  test('scoped set and get are isolated from each other', async () => {
+    await provider.set('MY_API_KEY', 'agent-value', 'agent:main');
+    await provider.set('MY_API_KEY', 'user-a-value', 'user:main:alice');
+
+    expect(await provider.get('MY_API_KEY', 'agent:main')).toBe('agent-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:alice')).toBe('user-a-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:bob')).toBeNull();
+  });
+
+  test('scoped delete does not affect other scopes', async () => {
+    await provider.set('MY_API_KEY', 'agent-value', 'agent:main');
+    await provider.set('MY_API_KEY', 'user-value', 'user:main:alice');
+
+    await provider.delete('MY_API_KEY', 'user:main:alice');
+
+    expect(await provider.get('MY_API_KEY', 'agent:main')).toBe('agent-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:alice')).toBeNull();
   });
 });

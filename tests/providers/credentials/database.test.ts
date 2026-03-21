@@ -20,6 +20,7 @@ const ENV_KEYS = [
   'TO_DELETE',
   'KEY_A',
   'KEY_B',
+  'KEY_C',
   'CROSS_INSTANCE',
 ] as const;
 
@@ -135,5 +136,39 @@ describe('credentials/database', () => {
     } finally {
       await database2.close();
     }
+  });
+
+  test('scoped set and get are isolated from each other', async () => {
+    await provider.set('MY_API_KEY', 'agent-value', 'agent:main');
+    await provider.set('MY_API_KEY', 'user-a-value', 'user:main:alice');
+
+    expect(await provider.get('MY_API_KEY', 'agent:main')).toBe('agent-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:alice')).toBe('user-a-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:bob')).toBeNull();
+  });
+
+  test('scoped list only returns keys for that scope', async () => {
+    await provider.set('KEY_A', 'a', 'agent:main');
+    await provider.set('KEY_B', 'b', 'user:main:alice');
+    await provider.set('KEY_C', 'c', 'user:main:alice');
+
+    const agentKeys = await provider.list('agent:main');
+    const aliceKeys = await provider.list('user:main:alice');
+
+    expect(agentKeys).toContain('KEY_A');
+    expect(agentKeys).not.toContain('KEY_B');
+    expect(aliceKeys).toContain('KEY_B');
+    expect(aliceKeys).toContain('KEY_C');
+    expect(aliceKeys).not.toContain('KEY_A');
+  });
+
+  test('scoped delete does not affect other scopes', async () => {
+    await provider.set('MY_API_KEY', 'agent-value', 'agent:main');
+    await provider.set('MY_API_KEY', 'user-value', 'user:main:alice');
+
+    await provider.delete('MY_API_KEY', 'user:main:alice');
+
+    expect(await provider.get('MY_API_KEY', 'agent:main')).toBe('agent-value');
+    expect(await provider.get('MY_API_KEY', 'user:main:alice')).toBeNull();
   });
 });

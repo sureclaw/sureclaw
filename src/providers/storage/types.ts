@@ -92,6 +92,25 @@ export interface DocumentStore {
 }
 
 // ═══════════════════════════════════════════════════════
+// Chat Session Store
+// ═══════════════════════════════════════════════════════
+
+export interface ChatSession {
+  id: string;
+  title: string | null;
+  status: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatSessionStore {
+  list(): Promise<ChatSession[]>;
+  create(opts: { id?: string; title?: string }): Promise<ChatSession>;
+  updateTitle(id: string, title: string): Promise<void>;
+  ensureExists(id: string): Promise<void>;
+}
+
+// ═══════════════════════════════════════════════════════
 // Storage Provider
 // ═══════════════════════════════════════════════════════
 
@@ -114,6 +133,9 @@ export interface StorageProvider {
 
   /** Key-value document store (identity files, skills, config). */
   readonly documents: DocumentStore;
+
+  /** Chat session metadata store (list/create/updateTitle). */
+  readonly chatSessions: ChatSessionStore;
 
   /** Close all underlying database connections. */
   close(): void;

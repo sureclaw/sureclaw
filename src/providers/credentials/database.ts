@@ -38,27 +38,31 @@ export async function create(
   if (result.error) throw result.error;
 
   const db: Kysely<any> = database.db;
-  const scope = DEFAULT_SCOPE;
 
   return {
-    async get(service: string): Promise<string | null> {
+    async get(service: string, scope?: string): Promise<string | null> {
+      const effectiveScope = scope ?? DEFAULT_SCOPE;
       const row = await db.selectFrom('credential_store')
         .select('value')
-        .where('scope', '=', scope)
+        .where('scope', '=', effectiveScope)
         .where('env_name', '=', service)
         .executeTakeFirst();
 
       if (row) return row.value as string;
 
-      // Fall back to process.env (case-insensitive: try exact, then UPPER)
-      return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
+      // Only fall back to process.env for default (unscoped) calls
+      if (!scope) {
+        return process.env[service] ?? process.env[service.toUpperCase()] ?? null;
+      }
+      return null;
     },
 
-    async set(service: string, value: string): Promise<void> {
+    async set(service: string, value: string, scope?: string): Promise<void> {
+      const effectiveScope = scope ?? DEFAULT_SCOPE;
       const now = new Date().toISOString();
       await db.insertInto('credential_store')
         .values({
-          scope,
+          scope: effectiveScope,
           env_name: service,
           value,
           created_at: now,
@@ -72,22 +76,28 @@ export async function create(
         )
         .execute();
 
-      // Also update process.env so the value is immediately available
-      process.env[service] = value;
+      // Only update process.env for default (unscoped) calls
+      if (!scope) {
+        process.env[service] = value;
+      }
     },
 
-    async delete(service: string): Promise<void> {
+    async delete(service: string, scope?: string): Promise<void> {
+      const effectiveScope = scope ?? DEFAULT_SCOPE;
       await db.deleteFrom('credential_store')
-        .where('scope', '=', scope)
+        .where('scope', '=', effectiveScope)
         .where('env_name', '=', service)
         .execute();
-      delete process.env[service];
+      if (!scope) {
+        delete process.env[service];
+      }
     },
 
-    async list(): Promise<string[]> {
+    async list(scope?: string): Promise<string[]> {
+      const effectiveScope = scope ?? DEFAULT_SCOPE;
       const rows = await db.selectFrom('credential_store')
         .select('env_name')
-        .where('scope', '=', scope)
+        .where('scope', '=', effectiveScope)
         .execute();
       return rows.map(r => r.env_name as string);
     },

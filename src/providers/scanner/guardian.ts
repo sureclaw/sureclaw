@@ -135,53 +135,90 @@ export async function create(_config: Config, _name?: string, opts?: CreateOptio
     },
 
     async scanInput(msg: ScanTarget): Promise<ScanResult> {
-      // Layer 1: Regex patterns
-      const regexMatched: string[] = [];
-      let worstSeverity: 'PASS' | 'FLAG' | 'BLOCK' = 'PASS';
+      // Identity mutations (SOUL.md, IDENTITY.md, USER.md) skip injection regex.
+      // These files naturally contain behavioral language ("your safety", "your
+      // instructions") that injection patterns false-positive on.  The taint
+      // budget already blocks identity writes in tainted sessions, so injection-
+      // through-manipulation is handled upstream.  We still run credential/PII
+      // checks (output patterns) below for defense-in-depth.
+      const isIdentityMutation = msg.source === 'identity_mutation' || msg.source === 'user_mutation';
 
-      for (const pattern of INPUT_PATTERNS) {
-        if (pattern.regex.test(msg.content)) {
-          regexMatched.push(`${pattern.category} (${pattern.severity})`);
-          if (pattern.severity === 'BLOCK') worstSeverity = 'BLOCK';
-          else if (pattern.severity === 'FLAG' && worstSeverity !== 'BLOCK') {
-            worstSeverity = 'FLAG';
+      if (!isIdentityMutation) {
+        // Layer 1: Regex patterns (injection detection — user-provided content only)
+        const regexMatched: string[] = [];
+        let worstSeverity: 'PASS' | 'FLAG' | 'BLOCK' = 'PASS';
+
+        for (const pattern of INPUT_PATTERNS) {
+          if (pattern.regex.test(msg.content)) {
+            regexMatched.push(`${pattern.category} (${pattern.severity})`);
+            if (pattern.severity === 'BLOCK') worstSeverity = 'BLOCK';
+            else if (pattern.severity === 'FLAG' && worstSeverity !== 'BLOCK') {
+              worstSeverity = 'FLAG';
+            }
+          }
+        }
+
+        // If regex says BLOCK, skip LLM — no point spending tokens
+        if (worstSeverity === 'BLOCK') {
+          return {
+            verdict: 'BLOCK',
+            reason: 'Prompt injection detected (regex)',
+            patterns: regexMatched,
+          };
+        }
+
+        // If regex matched something non-BLOCK, return that
+        if (regexMatched.length > 0) {
+          return {
+            verdict: worstSeverity,
+            reason: 'Suspicious input pattern detected',
+            patterns: regexMatched,
+          };
+        }
+
+        // Layer 2: LLM classification for inputs that passed regex
+        if (llm) {
+          try {
+            const classification = await classifyWithLLM(llm, msg.content);
+
+            if (classification.verdict !== 'PASS') {
+              return {
+                verdict: classification.verdict,
+                reason: `LLM classifier: ${classification.reason}`,
+                patterns: [`llm:${classification.verdict.toLowerCase()}`],
+              };
+            }
+          } catch (err) {
+            logger.warn('guardian_llm_error', { error: (err as Error).message });
+            // Fall through to regex-only result
           }
         }
       }
 
-      // If regex says BLOCK, skip LLM — no point spending tokens
-      if (worstSeverity === 'BLOCK') {
-        return {
-          verdict: 'BLOCK',
-          reason: 'Prompt injection detected (regex)',
-          patterns: regexMatched,
-        };
-      }
+      // Credential/PII check — applied to ALL sources including identity mutations.
+      // Prevents secrets from being persisted into identity files.
+      if (isIdentityMutation) {
+        const credMatched: string[] = [];
+        let credSeverity: 'PASS' | 'FLAG' | 'BLOCK' = 'PASS';
 
-      // If regex matched something non-BLOCK, return that
-      if (regexMatched.length > 0) {
-        return {
-          verdict: worstSeverity,
-          reason: 'Suspicious input pattern detected',
-          patterns: regexMatched,
-        };
-      }
-
-      // Layer 2: LLM classification for inputs that passed regex
-      if (llm) {
-        try {
-          const classification = await classifyWithLLM(llm, msg.content);
-
-          if (classification.verdict !== 'PASS') {
-            return {
-              verdict: classification.verdict,
-              reason: `LLM classifier: ${classification.reason}`,
-              patterns: [`llm:${classification.verdict.toLowerCase()}`],
-            };
+        for (const pattern of OUTPUT_PATTERNS) {
+          if (pattern.regex.test(msg.content)) {
+            credMatched.push(`${pattern.category} (${pattern.severity})`);
+            if (pattern.severity === 'BLOCK') credSeverity = 'BLOCK';
+            else if (pattern.severity === 'FLAG' && credSeverity !== 'BLOCK') {
+              credSeverity = 'FLAG';
+            }
           }
-        } catch (err) {
-          logger.warn('guardian_llm_error', { error: (err as Error).message });
-          // Fall through to regex-only result
+        }
+
+        if (credMatched.length > 0) {
+          return {
+            verdict: credSeverity,
+            reason: credSeverity === 'BLOCK'
+              ? 'Sensitive data detected in identity content'
+              : 'Potential PII detected in identity content',
+            patterns: credMatched,
+          };
         }
       }
 

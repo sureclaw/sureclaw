@@ -35,6 +35,30 @@ describe('workspace-release', () => {
   });
 });
 
+describe('runner applyPayload sets AX_IPC_TOKEN', () => {
+  const originalToken = process.env.AX_IPC_TOKEN;
+
+  afterEach(() => {
+    // Restore original env
+    if (originalToken !== undefined) {
+      process.env.AX_IPC_TOKEN = originalToken;
+    } else {
+      delete process.env.AX_IPC_TOKEN;
+    }
+  });
+
+  test('applyPayload propagates ipcToken to process.env.AX_IPC_TOKEN for workspace-release', () => {
+    // This regression test guards against the bug where warm pool pods
+    // received ipcToken in the NATS payload but never set process.env.AX_IPC_TOKEN,
+    // causing workspace-release.ts to fall back to the broken legacy staging path.
+    const { readFileSync } = require('node:fs');
+    const source = readFileSync('src/agent/runner.ts', 'utf-8');
+
+    // The applyPayload function must set process.env.AX_IPC_TOKEN from payload.ipcToken
+    expect(source).toContain('process.env.AX_IPC_TOKEN = payload.ipcToken');
+  });
+});
+
 describe('workspace-cli release command', () => {
   test('release command exists in workspace-cli.ts', async () => {
     const { readFileSync } = await import('node:fs');

@@ -18,6 +18,8 @@ import type { InboundMessage } from '../providers/channel/types.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import type { FileStore } from '../file-store.js';
 import type { TaintBudget } from './taint-budget.js';
+import { createChatApiHandler } from './server-chat-api.js';
+import { createChatUIHandler } from './server-chat-ui.js';
 
 const logger = getLogger();
 
@@ -445,6 +447,19 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
     isDraining, trackRequestStart, trackRequestEnd, extraRoutes,
   } = opts;
 
+  // Create chat API handler if storage is available
+  const chatApiHandler = providers.storage
+    ? createChatApiHandler(providers.storage)
+    : null;
+
+  // Create chat UI handler for static file serving
+  let chatUIHandler: ReturnType<typeof createChatUIHandler> | null = null;
+  try {
+    chatUIHandler = createChatUIHandler();
+  } catch {
+    // Chat UI not built — that's fine, skip
+  }
+
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     // CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -543,12 +558,25 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
     if (url === '/v1/credentials/provide' && req.method === 'POST') {
       try {
         const body = JSON.parse(await readBody(req));
-        const { envName, value } = body;
+        const { envName, value, sessionId: credSessionId } = body;
         if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
           sendError(res, 400, 'Missing required fields: envName, value');
           return;
         }
-        await providers.credentials.set(envName, value);
+        const { credentialScope, getSessionCredentialContext } = await import('./credential-scopes.js');
+        // Resolve agentName/userId from session context (set during completion)
+        const ctx = credSessionId ? getSessionCredentialContext(credSessionId) : undefined;
+        if (ctx) {
+          // Store user-scoped if userId known
+          if (ctx.userId) {
+            await providers.credentials.set(envName, value, credentialScope(ctx.agentName, ctx.userId));
+          }
+          // Always store at agent scope
+          await providers.credentials.set(envName, value, credentialScope(ctx.agentName));
+        } else {
+          // No session context — store unscoped (backward compat)
+          await providers.credentials.set(envName, value);
+        }
         const responseBody = JSON.stringify({ ok: true });
         res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(responseBody)) });
         res.end(responseBody);
@@ -591,11 +619,12 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
       return;
     }
 
-    // Root → admin redirect
-    if (adminHandler && (url === '/' || url === '')) {
-      res.writeHead(302, { Location: '/admin' });
-      res.end();
-      return;
+    // Chat API
+    if (url.startsWith('/v1/chat/sessions')) {
+      if (chatApiHandler) {
+        const handled = await chatApiHandler(req, res, url);
+        if (handled) return;
+      }
     }
 
     // Admin dashboard
@@ -613,6 +642,13 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
     if (extraRoutes) {
       const handled = await extraRoutes(req, res, url);
       if (handled) return;
+    }
+
+    // Chat UI (SPA fallback for non-API, non-admin routes)
+    // Don't serve /v1/* or /admin* or /health as SPA — those are API routes
+    if (chatUIHandler && !url.startsWith('/v1/') && !url.startsWith('/admin') && url !== '/health') {
+      chatUIHandler(req, res, url);
+      return;
     }
 
     sendError(res, 404, 'Not found');

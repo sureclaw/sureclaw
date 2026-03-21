@@ -2,6 +2,38 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-20 19:35] — Update credential_request IPC handler to return availability status
+
+**Task:** Implement Task 9 of web provider split plan: update credential_request IPC handler to check credential availability via resolveCredential
+**What I did:** Modified the credential_request handler in src/host/ipc-handlers/skills.ts to import and call resolveCredential() after recording the request. The handler now resolves the credential using user scope (ctx.userId) then agent scope (ctx.agentId), returning `available: boolean` in the response alongside `ok: true`. Also includes the `available` field in the audit log args. Created tests covering: missing credential (available: false), agent-scope hit (available: true), user-scope hit (available: true), and requestedCredentials map tracking.
+**Files touched:** src/host/ipc-handlers/skills.ts (modified), tests/host/ipc-handlers/skills-credential.test.ts (created)
+**Outcome:** Success — all 4 tests pass, build compiles cleanly
+**Notes:** IPCContext already had agentId and userId fields, so no type changes were needed. The resolveCredential function tries user:<agentName>:<userId> first, then agent:<agentName>.
+
+## [2026-03-20 19:30] — Thread agentName/userId through credential lookup in server-completions.ts
+
+**Task:** Implement Task 6 of web provider split plan: replace raw `providers.credentials.get()` calls in server-completions.ts with scoped `resolveCredential()` lookups
+**What I did:** Imported `resolveCredential` and `credentialScope` from credential-scopes.ts. Replaced all three `providers.credentials.get()` calls (OAuth credential lookup, pre-agent env credential lookup, post-agent env credential lookup) with `resolveCredential(providers.credentials, envName, agentName, currentUserId)`. Also updated both `credential.required` event emissions to include `agentName` and `userId: currentUserId` in the data payload. Changed post-agent `let realValue` to `const realValue` since it's no longer reassigned.
+**Files touched:** src/host/server-completions.ts (modified)
+**Outcome:** Success — build compiles cleanly with no type errors
+**Notes:** `agentName` and `currentUserId` were already defined earlier in the function (lines 394-395). The `credentialScope` import is unused directly in this file but included per plan spec.
+
+## [2026-03-20 19:10] — Update credential provide HTTP endpoints and SSE events for scoped credentials
+
+**Task:** Implement Tasks 7 and 8 of web provider split plan: update credential provide endpoints and SSE credential_required event to support agentName/userId scoping
+**What I did:** Updated `/v1/credentials/provide` handler in server-request-handlers.ts and `/admin/api/credentials/provide` handler in server-admin.ts to accept agentName and userId fields. Both endpoints now store credentials at user scope (if userId+agentName provided) and agent scope (if agentName provided), with backward compat for unscoped global storage. Also updated the SSE credential_required event emission to include agentName and userId fields from the event data.
+**Files touched:** src/host/server-request-handlers.ts (modified), src/host/server-admin.ts (modified)
+**Outcome:** Success — build compiles cleanly
+**Notes:** The credentialScope helper is dynamically imported to keep top-level imports clean. Both endpoints follow the same pattern: store at user scope first (most specific), then always at agent scope, with global fallback when no agentName is provided.
+
+## [2026-03-20 18:54] — Create scoped credential resolution helper
+
+**Task:** Implement Task 5 of web provider split plan: scoped credential resolution helper
+**What I did:** Created `src/host/credential-scopes.ts` with `credentialScope()` and `resolveCredential()` functions. Credentials are scoped per-agent and per-user, with lookup order: user:agentName:userId -> agent:agentName. Created comprehensive tests covering user override, agent fallback, null return, and multi-user scenarios.
+**Files touched:** src/host/credential-scopes.ts (new), tests/host/credential-scopes.test.ts (new)
+**Outcome:** Success — all 7 tests pass
+**Notes:** CredentialProvider.get() signature is `(service, scope?)` — scope is the second arg, not the first.
+
 ## [2026-03-20 00:40] — Fix skill installation credential detection
 
 **Task:** Skill installation was broken — agent never called request_credential, host never detected new skill credentials

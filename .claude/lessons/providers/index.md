@@ -28,3 +28,5 @@ Provider-specific lessons covering LLM, skills, sandbox, channel (Slack), and me
 - All credential providers must fall back to process.env on get() [credentials.md](credentials.md)
 - Use AX_CREDS_YAML_PATH env var override for testing credential providers [credentials.md](credentials.md)
 - Zod transform for backward-compatible config migration [credentials.md](credentials.md)
+- Identity content and injection patterns are semantically identical [scanner.md](scanner.md)
+- Check the audit_log table when identity persistence fails [scanner.md](scanner.md)
