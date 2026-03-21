@@ -126,6 +126,14 @@ function resolveAdminUIDir(): string {
   return siblingDir; // Will show "not built" error
 }
 
+// ── Localhost detection ──
+
+const LOOPBACK_ADDRS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+function isLoopback(ip: string): boolean {
+  return LOOPBACK_ADDRS.has(ip);
+}
+
 // ── Types ──
 
 export interface AdminDeps {
@@ -134,6 +142,8 @@ export interface AdminDeps {
   eventBus: EventBus;
   agentRegistry: AgentRegistry;
   startTime: number;
+  /** When true, skip token auth for localhost connections (local dev mode). */
+  localDevMode?: boolean;
 }
 
 // ── Factory ──
@@ -158,24 +168,27 @@ export function createAdminHandler(deps: AdminDeps) {
       return;
     }
 
-    // API routes require auth
+    // API routes require auth (unless local dev mode + localhost connection)
     if (pathname.startsWith('/admin/api/')) {
       const clientIp = req.socket?.remoteAddress ?? 'unknown';
+      const skipAuth = deps.localDevMode && isLoopback(clientIp);
 
-      if (isRateLimited(clientIp)) {
-        res.writeHead(429, { 'Retry-After': '60' });
-        res.end('Too Many Requests');
-        return;
-      }
+      if (!skipAuth) {
+        if (isRateLimited(clientIp)) {
+          res.writeHead(429, { 'Retry-After': '60' });
+          res.end('Too Many Requests');
+          return;
+        }
 
-      // Accept token from header or query param (needed for EventSource SSE)
-      const provided = extractToken(req) ?? extractQueryToken(req.url ?? '/');
-      if (!provided || !safeEqual(provided, token)) {
-        recordFailure(clientIp);
-        sendError(res, 401, 'Unauthorized');
-        return;
+        // Accept token from header or query param (needed for EventSource SSE)
+        const provided = extractToken(req) ?? extractQueryToken(req.url ?? '/');
+        if (!provided || !safeEqual(provided, token)) {
+          recordFailure(clientIp);
+          sendError(res, 401, 'Unauthorized');
+          return;
+        }
+        resetLimit(clientIp);
       }
-      resetLimit(clientIp);
 
       await handleAdminAPI(req, res, pathname, deps);
       return;

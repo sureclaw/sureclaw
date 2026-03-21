@@ -185,6 +185,33 @@ describe('admin auth', () => {
     expect(deps.config.admin.token).toBeDefined();
     expect(deps.config.admin.token!.length).toBeGreaterThanOrEqual(32);
   });
+
+  it('skips auth for localhost in local dev mode', async () => {
+    server.close();
+    const deps = await mockDeps();
+    deps.localDevMode = true;
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    // No token provided — should succeed because localDevMode + localhost
+    const res = await fetchAdmin(port, '/admin/api/status');
+    expect(res.status).toBe(200);
+  });
+
+  it('still requires auth when localDevMode is false', async () => {
+    server.close();
+    const deps = await mockDeps();
+    deps.localDevMode = false;
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/status');
+    expect(res.status).toBe(401);
+  });
 });
 
 describe('GET /admin/api/status', () => {

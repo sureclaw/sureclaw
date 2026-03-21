@@ -190,12 +190,15 @@ export async function createServer(
 
   // ── Admin handler ──
   const startTime = Date.now();
+  const bindHost = process.env.BIND_HOST ?? '127.0.0.1';
+  const localDevMode = bindHost === '127.0.0.1' || bindHost === '::1';
   const adminHandler = setupAdminHandler({
     config,
     providers,
     eventBus,
     agentRegistry,
     startTime,
+    localDevMode,
   });
 
   let httpServer: HttpServer | null = null;
@@ -322,7 +325,7 @@ export async function createServer(
       data: {
         socket: socketPath,
         ...(tcpBound ? { port: tcpPort } : {}),
-        ...(adminHandler && tcpBound ? { admin: `http://127.0.0.1:${tcpPort}/admin?token=${config.admin.token}` } : {}),
+        ...(adminHandler && tcpBound ? { admin: localDevMode ? `http://127.0.0.1:${tcpPort}/admin` : `http://127.0.0.1:${tcpPort}/admin?token=${config.admin.token}` } : {}),
       } });
 
     // Start scheduler

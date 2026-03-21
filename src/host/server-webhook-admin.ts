@@ -63,11 +63,13 @@ export interface AdminSetupOpts {
   eventBus: EventBus;
   agentRegistry: AgentRegistry;
   startTime: number;
+  /** When true, skip token auth for localhost connections (local dev mode). */
+  localDevMode?: boolean;
 }
 
 export function setupAdminHandler(opts: AdminSetupOpts) {
-  const { config, providers, eventBus, agentRegistry, startTime } = opts;
+  const { config, providers, eventBus, agentRegistry, startTime, localDevMode } = opts;
   return config.admin?.enabled
-    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime })
+    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode })
     : null;
 }
