@@ -95,10 +95,12 @@ export interface DocumentStore {
 // Chat Session Store
 // ═══════════════════════════════════════════════════════
 
+export type ChatSessionStatus = 'active' | 'archived';
+
 export interface ChatSession {
   id: string;
   title: string | null;
-  status: string;
+  status: ChatSessionStatus;
   created_at: number;
   updated_at: number;
 }
@@ -108,6 +110,8 @@ export interface ChatSessionStore {
   create(opts: { id?: string; title?: string }): Promise<ChatSession>;
   updateTitle(id: string, title: string): Promise<void>;
   ensureExists(id: string): Promise<void>;
+  delete(id: string): Promise<boolean>;
+  getById(id: string): Promise<ChatSession | undefined>;
 }
 
 // ═══════════════════════════════════════════════════════

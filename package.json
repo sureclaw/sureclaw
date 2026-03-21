@@ -12,8 +12,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:admin": "cd ui/admin && npm install && npm run build",
-    "build:chat": "cd ui/chat && npm install && npm run build",
+    "build:admin": "npm --prefix ui/admin run build",
+    "build:chat": "npm --prefix ui/chat run build",
     "build:ui": "npm run build:admin && npm run build:chat",
     "test": "vitest run",
     "test:watch": "vitest",

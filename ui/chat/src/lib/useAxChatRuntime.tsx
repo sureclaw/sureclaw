@@ -60,7 +60,7 @@ const useChatThreadRuntime = (): AssistantRuntime => {
 /**
  * Provider that injects AX history adapter into the runtime context.
  */
-function AxHistoryProvider({ children }: { children?: React.ReactNode }) {
+const AxHistoryProvider = ({ children }: { children?: React.ReactNode }) => {
   const aui = useAui();
 
   const history = useMemo<ThreadHistoryAdapter>(
@@ -78,16 +78,14 @@ function AxHistoryProvider({ children }: { children?: React.ReactNode }) {
       {children}
     </RuntimeAdapterProvider>
   );
-}
+};
 
 /**
  * Custom hook that creates a chat runtime with AX-backed thread persistence.
  */
 export const useAxChatRuntime = (): AssistantRuntime => {
   return useRemoteThreadListRuntime({
-    runtimeHook: function RuntimeHook() {
-      return useChatThreadRuntime();
-    },
+    runtimeHook: () => useChatThreadRuntime(),
     adapter: {
       ...axThreadListAdapter,
       unstable_Provider: AxHistoryProvider,

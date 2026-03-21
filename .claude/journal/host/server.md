@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-21 04:10] — Address PR #114 coderabbitai review comments
+
+**Task:** Fix all 14 coderabbitai review comments on the chat UI PR
+**What I did:** Added DELETE endpoint, fixed SPA fallback (404 for assets with extensions), atomic upsert for ensureExists, title gating on !session.title, PII fix in generateTitle (neutral placeholder), ChatSessionStatus union type, HistoryMessage interface, markdown lint fixes, build scripts cleanup, arrow function style, stronger test assertions, URL-encoded session ID test
+**Files touched:** server-chat-api.ts, server-chat-ui.ts, server-completions.ts, database.ts, types.ts, thread-list-adapter.ts, history-adapter.ts, App.tsx, useAxChatRuntime.tsx, package.json, 2 doc files, 3 test files
+**Outcome:** Success — all 2493 tests pass
+**Notes:** 9 pre-existing Playwright failures unrelated (missing @playwright/test in dashboard)
+
 ## [2026-03-20 19:35] — Update credential_request IPC handler to return availability status
 
 **Task:** Implement Task 9 of web provider split plan: update credential_request IPC handler to check credential availability via resolveCredential

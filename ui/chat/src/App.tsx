@@ -4,7 +4,7 @@ import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
 import { Hexagon } from 'lucide-react';
 
-export function App() {
+export const App = () => {
   const runtime = useAxChatRuntime();
 
   return (
@@ -42,4 +42,4 @@ export function App() {
       </div>
     </AssistantRuntimeProvider>
   );
-}
+};

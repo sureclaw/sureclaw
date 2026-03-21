@@ -17,6 +17,6 @@ describe('generateSessionTitle', () => {
     };
     const longMessage = 'This is a very long message that should be truncated to create a reasonable title for display';
     const title = await generateSessionTitle(longMessage, mockLLM as any);
-    expect(title.length).toBeLessThanOrEqual(50);
+    expect(title).toBe(longMessage.substring(0, 47) + '...');
   });
 });

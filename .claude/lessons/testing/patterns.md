@@ -53,3 +53,9 @@
 **Context:** Needed to test the SSE /v1/events endpoint without the full server stack (providers, sandbox, IPC)
 **Lesson:** For testing SSE endpoints, create a minimal HTTP server that implements just the endpoint logic with the real EventBus. This avoids the 5+ second startup cost of the full AxServer (provider loading, DB init, IPC server, template copying) and makes tests fast and isolated. The SSE endpoint only depends on the EventBus — no providers needed.
 **Tags:** testing, sse, isolation, performance, event-bus
+
+### Strengthen assertions — use exact values not just range checks
+**Date:** 2026-03-21
+**Context:** Reviewing coderabbitai comments on session title truncation test — `toBeLessThanOrEqual(50)` doesn't catch truncation bugs (off-by-one, wrong substring).
+**Lesson:** Assert the exact expected value when it's deterministic. `expect(title).toBe(msg.substring(0, 47) + '...')` is far better than `expect(title.length).toBeLessThanOrEqual(50)`. Range checks let bugs through; exact assertions don't.
+**Tags:** assertions, test quality, truncation, coderabbitai

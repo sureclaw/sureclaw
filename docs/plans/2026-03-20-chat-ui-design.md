@@ -9,7 +9,7 @@ Add a chat interface at the root `/` path of the AX web interface using assistan
 
 ## Project Structure
 
-```
+```text
 ui/
 ├── chat/                    # New chat UI (Vite + React)
 │   ├── src/
@@ -118,7 +118,7 @@ Combined with `unstable_useRemoteThreadListRuntime` for thread list management.
 
 ## UI Layout
 
-```
+```text
 ┌──────────────┬─────────────────────────────────┐
 │  Thread List  │                                 │
 │  Sidebar      │         Chat Thread             │
