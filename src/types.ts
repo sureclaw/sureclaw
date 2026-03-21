@@ -150,6 +150,7 @@ export interface Config {
     enabled: boolean;
     token?: string;
     port: number;
+    disable_auth?: boolean;
   };
   /** Enable HTTP forward proxy for agent outbound HTTP/HTTPS requests. */
   web_proxy?: boolean;

@@ -149,13 +149,19 @@ export interface AdminDeps {
 // ── Factory ──
 
 export function createAdminHandler(deps: AdminDeps) {
-  // Auto-generate token if not configured
-  if (!deps.config.admin.token) {
+  const authDisabled = deps.config.admin.disable_auth === true;
+
+  if (authDisabled) {
+    logger.warn('admin_auth_disabled', { message: 'Admin dashboard auth is disabled — do not use in production' });
+  }
+
+  // Auto-generate token if not configured (skip if auth disabled)
+  if (!authDisabled && !deps.config.admin.token) {
     deps.config.admin.token = randomBytes(32).toString('hex');
     logger.info('admin_token_generated', { token: deps.config.admin.token });
   }
 
-  const token = deps.config.admin.token!;
+  const token = deps.config.admin.token ?? '';
 
   return async function handleAdmin(
     req: IncomingMessage,
@@ -171,7 +177,7 @@ export function createAdminHandler(deps: AdminDeps) {
     // API routes require auth (unless local dev mode + localhost connection)
     if (pathname.startsWith('/admin/api/')) {
       const clientIp = req.socket?.remoteAddress ?? 'unknown';
-      const skipAuth = deps.localDevMode && isLoopback(clientIp);
+      const skipAuth = authDisabled || (deps.localDevMode && isLoopback(clientIp));
 
       if (!skipAuth) {
         if (isRateLimited(clientIp)) {

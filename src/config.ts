@@ -156,6 +156,7 @@ const ConfigSchema = z.strictObject({
     enabled: z.boolean().default(true),
     token: z.string().optional(),
     port: z.number().int().min(1).max(65535).default(8080),
+    disable_auth: z.boolean().optional(),
   }).default({ enabled: true, port: 8080 }),
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
