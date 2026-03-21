@@ -13,7 +13,10 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 |---|---|---|
 | `src/agent/runner.ts` | Entry point, stdin parse, agent dispatch, IPC transport selection | `run()`, `parseStdinPayload()`, `compactHistory()`, `historyToPiMessages()`, `AgentConfig`, `IIPCClient` |
 | `src/agent/ipc-client.ts` | Length-prefixed Unix socket IPC with heartbeat keep-alive | `IPCClient` (connect, call, disconnect, reconnect) |
-| `src/agent/nats-ipc-client.ts` | NATS-based IPC client for k8s pods (drop-in replacement for IPCClient) | `NATSIPCClient`, `NATSIPCClientOptions` |
+| `src/agent/http-ipc-client.ts` | HTTP-based IPC client for k8s pods (drop-in replacement for IPCClient) | `HttpIPCClient`, `HttpIPCClientOptions` |
+| `src/agent/skill-installer.ts` | Skill dependency installer — reads SKILL.md install specs, runs missing installs with package-manager prefix env vars | `installSkillDeps()` |
+| `src/agent/stream-utils.ts` | Shared pi-ai message conversion and stream event utilities | `convertPiMessages()`, `emitStreamEvents()` |
+| `src/agent/heartbeat-state.ts` | Heartbeat check state persistence (last-run timestamps) | `HeartbeatState` |
 | `src/agent/local-sandbox.ts` | Agent-side local sandbox executor; runs bash/file tools in-container with host audit gate | `createLocalSandbox()`, `LocalSandboxOptions` |
 | `src/agent/workspace.ts` | Workspace scope provisioning (HTTP from host or GCS SDK), scope diffing, hash snapshots | `provisionScope()`, `diffScope()`, `FileHashMap` |
 | `src/agent/workspace-cli.ts` | CLI for container provision/cleanup/release phases (GCS restore, scope diff, HTTP staging) | CLI entry point (`provision`, `cleanup`, `release` commands) |
@@ -35,10 +38,10 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 ## Agent Boot Sequence
 
 1. `runner.ts` parses CLI args (`--agent`, `--ipc-socket`, `--workspace`, `--proxy-socket`, etc.)
-2. Selects IPC transport based on `AX_IPC_TRANSPORT` env var:
-   - **`socket`** (default): Runners create their own `IPCClient` (Unix socket) later, or use a pre-connected one in listen mode (`AX_IPC_LISTEN=1`)
-   - **`nats`**: Creates a `NATSIPCClient`, connects to NATS, sets `config.ipcClient`, then waits for work payload via NATS subscription (replaces stdin)
-   - **`listen`** (Apple Container): Creates `IPCClient` in listen mode before reading stdin, sets `config.ipcClient`
+2. Selects IPC transport based on environment variables:
+   - **Socket** (default): Runners create their own `IPCClient` (Unix socket) later, or use a pre-connected one in listen mode (`AX_IPC_LISTEN=1`)
+   - **HTTP** (k8s): When `AX_HOST_URL` is set, creates `HttpIPCClient` with HTTP-based IPC to host's `/internal/ipc` route. NATS is only used for initial work dispatch (queue groups).
+   - **Listen** (Apple Container): Creates `IPCClient` in listen mode before reading stdin, sets `config.ipcClient`
 3. Reads stdin as JSON (`{message, history, taintRatio, profile, sessionId, ipcToken, identity, skills, ...}`) via `parseStdinPayload()` (or receives work via NATS in k8s mode)
 4. `applyPayload()` populates config and calls `ipcClient.setContext()` with session/request/user/token fields
 5. Dispatches to runner: `runPiSession()` or `runClaudeCode()`
@@ -164,8 +167,9 @@ Uses `config.ipcClient` (pre-connected `IIPCClient`) when available. Supports in
 - **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts.
 - **Context-aware tool filtering**: Excluded prompt modules must have corresponding category filters in `filterTools()`.
 - **Delegation module**: Priority 75, optional, excluded during bootstrap. Includes guidance on `agent_delegate` and runner selection.
-- **Use `IIPCClient` interface, not concrete `IPCClient`**: All IPC consumers (`ipc-tools.ts`, `mcp-server.ts`, `runner.ts`, `local-sandbox.ts`) accept the `IIPCClient` interface so they work with both Unix socket (`IPCClient`) and NATS (`NATSIPCClient`) transports. Never import the concrete class in tool/sandbox code.
-- **Three IPC transport modes**: `socket` (default Unix socket), `nats` (k8s pods via `AX_IPC_TRANSPORT=nats`), `listen` (Apple Container reverse bridge via `AX_IPC_LISTEN=1`). The runner creates the appropriate client before stdin read and passes it as `config.ipcClient`.
+- **Use `IIPCClient` interface, not concrete `IPCClient`**: All IPC consumers (`ipc-tools.ts`, `mcp-server.ts`, `runner.ts`, `local-sandbox.ts`) accept the `IIPCClient` interface so they work with both Unix socket (`IPCClient`) and HTTP (`HttpIPCClient`) transports. Never import the concrete class in tool/sandbox code.
+- **Three IPC transport modes**: `socket` (default Unix socket), `http` (k8s pods via `AX_HOST_URL`), `listen` (Apple Container reverse bridge via `AX_IPC_LISTEN=1`). The runner creates the appropriate client before stdin read and passes it as `config.ipcClient`.
+- **NATS is for work dispatch only**: In k8s mode, NATS queue groups deliver work payloads to warm pods. All IPC (tool calls, memory, etc.) uses HTTP via `HttpIPCClient`. The old `NATSIPCClient` and `nats-bridge.ts` have been removed.
 - **Web proxy bridge**: Both runners detect `AX_WEB_PROXY_SOCKET` (container mode) or `AX_WEB_PROXY_URL`/`AX_PROXY_LISTEN_PORT` (k8s/subprocess) env vars and start a loopback TCP bridge (`web-proxy-bridge.ts`) that forwards to the host proxy. Sets `HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` env vars for child processes (npm, curl, git, etc.). **Warning:** Do NOT use `AX_WEB_PROXY_PORT` as an env var name — K8s auto-generates it from the `ax-web-proxy` Service (`AX_WEB_PROXY_PORT=tcp://IP:PORT`).
 - **Network domain auto-approval**: `local-sandbox.ts` exports `extractNetworkDomains()` which maps known package manager commands (npm, pip, yarn, cargo, go, gem) to their registry domains. The `bash()` method pre-approves these via `web_proxy_approve` IPC before executing the command, preventing the proxy governance deadlock.
 - **Warm pool env var propagation**: Per-request env vars (like `AX_WEB_PROXY_URL`) must be in BOTH the k8s pod spec (cold spawn) AND the NATS work payload (warm pool). The runner's `parseStdinPayload()` extracts `webProxyUrl` and `applyPayload()` sets `process.env.AX_WEB_PROXY_URL`.

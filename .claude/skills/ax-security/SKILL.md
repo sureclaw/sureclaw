@@ -82,9 +82,9 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 - **4 canonical mounts**: `/workspace` (root/CWD), `/workspace/scratch` (rw), `/workspace/agent` (ro), `/workspace/user` (ro). Identity files and skills are sent via stdin payload from DocumentStore, not mounted as filesystem directories.
 - **Local sandbox execution with audit gate** -- In container mode, tools execute inside the agent's container with host audit approval (`sandbox_approve` -> execute -> `sandbox_result`).
 - **Sandbox tools via IPC** -- bash, read_file, write_file, edit_file route through IPC to host-side handlers (`src/host/ipc-handlers/sandbox-tools.ts`), enforcing `safePath()` containment.
-- **NATS IPC for K8s** -- Per-turn capability tokens (`AX_IPC_TOKEN`) scope NATS subjects. Uses `NATSIPCClient` + `NATSIPCHandler`.
-- **Warm pool** -- Pre-warmed pods with atomic claiming for K8s deployments.
-- Providers: subprocess (dev fallback), Docker, Apple Container, K8s pods (NATS IPC).
+- **HTTP IPC for K8s** -- Per-turn capability tokens (`AX_IPC_TOKEN`) authenticate HTTP requests. Uses `HttpIPCClient` → `POST /internal/ipc`.
+- **Warm pool** -- Pre-warmed pods claimed via NATS queue groups for K8s deployments.
+- Providers: subprocess (dev fallback), Docker, Apple Container, K8s pods (HTTP IPC).
 
 ### HTTP Forward Proxy (Controlled Outbound Access)
 
@@ -102,8 +102,8 @@ Opt-in (`config.web_proxy`, disabled by default) HTTP forward proxy (`src/host/w
 
 ## Install Validation
 
-- **`src/utils/install-validator.ts`**: Validates skill install commands against prefix allowlist (npm, brew, pip, cargo). Hard-rejects privilege escalation (sudo/su/doas/pkexec). Blocks shell operators.
 - **`src/utils/bin-exists.ts`**: Cross-platform binary lookup with strict regex validation (`[a-zA-Z0-9_.-]+`). Rejects paths and shell metacharacters.
+- **`src/agent/skill-installer.ts`**: Reads SKILL.md install specs, runs missing installs with package-manager prefix env vars. Uses `execFileSync(shell, [flag, cmd])` for explicit shell invocation.
 
 ## Common Tasks
 

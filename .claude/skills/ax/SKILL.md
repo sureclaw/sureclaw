@@ -25,23 +25,23 @@ Agent isolation uses a unified container model with four sandbox providers:
 | `subprocess` | Any | Unix socket | No isolation, dev/test use |
 | `docker` | Any | Unix socket | Container isolation via Docker |
 | `apple` | macOS | Unix socket (reverse bridge) | Apple Container framework |
-| `k8s` | Kubernetes | **NATS** | Pods with NATS-based IPC |
+| `k8s` | Kubernetes | **HTTP** (IPC), NATS (work dispatch) | Pods with HTTP-based IPC |
 
-Old Linux-specific sandbox providers (seatbelt, nsjail, bwrap) have been removed. The k8s provider uses NATS for all host-agent communication (IPC request/reply, LLM proxy, event streaming) instead of Unix sockets, since pods cannot share a filesystem with the host.
+Old Linux-specific sandbox providers (seatbelt, nsjail, bwrap) have been removed. The k8s provider uses HTTP for IPC (`HttpIPCClient` → `POST /internal/ipc`) and NATS only for work dispatch (queue groups). Pods cannot share a filesystem with the host.
 
 **Outbound HTTP via Web Proxy**: Agents can optionally make outbound HTTP/HTTPS requests (npm install, pip install, curl, git clone) through a controlled forward proxy on the host. Opt-in via `config.web_proxy` (disabled by default). Containers keep `--network=none` — agents reach the proxy via a TCP bridge over a mounted Unix socket. The proxy enforces private IP blocking (SSRF), canary token scanning, and audit logging. K8s pods connect directly via a k8s Service (`ax-web-proxy`).
 
-### NATS in k8s Deployments
+### NATS and HTTP in k8s Deployments
 
-In k8s mode, NATS is the backbone for all cross-pod communication:
-- **IPC**: `src/host/nats-ipc-handler.ts` and `src/agent/nats-ipc-client.ts`
-- **LLM proxy**: `src/host/nats-llm-proxy.ts`
-- **Event bus**: `src/providers/eventbus/nats.ts`
-- **Work dispatch**: Host publishes work to `agent.work.{podName}` via NATS
+In k8s mode, NATS is used only for work dispatch (queue groups); all other communication uses HTTP:
+- **IPC**: `src/agent/http-ipc-client.ts` → `POST /internal/ipc` route on host (`src/host/server-k8s.ts`)
+- **LLM proxy**: `src/host/llm-proxy-core.ts` → `/internal/llm-proxy` HTTP route
+- **Event bus**: `src/providers/eventbus/nats.ts` (NATS-backed pub/sub for events)
+- **Work dispatch**: Host publishes work to `sandbox.work` queue group via NATS
 
-All NATS callers use `natsConnectOptions()` from `src/utils/nats.ts` for consistent server URL, authentication (NATS_USER/NATS_PASS), and reconnect configuration.
+NATS callers use `natsConnectOptions()` from `src/utils/nats.ts` for consistent server URL, authentication (NATS_USER/NATS_PASS), and reconnect configuration.
 
-**HTTP staging for large payloads**: File data (workspace changes) flows via HTTP POST to the host's `/internal/workspace-staging` endpoint, not NATS, to avoid the 1MB payload limit. Only a small staging key reference travels over NATS IPC. NetworkPolicy allows sandbox pods egress to host on port 8080.
+**HTTP for all payloads**: Workspace file data flows via HTTP POST to the host's `/internal/workspace-staging` endpoint. IPC requests use HTTP POST to `/internal/ipc`. Only work dispatch uses NATS. NetworkPolicy allows sandbox pods egress to host on port 8080.
 
 ### Workspace Provider
 
@@ -49,4 +49,4 @@ The workspace provider (`src/providers/workspace/`) manages persistent file work
 
 ### Provider Categories
 
-There are 17 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, image, memory, scanner, channel, web, browser, credentials, skills, audit, sandbox, scheduler, screener, database, storage, eventbus, workspace.
+There are 17 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, image, memory, scanner, channel, web_extract, web_search, browser, credentials, audit, sandbox, scheduler, screener, database, storage, eventbus, workspace.

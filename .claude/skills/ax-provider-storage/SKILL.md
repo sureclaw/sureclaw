@@ -5,7 +5,7 @@ description: Use when modifying persistent storage — message queues, conversat
 
 ## Overview
 
-Unified persistent storage abstraction with four sub-stores: MessageQueue, ConversationStore, SessionStore, and DocumentStore. Single database-backed implementation (SQLite/PostgreSQL via shared DatabaseProvider). All operations are async.
+Unified persistent storage abstraction with five sub-stores: MessageQueue, ConversationStore, SessionStore, DocumentStore, and ChatSessionStore. Single database-backed implementation (SQLite/PostgreSQL via shared DatabaseProvider). All operations are async.
 
 ## Interface (`src/providers/storage/types.ts`)
 
@@ -17,6 +17,7 @@ Unified persistent storage abstraction with four sub-stores: MessageQueue, Conve
 | `conversations` | `ConversationStoreProvider`| Conversation history           |
 | `sessions`      | `SessionStoreProvider`     | Session tracking               |
 | `documents`     | `DocumentStore`            | Key-value document store       |
+| `chatSessions`  | `ChatSessionStore`         | Chat UI session management     |
 | `close()`       | `void`                     | Tear down connections          |
 
 ### MessageQueueStore

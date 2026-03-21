@@ -1,88 +1,56 @@
 ---
 name: ax-provider-skills
-description: Use when modifying skills store providers — database-backed skill storage with screening & approval gates, AgentSkills format parsing, and manifest generation in src/providers/skills/
+description: Use when modifying skill types, AgentSkills format parsing, manifest generation, or the skill installer in src/providers/skills/ and src/agent/skill-installer.ts
 ---
 
 ## Overview
 
-The skills provider manages agent skill definitions (AgentSkills format SKILL.md files). Supports a read-only mode for static skill sets and a git-backed proposal workflow for agent-initiated skill modifications with multi-layer screening and approval gates. Includes AgentSkills format parsing, manifest generation, and ClawHub registry integration for external skill discovery.
+The skills provider directory now contains only type definitions (`types.ts`). The `SkillStoreProvider` interface, `database.ts`, `readonly.ts`, and `git.ts` implementations have been removed. Skills are now managed through the host's DocumentStore + IPC handlers (`src/host/ipc-handlers/skills.ts`). Skill screening is handled by the screener provider (`src/providers/screener/`).
 
-## Core Types
+This skill covers: `ParsedAgentSkill` format types, skill installer, ClawHub registry client, and manifest generation.
 
-### SkillMeta
+## Core Types (`src/providers/skills/types.ts`)
 
-| Field         | Type   | Required | Notes                       |
-|---------------|--------|----------|-----------------------------|
-| `name`        | string | yes      | Skill identifier (no `.md`) |
-| `description` | string | no       | Human-readable summary      |
-| `path`        | string | yes      | Resolved file path          |
+Types-only module — re-exports screener types from `src/providers/screener/types.ts` for backward compatibility.
 
-### SkillProposal
+### ParsedAgentSkill
 
-| Field     | Type   | Required | Notes                          |
-|-----------|--------|----------|--------------------------------|
-| `skill`   | string | yes      | Target skill name              |
-| `content` | string | yes      | Proposed new content (SKILL.md)|
-| `reason`  | string | no       | Why the change is needed       |
-
-### ProposalResult
-
-| Field     | Type   | Notes                                          |
-|-----------|--------|-------------------------------------------------|
-| `id`      | string | Unique proposal ID for approve/reject           |
-| `verdict` | enum   | `AUTO_APPROVE`, `NEEDS_REVIEW`, or `REJECT`     |
-| `reason`  | string | Explanation of verdict                           |
-
-### SkillStoreProvider
-
-| Method                 | Description                                      |
-|------------------------|--------------------------------------------------|
-| `list()`               | Return all skill metadata                        |
-| `read(name)`           | Return content of a skill by name                |
-| `propose(proposal)`    | Submit a skill change; returns ProposalResult     |
-| `approve(proposalId)`  | Accept a pending proposal                        |
-| `reject(proposalId)`   | Reject a pending proposal                        |
-| `revert(commitId)`     | Revert a previously applied change               |
-| `log(opts?)`           | Return audit log; filterable by `limit`, `since` |
-
-### SkillScreenerProvider
-
-| Method                                    | Description                            |
-|-------------------------------------------|----------------------------------------|
-| `screen(content, declaredPermissions?)`   | Returns `ScreeningVerdict` with `allowed` boolean and `reasons` array |
-| `screenExtended?(content, ...)?`          | Returns `ExtendedScreeningVerdict` with score, verdict, and detailed reasons |
-| `screenBatch?(items)?`                    | Batch screening multiple skills        |
-
-### AgentSkills Format Types
-
-**ParsedAgentSkill** -- Parsed representation of a SKILL.md file:
+Parsed representation of a SKILL.md file:
 - `name`, `description?`, `version?`, `license?`, `homepage?`
-- `requires` -- `bins` (required host binaries), `env` (required env vars), `anyBins` (alternative binary options), `config` (config keys)
-- `install` -- `AgentSkillInstaller[]` (kind: brew/npm/pip/go/cargo/uv, package, bins?, os?)
+- `requires` -- `bins` (required host binaries), `env` (required env vars), `oauth` (`OAuthRequirement[]`), `anyBins` (alternative binary options), `config` (config keys)
+- `install` -- `SkillInstallStep[]` (raw `run` shell commands, not structured kind/package taxonomy)
+- `os?` -- platform constraints
 - `permissions` -- mapped from OpenClaw terms to AX IPC actions
+- `triggers?` -- event triggers
+- `tags?` -- categorization tags
 - `body` -- markdown body text
 - `codeBlocks` -- extracted code blocks
 
-**GeneratedManifest** -- Auto-generated from ParsedAgentSkill via `manifestGenerator.generateManifest()`:
+### SkillInstallStep (NEW)
+
+| Field   | Type       | Required | Notes                                    |
+|---------|------------|----------|------------------------------------------|
+| `run`   | string     | yes      | Shell command to execute                 |
+| `label` | string     | no       | Human-readable description               |
+| `bin`   | string     | no       | Binary that should exist after install   |
+| `os`    | string[]   | no       | Platform constraints (darwin, linux, etc.)|
+
+### OAuthRequirement (NEW)
+
+| Field              | Type     | Required | Notes                              |
+|--------------------|----------|----------|------------------------------------|
+| `name`             | string   | yes      | Credential name                    |
+| `authorize_url`    | string   | yes      | OAuth authorization endpoint       |
+| `token_url`        | string   | yes      | OAuth token exchange endpoint      |
+| `scopes`           | string[] | yes      | Required OAuth scopes              |
+| `client_id`        | string   | yes      | OAuth client ID                    |
+| `client_secret_env`| string   | no       | Env var name for client secret     |
+
+### GeneratedManifest
+
+Auto-generated from ParsedAgentSkill via `manifestGenerator.generateManifest()`:
 - Static analysis for host commands, env vars, domains, IPC tools, scripts
 - Optional `hashExecutables()` adds SHA-256 to manifest entries
-
-## Implementations
-
-| Provider   | File          | Type      | Read | Write | Screen | Notes                                  |
-|------------|---------------|-----------|------|-------|--------|----------------------------------------|
-| `readonly` | `readonly.ts` | Store     | yes  | no    | no     | Lists/reads `.md` files from disk      |
-| `git`      | `git.ts`      | Store     | yes  | yes   | yes    | Git-backed with proposals & audit log  |
-| `none`     | `screener/none.ts` | Screener | --   | --     | yes    | No-op (always approve) for testing     |
-| `static`   | `screener/static.ts` | Screener | --   | --     | yes    | 5-layer static analyzer with scoring   |
-
-## Proposal Workflow
-
-1. **Propose**: Agent calls `propose({ skill, content, reason })`
-2. **Screen**: Provider runs `screen(content)` or `screenExtended(content)`
-3. **Verdict**: `AUTO_APPROVE` -> immediate write & commit; `NEEDS_REVIEW` -> queued; `REJECT` -> blocked
-4. **Manual**: Human calls `approve(id)` or `reject(id)` for pending proposals
-5. **Revert**: `revert(commitId)` rolls back a previous change
 
 ## Static Screener (5 Layers)
 

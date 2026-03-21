@@ -7,7 +7,7 @@ description: Use when modifying IPC protocol between host and agent — schemas,
 
 AX host and agent processes communicate over Unix domain sockets using a length-prefixed JSON protocol. The host (`src/host/ipc-server.ts`) validates every inbound message against Zod strict schemas (`src/ipc-schemas.ts`) before dispatching to a handler. Long-running handlers send periodic heartbeat frames to keep the client alive.
 
-In Kubernetes, a full NATS transport replaces Unix sockets: the agent uses `NATSIPCClient` (`src/agent/nats-ipc-client.ts`) and the host uses `startNATSIPCHandler` (`src/host/nats-ipc-handler.ts`), both routing through the same `handleIPC` pipeline with identical schema validation.
+In Kubernetes, HTTP-based IPC replaces Unix sockets: the agent uses `HttpIPCClient` (`src/agent/http-ipc-client.ts`) and the host receives requests via `POST /internal/ipc` route in `server-k8s.ts`, routing through the same `handleIPC` pipeline with identical schema validation.
 
 ## Protocol
 
@@ -28,7 +28,7 @@ Shared validators: `safeString(maxLen)`, `scopeName`, `uuid`, `pathSegment`.
 
 ## IIPCClient Interface
 
-Minimal IPC client interface defined in `src/agent/runner.ts`, implemented by both `IPCClient` (Unix socket) and `NATSIPCClient` (NATS):
+Minimal IPC client interface defined in `src/agent/runner.ts`, implemented by both `IPCClient` (Unix socket) and `HttpIPCClient` (HTTP for k8s):
 
 ```typescript
 interface IIPCClient {
@@ -61,11 +61,9 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Browser     | `browser_type`         | `session`, `ref`, `text`                                  | `ok`                          |
 | Browser     | `browser_screenshot`   | `session`                                                 | `data` (base64)               |
 | Browser     | `browser_close`        | `session`                                                 | `ok`                          |
-| Skills      | `skill_read`           | `name`                                                    | `content`                     |
-| Skills      | `skill_list`           | (none)                                                    | `skills`                      |
-| Skills      | `skill_propose`        | `skill`, `content`, `reason?`                             | (proposal result)             |
-| Skills      | `skill_import`         | `source`, `autoApprove?`                                  | (import result)               |
 | Skills      | `skill_search`         | `query`, `limit?`                                         | (search results)              |
+| Skills      | `skill_download`       | `name`, `source?`                                         | (download result)             |
+| Credentials | `credential_request`   | `envName`, `description?`                                 | `ok`, `available`             |
 | Workspace   | `workspace_release`    | `staging_key`                                             | `ok`                          |
 | Audit       | `audit_query`          | `filter?` (action, sessionId, since, until, limit)        | `entries`                     |
 | Delegation  | `agent_delegate`       | `task`, `context?`, `runner?`, `model?`, `maxTokens?`, `timeoutSec?` | `response`             |
@@ -150,21 +148,17 @@ Both endpoints are authenticated via `Authorization: Bearer <ipcToken>`. The old
 
 Sandbox tools (`sandbox_bash`, `sandbox_read_file`, `sandbox_write_file`, `sandbox_edit_file`) route through IPC to host-side handlers in `src/host/ipc-handlers/sandbox-tools.ts`. All file paths are validated with `safePath()` for workspace containment. In container mode, these instead route to `src/agent/local-sandbox.ts` using the `sandbox_approve`/`sandbox_result` audit gate.
 
-## NATS Transport (K8s)
+## HTTP Transport (K8s)
 
-In Kubernetes deployments, IPC uses a full NATS transport instead of Unix sockets:
+In Kubernetes deployments, IPC uses HTTP instead of Unix sockets. NATS is only for work dispatch:
 
-- **Agent-side**: `src/agent/nats-ipc-client.ts` (`NATSIPCClient`) is a drop-in replacement for `IPCClient`. Selected automatically when `AX_IPC_TRANSPORT=nats` env var is set. Publishes NATS requests to `ipc.request.{requestId}.{token}` and receives responses via NATS request/reply.
-- **Host-side**: `src/host/nats-ipc-handler.ts` (`startNATSIPCHandler`) subscribes to `ipc.request.{requestId}.{token}` and routes all incoming requests through the existing `handleIPC` pipeline -- same schema validation, same handlers, same audit logging as Unix socket IPC.
-- **Per-turn capability tokens**: The host generates an unguessable token (`AX_IPC_TOKEN`) for each turn. This token scopes the NATS subject so rogue sandbox pods cannot intercept requests from other sessions.
-- **Security**: The host handler uses the bound host context (sessionId, userId) passed at construction time -- it does NOT trust `_sessionId`/`_userId` from the payload. The token in the subject is the security boundary.
-- **Same schema validation**: NATS payloads use the same Zod schemas as Unix socket IPC. The transport is transparent to the handler layer.
+- **Agent-side**: `src/agent/http-ipc-client.ts` (`HttpIPCClient`) is a drop-in replacement for `IPCClient`. Selected automatically when `AX_HOST_URL` env var is set. POSTs JSON to `${hostUrl}/internal/ipc`.
+- **Host-side**: `POST /internal/ipc` route in `src/host/server-k8s.ts` receives requests and routes through the existing `handleIPC` pipeline -- same schema validation, same handlers, same audit logging as Unix socket IPC.
+- **Per-turn capability tokens**: Auth via `Authorization: Bearer <ipcToken>`. The host validates the token to prevent unauthorized IPC requests.
+- **LLM proxy**: `POST /internal/llm-proxy/*` route in `server-k8s.ts` uses shared `llm-proxy-core.ts` for credential injection and Anthropic API forwarding.
+- **Same schema validation**: HTTP payloads use the same Zod schemas as Unix socket IPC. The transport is transparent to the handler layer.
 
-### NATS Bridge (claude-code LLM proxy)
-
-Separately from general IPC, `src/agent/nats-bridge.ts` provides an HTTP-to-NATS bridge specifically for claude-code's LLM calls. This is NOT general IPC -- it proxies the Anthropic API:
-- Publishes to `ipc.llm.{requestId}.{token}` for LLM calls.
-- `src/host/nats-llm-proxy.ts` subscribes and proxies to the Anthropic API.
+**Removed**: `nats-ipc-client.ts`, `nats-bridge.ts` (agent), `nats-ipc-handler.ts`, `nats-llm-proxy.ts` (host) have all been replaced by HTTP routes.
 
 ## Gotchas
 
@@ -176,5 +170,4 @@ Separately from general IPC, `src/agent/nats-bridge.ts` provides an HTTP-to-NATS
 - **Session ID scoping.** Clients can include `_sessionId` in requests (stripped before schema validation).
 - **Heartbeats are metadata.** Clients should ignore `_heartbeat` frames and only process actual responses.
 - **Concurrent IPC on shared socket.** Fixed misrouted responses when multiple `call()` requests are in-flight on the same Unix socket connection. Each request is now matched to its response correctly.
-- **NATS vs socket disconnect.** `IPCClient.disconnect()` is synchronous (void), while `NATSIPCClient.disconnect()` returns `Promise<void>`. The `IIPCClient` interface declares `void` which is compatible with both (callers can ignore the promise).
-- **nats-bridge.ts is NOT general IPC.** It handles only claude-code LLM proxy traffic. General IPC for k8s goes through `nats-ipc-client.ts` -> `nats-ipc-handler.ts`.
+- **HTTP IPC for k8s.** `HttpIPCClient` uses HTTP POST to `/internal/ipc`. NATS is only for work dispatch (queue groups). The old `NATSIPCClient`, `nats-bridge.ts`, `nats-ipc-handler.ts`, and `nats-llm-proxy.ts` have all been removed.

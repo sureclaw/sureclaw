@@ -41,10 +41,15 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics) |
-| `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection, `processCompletionWithNATS` wrapper (staging, agent_response, workspace interception), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
-| `src/host/nats-ipc-handler.ts` | NATS-based IPC handler for k8s sandbox pods. Subscribes to `ipc.request.{requestId}.{token}`, routes through existing `handleIPC` pipeline (same as Unix socket path). Per-turn capability token prevents rogue sandboxes. One instance per turn |
-| `src/host/nats-llm-proxy.ts` | NATS-based LLM proxy for claude-code in k8s — proxies requests to Anthropic API with credential injection |
-| `src/host/nats-session-protocol.ts` | NATS session protocol for k8s sandbox coordination |
+| `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection (work dispatch only), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
+| `src/host/server-chat-api.ts` | Chat API handler — serves `/v1/chat/sessions` endpoints for chat UI thread list and history |
+| `src/host/server-chat-ui.ts` | Chat UI static file serving — serves built chat UI from `dist/chat-ui/` at root path |
+| `src/host/session-title.ts` | Auto-generate session titles from first user message using fast LLM model |
+| `src/host/llm-proxy-core.ts` | Shared LLM credential injection and forwarding — used by both Unix socket proxy (`proxy.ts`) and HTTP route (`/internal/llm-proxy` in `server-k8s.ts`) |
+| `src/host/oauth-skills.ts` | OAuth PKCE flow for skill credentials — manages pending flows (start → callback → token exchange → store), handles token refresh |
+| `src/host/web-proxy-approvals.ts` | Web proxy approval coordination via event bus — replaces old in-memory promise map pattern. Works across stateless replicas (in-process for local, NATS for k8s) |
+| `src/host/workspace-release-screener.ts` | Release-time screening for skill files and binaries — inspects workspace changes before GCS commit |
+| `src/host/nats-session-protocol.ts` | NATS session protocol for k8s sandbox work dispatch coordination |
 | `src/host/delivery.ts` | Delivery resolution for cron/heartbeat responses (CronDelivery handling) |
 | `src/host/event-console.ts` | Real-time event display with color-coded output |
 | `src/host/history-summarizer.ts` | Recursive conversation summarization with LLM |
@@ -191,13 +196,15 @@ Key IPC actions: `agent_orch_status`, `agent_orch_list`, `agent_orch_tree`, `age
 - **`processInbound(msg)`**: Canonicalizes session ID, generates canary token, wraps content in `<external_content>` taint tags, records in taint budget, runs `scanner.scanInput()`, enqueues with canary appended. Returns `RouterResult` with `queued`, `messageId`, `canaryToken`.
 - **`processOutbound(response, sessionId, canaryToken)`**: Checks canary leakage, scans output, strips canary. Redacts entire response if canary leaked.
 
-## NATS Subsystem (K8s Deployment)
+## K8s HTTP Subsystem (K8s Deployment)
 
-For Kubernetes deployments, NATS-based components handle communication between the host and sandbox pods. The k8s model uses three components:
+For Kubernetes deployments, k8s sandbox pods communicate with the host over HTTP (not NATS). NATS is used only for work dispatch (queue groups). The key HTTP routes on the host (`server-k8s.ts`):
 
-- **`nats-ipc-handler.ts`** — Routes IPC requests from k8s sandbox pods through the same `handleIPC` pipeline as the Unix socket path. Subscribes to `ipc.request.{requestId}.{token}` where the per-turn capability token is unguessable, preventing rogue sandboxes from injecting requests. One instance per turn. The handler uses the bound host context (sessionId, userId) and does NOT trust `_sessionId`/`_userId` from the payload.
-- **`nats-llm-proxy.ts`** — Subscribes to `ipc.llm.{sessionId}`, proxies LLM requests to Anthropic API with credential injection. Allows claude-code pods to make LLM calls without API keys.
-- **`nats-session-protocol.ts`** — Session coordination protocol for k8s sandbox.
+- **`POST /internal/ipc`** — HTTP IPC route. Receives IPC requests from `HttpIPCClient` in k8s sandbox pods, routes through the same `handleIPC` pipeline as the Unix socket path. Authenticated via `Authorization: Bearer <ipcToken>`.
+- **`POST /internal/llm-proxy/*`** — LLM proxy route. Forwards LLM requests to Anthropic API with credential injection via `llm-proxy-core.ts`. Allows claude-code pods to make LLM calls without API keys.
+- **`nats-session-protocol.ts`** — NATS work dispatch coordination (queue groups for warm pod claiming).
+
+**Removed files**: `nats-ipc-handler.ts` and `nats-llm-proxy.ts` have been replaced by HTTP routes in `server-k8s.ts` using shared `llm-proxy-core.ts`.
 
 ### Workspace Provision & Release (K8s)
 
@@ -218,7 +225,7 @@ The `AX_HOST_URL` env var (`http://ax-host.{namespace}.svc`) is passed to sandbo
 
 ### Warm Pool (K8s)
 
-The k8s sandbox provider integrates with `src/providers/sandbox/warm-pool-client.ts` to claim pre-warmed pods. Atomic pod claiming with auto-cleanup after exec.
+Warm pool claiming is handled at the NATS queue group level — the host's `publishWork()` uses `nc.request('sandbox.work')` to deliver work to warm pods via queue groups before falling back to cold-starting a pod. The separate `warm-pool-client.ts` has been removed.
 
 ## Agent Registry
 
@@ -269,8 +276,8 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **proxy.sock race**: Must await IPC server listen before spawning agent, otherwise agent connects before socket is ready.
 - **agent_response timeout**: Handle timeout gracefully without crashing the host process.
 - **Container three-phase orchestration**: Docker/Apple sandboxes use provision (network on) → run (network off) → cleanup (network on). Do not assume network is available during the run phase.
-- **NATS IPC handler is per-turn**: One NATSIPCHandler instance per turn, scoped by requestId + capability token. Never reuse across turns.
-- **Deleted files**: `nats-sandbox-dispatch.ts`, `agent-runtime-process.ts`, `local-sandbox-dispatch.ts` are all removed. The k8s sandbox now uses `nats-ipc-handler.ts` which routes through the same `handleIPC` as local Unix socket.
+- **K8s IPC is now HTTP-based**: `nats-ipc-handler.ts` and `nats-llm-proxy.ts` have been removed. K8s pods use `HttpIPCClient` → `POST /internal/ipc` HTTP route. NATS is only for work dispatch (queue groups).
+- **Deleted files**: `nats-sandbox-dispatch.ts`, `agent-runtime-process.ts`, `local-sandbox-dispatch.ts`, `nats-ipc-handler.ts`, `nats-llm-proxy.ts`, `server.ts`, `host-process.ts` are all removed.
 - **Error redaction in streams**: Streaming responses must redact internal errors before sending to client.
 - **Web proxy per completion**: When `config.web_proxy` is enabled, a web proxy instance starts per completion (Unix socket for container sandboxes, TCP for subprocess). Cleanup happens in the completion finally block.
 - **K8s web proxy**: In k8s mode, web proxy runs as a TCP server (port 3128, bound to `0.0.0.0`) in the host process. Sandbox pods connect via k8s Service (`ax-web-proxy.{namespace}.svc:3128`), passed as `AX_WEB_PROXY_URL`. Requires: (1) `config.web_proxy: true` in config, (2) `webProxy.enabled: true` in Helm values, (3) host network policy allowing ingress on port 3128 from execution plane. The `web_proxy` field must be in the Zod schema in `config.ts`.

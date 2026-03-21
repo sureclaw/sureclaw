@@ -85,7 +85,7 @@ Only subprocess uses symlink fallback (it can't remap filesystems). `createCanon
 | subprocess | `subprocess.ts`      | Any                   | None -- dev-only fallback, logs warning                |
 | docker     | `docker.ts`          | Linux / macOS         | Container, --network=none (default), --cap-drop=ALL, optional gVisor |
 | apple      | `apple.ts`           | macOS (Apple Silicon) | Lightweight VM via Virtualization.framework, no shared kernel |
-| k8s        | `k8s.ts`             | Kubernetes            | Pod-based sandbox with NATS IPC                        |
+| k8s        | `k8s.ts`             | Kubernetes            | Pod-based sandbox with HTTP IPC                        |
 
 Shared helpers in `utils.ts`: `exitCodePromise`, `enforceTimeout`, `killProcess`, `checkCommand`, `sandboxProcess`.
 
@@ -135,15 +135,15 @@ Uses Apple's `container` CLI (Virtualization.framework):
 
 ## K8s Sandbox Provider (`k8s.ts`)
 
-Kubernetes pod-based sandbox with pure NATS communication (no k8s Exec/Attach):
+Kubernetes pod-based sandbox (no k8s Exec/Attach):
 
-- **Warm pool** (default): Claims a pre-warmed pod from the pool controller. Falls back to cold start if none available.
-- **Cold start** (`WARM_POOL_ENABLED=false`): Creates a new pod per sandbox request.
-- Communication entirely via NATS:
-  - Host publishes work payload to `agent.work.{podName}`
-  - Agent sends IPC requests via `ipc.request.{requestId}.{token}`
-  - Agent sends response via `agent_response` IPC action
-- `AX_IPC_TRANSPORT=nats` tells the agent to use `NATSIPCClient` instead of Unix sockets
+- **Warm pool**: Handled at the NATS queue group level — the host publishes work to `sandbox.work` queue group, warm pods subscribe. Falls back to cold start.
+- **Cold start**: Always creates a new pod per sandbox request.
+- Communication: NATS for work dispatch, HTTP for IPC:
+  - Host publishes work payload to `sandbox.work` queue group via NATS (warm) or per-pod subject (cold)
+  - Agent sends IPC requests via HTTP POST to `/internal/ipc` (`HttpIPCClient`)
+  - Agent sends response via `agent_response` IPC action (over HTTP)
+- `AX_HOST_URL` tells the agent to use `HttpIPCClient` instead of Unix sockets
 - Per-turn capability tokens (`AX_IPC_TOKEN`) passed via `extraEnv`
 - `podName` returned on `SandboxProcess` for NATS work delivery
 - Dummy stdout/stderr/stdin streams (response comes via NATS, not stdio)
@@ -165,7 +165,7 @@ Kubernetes pod-based sandbox with pure NATS communication (no k8s Exec/Attach):
 
 ## Warm Pod Pool
 
-**Client** (`src/providers/sandbox/warm-pool-client.ts`): Claims pre-warmed pods by atomically patching labels (`warm` -> `claimed`) using JSON Patch with optimistic concurrency (test+replace). Races resolved via 409/422 retry. Pods are disposable -- not returned to pool after use.
+Warm pool claiming is handled at the NATS queue group level. The host's `publishWork()` uses `nc.request('sandbox.work')` to deliver work to warm pods via queue groups. The separate `warm-pool-client.ts` has been removed.
 
 **Controller** (`src/pool-controller/`): Standalone process that maintains target warm pod counts per tier:
 
@@ -250,7 +250,7 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 - **Apple Container IPC is reversed**: Agent LISTENS, host CONNECTS (via `bridgeSocketPath`). This is opposite to Docker/subprocess where the agent connects to the host's IPC server.
 - **Apple Container --tmpfs hides sockets**: `--publish-socket` forwarding fails when the container-side socket path is on a tmpfs mount. That's why Apple provider doesn't use `--read-only`.
 - **Apple Container bridge socket isolation**: Bridge sockets go in a `bridges/` subdirectory. If they shared the IPC server directory, container runtime cleanup could delete `proxy.sock`.
-- **K8s uses NATS, not Unix socket IPC**: Pods can't share host filesystem. Agent uses `NATSIPCClient` (set via `AX_IPC_TRANSPORT=nats`). Streams are dummy PassThrough -- response comes via NATS `agent_response`.
+- **K8s uses HTTP, not Unix socket IPC**: Pods can't share host filesystem. Agent uses `HttpIPCClient` (set via `AX_HOST_URL`). Streams are dummy PassThrough -- response comes via HTTP IPC `agent_response`.
 - **K8s pods have synthetic PIDs**: Real PIDs don't exist for k8s pods. The provider maintains a counter starting at 100,000.
 - **New host paths must be added to container providers**: SandboxConfig changes ripple to docker (-v :ro), apple (-v :ro), k8s (volume mounts).
 - **EPERM on kill**: tsx-wrapped agents may throw EPERM on SIGTERM/SIGKILL. `enforceTimeout()` handles this with try/catch.
@@ -271,11 +271,11 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 - `src/providers/sandbox/docker.ts` -- Docker container provider (--network=none, gVisor optional)
 - `src/providers/sandbox/apple.ts` -- Apple Container provider (VM-based, --publish-socket IPC bridge)
 - `src/providers/sandbox/k8s.ts` -- Kubernetes pod provider (NATS IPC, warm pool)
-- `src/providers/sandbox/warm-pool-client.ts` -- Claims pre-warmed pods from pool
+- `src/pool-controller/` -- Warm pod pool management (controller, k8s-client, metrics, main) — claiming via NATS queue groups
 - `src/providers/sandbox/utils.ts` -- Shared sandbox helpers (exitCodePromise, enforceTimeout, etc.)
 - `src/pool-controller/` -- Warm pod pool management (controller, k8s-client, metrics, main)
 - `src/agent/local-sandbox.ts` -- Agent-side local tool execution with host audit gate
 - `src/agent/workspace-cli.ts` -- Container provision/cleanup/release phase CLI
 - `src/agent/workspace-release.ts` -- Thin wrapper that spawns workspace-cli.ts release as subprocess, sends staging_key via IPC
 - `src/host/provider-map.ts` -- Static allowlist (sandbox: subprocess, docker, apple, k8s)
-- `tests/providers/sandbox/` -- Tests: k8s, docker, apple, subprocess, warm-pool-client, canonical-paths, utils
+- `tests/providers/sandbox/` -- Tests: k8s, docker, apple, subprocess, k8s-warm-pool, k8s-ca-injection, canonical-paths, utils

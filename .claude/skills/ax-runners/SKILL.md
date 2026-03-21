@@ -13,12 +13,12 @@ AX supports multiple agent runners that execute inside the sandbox. Each runner 
 |---|---|---|
 | `src/agent/runner.ts` | Entry point, stdin parse, dispatch, IIPCClient interface | `run()`, `parseStdinPayload()`, `compactHistory()`, `AgentConfig`, `IIPCClient` |
 | `src/agent/runners/pi-session.ts` | pi-coding-agent runner (history-aware, dual LLM transport) | `runPiSession()` |
-| `src/agent/runners/claude-code.ts` | Claude Agent SDK runner (TCP/NATS bridge, MCP tools) | `runClaudeCode()`, `buildSDKPrompt()` |
+| `src/agent/runners/claude-code.ts` | Claude Agent SDK runner (TCP bridge, MCP tools) | `runClaudeCode()`, `buildSDKPrompt()` |
 | `src/agent/mcp-server.ts` | MCP tool registry for claude-code | `createIPCMcpServer()` |
 | `src/agent/tcp-bridge.ts` | HTTP-to-Unix-socket forwarder | `startTCPBridge()`, `TCPBridge` |
 | `src/agent/web-proxy-bridge.ts` | TCP-to-Unix-socket bridge for HTTP forward proxy (HTTP + CONNECT) | `startWebProxyBridge()`, `WebProxyBridge` |
-| `src/agent/nats-bridge.ts` | HTTP-to-NATS bridge for K8s claude-code LLM proxy | `startNATSBridge()`, `NATSBridge` |
-| `src/agent/nats-ipc-client.ts` | NATS-based IPC client for k8s (drop-in IPCClient replacement) | `NATSIPCClient` |
+| `src/agent/http-ipc-client.ts` | HTTP-based IPC client for k8s (drop-in IPCClient replacement) | `HttpIPCClient` |
+| `src/agent/skill-installer.ts` | Skill dependency installer — reads SKILL.md install specs, runs missing installs | `installSkillDeps()` |
 | `src/agent/local-sandbox.ts` | Agent-side sandbox execution with host audit gate | `createLocalSandbox()` |
 | `src/agent/stream-utils.ts` | Message conversion, stream events, helpers | `convertPiMessages()`, `emitStreamEvents()`, `createSocketFetch()`, `createLazyAnthropicClient()` |
 | `src/agent/ipc-transport.ts` | IPC-based LLM streaming adapter with image block injection | `createIPCStreamFn()` |
@@ -38,7 +38,7 @@ interface IIPCClient {
 }
 ```
 
-Implementations: `IPCClient` (Unix socket), `NATSIPCClient` (NATS for k8s). A pre-connected client can be passed via `AgentConfig.ipcClient` for listen and NATS modes.
+Implementations: `IPCClient` (Unix socket), `HttpIPCClient` (HTTP for k8s). A pre-connected client can be passed via `AgentConfig.ipcClient` for listen and HTTP modes.
 
 ## Three IPC Transport Modes
 
@@ -46,11 +46,11 @@ Implementations: `IPCClient` (Unix socket), `NATSIPCClient` (NATS for k8s). A pr
 
 | Mode | Env Trigger | Client | Subject/Path | Use Case |
 |---|---|---|---|---|
-| **Socket** (default) | `AX_IPC_TRANSPORT=socket` or unset | `IPCClient` | Unix socket via `--ipc-socket` | Local/subprocess sandbox |
-| **NATS** | `AX_IPC_TRANSPORT=nats` | `NATSIPCClient` | `ipc.request.{requestId}.{token}` | Kubernetes pods |
+| **Socket** (default) | No special env | `IPCClient` | Unix socket via `--ipc-socket` | Local/subprocess sandbox |
+| **HTTP** | `AX_HOST_URL` set | `HttpIPCClient` | HTTP POST to `/internal/ipc` | Kubernetes pods |
 | **Listen** | `AX_IPC_LISTEN=1` | `IPCClient` (listen mode) | Unix socket (reverse -- agent listens) | Apple Container sandbox |
 
-In NATS and Listen modes, the client is created and connected before stdin/work-payload is read, then passed via `AgentConfig.ipcClient`. The `setContext()` call after payload parsing updates the session ID, request ID, and capability token for NATS subject scoping.
+In HTTP and Listen modes, the client is created and connected before stdin/work-payload is read, then passed via `AgentConfig.ipcClient`. NATS is only used for work dispatch (queue groups) in k8s mode, not for IPC.
 
 ## Runner Dispatch
 
@@ -88,10 +88,10 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 ## claude-code Runner
 
-**Architecture**: TCP/NATS bridge + IPC MCP server + Agent SDK query.
+**Architecture**: TCP bridge + IPC MCP server + Agent SDK query.
 
 **Key flow:**
-1. Start bridge: TCP bridge (`startTCPBridge(proxySocket)`) for local, or NATS bridge (`startNATSBridge(...)`) for k8s
+1. Start bridge: TCP bridge (`startTCPBridge(proxySocket)`) for credential-injecting proxy
 1b. Start web proxy bridge if `AX_WEB_PROXY_SOCKET` / `AX_WEB_PROXY_URL` / `AX_WEB_PROXY_PORT` env var set
 2. Use pre-connected `IIPCClient` from `config.ipcClient` (or create new `IPCClient`)
 3. Create IPC MCP server (`createIPCMcpServer(client)`) exposing tools via MCP protocol
@@ -109,9 +109,7 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 **TCP Bridge** (`tcp-bridge.ts`): HTTP server on localhost:0 forwarding to Unix socket proxy. Strips encoding headers. Used for local deployments.
 
-**NATS Bridge** (`nats-bridge.ts`): HTTP-to-NATS bridge for K8s sandbox pods. Instead of TCP bridge -> Unix socket, publishes to NATS for both LLM calls (`ipc.llm.{requestId}.{token}`) and tool calls (`ipc.request.{requestId}.{token}`). Used when `--nats-url` is provided or in NATS transport mode. This bridge is specifically for claude-code's LLM proxy traffic -- general IPC goes through `nats-ipc-client.ts` -> `nats-ipc-handler.ts`.
-
-**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_*, skill_import, skill_search, skill_install, agent_delegate, image_generate, sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file.
+**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_search, skill_download, credential_request, agent_delegate, image_generate, sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file.
 
 ## Local Sandbox (Container Mode)
 
@@ -157,7 +155,7 @@ This avoids the round-trip of sending file contents/command output over IPC for 
 - **Image blocks via `buildSDKPrompt()`**: Structured content blocks only generated when `image_data` blocks are present in user message.
 - **Context-aware filtering**: Both runners now use `ToolFilterContext` from `buildSystemPrompt()` to automatically exclude tools based on missing prompt modules.
 - **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
-- **NATS bridge is LLM-only**: `nats-bridge.ts` handles only claude-code LLM proxy traffic (Anthropic API forwarding). General IPC for k8s (tool calls, memory, etc.) goes through `nats-ipc-client.ts` -> `nats-ipc-handler.ts`.
+- **NATS removed from IPC**: The old `nats-bridge.ts` and `nats-ipc-client.ts` have been removed. K8s pods use `HttpIPCClient` for all IPC and TCP bridge for LLM proxy. NATS is only for work dispatch.
 - **Concurrent IPC fix**: Misrouted responses on shared Unix sockets have been fixed. Each `call()` is now correctly matched to its response.
 - **Web proxy bridge cleanup**: Both runners stop the web proxy bridge in their cleanup path (after agent loop completes). Failure to start the bridge is non-fatal (logged as warning, agent continues without outbound HTTP).
 - **Web proxy env var priority**: `AX_WEB_PROXY_SOCKET` (container, Unix socket bridge) > `AX_WEB_PROXY_URL` (k8s, direct URL) > `AX_WEB_PROXY_PORT` (subprocess, TCP). Only one is used.

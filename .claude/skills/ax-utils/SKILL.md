@@ -22,7 +22,7 @@ The utilities module provides critical cross-cutting concerns: path traversal de
 | `src/utils/migrator.ts` | DB-agnostic migration runner using Kysely Migrator | `runMigrations()`, `MigrationSet`, `MigrationResult` |
 | `src/utils/content-serialization.ts` | Serialize/deserialize content for storage | `serializeContent()`, `deserializeContent()` |
 | `src/utils/bin-exists.ts` | Cross-platform binary lookup in PATH | `binExists()`, `BIN_NAME_REGEX` |
-| `src/utils/install-validator.ts` | Install command validation and environment scrubbing | `validateRunCommand()`, `scrubbedEnv()` |
+| ~~`src/utils/install-validator.ts`~~ | **Removed** — install validation moved to `src/agent/skill-installer.ts` | — |
 | `src/utils/embedding-client.ts` | Text embedding generation via OpenAI-compatible APIs | `EmbeddingClient`, `EmbeddingClientConfig` |
 | `src/utils/openai-compat.ts` | Shared OpenAI-compatible provider constants/helpers | `DEFAULT_BASE_URLS`, `envKey()`, `resolveBaseUrl()` |
 | `src/utils/manifest-generator.ts` | Skill manifest generation from parsed SKILL.md | `generateManifest()`, `hashExecutables()` |
@@ -134,13 +134,9 @@ Validates an already-resolved path is within `baseDir`.
 - **Security**: Input validated against strict regex `BIN_NAME_RE` (`[a-zA-Z0-9_.-]+`) — rejects paths, shell operators, metacharacters.
 - Used by skill install validation to check prerequisite binaries.
 
-## Install Validator
+## Skill Installer (moved to agent)
 
-`src/utils/install-validator.ts`:
-
-- **`validateRunCommand(cmd)`** — Validates install commands against prefix allowlist (npm, brew, pip, cargo, etc.). Hard-rejects privilege escalation (sudo/su/doas/pkexec). Blocks shell operators (`;|&`$><`).
-- **`scrubbedEnv()`** — Returns minimal environment for install commands (no credentials).
-- Used by skill install flow for defense-in-depth.
+The `install-validator.ts` utility has been removed. Skill dependency installation is now handled by `src/agent/skill-installer.ts` which reads SKILL.md install specs, checks for missing binaries, and runs installs with package-manager prefix env vars.
 
 ## Shared Migrations
 
@@ -153,7 +149,7 @@ Validates an already-resolved path is within `baseDir`.
 
 `src/utils/nats.ts`:
 
-- **`natsConnectOptions()`** — Returns consistent NATS connection configuration options. Used by `src/agent/nats-ipc-client.ts` and `src/host/nats-ipc-handler.ts` to share connection settings.
+- **`natsConnectOptions()`** — Returns consistent NATS connection configuration options. Used by `src/agent/runner.ts` (work dispatch) and `src/host/server-k8s.ts` (NATS connection) to share connection settings.
 
 ## Disabled Provider
 

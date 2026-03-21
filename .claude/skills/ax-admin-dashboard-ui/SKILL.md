@@ -17,11 +17,11 @@ Invoke this skill BEFORE:
 
 | File | Purpose |
 |------|---------|
-| `dashboard/src/index.css` | All CSS custom properties, component classes, animations |
-| `dashboard/src/main.tsx` | App entry point, router, layout shell |
-| `dashboard/src/components/` | Reusable React components |
-| `dashboard/src/pages/` | Page-level components (Overview, Agents, Security, Logs, Settings) |
-| `src/admin-ui/` | Built output (do NOT edit directly) |
+| `ui/admin/src/index.css` | All CSS custom properties, component classes, animations |
+| `ui/admin/src/main.tsx` | App entry point, router, layout shell |
+| `ui/admin/src/components/` | Reusable React components |
+| `ui/admin/src/pages/` | Page-level components (Overview, Agents, Security, Logs, Settings) |
+| `dashboard/` | Legacy location — admin dashboard source is now at `ui/admin/` |
 
 ## Reference Screenshot
 

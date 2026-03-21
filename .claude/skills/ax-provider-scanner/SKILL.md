@@ -57,3 +57,4 @@ Generated via `randomBytes(16).toString('hex')` prefixed with `CANARY-`. The rou
 - **`''.includes('')` is always true**: Empty canary tokens cause universal redaction. Always guard `token.length > 0`.
 - **Guardian LLM fallback**: If no LLM is passed or the LLM call fails, guardian silently falls back to regex-only. Always test both paths.
 - **Output scanning is regex-only**: Even in guardian, output scanning doesn't use the LLM — credential/PII patterns are deterministic.
+- **Identity mutation exemption**: Guardian skips injection regex patterns for identity mutations (SOUL.md, IDENTITY.md writes). These files contain instructions that legitimately resemble injection patterns. The exemption is applied when `source` contains identity mutation indicators.
