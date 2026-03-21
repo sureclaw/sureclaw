@@ -1393,9 +1393,9 @@ export async function processCompletion(
           // Ensure session exists in chat_sessions table
           await chatSessions.ensureExists(persistentSessionId);
 
-          // Check if this is the first turn (only 1 user + 1 assistant turn)
-          const turnCount = await conversationStore.count(persistentSessionId);
-          if (turnCount <= 2) {
+          // Only generate title if session doesn't already have one
+          const session = await chatSessions.getById(persistentSessionId);
+          if (session && !session.title) {
             // Generate title asynchronously (don't block response)
             generateSessionTitle(textContent, {
               complete: async (prompt: string) => {

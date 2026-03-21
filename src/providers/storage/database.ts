@@ -324,7 +324,7 @@ function createChatSessionStore(db: Kysely<any>): ChatSessionStore {
           updated_at: now,
         })
         .execute();
-      return { id, title: opts.title ?? null, status: 'active', created_at: now, updated_at: now };
+      return { id, title: opts.title ?? null, status: 'active' as const, created_at: now, updated_at: now };
     },
 
     async updateTitle(id, title) {
@@ -337,20 +337,26 @@ function createChatSessionStore(db: Kysely<any>): ChatSessionStore {
 
     async ensureExists(id) {
       const now = Math.floor(Date.now() / 1000);
-      const existing = await db.selectFrom('chat_sessions')
-        .select('id')
+      await sql`
+        INSERT INTO chat_sessions (id, status, created_at, updated_at)
+        VALUES (${id}, 'active', ${now}, ${now})
+        ON CONFLICT (id) DO UPDATE SET updated_at = ${now}
+      `.execute(db);
+    },
+
+    async delete(id) {
+      const result = await db.deleteFrom('chat_sessions')
         .where('id', '=', id)
         .executeTakeFirst();
-      if (existing) {
-        await db.updateTable('chat_sessions')
-          .set({ updated_at: now })
-          .where('id', '=', id)
-          .execute();
-      } else {
-        await db.insertInto('chat_sessions')
-          .values({ id, status: 'active', created_at: now, updated_at: now })
-          .execute();
-      }
+      return (result?.numDeletedRows ?? 0n) > 0n;
+    },
+
+    async getById(id) {
+      const row = await db.selectFrom('chat_sessions')
+        .selectAll()
+        .where('id', '=', id)
+        .executeTakeFirst();
+      return row as ChatSession | undefined;
     },
   };
 }

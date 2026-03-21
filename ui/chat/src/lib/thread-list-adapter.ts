@@ -1,5 +1,5 @@
 import { createAssistantStream } from 'assistant-stream';
-import type { ThreadMessage, RemoteThreadListAdapter } from '@assistant-ui/react';
+import type { RemoteThreadListAdapter } from '@assistant-ui/react';
 
 /**
  * AX-backed RemoteThreadListAdapter.
@@ -48,16 +48,11 @@ export const axThreadListAdapter: RemoteThreadListAdapter = {
     return { remoteId: session.id, externalId: undefined };
   },
 
-  async generateTitle(_remoteId: string, messages: readonly ThreadMessage[]) {
+  async generateTitle() {
     // Title is auto-generated server-side during processCompletion.
-    // Return a placeholder stream — the real title will appear on next list() refresh.
-    const firstUserMessage = messages.find(m => m.role === 'user');
-    const textContent = firstUserMessage?.content.find(c => c.type === 'text');
-    const text = textContent && 'text' in textContent ? textContent.text : 'New Chat';
-    const title = text.length <= 50 ? text : text.substring(0, 47) + '...';
-
+    // Return a neutral placeholder — the real title will appear on next list() refresh.
     return createAssistantStream((controller) => {
-      controller.appendText(title);
+      controller.appendText('New Chat');
       controller.close();
     });
   },

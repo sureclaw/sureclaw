@@ -1,27 +1,32 @@
 import type { ThreadHistoryAdapter } from '@assistant-ui/react';
 
+interface HistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  created_at?: number;
+}
+
 /**
  * AX-backed ThreadHistoryAdapter.
  * Loads conversation history from /v1/chat/sessions/:id/history.
  * Append is a no-op since AX server persists turns during chat completions.
  */
-export function createAxHistoryAdapter(
+export const createAxHistoryAdapter = (
   getRemoteId: () => string | undefined,
-): ThreadHistoryAdapter {
-  return {
-    async load() {
-      const remoteId = getRemoteId();
-      if (!remoteId) return { messages: [] };
+): ThreadHistoryAdapter => ({
+  async load() {
+    const remoteId = getRemoteId();
+    if (!remoteId) return { messages: [] };
 
-      const response = await fetch(`/v1/chat/sessions/${encodeURIComponent(remoteId)}/history`);
-      if (!response.ok) {
-        if (response.status === 404) return { messages: [] };
-        throw new Error('Failed to fetch history');
-      }
+    const response = await fetch(`/v1/chat/sessions/${encodeURIComponent(remoteId)}/history`);
+    if (!response.ok) {
+      if (response.status === 404) return { messages: [] };
+      throw new Error('Failed to fetch history');
+    }
 
-      const { messages } = await response.json();
-      return {
-        messages: messages.map((m: any, index: number) => ({
+    const { messages } = await response.json();
+    return {
+      messages: messages.map((m: HistoryMessage, index: number) => ({
           message: {
             id: `${remoteId}-${index}`,
             role: m.role,
@@ -36,5 +41,4 @@ export function createAxHistoryAdapter(
     async append() {
       // No-op: AX server persists turns during processCompletion.
     },
-  };
-}
+  });

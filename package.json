@@ -12,8 +12,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "build:dashboard": "cd ui/dashboard && npm install && npm run build",
-    "build:chat": "cd ui/chat && npm install && npm run build",
+    "build:dashboard": "npm --prefix ui/dashboard run build",
+    "build:chat": "npm --prefix ui/chat run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:fuzz": "vitest run tests/ipc-fuzz.test.ts",

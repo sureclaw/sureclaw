@@ -90,4 +90,29 @@ describe('Chat API', () => {
     expect(status).toBe(200);
     expect(data.messages).toEqual([]);
   });
+
+  it('DELETE /v1/chat/sessions/:id deletes a session', async () => {
+    await storage.chatSessions.create({ id: 'sess-to-delete', title: 'Doomed' });
+    const { status } = await request(server, 'DELETE', '/v1/chat/sessions/sess-to-delete');
+    expect(status).toBe(204);
+
+    const { data } = await request(server, 'GET', '/v1/chat/sessions');
+    expect(data.sessions).toEqual([]);
+  });
+
+  it('DELETE /v1/chat/sessions/:id returns 404 for unknown session', async () => {
+    const { status } = await request(server, 'DELETE', '/v1/chat/sessions/nonexistent');
+    expect(status).toBe(404);
+  });
+
+  it('GET /v1/chat/sessions/:id/history handles URL-encoded session IDs', async () => {
+    const sessionId = 'test:session/with-special-chars';
+    await storage.chatSessions.create({ id: sessionId });
+    await storage.conversations.append(sessionId, 'user', 'Hello');
+
+    const { status, data } = await request(server, 'GET', `/v1/chat/sessions/${encodeURIComponent(sessionId)}/history`);
+    expect(status).toBe(200);
+    expect(data.messages).toHaveLength(1);
+    expect(data.messages[0].content).toBe('Hello');
+  });
 });

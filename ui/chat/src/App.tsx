@@ -3,7 +3,7 @@ import { useAxChatRuntime } from './lib/useAxChatRuntime';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
 
-export function App() {
+export const App = () => {
   const runtime = useAxChatRuntime();
 
   return (
@@ -26,4 +26,4 @@ export function App() {
       </div>
     </AssistantRuntimeProvider>
   );
-}
+};

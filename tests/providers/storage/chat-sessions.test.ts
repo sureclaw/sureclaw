@@ -82,6 +82,30 @@ describe('ChatSessionStore', () => {
     await storage.chatSessions.ensureExists('sess-1');
     const after = (await storage.chatSessions.list())[0].updated_at;
 
-    expect(after).toBeGreaterThanOrEqual(before);
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('deletes a session', async () => {
+    await storage.chatSessions.create({ id: 'sess-1' });
+    const deleted = await storage.chatSessions.delete('sess-1');
+    expect(deleted).toBe(true);
+
+    const sessions = await storage.chatSessions.list();
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('returns false when deleting nonexistent session', async () => {
+    const deleted = await storage.chatSessions.delete('nonexistent');
+    expect(deleted).toBe(false);
+  });
+
+  it('gets session by id', async () => {
+    await storage.chatSessions.create({ id: 'sess-1', title: 'Test' });
+    const session = await storage.chatSessions.getById('sess-1');
+    expect(session).toBeDefined();
+    expect(session!.title).toBe('Test');
+
+    const missing = await storage.chatSessions.getById('nonexistent');
+    expect(missing).toBeUndefined();
   });
 });

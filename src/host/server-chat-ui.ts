@@ -62,8 +62,11 @@ export function createChatUIHandler() {
         'Cache-Control': isHtml ? 'no-cache' : 'public, max-age=31536000, immutable',
       });
       res.end(content);
+    } else if (ext) {
+      // Missing asset (has file extension) — return 404, not SPA fallback
+      sendError(res, 404, 'Not found');
     } else {
-      // SPA fallback: serve index.html for non-asset routes
+      // SPA fallback: serve index.html for extension-less routes
       const indexPath = join(chatUIDir, 'index.html');
       if (existsSync(indexPath)) {
         const content = readFileSync(indexPath);

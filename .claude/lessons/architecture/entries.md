@@ -230,3 +230,9 @@ After the migration, images are persisted to the **enterprise user workspace** a
 **Context:** Creating the web proxy with TCP ephemeral port (listen: 0) — the port was 0 when returned synchronously.
 **Lesson:** When using `server.listen(0)` for ephemeral port assignment, the port is only available after the listen callback fires. Make the startup function async and await the listen promise to get the assigned port from `server.address()`.
 **Tags:** net, server, listen, port, async
+
+### SELECT-then-INSERT is a race condition — use atomic upsert
+**Date:** 2026-03-21
+**Context:** ensureExists() in ChatSessionStore used SELECT to check existence, then INSERT or UPDATE — a classic TOCTOU pattern.
+**Lesson:** Always use `INSERT ... ON CONFLICT (id) DO UPDATE SET ...` for upsert operations. The SELECT-then-act pattern has a race window where two concurrent callers both see "not exists" and both try to INSERT, causing a duplicate key error. SQLite and PostgreSQL both support the atomic ON CONFLICT syntax.
+**Tags:** sqlite, race condition, upsert, TOCTOU, database

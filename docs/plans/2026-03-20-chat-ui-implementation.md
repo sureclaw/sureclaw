@@ -12,7 +12,7 @@
 
 ---
 
-### Task 1: Move `dashboard/` to `ui/dashboard/`
+## Task 1: Move `dashboard/` to `ui/dashboard/`
 
 **Files:**
 - Move: `dashboard/` → `ui/dashboard/`
@@ -73,7 +73,7 @@ git commit -m "refactor: move dashboard/ to ui/dashboard/"
 
 ---
 
-### Task 2: Add `chat_sessions` table migration + storage methods
+## Task 2: Add `chat_sessions` table migration + storage methods
 
 The existing `last_sessions` table stores one row per agent (last channel session). We need a separate `chat_sessions` table that can hold many sessions with titles.
 
@@ -324,7 +324,7 @@ git commit -m "feat: add chat_sessions table for chat UI thread management"
 
 ---
 
-### Task 3: Add `/v1/chat/sessions` API endpoints
+## Task 3: Add `/v1/chat/sessions` API endpoints
 
 **Files:**
 - Create: `src/host/server-chat-api.ts`
@@ -544,7 +544,7 @@ git commit -m "feat: add /v1/chat/sessions API endpoints for chat UI"
 
 ---
 
-### Task 4: Auto-generate session titles on first message
+## Task 4: Auto-generate session titles on first message
 
 **Files:**
 - Modify: `src/host/server-completions.ts`
@@ -683,7 +683,7 @@ git commit -m "feat: auto-generate session titles on first message via fast LLM"
 
 ---
 
-### Task 5: Scaffold `ui/chat/` Vite project
+## Task 5: Scaffold `ui/chat/` Vite project
 
 **Files:**
 - Create: `ui/chat/package.json`
@@ -976,7 +976,7 @@ git commit -m "feat: scaffold ui/chat/ Vite project with shared design tokens"
 
 ---
 
-### Task 6: Create chat UI adapters
+## Task 6: Create chat UI adapters
 
 **Files:**
 - Create: `ui/chat/src/lib/thread-list-adapter.ts`
@@ -1117,7 +1117,7 @@ git commit -m "feat: add thread-list and history adapters for AX chat API"
 
 ---
 
-### Task 7: Create runtime hook
+## Task 7: Create runtime hook
 
 **Files:**
 - Create: `ui/chat/src/lib/useAxChatRuntime.tsx`
@@ -1235,7 +1235,7 @@ git commit -m "feat: add useAxChatRuntime hook with thread list + history adapte
 
 ---
 
-### Task 8: Create chat UI components
+## Task 8: Create chat UI components
 
 **Files:**
 - Create: `ui/chat/src/components/thread.tsx`
@@ -1526,7 +1526,7 @@ git commit -m "feat: add chat UI components — Thread, ThreadList, App layout"
 
 ---
 
-### Task 9: Wire chat UI into AX server routing
+## Task 9: Wire chat UI into AX server routing
 
 **Files:**
 - Create: `src/host/server-chat-ui.ts`
@@ -1684,7 +1684,7 @@ git commit -m "feat: serve chat UI at / and wire /v1/chat/sessions routes"
 
 ---
 
-### Task 10: Integration testing
+## Task 10: Integration testing
 
 **Step 1: Build everything**
 
@@ -1725,7 +1725,7 @@ git commit -m "feat: complete chat UI integration"
 
 ## Task Dependency Graph
 
-```
+```text
 Task 1 (move dashboard) ─────┐
                               ├─→ Task 5 (scaffold chat/) ─→ Task 6 (adapters) ─→ Task 7 (runtime) ─→ Task 8 (components)
 Task 2 (chat_sessions DB) ───┤                                                                              │

@@ -49,6 +49,25 @@ export function createChatApiHandler(storage: StorageProvider) {
       return true;
     }
 
+    // DELETE /v1/chat/sessions/:id — delete session
+    const deleteMatch = pathname.match(/^\/v1\/chat\/sessions\/([^/]+)$/);
+    if (deleteMatch && req.method === 'DELETE') {
+      try {
+        const sessionId = decodeURIComponent(deleteMatch[1]);
+        const deleted = await storage.chatSessions.delete(sessionId);
+        if (deleted) {
+          res.writeHead(204);
+          res.end();
+        } else {
+          sendError(res, 404, 'Session not found');
+        }
+      } catch (err) {
+        logger.error('delete_session_failed', { error: (err as Error).message });
+        sendError(res, 500, 'Failed to delete session');
+      }
+      return true;
+    }
+
     // GET /v1/chat/sessions/:id/history — get conversation history
     const historyMatch = pathname.match(/^\/v1\/chat\/sessions\/([^/]+)\/history$/);
     if (historyMatch && req.method === 'GET') {
