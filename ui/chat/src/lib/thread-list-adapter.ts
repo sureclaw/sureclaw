@@ -34,18 +34,10 @@ export const axThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async initialize(threadId: string) {
-    const response = await fetch('/v1/chat/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: threadId }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to create session');
-    }
-
-    const session = await response.json();
-    return { remoteId: session.id, externalId: undefined };
+    // Don't pre-create the session — the AX server auto-creates it
+    // during the first completion via chatSessions.ensureExists().
+    // The server derives sessionId from the user field: "main:http:chat-ui:{threadId}".
+    return { remoteId: threadId, externalId: undefined };
   },
 
   async generateTitle() {

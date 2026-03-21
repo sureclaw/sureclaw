@@ -87,7 +87,7 @@ export function parseChatRequest(
 
   const lastMsg = chatReq.messages[chatReq.messages.length - 1];
   const content = lastMsg?.content ?? '';
-  const userId = chatReq.user?.split('/')[0] || undefined;
+  const userId = chatReq.user?.split('/')[0] || 'local-user';
 
   return { sessionId, userId, content, requestModel };
 }

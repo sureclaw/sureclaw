@@ -1,5 +1,11 @@
 # Architecture
 
+### Chat UI requires custom ChatTransport for OpenAI SSE — DefaultChatTransport uses AI SDK data stream format
+**Date:** 2026-03-21
+**Context:** Debugging why chat messages sent from the UI produced no visible response despite 200 OK from server.
+**Lesson:** The AI SDK's `DefaultChatTransport` (extended by `AssistantChatTransport`) uses `parseJsonEventStream2` which expects AI SDK data stream format (JSON SSE with `UIMessageChunk` schema), NOT OpenAI-compatible SSE format (`data: {"choices":[{"delta":{"content":"..."}}]}`). Since AX returns OpenAI SSE, you must extend `HttpChatTransport` and override `processResponseStream` to parse OpenAI deltas and emit `text-start`/`text-delta`/`text-end`/`finish` chunks. Also: the `prepareSendMessagesRequest` callback's `options.id` comes from `options.chatId` (set by `useChat({ id })`), and the `user` field in the request body must follow `"userId/threadPart"` format for the server to derive valid session IDs via `main:http:{userId}:{threadPart}`.
+**Tags:** chat-ui, assistant-ui, ai-sdk, streaming, transport, openai-sse
+
 ### NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed
 **Date:** 2026-03-20
 **Context:** Extracting shared HTTP route dispatch from server-k8s.ts. The k8s server had an inline NATS-based SSE handler that subscribed directly to NATS subjects and forwarded events to SSE clients.

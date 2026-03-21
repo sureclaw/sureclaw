@@ -2,6 +2,19 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-21 07:20] — Fix chat UI: custom OpenAI SSE transport, session ID flow, default user
+
+**Task:** Fix three chat UI issues: empty thread list, broken chat, and missing default user
+**What I did:**
+- Created `ui/chat/src/lib/ax-chat-transport.ts` — custom `ChatTransport` that extends `HttpChatTransport` to parse OpenAI SSE streaming format (the AI SDK's `DefaultChatTransport` expects its own JSON event stream format)
+- Replaced `AssistantChatTransport` with `AxChatTransport` in `useAxChatRuntime.tsx`, eliminating the dynamic transport proxy pattern
+- Fixed session ID flow: transport embeds thread ID in `user` field ("chat-ui/{threadId}") so the server derives a deterministic session ID, avoiding `isValidSessionId` rejections
+- Added default `userId = 'local-user'` in `parseChatRequest` when no JWT/user is present
+- Simplified thread list adapter: `initialize()` returns immediately (server auto-creates sessions via `chatSessions.ensureExists()` during completion)
+**Files touched:** `ui/chat/src/lib/ax-chat-transport.ts` (new), `ui/chat/src/lib/useAxChatRuntime.tsx`, `ui/chat/src/lib/thread-list-adapter.ts`, `src/host/server-request-handlers.ts`
+**Outcome:** Success — all three issues resolved. Chat sends/receives messages with streaming, thread list shows sessions, default user ID applied. All 2516 tests pass.
+**Notes:** Root cause of broken chat was protocol mismatch — `AssistantChatTransport` → `DefaultChatTransport` → `parseJsonEventStream2` expects AI SDK data stream format, not OpenAI SSE.
+
 ## [2026-03-21 04:10] — Address PR #114 coderabbitai review comments
 
 **Task:** Fix all 14 coderabbitai review comments on the chat UI PR

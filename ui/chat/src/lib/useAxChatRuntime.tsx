@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import {
   type AssistantRuntime,
   useRemoteThreadListRuntime,
@@ -7,54 +7,22 @@ import {
   useAuiState,
   type ThreadHistoryAdapter,
 } from '@assistant-ui/react';
-import {
-  useAISDKRuntime,
-  AssistantChatTransport,
-} from '@assistant-ui/react-ai-sdk';
-import { useChat, type UIMessage } from '@ai-sdk/react';
-import type { ChatTransport } from 'ai';
+import { useAISDKRuntime } from '@assistant-ui/react-ai-sdk';
+import { useChat } from '@ai-sdk/react';
 import { axThreadListAdapter } from './thread-list-adapter';
 import { createAxHistoryAdapter } from './history-adapter';
+import { AxChatTransport } from './ax-chat-transport';
 
-/**
- * Create a dynamic transport proxy that can be updated without recreating the hook.
- */
-const useDynamicChatTransport = <UI_MESSAGE extends UIMessage = UIMessage>(
-  transport: ChatTransport<UI_MESSAGE>,
-): ChatTransport<UI_MESSAGE> => {
-  const transportRef = useRef<ChatTransport<UI_MESSAGE>>(transport);
-  useEffect(() => {
-    transportRef.current = transport;
-  });
-  return useMemo(
-    () =>
-      new Proxy(transportRef.current, {
-        get(_, prop) {
-          const res = transportRef.current[prop as keyof ChatTransport<UI_MESSAGE>];
-          return typeof res === 'function' ? res.bind(transportRef.current) : res;
-        },
-      }),
-    [],
-  );
-};
+/** Singleton transport — stateless, so safe to share across renders. */
+const axTransport = new AxChatTransport({ api: '/v1/chat/completions' });
 
 /**
  * Thread-specific runtime using AI SDK.
  */
 const useChatThreadRuntime = (): AssistantRuntime => {
-  const transport = useDynamicChatTransport(
-    new AssistantChatTransport({ api: '/v1/chat/completions' }),
-  );
-
   const id = useAuiState(({ threadListItem }) => threadListItem.id);
-  const chat = useChat({ id, transport });
-  const runtime = useAISDKRuntime(chat);
-
-  if (transport instanceof AssistantChatTransport) {
-    (transport as any).setRuntime?.(runtime);
-  }
-
-  return runtime;
+  const chat = useChat({ id, transport: axTransport });
+  return useAISDKRuntime(chat);
 };
 
 /**

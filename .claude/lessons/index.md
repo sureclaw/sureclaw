@@ -67,6 +67,7 @@
 
 ### architecture
 
+- Chat UI requires custom ChatTransport for OpenAI SSE — DefaultChatTransport uses AI SDK data stream format [architecture/entries.md](architecture/entries.md)
 - NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed [architecture/entries.md](architecture/entries.md)
 - In-memory promise maps create hidden session affinity requirements [architecture/entries.md](architecture/entries.md)
 - Post-agent credential loop pattern [architecture/entries.md](architecture/entries.md)
