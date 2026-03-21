@@ -140,12 +140,28 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
               if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
                   if (tc.function?.name) {
+                    const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
                     controller.enqueue({
                       type: 'tool-input-available',
                       toolCallId: tc.id ?? `call_${tc.index}`,
                       toolName: tc.function.name,
-                      input: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
+                      input: args,
                     });
+
+                    // Trigger credential modal when the agent calls
+                    // skill({ type: "request_credential", envName: "..." })
+                    if (
+                      tc.function.name === 'skill' &&
+                      args.type === 'request_credential' &&
+                      args.envName &&
+                      credentialCallback
+                    ) {
+                      credentialCallback({
+                        envName: args.envName,
+                        sessionId: '',
+                        requestId: '',
+                      });
+                    }
                   }
                 }
               }

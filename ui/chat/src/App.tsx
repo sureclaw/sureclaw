@@ -1,11 +1,26 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
 import type { CredentialRequiredEvent } from './lib/ax-chat-transport';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
 import { CredentialModal } from './components/credential-modal';
-import { Hexagon } from 'lucide-react';
+import { Hexagon, Moon, Sun } from 'lucide-react';
+
+const useTheme = () => {
+  const [isDark, setIsDark] = useState(
+    () => document.documentElement.classList.contains('dark'),
+  );
+
+  const toggle = useCallback(() => {
+    const next = !isDark;
+    setIsDark(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('ax-chat-theme', next ? 'dark' : 'light');
+  }, [isDark]);
+
+  return { isDark, toggle };
+};
 
 /** Inner component that has access to the runtime context for sending messages. */
 const AppContent = ({
@@ -18,6 +33,7 @@ const AppContent = ({
   onCredentialCancelled: () => void;
 }) => {
   const aui = useAui();
+  const { isDark, toggle: toggleTheme } = useTheme();
 
   const handleSubmit = useCallback(
     () => {
@@ -56,6 +72,20 @@ const AppContent = ({
 
           <div className="flex-1 overflow-y-auto px-3 py-2">
             <ThreadList />
+          </div>
+
+          <div className="h-px bg-border/30" />
+          <div className="px-3 py-3">
+            <button
+              onClick={toggleTheme}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium text-muted-foreground hover:bg-foreground/[0.03] hover:text-foreground transition-all duration-150"
+            >
+              {isDark
+                ? <Sun className="size-4 text-amber" strokeWidth={1.8} />
+                : <Moon className="size-4 text-violet" strokeWidth={1.8} />
+              }
+              {isDark ? 'Light mode' : 'Dark mode'}
+            </button>
           </div>
         </aside>
         {/* Main content */}
