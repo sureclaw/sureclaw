@@ -18,7 +18,7 @@ Four debugging/development tiers, in order of preference:
 
 ## Tier 0: Chat UI Dev Loop
 
-Fast visual iteration on the chat UI using Vite HMR and Playwright MCP. Two modes: real LLM (uses OpenRouter + Gemini Flash, costs fractions of a cent) or mock LLM (free, deterministic).
+Fast visual iteration on the chat UI using Vite HMR and Playwright MCP. Three modes: real LLM (uses OpenRouter + Gemini Flash, costs fractions of a cent), mock LLM (free, deterministic), or k8s (port-forwards to kind cluster host).
 
 ### Quick Start
 
@@ -29,6 +29,9 @@ npm run dev:chat start
 # Mock LLM mode (no API key needed, scripted responses)
 npm run dev:chat start --mock
 
+# K8s mode (port-forwards to kind cluster host on localhost:18080)
+npm run dev:chat start --k8s
+
 # Stop everything
 npm run dev:chat stop
 ```
@@ -37,6 +40,55 @@ This starts:
 - **Vite dev server** on `http://localhost:5173` — serves the chat UI with hot module replacement
 - **AX server** on `http://localhost:8080` — subprocess sandbox, handles `/v1/chat/completions` + session APIs
 - (Mock mode only) **Mock LLM server** on `http://localhost:9100` — scripted OpenRouter responses
+- (K8s mode only) **Port-forward** on `http://localhost:18080` — proxies to k8s host service
+
+### K8s Mode: Chat UI + Kind Cluster
+
+Use `--k8s` to point the chat UI at a kind k8s cluster instead of a local AX server. This gives you Vite HMR for the UI while testing against real k8s infrastructure (NATS, PostgreSQL, sandbox pods, warm pool).
+
+```bash
+# One-time setup (creates kind cluster + deploys AX)
+npm run k8s:dev setup
+
+# Start chat UI pointing at k8s
+npm run dev:chat start --k8s
+```
+
+Architecture in k8s mode:
+```
+Browser (Playwright MCP)
+  ↓ http://localhost:5173
+Vite Dev Server (HMR, port 5173)
+  ├── Serves ui/chat/src/ with hot-reload
+  └── Proxies /v1/* → http://localhost:18080
+        ↓ kubectl port-forward
+Kind Cluster (ax-dev namespace)
+  ├── ax-host pod → /v1/chat/completions, sessions, history
+  ├── ax-sandbox pods → agent execution
+  ├── NATS → IPC transport
+  └── PostgreSQL → persistence
+```
+
+#### Iteration workflow (k8s mode)
+
+```
+1. Start:     npm run dev:chat start --k8s
+2. Open:      http://localhost:5173 in browser
+3. Edit UI:   Modify ui/chat/src/ → Vite hot-reloads
+4. Edit host: Modify src/ → npm run k8s:dev cycle all (rebuilds + restarts host)
+5. Debug:     npm run k8s:dev debug host (attach debugger on port 9229)
+6. Logs:      npm run k8s:dev logs host / sandbox
+7. Stop:      npm run dev:chat stop
+```
+
+#### When to use k8s mode vs local mode
+
+| Use k8s mode when... | Use local mode when... |
+|---|---|
+| Debugging host behavior under real k8s sandbox (NATS, warm pool) | Iterating purely on UI components |
+| Testing with PostgreSQL instead of SQLite | Quick prototyping with mock LLM |
+| Reproducing k8s-specific bugs through the UI | No kind cluster set up |
+| Need to see sandbox pod lifecycle in action | Need fastest possible iteration |
 
 ### Architecture
 

@@ -11,6 +11,8 @@ STATE_DIR="$PROJECT_ROOT/.chat-dev"
 AX_PORT=8080
 VITE_PORT=5173
 MOCK_PORT=9100
+K8S_PF_PORT=18080
+K8S_NAMESPACE="ax-dev"
 
 # Colors
 RED='\033[0;31m'
@@ -73,6 +75,7 @@ cleanup() {
   kill_by_name vite
   kill_by_name ax-server
   kill_by_name mock-server
+  kill_by_name k8s-port-forward
   log "All processes stopped."
 }
 
@@ -95,6 +98,7 @@ wait_for_health() {
 # ─── Start ─────────────────────────────────────────────────────
 cmd_start() {
   local use_mock=false
+  local use_k8s=false
   local ax_port="$AX_PORT"
   local config_flag=""
   local custom_config=false
@@ -104,6 +108,10 @@ cmd_start() {
     case "$1" in
       --mock)
         use_mock=true
+        shift
+        ;;
+      --k8s)
+        use_k8s=true
         shift
         ;;
       --port)
@@ -130,39 +138,74 @@ cmd_start() {
     exit 1
   fi
 
+  local pf_pid
+  pf_pid=$(read_pid k8s-port-forward)
+  if [[ -n "$pf_pid" ]] && is_running "$pf_pid"; then
+    err "K8s port-forward is already running (PID $pf_pid). Run 'stop' first."
+    exit 1
+  fi
+
   ensure_state_dir
   trap cleanup EXIT INT TERM
 
-  # ── Mock server (optional) ──
-  if [[ "$use_mock" == true ]]; then
-    log "Starting mock LLM server on port $MOCK_PORT..."
-    cd "$PROJECT_ROOT"
-    NODE_NO_WARNINGS=1 npx tsx -e \
-      "import { startMockServer } from './tests/e2e/mock-server/index.js'; startMockServer($MOCK_PORT).then(info => console.log('Mock server on', info.url));" \
-      &
-    write_pid mock-server $!
+  if [[ "$use_k8s" == true ]]; then
+    # ── K8s mode: port-forward to kind cluster host ──
+    ax_port="$K8S_PF_PORT"
 
-    if ! wait_for_health "http://127.0.0.1:${MOCK_PORT}/health" "mock server" 15; then
-      err "Mock server failed to start."
+    # Verify kind cluster exists
+    if ! kind get clusters 2>/dev/null | grep -q "^ax-dev$"; then
+      err "Kind cluster 'ax-dev' not found. Run 'npm run k8s:dev setup' first."
       exit 1
     fi
 
-    # Default to ax-dev.yaml when --mock and no explicit --config
-    if [[ "$custom_config" == false ]]; then
-      config_flag="--config ui/chat/ax-dev.yaml"
+    # Verify host pod is ready
+    if ! kubectl -n "$K8S_NAMESPACE" get pods -l app.kubernetes.io/component=host --field-selector=status.phase=Running --no-headers 2>/dev/null | grep -q .; then
+      err "No running host pod in k8s cluster. Run 'npm run k8s:dev cycle all' first."
+      exit 1
     fi
-  fi
 
-  # ── AX server ──
-  log "Starting AX server on port $ax_port..."
-  cd "$PROJECT_ROOT"
-  # shellcheck disable=SC2086
-  NODE_NO_WARNINGS=1 npx tsx src/cli/index.ts serve --port "$ax_port" $config_flag &
-  write_pid ax-server $!
+    log "Port-forwarding k8s host service to localhost:${ax_port}..."
+    kubectl -n "$K8S_NAMESPACE" port-forward svc/ax-host "${ax_port}:8080" &
+    write_pid k8s-port-forward $!
 
-  if ! wait_for_health "http://127.0.0.1:${ax_port}/health" "AX server" 30; then
-    err "AX server failed to start."
-    exit 1
+    if ! wait_for_health "http://127.0.0.1:${ax_port}/health" "k8s host (port-forward)" 30; then
+      err "K8s host port-forward failed. Check cluster status with: npm run k8s:dev status"
+      exit 1
+    fi
+  else
+    # ── Local mode: start AX server + optional mock ──
+
+    # ── Mock server (optional) ──
+    if [[ "$use_mock" == true ]]; then
+      log "Starting mock LLM server on port $MOCK_PORT..."
+      cd "$PROJECT_ROOT"
+      NODE_NO_WARNINGS=1 npx tsx -e \
+        "import { startMockServer } from './tests/e2e/mock-server/index.js'; startMockServer($MOCK_PORT).then(info => console.log('Mock server on', info.url));" \
+        &
+      write_pid mock-server $!
+
+      if ! wait_for_health "http://127.0.0.1:${MOCK_PORT}/health" "mock server" 15; then
+        err "Mock server failed to start."
+        exit 1
+      fi
+
+      # Default to ax-dev.yaml when --mock and no explicit --config
+      if [[ "$custom_config" == false ]]; then
+        config_flag="--config ui/chat/ax-dev.yaml"
+      fi
+    fi
+
+    # ── AX server ──
+    log "Starting AX server on port $ax_port..."
+    cd "$PROJECT_ROOT"
+    # shellcheck disable=SC2086
+    NODE_NO_WARNINGS=1 npx tsx src/cli/index.ts serve --port "$ax_port" $config_flag &
+    write_pid ax-server $!
+
+    if ! wait_for_health "http://127.0.0.1:${ax_port}/health" "AX server" 30; then
+      err "AX server failed to start."
+      exit 1
+    fi
   fi
 
   # ── Vite dev server ──
@@ -178,7 +221,17 @@ cmd_start() {
   log "========================================="
   echo ""
   log "  Vite:       ${CYAN}http://localhost:${VITE_PORT}${NC}"
-  log "  AX server:  ${CYAN}http://localhost:${ax_port}${NC}"
+  if [[ "$use_k8s" == true ]]; then
+    log "  K8s host:   ${CYAN}http://localhost:${ax_port}${NC} (port-forwarded)"
+    log ""
+    log "  K8s commands:"
+    log "    npm run k8s:dev logs host       # tail host logs"
+    log "    npm run k8s:dev logs sandbox    # tail sandbox logs"
+    log "    npm run k8s:dev cycle           # rebuild + flush after code changes"
+    log "    npm run k8s:dev debug host      # attach debugger to host (port 9229)"
+  else
+    log "  AX server:  ${CYAN}http://localhost:${ax_port}${NC}"
+  fi
   if [[ "$use_mock" == true ]]; then
     log "  Mock LLM:   ${CYAN}http://localhost:${MOCK_PORT}${NC}"
   fi
@@ -194,7 +247,7 @@ cmd_start() {
 cmd_stop() {
   local found=false
 
-  for name in vite ax-server mock-server; do
+  for name in vite ax-server mock-server k8s-port-forward; do
     local pid
     pid=$(read_pid "$name")
     if [[ -n "$pid" ]] && is_running "$pid"; then
@@ -217,7 +270,7 @@ cmd_status() {
   echo -e "${CYAN}=== Chat Dev Status ===${NC}"
 
   local any_running=false
-  for name in ax-server vite mock-server; do
+  for name in ax-server vite mock-server k8s-port-forward; do
     local pid
     pid=$(read_pid "$name")
     if [[ -n "$pid" ]] && is_running "$pid"; then
@@ -249,14 +302,21 @@ case "$cmd" in
     echo "Usage: scripts/chat-dev.sh <command> [args]"
     echo ""
     echo "Commands:"
-    echo "  start [--mock] [--port N]  Start Vite + AX server (and mock LLM if --mock)"
-    echo "  stop                       Stop all running dev servers"
-    echo "  status                     Show running dev server status"
+    echo "  start [options]  Start Vite + AX server (local or k8s)"
+    echo "  stop             Stop all running dev servers"
+    echo "  status           Show running dev server status"
     echo ""
     echo "Options for start:"
     echo "  --mock         Start a mock LLM server (uses ui/chat/ax-dev.yaml by default)"
-    echo "  --port N       AX server port (default: $AX_PORT)"
-    echo "  --config PATH  Custom config file for AX server"
+    echo "  --k8s          Use kind k8s cluster instead of local AX server (port-forwards host)"
+    echo "  --port N       AX server port (default: $AX_PORT, ignored with --k8s)"
+    echo "  --config PATH  Custom config file for AX server (ignored with --k8s)"
+    echo ""
+    echo "K8s mode workflow:"
+    echo "  npm run k8s:dev setup        # one-time: create cluster"
+    echo "  npm run dev:chat start --k8s # start chat UI + port-forward to k8s host"
+    echo "  npm run k8s:dev cycle        # rebuild + flush after code changes"
+    echo "  npm run k8s:dev debug host   # attach debugger to host (in another terminal)"
     ;;
   *)
     err "Unknown command: $cmd"
