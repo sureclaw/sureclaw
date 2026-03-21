@@ -37,6 +37,7 @@ import { maybeSummarizeHistory, type SummarizationConfig } from './history-summa
 import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall.js';
 import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { resolveCredential, credentialScope, setSessionCredentialContext, clearSessionCredentialContext } from './credential-scopes.js';
+import { generateSessionTitle } from './session-title.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -1387,6 +1388,45 @@ export async function processCompletion(
         }
       } catch (err) {
         reqLogger.warn('history_save_failed', { error: (err as Error).message });
+      }
+    }
+
+    // Auto-generate session title for new sessions (first turn)
+    if (persistentSessionId && maxTurns > 0) {
+      try {
+        const chatSessions = providers.storage?.chatSessions;
+        if (chatSessions) {
+          // Ensure session exists in chat_sessions table
+          await chatSessions.ensureExists(persistentSessionId);
+
+          // Check if this is the first turn (only 1 user + 1 assistant turn)
+          const turnCount = await conversationStore.count(persistentSessionId);
+          if (turnCount <= 2) {
+            // Generate title asynchronously (don't block response)
+            generateSessionTitle(textContent, {
+              complete: async (prompt: string) => {
+                const chunks: string[] = [];
+                const stream = providers.llm.chat({
+                  model: '',
+                  messages: [{ role: 'user', content: prompt }],
+                  maxTokens: 30,
+                  taskType: 'fast',
+                });
+                for await (const chunk of stream) {
+                  if (chunk.content) chunks.push(chunk.content);
+                }
+                return chunks.join('');
+              },
+            }).then(async (title) => {
+              await chatSessions.updateTitle(persistentSessionId!, title);
+              reqLogger.debug('session_title_generated', { sessionId: persistentSessionId, title });
+            }).catch(err => {
+              reqLogger.warn('session_title_error', { error: (err as Error).message });
+            });
+          }
+        }
+      } catch (err) {
+        reqLogger.warn('session_title_setup_error', { error: (err as Error).message });
       }
     }
 

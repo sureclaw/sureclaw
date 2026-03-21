@@ -19,6 +19,8 @@ import type {
   ConversationStoreProvider,
   SessionStoreProvider,
   DocumentStore,
+  ChatSessionStore,
+  ChatSession,
   QueuedMessage,
   StoredTurn,
 } from './types.js';
@@ -299,6 +301,60 @@ function createDocumentStore(db: Kysely<any>, dbType: 'sqlite' | 'postgresql'): 
   };
 }
 
+function createChatSessionStore(db: Kysely<any>): ChatSessionStore {
+  return {
+    async list() {
+      const rows = await db.selectFrom('chat_sessions')
+        .selectAll()
+        .where('status', '=', 'active')
+        .orderBy('updated_at', 'desc')
+        .execute();
+      return rows as ChatSession[];
+    },
+
+    async create(opts) {
+      const id = opts.id ?? randomUUID();
+      const now = Math.floor(Date.now() / 1000);
+      await db.insertInto('chat_sessions')
+        .values({
+          id,
+          title: opts.title ?? null,
+          status: 'active',
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+      return { id, title: opts.title ?? null, status: 'active', created_at: now, updated_at: now };
+    },
+
+    async updateTitle(id, title) {
+      const now = Math.floor(Date.now() / 1000);
+      await db.updateTable('chat_sessions')
+        .set({ title, updated_at: now })
+        .where('id', '=', id)
+        .execute();
+    },
+
+    async ensureExists(id) {
+      const now = Math.floor(Date.now() / 1000);
+      const existing = await db.selectFrom('chat_sessions')
+        .select('id')
+        .where('id', '=', id)
+        .executeTakeFirst();
+      if (existing) {
+        await db.updateTable('chat_sessions')
+          .set({ updated_at: now })
+          .where('id', '=', id)
+          .execute();
+      } else {
+        await db.insertInto('chat_sessions')
+          .values({ id, status: 'active', created_at: now, updated_at: now })
+          .execute();
+      }
+    },
+  };
+}
+
 /**
  * One-time check for leftover file-based storage directories.
  * Logs a warning so users know the old data is no longer used.
@@ -350,6 +406,7 @@ export async function create(
     get conversations() { return createConversationStore(db); },
     get sessions() { return createSessionStore(db); },
     get documents() { return createDocumentStore(db, dbType); },
+    get chatSessions() { return createChatSessionStore(db); },
 
     close(): void {
       // No-op: the shared DatabaseProvider owns the connection lifecycle.

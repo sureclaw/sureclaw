@@ -129,5 +129,31 @@ export function storageMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet
         await db.schema.dropTable('documents').ifExists().execute();
       },
     },
+
+    storage_005_chat_sessions: {
+      async up(db: Kysely<any>) {
+        await db.schema
+          .createTable('chat_sessions')
+          .ifNotExists()
+          .addColumn('id', 'text', col => col.primaryKey())
+          .addColumn('title', 'text')
+          .addColumn('status', 'text', col => col.notNull().defaultTo('active'))
+          .addColumn('created_at', isSqlite ? 'integer' : 'bigint', col =>
+            col.notNull().defaultTo(isSqlite ? sql`(unixepoch())` : sql`EXTRACT(EPOCH FROM NOW())::BIGINT`))
+          .addColumn('updated_at', isSqlite ? 'integer' : 'bigint', col =>
+            col.notNull().defaultTo(isSqlite ? sql`(unixepoch())` : sql`EXTRACT(EPOCH FROM NOW())::BIGINT`))
+          .execute();
+
+        await db.schema
+          .createIndex('idx_chat_sessions_updated')
+          .ifNotExists()
+          .on('chat_sessions')
+          .column('updated_at')
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema.dropTable('chat_sessions').ifExists().execute();
+      },
+    },
   };
 }
