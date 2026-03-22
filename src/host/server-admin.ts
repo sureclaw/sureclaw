@@ -16,7 +16,7 @@ import { sendError, readBody } from './server-http.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import type { EventBus, StreamEvent } from './event-bus.js';
 import type { AgentRegistry } from './agent-registry.js';
-import { resolveApproval, preApproveDomain } from './web-proxy-approvals.js';
+import type { ProxyDomainList } from './proxy-domain-list.js';
 import { parseAgentSkill } from '../utils/skill-format-parser.js';
 import { getLogger } from '../logger.js';
 import { configPath as getConfigPath } from '../paths.js';
@@ -144,6 +144,7 @@ export interface AdminDeps {
   startTime: number;
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
+  domainList?: ProxyDomainList;
 }
 
 // ── Factory ──
@@ -385,22 +386,55 @@ async function handleAdminAPI(
     return;
   }
 
-  // POST /admin/api/proxy/approve — approve or deny a pending web proxy domain
-  if (pathname === '/admin/api/proxy/approve' && method === 'POST') {
+  // GET /admin/api/proxy/domains — list allowed + pending domains
+  if (pathname === '/admin/api/proxy/domains' && method === 'GET') {
+    if (!deps.domainList) {
+      sendJSON(res, { allowed: [], pending: [] });
+      return;
+    }
+    sendJSON(res, {
+      allowed: [...deps.domainList.getAllowedDomains()],
+      pending: deps.domainList.getPending(),
+    });
+    return;
+  }
+
+  // POST /admin/api/proxy/domains/approve — approve a pending domain
+  if (pathname === '/admin/api/proxy/domains/approve' && method === 'POST') {
     try {
       const body = JSON.parse(await readBody(req));
-      const { sessionId, domain, approved, requestId: proxyRequestId } = body;
-      if (!sessionId || !domain || typeof approved !== 'boolean') {
-        sendError(res, 400, 'Missing required fields: sessionId, domain, approved');
+      const { domain } = body;
+      if (typeof domain !== 'string' || !domain) {
+        sendError(res, 400, 'Missing required field: domain');
         return;
       }
-      if (proxyRequestId) {
-        resolveApproval(sessionId, domain, approved, deps.eventBus, proxyRequestId);
+      if (!deps.domainList) {
+        sendError(res, 500, 'Domain list not configured');
+        return;
       }
-      if (approved) {
-        preApproveDomain(sessionId, domain);
+      deps.domainList.approvePending(domain);
+      sendJSON(res, { ok: true, domain });
+    } catch (err) {
+      sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+    }
+    return;
+  }
+
+  // POST /admin/api/proxy/domains/deny — deny a pending domain
+  if (pathname === '/admin/api/proxy/domains/deny' && method === 'POST') {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { domain } = body;
+      if (typeof domain !== 'string' || !domain) {
+        sendError(res, 400, 'Missing required field: domain');
+        return;
       }
-      sendJSON(res, { ok: true });
+      if (!deps.domainList) {
+        sendError(res, 500, 'Domain list not configured');
+        return;
+      }
+      deps.domainList.denyPending(domain);
+      sendJSON(res, { ok: true, domain });
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
     }

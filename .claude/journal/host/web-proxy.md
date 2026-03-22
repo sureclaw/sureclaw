@@ -2,6 +2,20 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-22 07:45] — Add admin domain management endpoints
+
+**Task:** Replace old `POST /admin/api/proxy/approve` endpoint with new domain management endpoints that work with the `ProxyDomainList` class.
+**What I did:**
+- Removed `resolveApproval, preApproveDomain` import from server-admin.ts (file itself NOT deleted per Task 6 plan)
+- Added `ProxyDomainList` type import and `domainList?: ProxyDomainList` to `AdminDeps` interface
+- Replaced old `POST /admin/api/proxy/approve` endpoint with three new endpoints: `GET /admin/api/proxy/domains` (list allowed + pending), `POST /admin/api/proxy/domains/approve`, `POST /admin/api/proxy/domains/deny`
+- Updated `AdminSetupOpts` in server-webhook-admin.ts to accept and pass through `domainList`
+- Wired `domainList` from `core` into `setupAdminHandler` calls in both server-local.ts and server-k8s.ts
+- Added 8 tests covering: list domains, list without domainList, approve, deny, missing domain validation, missing domainList 500 errors
+**Files touched:** src/host/server-admin.ts, src/host/server-webhook-admin.ts, src/host/server-local.ts, src/host/server-k8s.ts, tests/host/server-admin.test.ts
+**Outcome:** Success — all 2558 tests pass across 226 test files, clean TypeScript build
+**Notes:** The old `web-proxy-approvals.ts` is still used by `sandbox-tools.ts` IPC handler — deletion is deferred to Task 6.
+
 ## [2026-03-22 07:30] — Wire ProxyDomainList into proxy startup
 
 **Task:** Replace the `onApprove` callback pattern (which caused deadlocks) with synchronous domain allowlist from `ProxyDomainList`, and add `onDenied` callback for queuing denied domains for admin review.

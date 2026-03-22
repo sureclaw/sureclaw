@@ -190,6 +190,7 @@ async function main(): Promise<void> {
     eventBus: providers.eventbus,
     agentRegistry,
     startTime,
+    domainList,
   });
 
   // ── processCompletion wrapper with per-turn NATS IPC ──

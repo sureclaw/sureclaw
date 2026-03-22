@@ -199,6 +199,7 @@ export async function createServer(
     agentRegistry,
     startTime,
     localDevMode,
+    domainList: core.domainList,
   });
 
   let httpServer: HttpServer | null = null;
