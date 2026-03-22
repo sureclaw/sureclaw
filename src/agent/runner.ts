@@ -8,7 +8,7 @@ import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
 import type { IdentityFiles, SkillSummary } from './prompt/types.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const logger = getLogger().child({ component: 'runner' });
@@ -553,12 +553,24 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   }
 
   // MITM CA cert — write to disk so NODE_EXTRA_CA_CERTS can load it.
+  // For curl/openssl, build a combined bundle (system CAs + MITM CA) so
+  // both real server certs and MITM-generated certs are trusted.
   if (payload.caCert && process.env.NODE_EXTRA_CA_CERTS) {
     try {
       const certPath = process.env.NODE_EXTRA_CA_CERTS;
       mkdirSync(dirname(certPath), { recursive: true });
       writeFileSync(certPath, payload.caCert);
-      logger.info('ca_cert_written', { path: certPath });
+
+      // Build combined CA bundle for curl/openssl (SSL_CERT_FILE)
+      const systemBundle = '/etc/ssl/certs/ca-certificates.crt';
+      if (process.env.SSL_CERT_FILE && existsSync(systemBundle)) {
+        const combined = readFileSync(systemBundle, 'utf-8') + '\n' + payload.caCert;
+        writeFileSync(process.env.SSL_CERT_FILE, combined);
+        logger.info('ca_cert_written', { path: certPath, combinedBundle: process.env.SSL_CERT_FILE });
+      } else {
+        // No system bundle — SSL_CERT_FILE points to MITM CA only
+        logger.info('ca_cert_written', { path: certPath });
+      }
     } catch (err) {
       logger.warn('ca_cert_write_failed', { error: (err as Error).message });
     }

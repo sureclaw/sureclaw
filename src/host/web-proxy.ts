@@ -179,16 +179,16 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     // Pre-approved via config allowlist
     if (allowedDomains?.has(domain)) return null;
 
-    // Cached from a previous request in this session
-    const cached = domainDecisions.get(domain);
-    if (cached === true) return null;
-    if (cached === false) return `Network access to ${domain} was denied`;
+    // Cached approval from a previous request in this session
+    if (domainDecisions.get(domain) === true) return null;
 
     // No governance gate configured — auto-approve (backward compat)
     if (!onApprove) return null;
 
     const decision = await onApprove(domain, method, url);
-    domainDecisions.set(domain, decision.approved);
+    // Only cache approvals — denials may be overridden by preApproveDomain
+    // (which updates web-proxy-approvals.ts cache but not this local one).
+    if (decision.approved) domainDecisions.set(domain, true);
     if (!decision.approved) {
       return decision.reason ?? `Network access to ${domain} was denied`;
     }

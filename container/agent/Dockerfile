@@ -12,7 +12,7 @@
 FROM node:22-slim
 
 # git needed for workspace provisioning (GCS restore, git clone)
-RUN apt-get update && apt-get install -y --no-install-recommends git curl && \
+RUN apt-get update && apt-get install -y --no-install-recommends git curl jq ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/ax
