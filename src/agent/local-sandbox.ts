@@ -8,8 +8,8 @@
  * 3. sandbox_result → host logs outcome (best-effort)
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { IIPCClient } from './runner.js';
 import { safePath } from '../utils/safe-path.js';
 
@@ -33,6 +33,9 @@ const NETWORK_COMMAND_DOMAINS: [RegExp, string[]][] = [
 /** Extract domains from URLs in commands that use network (git clone, curl, wget). */
 const URL_COMMAND_PATTERN = /\b(?:git\s+clone|curl|wget)\s+(?:-[^\s]*\s+)*https?:\/\/([^/\s]+)/g;
 
+/** Extract any https:// domain from arbitrary text (for script content scanning). */
+const ANY_URL_PATTERN = /https?:\/\/([a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9])(?:[:/\s"'\\]|$)/g;
+
 export function extractNetworkDomains(command: string): string[] {
   const domains: string[] = [];
   for (const [pattern, doms] of NETWORK_COMMAND_DOMAINS) {
@@ -43,6 +46,35 @@ export function extractNetworkDomains(command: string): string[] {
     if (match[1]) domains.push(match[1]);
   }
   return [...new Set(domains)];
+}
+
+/** Extract all HTTP/HTTPS domains from text content (e.g., script files). */
+export function extractDomainsFromContent(content: string): string[] {
+  const domains: string[] = [];
+  for (const match of content.matchAll(ANY_URL_PATTERN)) {
+    if (match[1]) domains.push(match[1]);
+  }
+  return [...new Set(domains)];
+}
+
+/**
+ * If the command runs a script file, try to read it and extract domains.
+ * Looks for patterns like `path/to/script.sh args` or `bash path/to/script.sh`.
+ */
+function extractDomainsFromScript(command: string, workspace: string): string[] {
+  // Match script invocations: ./script.sh, path/script.sh, bash script.sh, sh script.sh
+  const scriptMatch = command.match(/(?:^|(?:bash|sh|zsh)\s+)([^\s;|&]+\.sh)\b/);
+  if (!scriptMatch) return [];
+  const scriptPath = scriptMatch[1];
+  try {
+    // Try workspace-relative first, then absolute
+    const fullPath = scriptPath.startsWith('/') ? scriptPath : join(workspace, scriptPath);
+    if (!existsSync(fullPath)) return [];
+    const content = readFileSync(fullPath, 'utf-8');
+    return extractDomainsFromContent(content);
+  } catch {
+    return [];
+  }
 }
 
 export function createLocalSandbox(opts: LocalSandboxOptions) {
@@ -63,13 +95,21 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
 
   return {
     async bash(command: string): Promise<{ output: string }> {
-      const approval = await approve({ operation: 'bash', command });
+      // Extract domains from both the command and any script files it invokes.
+      // Send to host so the proxy can pre-approve them before the command runs,
+      // avoiding deadlock (agent blocked on bash while proxy waits for approval).
+      const commandDomains = extractNetworkDomains(command);
+      const scriptDomains = extractDomainsFromScript(command, workspace);
+      const allDomains = [...new Set([...commandDomains, ...scriptDomains])];
+
+      const approval = await approve({
+        operation: 'bash',
+        command,
+        ...(allDomains.length > 0 ? { domains: allDomains } : {}),
+      });
       if (!approval.approved) {
         return { output: `Denied: ${approval.reason ?? 'denied by host policy'}` };
       }
-
-      // Network domain auto-approval is handled host-side in sandbox_approve
-      // handler (session-scoped only, no cross-session leakage).
 
       const MAX_BUFFER = 1024 * 1024;
       return new Promise<{ output: string }>((resolve) => {

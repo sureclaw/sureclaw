@@ -173,6 +173,13 @@ export async function provisionScope(
     hashes.set(relPath, hashContent(content));
   }
 
+  // Make shell scripts executable — GCS doesn't preserve Unix permissions
+  for (const relPath of localFiles) {
+    if (relPath.endsWith('.sh')) {
+      try { chmodSync(join(mountPath, relPath), 0o755); } catch { /* ignore */ }
+    }
+  }
+
   if (readOnly) {
     try {
       for (const relPath of localFiles) {

@@ -208,23 +208,27 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
       });
       // Option A+ hook point: policy check, return {approved: false, reason: "..."}
 
-      // Auto-approve well-known network domains for bash commands to avoid
-      // proxy governance deadlock (agent blocked on spawn while proxy waits
-      // for approval). Pre-approve in both session scope and 'host-process'
-      // scope so the k8s shared proxy (which uses 'host-process' sessionId)
-      // also recognizes the pre-approval.
-      if (req.operation === 'bash' && req.command) {
-        const domains = extractNetworkDomains(req.command);
-        if (domains.length > 0) {
+      // Auto-approve network domains for bash commands to avoid proxy governance
+      // deadlock (agent blocked on bash while proxy waits for approval).
+      // Domains come from two sources:
+      //   1. extractNetworkDomains(command) — well-known patterns (curl, wget, npm, etc.)
+      //   2. req.domains — agent-side script content scanning (reads .sh files, extracts URLs)
+      // Pre-approve in both session scope and 'host-process' scope so the k8s
+      // shared proxy (which uses 'host-process' sessionId) also recognizes them.
+      if (req.operation === 'bash') {
+        const commandDomains = req.command ? extractNetworkDomains(req.command) : [];
+        const scriptDomains: string[] = Array.isArray(req.domains) ? req.domains.filter((d: unknown) => typeof d === 'string') : [];
+        const allDomains = [...new Set([...commandDomains, ...scriptDomains])];
+        if (allDomains.length > 0) {
           const { preApproveDomain } = await import('../web-proxy-approvals.js');
-          for (const domain of domains) {
+          for (const domain of allDomains) {
             preApproveDomain(ctx.sessionId, domain);
             preApproveDomain('host-process', domain);
           }
           logger.debug('sandbox_approve_auto_domains', {
             sessionId: ctx.sessionId,
-            domains,
-            command: req.command.slice(0, 100),
+            domains: allDomains,
+            command: req.command?.slice(0, 100),
           });
         }
       }

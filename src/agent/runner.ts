@@ -552,25 +552,30 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
     logger.info('credential_env_set', { count: Object.keys(payload.credentialEnv).length });
   }
 
-  // MITM CA cert — write to disk so NODE_EXTRA_CA_CERTS can load it.
-  // For curl/openssl, build a combined bundle (system CAs + MITM CA) so
-  // both real server certs and MITM-generated certs are trusted.
-  if (payload.caCert && process.env.NODE_EXTRA_CA_CERTS) {
+  // MITM CA cert — write to disk so tools trust the proxy's TLS certs.
+  // Node.js uses NODE_EXTRA_CA_CERTS (MITM CA only — appended to built-in bundle).
+  // curl/wget/openssl use SSL_CERT_FILE (must be a complete bundle: system CAs + MITM CA).
+  // These MUST be separate files since NODE_EXTRA_CA_CERTS is additive but SSL_CERT_FILE replaces.
+  if (payload.caCert) {
     try {
-      const certPath = process.env.NODE_EXTRA_CA_CERTS;
-      mkdirSync(dirname(certPath), { recursive: true });
-      writeFileSync(certPath, payload.caCert);
+      // Write MITM CA for Node.js — always use /tmp to avoid permission issues
+      const mitmCaPath = '/tmp/ax-mitm-ca.pem';
+      writeFileSync(mitmCaPath, payload.caCert);
+      process.env.NODE_EXTRA_CA_CERTS = mitmCaPath;
 
-      // Build combined CA bundle for curl/openssl (SSL_CERT_FILE)
+      // Build combined CA bundle for curl/wget/openssl/etc.
+      const combinedPath = '/tmp/ax-ca-bundle.pem';
       const systemBundle = '/etc/ssl/certs/ca-certificates.crt';
-      if (process.env.SSL_CERT_FILE && existsSync(systemBundle)) {
+      if (existsSync(systemBundle)) {
         const combined = readFileSync(systemBundle, 'utf-8') + '\n' + payload.caCert;
-        writeFileSync(process.env.SSL_CERT_FILE, combined);
-        logger.info('ca_cert_written', { path: certPath, combinedBundle: process.env.SSL_CERT_FILE });
+        writeFileSync(combinedPath, combined);
       } else {
-        // No system bundle — SSL_CERT_FILE points to MITM CA only
-        logger.info('ca_cert_written', { path: certPath });
+        writeFileSync(combinedPath, payload.caCert);
       }
+      process.env.SSL_CERT_FILE = combinedPath;
+      process.env.REQUESTS_CA_BUNDLE = combinedPath;
+      process.env.CURL_CA_BUNDLE = combinedPath;
+      logger.info('ca_cert_written', { nodeCa: mitmCaPath, sslCertFile: combinedPath });
     } catch (err) {
       logger.warn('ca_cert_write_failed', { error: (err as Error).message });
     }
