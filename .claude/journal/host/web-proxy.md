@@ -2,6 +2,14 @@
 
 HTTP forward proxy for sandboxed agent outbound HTTP/HTTPS access.
 
+## [2026-03-22 07:02] — Create ProxyDomainList for skill-based domain allowlist
+
+**Task:** Create a `ProxyDomainList` class that maintains a synchronous proxy domain allowlist built from installed skill manifests, replacing the brittle event-bus-based domain approval system.
+**What I did:** Created `src/host/proxy-domain-list.ts` with a class that manages three tiers of allowed domains: built-in (package managers, GitHub), skill-declared (from manifest capabilities.domains), and admin-approved (via pending queue). Unknown domains are denied immediately and queued for admin review. Created comprehensive test file with 10 tests covering all methods.
+**Files touched:** src/host/proxy-domain-list.ts (new), tests/host/proxy-domain-list.test.ts (new)
+**Outcome:** Success — all 10 tests pass
+**Notes:** Class is standalone with no dependencies beyond logger. Designed to be wired into proxy startup (Task 4) and admin endpoints (Task 5) in follow-up work.
+
 ## [2026-03-22 06:15] — Fix proxy approval deadlock and ECONNRESET crash
 
 **Task:** Debug why MITM proxy wasn't replacing credential placeholders with real values when the agent uses curl to call the Linear API (401 Unauthorized with `ax-cred:` visible).
