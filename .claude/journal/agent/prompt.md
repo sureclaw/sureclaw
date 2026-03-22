@@ -2,6 +2,14 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-03-22 07:18] — Conditionally show skill install instructions based on user message intent
+
+**Task:** Make install instructions conditional in skills prompt module to prevent agent confusion between "use existing skill" and "install new one"
+**What I did:** Added `detectSkillInstallIntent()` function in skills.ts with regex-based intent detection (install actions + skill nouns, inquiry patterns, clawhub refs). Added `skillInstallEnabled` field to PromptContext. Wired intent detection in agent-setup.ts from `config.userMessage`. Made install instructions conditional in render(). Simplified "Creating Skills" section. Updated renderMinimal() to remove install hint when no skills. Added 13 new tests for intent detection + conditional rendering.
+**Files touched:** src/agent/prompt/modules/skills.ts, src/agent/prompt/types.ts, src/agent/agent-setup.ts, tests/agent/prompt/modules/skills.test.ts
+**Outcome:** Success — all 2550 tests pass, build clean
+**Notes:** Part of Task 3 (simplify agent skill tool and prompt). The SKILL_NOUNS regex is intentionally broad to catch varied user phrasing.
+
 ## [2026-03-15 19:33] — Fix Gemini sending "operation" instead of "type" for multi-op tools
 
 **Task:** Agent hallucinates website content when asked to fetch URLs — tool call visible in logs but no IPC web_fetch call

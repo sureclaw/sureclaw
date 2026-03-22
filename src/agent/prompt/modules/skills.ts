@@ -2,6 +2,22 @@
 import { BasePromptModule } from '../base-module.js';
 import type { PromptContext } from '../types.js';
 
+const INSTALL_ACTIONS = /\b(install|add|get|download|find|search|setup|set\s*up|configure|enable|activate|load|fetch|grab|pull|import|browse|look\s*(?:for|up))\b/i;
+
+const SKILL_NOUNS = /\b(skills?|plugins?|extensions?|add-?ons?|modules?|packages?|integrations?|connectors?|tools?|capabilit(?:y|ies)|recipes?|workflows?|automations?|templates?|helpers?|utilities?|apps?|agents?|abilit(?:y|ies))\b/i;
+
+const INQUIRY_PATTERNS = /\b(is there|are there|do you have|any|know of|recommend|suggest)\b/i;
+
+const CLAWHUB_REF = /clawhub/i;
+
+/** Detect if user message indicates skill install intent. */
+export function detectSkillInstallIntent(message: string): boolean {
+  if (CLAWHUB_REF.test(message)) return true;
+  if (INSTALL_ACTIONS.test(message) && SKILL_NOUNS.test(message)) return true;
+  if (INQUIRY_PATTERNS.test(message) && SKILL_NOUNS.test(message)) return true;
+  return false;
+}
+
 /**
  * Skills module: progressive disclosure of available skills.
  * Only compact summaries are injected; the agent calls `skill({ type: "read" })`
@@ -73,47 +89,24 @@ export class SkillsModule extends BasePromptModule {
         '',
         '### Creating Skills',
         '',
-        'Create new skills by writing markdown files directly to `./user/skills/`.',
-        'File-based: `./user/skills/my-skill.md`',
-        'Directory-based: `./user/skills/my-skill/SKILL.md`',
-        '',
-        '**When to create a skill:**',
-        '- You notice a recurring multi-step pattern in your work',
-        '- The user asks you to remember a workflow for future sessions',
-        '- You need domain-specific knowledge packaged for reuse',
-        '',
-        '**After creating a skill:** Continue working on your current task.',
-        'The skill appears in your list on the next session.',
+        'To create a custom skill, write a SKILL.md file to `./user/skills/my-skill/SKILL.md`.',
+        'The skill will be available in your list on the next session.',
       );
     }
 
-    lines.push(
-      '',
-      '### Installing NEW Skills from ClawHub',
-      '',
-      'Skills listed in the Available Skills table above are ALREADY installed locally.',
-      'Do NOT re-install them — just read the file from ./user/skills/ or ./agent/skills/.',
-      '',
-      'Only use these steps when the user asks to install a NEW skill not already in your list',
-      '(e.g. a URL like clawhub.ai/Author/skill-name):',
-      '1. Extract the slug from the URL (the last path segment, e.g. "linear-skill")',
-      '2. Use `skill({ type: "install", slug: "linear-skill" })` to install the skill',
-      '   The host downloads, screens, writes files, and registers domains automatically.',
-      '3. The response includes `requiresEnv` — a list of needed credentials',
-      '4. For EACH entry in `requiresEnv`, call `skill({ type: "request_credential", envName: "..." })`',
-      '   This ends your current turn and prompts the user to provide the credential.',
-      '   You will be re-invoked with the credentials available as environment variables.',
-      '',
-      'You can also install by search query: `skill({ type: "install", query: "linear" })`',
-      'The host will find the best match and install it.',
-      '',
-      '### Credential Requirements',
-      '',
-      'Skills may declare required credentials (API keys, tokens) in their frontmatter `requires.env`.',
-      'After installing a skill, if the response includes `requiresEnv`, you MUST call',
-      '`skill({ type: "request_credential", envName })` for each entry. This is critical — without it,',
-      'the skill cannot access its required APIs.',
-    );
+    if (ctx.skillInstallEnabled) {
+      lines.push(
+        '',
+        '### Installing New Skills',
+        '',
+        'To install a skill from ClawHub: `skill({ type: "install", query: "what you need" })`',
+        'Or by slug: `skill({ type: "install", slug: "skill-name" })`',
+        'The host downloads, validates, and installs the skill automatically.',
+        '',
+        'The response includes `requiresEnv` (needed credentials) and `missingBins` (missing binaries).',
+        'For each entry in `requiresEnv`, call `skill({ type: "request_credential", envName: "..." })`.',
+      );
+    }
 
     return lines;
   }
@@ -123,7 +116,7 @@ export class SkillsModule extends BasePromptModule {
       '## Skills',
       ctx.skills.length > 0
         ? `${ctx.skills.length} skills available. Read skill files from ./user/skills/ or ./agent/skills/ as needed.`
-        : 'No skills installed. Use `skill({ type: "install", slug })` to install from ClawHub.',
+        : 'No skills installed.',
     ];
   }
 }

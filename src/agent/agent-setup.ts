@@ -8,6 +8,7 @@ import { getLogger } from '../logger.js';
 import { PromptBuilder } from './prompt/builder.js';
 import { loadIdentityFiles } from './identity-loader.js';
 import { loadSkillsMultiDir } from './stream-utils.js';
+import { detectSkillInstallIntent } from './prompt/modules/skills.js';
 import { join } from 'node:path';
 import type { AgentConfig } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
@@ -51,6 +52,15 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
   const hasWorkspaceScopes = !!config.workspaceProvider && config.workspaceProvider !== 'none';
   const hasGovernance = config.profile === 'paranoid' || config.profile === 'balanced';
 
+  // Detect skill install intent from user message
+  let skillInstallEnabled = false;
+  if (config.userMessage) {
+    const msgText = typeof config.userMessage === 'string'
+      ? config.userMessage
+      : config.userMessage.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join(' ');
+    skillInstallEnabled = detectSkillInstallIntent(msgText);
+  }
+
   const promptBuilder = new PromptBuilder();
   const promptResult = promptBuilder.build({
     agentType: config.agent ?? 'pi-coding-agent',
@@ -70,6 +80,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasAgentWorkspace: !!config.agentWorkspace,
     hasUserWorkspace: !!config.userWorkspace,
     userWorkspaceWritable: hasWorkspaceScopes && !!config.userWorkspace,
+    skillInstallEnabled,
   });
 
   const toolFilter: ToolFilterContext = {

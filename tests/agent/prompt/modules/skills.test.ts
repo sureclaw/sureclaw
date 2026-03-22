@@ -1,6 +1,6 @@
 // tests/agent/prompt/modules/skills.test.ts
 import { describe, test, expect } from 'vitest';
-import { SkillsModule } from '../../../../src/agent/prompt/modules/skills.js';
+import { SkillsModule, detectSkillInstallIntent } from '../../../../src/agent/prompt/modules/skills.js';
 import type { PromptContext, SkillSummary } from '../../../../src/agent/prompt/types.js';
 
 function makeSkill(name: string, description: string, path?: string): SkillSummary {
@@ -24,6 +24,56 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
   };
 }
 
+describe('detectSkillInstallIntent', () => {
+  test('returns true for "install the linear skill"', () => {
+    expect(detectSkillInstallIntent('install the linear skill')).toBe(true);
+  });
+
+  test('returns true for "find a plugin for slack"', () => {
+    expect(detectSkillInstallIntent('find a plugin for slack')).toBe(true);
+  });
+
+  test('returns true for clawhub URL reference', () => {
+    expect(detectSkillInstallIntent('check out clawhub.ai/Author/skill')).toBe(true);
+  });
+
+  test('returns true for "add the jira integration"', () => {
+    expect(detectSkillInstallIntent('add the jira integration')).toBe(true);
+  });
+
+  test('returns true for "are there any skills for project management?"', () => {
+    expect(detectSkillInstallIntent('are there any skills for project management?')).toBe(true);
+  });
+
+  test('returns true for "do you have a plugin for github?"', () => {
+    expect(detectSkillInstallIntent('do you have a plugin for github?')).toBe(true);
+  });
+
+  test('returns true for "search for a tool to manage tasks"', () => {
+    expect(detectSkillInstallIntent('search for a tool to manage tasks')).toBe(true);
+  });
+
+  test('returns false for "use the linear skill"', () => {
+    expect(detectSkillInstallIntent('use the linear skill')).toBe(false);
+  });
+
+  test('returns false for "read the skill"', () => {
+    expect(detectSkillInstallIntent('read the skill')).toBe(false);
+  });
+
+  test('returns false for "what can you do?"', () => {
+    expect(detectSkillInstallIntent('what can you do?')).toBe(false);
+  });
+
+  test('returns false for empty message', () => {
+    expect(detectSkillInstallIntent('')).toBe(false);
+  });
+
+  test('returns false for unrelated message', () => {
+    expect(detectSkillInstallIntent('write a function that sorts an array')).toBe(false);
+  });
+});
+
 describe('SkillsModule', () => {
   test('always included (even with no skills, for install guidance)', () => {
     const mod = new SkillsModule();
@@ -35,13 +85,36 @@ describe('SkillsModule', () => {
     expect(mod.shouldInclude(makeContext({ skills: [makeSkill('Safety', 'Be safe')] }))).toBe(true);
   });
 
-  test('renders install guidance when no skills loaded', () => {
+  test('renders no-skills message when no skills loaded and install disabled', () => {
     const mod = new SkillsModule();
     const text = mod.render(makeContext()).join('\n');
     expect(text).toContain('No skills are currently installed');
-    expect(text).toContain('Installing NEW Skills from ClawHub');
+    // Install instructions should NOT appear without skillInstallEnabled
+    expect(text).not.toContain('Installing New Skills');
+  });
+
+  test('renders install instructions when skillInstallEnabled is true', () => {
+    const mod = new SkillsModule();
+    const text = mod.render(makeContext({ skillInstallEnabled: true })).join('\n');
+    expect(text).toContain('Installing New Skills');
     expect(text).toContain('skill({ type: "install"');
     expect(text).toContain('request_credential');
+  });
+
+  test('does NOT render install instructions when skillInstallEnabled is false', () => {
+    const mod = new SkillsModule();
+    const text = mod.render(makeContext({ skillInstallEnabled: false })).join('\n');
+    expect(text).not.toContain('Installing New Skills');
+    expect(text).not.toContain('request_credential');
+  });
+
+  test('does NOT render install instructions when skillInstallEnabled is omitted', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({
+      skills: [makeSkill('Test', 'Test skill')],
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).not.toContain('Installing New Skills');
   });
 
   test('renders compact skill table instead of full content', () => {
@@ -112,5 +185,14 @@ describe('SkillsModule', () => {
     expect(text).toContain('3 skills available');
     expect(text).toContain('skill');
     expect(text).toContain('Read');
+  });
+
+  test('renderMinimal with no skills shows simple message', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext();
+    const text = mod.renderMinimal!(ctx).join('\n');
+    expect(text).toContain('No skills installed.');
+    // Should NOT contain install instructions in minimal mode
+    expect(text).not.toContain('Installing New Skills');
   });
 });
