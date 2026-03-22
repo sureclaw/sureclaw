@@ -231,11 +231,28 @@ export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
   const cached = await readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
-  // Download ZIP and search for metadata concurrently
-  const [zipBytes, searchResults] = await Promise.all([
-    fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
-    search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
-  ]);
+  // Download ZIP and search for metadata concurrently.
+  // ClawHub URLs use author/name but the API uses just the name — retry on 404.
+  let zipBytes: Buffer;
+  let searchResults: ClawHubSkillEntry[];
+  try {
+    [zipBytes, searchResults] = await Promise.all([
+      fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
+      search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
+    ]);
+  } catch (err) {
+    const slashIdx = slug.indexOf('/');
+    if (slashIdx >= 0 && (err as Error).message?.includes('404')) {
+      const namePart = slug.slice(slashIdx + 1);
+      slug = namePart;
+      [zipBytes, searchResults] = await Promise.all([
+        fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(namePart)}`),
+        search(namePart, 1).catch(() => [] as ClawHubSkillEntry[]),
+      ]);
+    } else {
+      throw err;
+    }
+  }
 
   const skillMd = extractFileFromZip(zipBytes, 'SKILL.md');
   if (!skillMd) {
@@ -263,12 +280,33 @@ export interface ClawHubSkillPackage {
 
 /**
  * Download a skill package: all files from the ZIP plus parsed requires.env.
+ *
+ * ClawHub URLs use author/name format (e.g. "ManuelHettich/linear") but the
+ * API download endpoint uses just the skill slug ("linear"). If the full
+ * author/name slug 404s, retry with just the name part.
  */
 export async function fetchSkillPackage(slug: string): Promise<ClawHubSkillPackage> {
-  const [zipBytes, searchResults] = await Promise.all([
-    fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
-    search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
-  ]);
+  let zipBytes: Buffer;
+  let searchResults: ClawHubSkillEntry[];
+  try {
+    [zipBytes, searchResults] = await Promise.all([
+      fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(slug)}`),
+      search(slug, 1).catch(() => [] as ClawHubSkillEntry[]),
+    ]);
+  } catch (err) {
+    // ClawHub URLs use author/name but the API uses just the name part
+    const slashIdx = slug.indexOf('/');
+    if (slashIdx >= 0 && (err as Error).message?.includes('404')) {
+      const namePart = slug.slice(slashIdx + 1);
+      slug = namePart;
+      [zipBytes, searchResults] = await Promise.all([
+        fetchBinary(`${clawHubApi()}/download?slug=${encodeURIComponent(namePart)}`),
+        search(namePart, 1).catch(() => [] as ClawHubSkillEntry[]),
+      ]);
+    } else {
+      throw err;
+    }
+  }
 
   const allFiles = extractAllFromZip(zipBytes);
   if (allFiles.size === 0) {

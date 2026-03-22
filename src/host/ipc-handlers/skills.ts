@@ -40,8 +40,10 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
 
       logger.info('skill_install_start', { slug, sessionId: ctx.sessionId });
 
-      // 2. Download from ClawHub
+      // 2. Download from ClawHub (resolves author/name → name if needed)
       const pkg = await clawhub.fetchSkillPackage(slug);
+      // Use the resolved slug (e.g. "ManuelHettich/linear" → "linear")
+      slug = pkg.slug;
 
       // 3. Parse and screen the SKILL.md
       const skillMd = pkg.files.find(f => f.path.endsWith('SKILL.md') || f.path.endsWith('.md'));
@@ -60,6 +62,21 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
         const filePath = join(skillDir, file.path);
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, file.content, 'utf-8');
+      }
+
+      // 5b. Queue skill files for GCS commit so they persist across sessions.
+      // In k8s mode, the sandbox pod can't access the host filesystem — skill
+      // files must go through the workspace provider (GCS) to survive pod restarts.
+      if (providers.workspace?.setRemoteChanges && ctx.sessionId) {
+        const remoteChanges = pkg.files.map(file => ({
+          scope: 'user' as const,
+          path: `skills/${slug}/${file.path}`,
+          type: 'added' as const,
+          content: Buffer.from(file.content, 'utf-8'),
+          size: Buffer.byteLength(file.content, 'utf-8'),
+        }));
+        providers.workspace.setRemoteChanges(ctx.sessionId, remoteChanges);
+        logger.info('skill_files_queued_for_gcs', { slug, fileCount: remoteChanges.length, sessionId: ctx.sessionId });
       }
 
       // 6. Add domains to proxy allowlist

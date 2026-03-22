@@ -48,6 +48,18 @@
 **Lesson:** The `parseAgentSkill()` function in `skill-format-parser.ts` reads `install` and `requires` from `resolveMetadata(fm)`, which looks for `fm.metadata.openclaw` (or `clawdbot`/`clawdis`). Placing `install:` or `requires:` at the top level of YAML frontmatter will be IGNORED — they must be nested under `metadata.openclaw:`. If skill_install returns empty steps, check the skill format first.
 **Tags:** skills, parser, metadata, install, frontmatter, acceptance-test
 
+### Skill install writes to host filesystem only — must also queue for GCS in k8s
+**Date:** 2026-03-22
+**Context:** Debugging why installed skills didn't persist across sessions in k8s. The `skill_install` IPC handler wrote files to `~/.ax/agents/<id>/users/<userId>/skills/` on the host filesystem, but sandbox pods (separate containers) can't access that. Workspace provisions from GCS returned 0 files.
+**Lesson:** In k8s mode, any IPC handler that writes files intended for the agent must ALSO commit them to the workspace provider via `providers.workspace?.setRemoteChanges(sessionId, changes)`. The filesystem write only works for subprocess sandbox (shared filesystem). For k8s, files must flow through: `setRemoteChanges()` → `workspace.commit()` (at session end) → GCS upload → `workspace.downloadScope()` (next session provision). Use optional chaining (`?.`) since `workspace` may be undefined in tests and `setRemoteChanges` is only defined in k8s mode.
+**Tags:** skills, workspace, gcs, k8s, persistence, ipc-handler
+
+### Kind cluster `ax` vs `ax-dev` — volume mount dev loop requires k8s-dev setup
+**Date:** 2026-03-22
+**Context:** Debugging the skill persistence fix against a manually-created `ax` cluster that lacked dist/ volume mounts. The `k8s:dev cycle` command had no effect on host code.
+**Lesson:** The `npm run k8s:dev setup` command creates a cluster named `ax-dev` with kind extraMounts that share `dist/`, `templates/`, and `skills/` from the host into kind nodes. Manually-created clusters won't have these mounts — the host pod uses the Docker image's baked-in `dist/`. If `k8s:dev cycle` doesn't pick up code changes, verify the cluster was created with `k8s:dev setup` and check for hostPath volume mounts on the host pod.
+**Tags:** k8s, kind, dev-loop, volume-mounts, debugging
+
 ### Tool filtering must align with prompt module shouldInclude()
 **Date:** 2026-02-26
 **Context:** Added context-aware tool filtering — scheduler tools excluded when no heartbeat. Pi-session test broke because it expected scheduler tools without providing a HEARTBEAT.md file.

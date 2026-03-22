@@ -2,6 +2,22 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-03-22 09:45] — Fix skill install persistence in k8s (GCS workspace)
+
+**Task:** Debug why installed skills don't persist across sessions in k8s mode — agent re-installs on every turn
+**What I did:** Traced the full skill install → workspace provision lifecycle. Found that `skill_install` IPC handler writes files to host filesystem (`~/.ax/agents/<id>/users/<userId>/skills/`) but never commits them to the GCS workspace provider. In k8s, sandbox pods can't access the host filesystem, so workspace provisions returned `fileCount:0`. Fixed by calling `providers.workspace?.setRemoteChanges()` in the skill_install handler to queue files for GCS commit. Added optional chaining to handle test mocks where workspace is undefined.
+**Files touched:** `src/host/ipc-handlers/skills.ts`
+**Outcome:** Success — skill files now persist to GCS and are provisioned to subsequent sandbox pods. Verified end-to-end on kind cluster: turn 1 installs skill (9 files queued for GCS), turn 2 provisions 9 files from GCS, agent recognizes skill as already installed.
+**Notes:** The `userSkillsDir()` function is marked @deprecated ("skills are now stored in DocumentStore and sent via stdin payload") but the migration was never completed. The filesystem write is still needed for subprocess sandbox mode. The `setRemoteChanges` method is only available on the GCS provider in k8s mode, so the optional chaining handles both cases correctly.
+
+## [2026-03-22 10:00] — Fix ClawHub author/name slug resolution
+
+**Task:** ClawHub URLs use `author/name` format (e.g. `ManuelHettich/linear`) but the API download endpoint only accepts the skill name (`linear`). This caused 404 errors and fallback to search which picked the wrong skill.
+**What I did:** Added retry logic in `fetchSkillPackage()` and `fetchSkill()` in `registry-client.ts` — if a slug with `/` gets a 404, retry with just the name part after `/`. Also updated `skill_install` handler to use `pkg.slug` (the resolved slug) instead of the original input for filesystem and GCS paths.
+**Files touched:** `src/clawhub/registry-client.ts`, `src/host/ipc-handlers/skills.ts`
+**Outcome:** Success — `ManuelHettich/linear` now resolves to `linear` (3 files, no npm deps) instead of 404ing and falling back to wrong skill. GCS paths use the clean slug without author prefix.
+**Notes:** The old behavior caused the LLM agent to try the exact slug, get 404, then search for "linear" which returned `linear-skill` (9 files with graphql npm deps) as the first result.
+
 ## [2026-03-19 05:11] — Explain scalable service-proxy model for skill auth
 
 **Task:** Clarify whether an explicit `/internal/linear-proxy`-style route scales as more users install credentialed skill binaries
