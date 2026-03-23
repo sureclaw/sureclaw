@@ -160,7 +160,7 @@ describe('ipc-tools', () => {
   test('filter excludes scheduler tool when hasHeartbeat is false', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, hasSkills: true, hasWorkspaceScopes: true, hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: true, hasWorkspaceScopes: true, hasGovernance: true },
     });
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('scheduler');
@@ -172,7 +172,7 @@ describe('ipc-tools', () => {
   test('filter excludes enterprise tools when flags are false', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: true, hasSkills: true, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: true, skillInstallEnabled: true, hasWorkspaceScopes: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('workspace_mount');
@@ -207,21 +207,21 @@ describe('ipc-tools', () => {
   test('filter with all flags false returns only core tools', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, hasSkills: false, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + skill(1) + sandbox(4) = 11 tools
+    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + sandbox(4) = 10 tools
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
     expect(names).toContain('image');
-    expect(names).toContain('skill'); // skill tools always available
+    expect(names).not.toContain('skill'); // skill excluded when skillInstallEnabled=false
     expect(names).toContain('bash');
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(10);
   });
 });

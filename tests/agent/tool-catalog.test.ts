@@ -194,16 +194,16 @@ describe('normalizeIdentityFile', () => {
 describe('filterTools', () => {
   const ALL_FLAGS: ToolFilterContext = {
     hasHeartbeat: true,
-    hasSkills: true,
     hasWorkspaceScopes: true,
     hasGovernance: true,
+    skillInstallEnabled: true,
   };
 
   const NO_FLAGS: ToolFilterContext = {
     hasHeartbeat: false,
-    hasSkills: false,
     hasWorkspaceScopes: false,
     hasGovernance: false,
+    skillInstallEnabled: false,
   };
 
   test('all flags true returns full catalog', () => {
@@ -213,15 +213,15 @@ describe('filterTools', () => {
 
   test('all flags false returns only always-on categories', () => {
     const result = filterTools(NO_FLAGS);
-    // skill tools are always on, so only scheduler/workspace/governance are excluded
+    // scheduler/workspace/governance/skill are excluded when their flags are false
     const alwaysOn = TOOL_CATALOG.filter(s =>
-      !['scheduler', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
+      !['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
     );
     expect(result.length).toBe(alwaysOn.length);
 
-    // Verify excluded categories (skill is NOT excluded)
+    // Verify excluded categories
     for (const spec of result) {
-      expect(['scheduler', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
+      expect(['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
     }
   });
 
@@ -237,11 +237,20 @@ describe('filterTools', () => {
     expect(names).not.toContain('scheduler');
   });
 
-  test('skill tools are always available regardless of hasSkills', () => {
-    const withSkills = filterTools({ ...NO_FLAGS, hasSkills: true });
-    const withoutSkills = filterTools({ ...NO_FLAGS, hasSkills: false });
-    expect(withSkills.map(s => s.name)).toContain('skill');
-    expect(withoutSkills.map(s => s.name)).toContain('skill');
+  test('skillInstallEnabled=true includes skill tool', () => {
+    const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: true });
+    expect(result.map(s => s.name)).toContain('skill');
+  });
+
+  test('skillInstallEnabled=false excludes skill tool', () => {
+    const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: false });
+    expect(result.map(s => s.name)).not.toContain('skill');
+  });
+
+  test('skillInstallEnabled undefined defaults to including skill tool', () => {
+    const ctx: ToolFilterContext = { hasHeartbeat: false, hasWorkspaceScopes: false, hasGovernance: false };
+    const result = filterTools(ctx);
+    expect(result.map(s => s.name)).toContain('skill');
   });
 
   test('hasGovernance includes governance tool', () => {

@@ -1,3 +1,21 @@
+### GCS downloadScope must use parallel downloads, not sequential
+**Date:** 2026-03-23
+**Context:** User workspace provisioning for 473 files (7.4MB) took ~50 seconds per request because `downloadScope()` downloaded files sequentially — each `file.download()` is a separate GCS API call at ~100ms.
+**Lesson:** Always parallelize independent GCS/HTTP file downloads with a concurrency limit (e.g., 20). For 473 files: sequential = ~47s, parallel(20) = ~3s. Don't add in-memory caching on the host for multi-replica correctness — each replica has an independent cache and `setRemoteChanges()` only invalidates locally. Use GCS metadata (object generation) for cross-replica-safe ETags instead.
+**Tags:** gcs, workspace, provisioning, parallel, performance, multi-replica
+
+### Empty agent_response causes 120s hang due to JS truthiness check
+**Date:** 2026-03-23
+**Context:** When the agent only makes tool calls (e.g., skill.install) without generating text, it sends an empty string `''` as agent_response content. The server-completions.ts code used `if (response)` to check if a response was received, but empty string is falsy in JS.
+**Lesson:** Never use truthiness (`if (response)`) to check if a Promise-based value was received when empty string is a valid value. Use a separate boolean flag (`agentResponseReceived`) set when the promise resolves. The falsy check caused the host to wait for the cold-start pod's exitCode (~120s via activeDeadlineSeconds) instead of immediately killing it.
+**Tags:** k8s, nats, agent_response, truthiness, javascript, empty-response
+
+### Tool availability must match prompt guidance — filter tools based on context flags
+**Date:** 2026-03-23
+**Context:** The `skill` tool with `type: "install"` was always present in the tool catalog, even when the system prompt said "Do NOT download or re-install" already-installed skills. The LLM followed the tool description over the system prompt.
+**Lesson:** When the system prompt tells the LLM NOT to use a capability, also remove the tool from the catalog. Add context flags (like `skillInstallEnabled`) to `ToolFilterContext` and filter tools accordingly. The tool description is often more authoritative to the LLM than system prompt guidance.
+**Tags:** tool-catalog, skills, filterTools, LLM, prompt-engineering
+
 ### agentResponsePromise timer must start AFTER work is published, not before processCompletion
 **Date:** 2026-03-22
 **Context:** In k8s NATS mode, the `agentResponsePromise` timeout timer was started in `processCompletionWithNATS` before calling `processCompletion`. The guardian scanner's LLM classification call took ~5 minutes, causing the timer to fire before the sandbox was even spawned.

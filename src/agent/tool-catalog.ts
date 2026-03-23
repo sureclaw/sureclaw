@@ -437,6 +437,8 @@ export interface ToolFilterContext {
   hasWorkspaceScopes: boolean;
   /** Enterprise governance enabled */
   hasGovernance: boolean;
+  /** User message indicates skill install intent — show install tool */
+  skillInstallEnabled?: boolean;
 }
 
 /**
@@ -447,7 +449,7 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
   return TOOL_CATALOG.filter(spec => {
     switch (spec.category) {
       case 'scheduler':  return ctx.hasHeartbeat;
-      case 'skill':      return true;
+      case 'skill':      return ctx.skillInstallEnabled !== false;
       case 'workspace':        return ctx.hasWorkspaceScopes;
       case 'workspace_scopes': return ctx.hasWorkspaceScopes;
       case 'governance': return ctx.hasGovernance;

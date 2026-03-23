@@ -971,11 +971,13 @@ export async function processCompletion(
       // Wait for agent to complete.
       // NATS mode: response comes via agent_response IPC (agentResponsePromise).
       // Stdin mode: response comes from stdout.
+      let agentResponseReceived = false;
       if (deps.agentResponsePromise) {
         // In NATS mode, we race the agent_response promise against pod exit.
         // The stdout/stderr are already closed (dummy streams) for k8s.
         try {
           response = await deps.agentResponsePromise;
+          agentResponseReceived = true;
           reqLogger.debug('nats_agent_response_received', { responseLength: response.length });
         } catch (err) {
           reqLogger.warn('nats_agent_response_error', { error: (err as Error).message });
@@ -986,7 +988,9 @@ export async function processCompletion(
         // (a warm pool pod claimed it first via the queue group). Don't block
         // on proc.exitCode — it would hang until the pod's activeDeadlineSeconds.
         // If we got the response, treat it as success; otherwise let retry logic handle it.
-        if (response) {
+        // NOTE: Use !== undefined (not truthiness) because an empty string ('')
+        // is a valid agent response (e.g. agent only made tool calls with no text).
+        if (agentResponseReceived) {
           exitCode = 0;
           proc.kill(); // clean up the idle cold-start pod
         } else {

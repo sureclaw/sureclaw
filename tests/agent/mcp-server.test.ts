@@ -185,16 +185,16 @@ describe('IPC MCP Server', () => {
     expect(registeredNames.length).toBe(15);
   });
 
-  test('filter excludes scheduler but keeps skill tools when flags are false', () => {
+  test('filter excludes scheduler and skill when their flags are false', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, hasSkills: false, hasWorkspaceScopes: true, hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: true, hasGovernance: true },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
 
     expect(names).not.toContain('scheduler');
-    expect(names).toContain('skill'); // skill tools always available
+    expect(names).not.toContain('skill'); // skill tool excluded when skillInstallEnabled=false
     // Core tools present
     expect(names).toContain('memory');
     expect(names).toContain('web');
@@ -206,18 +206,18 @@ describe('IPC MCP Server', () => {
   test('filter with all flags false returns only core tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, hasSkills: false, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: false, hasGovernance: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    // Core: memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) + skill(1) = 7
+    // Core: memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) = 6
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
-    expect(names).toContain('skill'); // skill tools always available
+    expect(names).not.toContain('skill'); // skill excluded when skillInstallEnabled=false
     expect(names).not.toContain('scheduler');
     expect(names).not.toContain('workspace_mount');
     expect(names).not.toContain('governance');

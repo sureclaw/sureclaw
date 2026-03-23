@@ -57,6 +57,10 @@ describe('detectSkillInstallIntent', () => {
     expect(detectSkillInstallIntent('use the linear skill')).toBe(false);
   });
 
+  test('returns false for "use the linear skill to list all teams"', () => {
+    expect(detectSkillInstallIntent('use the linear skill to list all teams')).toBe(false);
+  });
+
   test('returns false for "read the skill"', () => {
     expect(detectSkillInstallIntent('read the skill')).toBe(false);
   });
