@@ -2,6 +2,10 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'proxy-domain-list' });
 
+/** Normalize domain to lowercase, strip trailing dot. */
+const normalizeDomain = (domain: string): string =>
+  domain.trim().toLowerCase().replace(/\.$/, '');
+
 /** Package manager and common development domains — always allowed. */
 const BUILTIN_DOMAINS = new Set([
   'registry.npmjs.org',
@@ -42,7 +46,7 @@ export class ProxyDomainList {
 
   isAllowed(domain: string): boolean {
     if (!this.merged) this.rebuildMerged();
-    return this.merged!.has(domain);
+    return this.merged!.has(normalizeDomain(domain));
   }
 
   private rebuildMerged(): void {
@@ -61,10 +65,14 @@ export class ProxyDomainList {
   }
 
   addSkillDomains(skillName: string, domains: string[]): void {
-    if (domains.length === 0) return;
-    this.skillDomains.set(skillName, new Set(domains));
+    const normalized = new Set(domains.map(normalizeDomain).filter(Boolean));
+    if (normalized.size === 0) {
+      this.skillDomains.delete(skillName);
+    } else {
+      this.skillDomains.set(skillName, normalized);
+    }
     this.merged = null;
-    logger.info('skill_domains_added', { skillName, domains });
+    logger.info('skill_domains_added', { skillName, domains: [...normalized] });
   }
 
   removeSkillDomains(skillName: string): void {
@@ -74,24 +82,27 @@ export class ProxyDomainList {
 
   /** Queue a denied domain for admin review. No-op if already allowed or pending. */
   addPending(domain: string, sessionId: string): void {
-    if (this.isAllowed(domain)) return;
-    if (this.pending.has(domain)) return;
-    this.pending.set(domain, { domain, sessionId, timestamp: Date.now() });
-    logger.info('domain_pending_approval', { domain, sessionId });
+    const normalized = normalizeDomain(domain);
+    if (this.isAllowed(normalized)) return;
+    if (this.pending.has(normalized)) return;
+    this.pending.set(normalized, { domain: normalized, sessionId, timestamp: Date.now() });
+    logger.info('domain_pending_approval', { domain: normalized, sessionId });
   }
 
   /** Admin approves a pending domain — moves to allowlist. */
   approvePending(domain: string): void {
-    this.pending.delete(domain);
-    this.adminApproved.add(domain);
+    const normalized = normalizeDomain(domain);
+    this.pending.delete(normalized);
+    this.adminApproved.add(normalized);
     this.merged = null;
-    logger.info('domain_approved_by_admin', { domain });
+    logger.info('domain_approved_by_admin', { domain: normalized });
   }
 
   /** Admin denies a pending domain — removes from queue. */
   denyPending(domain: string): void {
-    this.pending.delete(domain);
-    logger.info('domain_denied_by_admin', { domain });
+    const normalized = normalizeDomain(domain);
+    this.pending.delete(normalized);
+    logger.info('domain_denied_by_admin', { domain: normalized });
   }
 
   getPending(): PendingDomain[] {

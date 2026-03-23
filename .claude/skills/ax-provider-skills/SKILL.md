@@ -13,7 +13,7 @@ This skill covers: `ParsedAgentSkill` format types, skill install IPC handler, C
 
 Understanding this lifecycle is critical to avoid regressions:
 
-```
+```text
 Agent calls skill({ type: "install", slug: "author/name" })
   |  IPC
 Host: skill_install handler (src/host/ipc-handlers/skills.ts)

@@ -273,7 +273,6 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 - `src/providers/sandbox/k8s.ts` -- Kubernetes pod provider (NATS IPC, warm pool)
 - `src/pool-controller/` -- Warm pod pool management (controller, k8s-client, metrics, main) — claiming via NATS queue groups
 - `src/providers/sandbox/utils.ts` -- Shared sandbox helpers (exitCodePromise, enforceTimeout, etc.)
-- `src/pool-controller/` -- Warm pod pool management (controller, k8s-client, metrics, main)
 - `src/agent/local-sandbox.ts` -- Agent-side local tool execution with host audit gate
 - `src/agent/workspace-cli.ts` -- Container provision/cleanup/release phase CLI
 - `src/agent/workspace-release.ts` -- Thin wrapper that spawns workspace-cli.ts release as subprocess, sends staging_key via IPC

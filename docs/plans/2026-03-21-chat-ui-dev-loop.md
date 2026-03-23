@@ -398,7 +398,7 @@ This is the core loop for iterating on chat UI changes:
 
 #### Fixing a styling issue
 
-```
+```text
 1. npm run dev:chat start
 2. Navigate to http://localhost:5173
 3. Screenshot → identify the problem
@@ -409,7 +409,7 @@ This is the core loop for iterating on chat UI changes:
 
 #### Testing chat interaction
 
-```
+```text
 1. npm run dev:chat start (real LLM mode)
 2. Navigate to http://localhost:5173
 3. Click "New Chat" button
@@ -421,7 +421,7 @@ This is the core loop for iterating on chat UI changes:
 
 #### Testing with mock responses
 
-```
+```text
 1. npm run dev:chat start --mock
 2. Navigate to http://localhost:5173
 3. Send a message — gets scripted mock response

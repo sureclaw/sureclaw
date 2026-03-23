@@ -10,14 +10,14 @@ import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { initLogger } from '../../src/logger.js';
+import { initLogger } from '../../../src/logger.js';
 
 // Silence logger in tests
 initLogger({ file: false, level: 'silent' });
 
 // ── Mocks ──
 
-vi.mock('../../src/clawhub/registry-client.js', () => ({
+vi.mock('../../../src/clawhub/registry-client.js', () => ({
   search: vi.fn(),
   fetchSkillPackage: vi.fn(),
 }));
@@ -25,8 +25,8 @@ vi.mock('../../src/clawhub/registry-client.js', () => ({
 // Mock paths to use temp directory
 let testAxHome: string;
 
-vi.mock('../../src/paths.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../src/paths.js')>();
+vi.mock('../../../src/paths.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../../src/paths.js')>();
   return {
     ...original,
     userSkillsDir: (agentId: string, userId: string) =>
@@ -34,11 +34,11 @@ vi.mock('../../src/paths.js', async (importOriginal) => {
   };
 });
 
-import * as clawhub from '../../src/clawhub/registry-client.js';
-import { createSkillsHandlers } from '../../src/host/ipc-handlers/skills.js';
-import { ProxyDomainList } from '../../src/host/proxy-domain-list.js';
-import type { ProviderRegistry } from '../../src/types.js';
-import type { IPCContext } from '../../src/host/ipc-server.js';
+import * as clawhub from '../../../src/clawhub/registry-client.js';
+import { createSkillsHandlers } from '../../../src/host/ipc-handlers/skills.js';
+import { ProxyDomainList } from '../../../src/host/proxy-domain-list.js';
+import type { ProviderRegistry } from '../../../src/types.js';
+import type { IPCContext } from '../../../src/host/ipc-server.js';
 
 // ── Helpers ──
 
@@ -193,6 +193,27 @@ describe('skill_install handler', () => {
     expect(result.reason).toBe('Provide query or slug');
   });
 
+  test('rejects README.md when no SKILL.md is present', async () => {
+    const slug = 'readme-only';
+    vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue({
+      slug,
+      displayName: 'Readme Only',
+      files: [
+        { path: 'README.md', content: '# Just a readme' },
+      ],
+      requiresEnv: [],
+    });
+
+    const providers = makeProviders();
+    const handlers = createSkillsHandlers(providers);
+    const ctx = makeCtx();
+
+    const result = await handlers.skill_install({ slug }, ctx);
+
+    expect(result.installed).toBe(false);
+    expect(result.reason).toBe('No SKILL.md found in package');
+  });
+
   test('returns not installed when package has no SKILL.md', async () => {
     const slug = 'no-skill-md';
     vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue({
@@ -340,5 +361,31 @@ Do stuff.
     expect(clawhub.fetchSkillPackage).toHaveBeenCalledWith('ManuelHettich/linear');
     expect(result.installed).toBe(true);
     expect(result.slug).toBe(resolvedSlug);
+  });
+
+  test('blocks path traversal in package file paths', async () => {
+    const slug = 'evil-skill';
+    vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue({
+      slug,
+      displayName: 'Evil Skill',
+      files: [
+        { path: 'SKILL.md', content: SKILL_MD_CONTENT },
+        { path: '../../../etc/evil.txt', content: 'pwned' },
+      ],
+      requiresEnv: [],
+    });
+
+    const providers = makeProviders();
+    const handlers = createSkillsHandlers(providers);
+    const ctx = makeCtx();
+
+    const result = await handlers.skill_install({ slug }, ctx);
+
+    expect(result.installed).toBe(true);
+    // SKILL.md should be written but the traversal file should be skipped
+    const skillDir = join(testAxHome, 'agents', 'main', 'users', 'testuser', 'skills', slug);
+    expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
+    // The evil file should NOT exist outside the skill directory
+    expect(existsSync(join(testAxHome, 'etc', 'evil.txt'))).toBe(false);
   });
 });

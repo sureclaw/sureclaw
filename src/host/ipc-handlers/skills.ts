@@ -6,7 +6,7 @@
  * and adds domains to the proxy allowlist — all on the trusted side.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, normalize, resolve, sep } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import type { EventBus } from '../event-bus.js';
@@ -53,8 +53,8 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       // Use the resolved slug (e.g. "ManuelHettich/linear" → "linear")
       slug = pkg.slug;
 
-      // 3. Parse and screen the SKILL.md
-      const skillMd = pkg.files.find(f => f.path.endsWith('SKILL.md') || f.path.endsWith('.md'));
+      // 3. Parse and screen the SKILL.md (require exact SKILL.md, don't accept any .md)
+      const skillMd = pkg.files.find(f => f.path === 'SKILL.md' || f.path.endsWith('/SKILL.md'));
       if (!skillMd) return { installed: false, reason: 'No SKILL.md found in package' };
       const parsed = parseAgentSkill(skillMd.content);
 
@@ -64,10 +64,15 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       // 5. Write files to skills directory (host-controlled)
       const agentName = ctx.agentId ?? 'main';
       const userId = ctx.userId ?? 'default';
-      const skillDir = join(userSkillsDir(agentName, userId), slug);
+      const skillDir = resolve(join(userSkillsDir(agentName, userId), slug));
       mkdirSync(skillDir, { recursive: true });
       for (const file of pkg.files) {
-        const filePath = join(skillDir, file.path);
+        // Validate file paths from downloaded package to prevent path traversal
+        const filePath = resolve(join(skillDir, normalize(file.path)));
+        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
+          logger.warn('skill_install_path_traversal_blocked', { slug, path: file.path });
+          continue;
+        }
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, file.content, 'utf-8');
       }
@@ -76,13 +81,19 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       // In k8s mode, the sandbox pod can't access the host filesystem — skill
       // files must go through the workspace provider (GCS) to survive pod restarts.
       if (providers.workspace?.setRemoteChanges && ctx.sessionId) {
-        const remoteChanges = pkg.files.map(file => ({
-          scope: 'user' as const,
-          path: `skills/${slug}/${file.path}`,
-          type: 'added' as const,
-          content: Buffer.from(file.content, 'utf-8'),
-          size: Buffer.byteLength(file.content, 'utf-8'),
-        }));
+        const remoteChanges = pkg.files
+          .filter(file => {
+            // Validate remote paths too — reject absolute or traversal paths
+            const normalized = normalize(file.path);
+            return !normalized.startsWith('/') && !normalized.startsWith('..') && !normalized.includes(`..${sep}`);
+          })
+          .map(file => ({
+            scope: 'user' as const,
+            path: `skills/${slug}/${normalize(file.path)}`,
+            type: 'added' as const,
+            content: Buffer.from(file.content, 'utf-8'),
+            size: Buffer.byteLength(file.content, 'utf-8'),
+          }));
         providers.workspace.setRemoteChanges(ctx.sessionId, remoteChanges);
         logger.info('skill_files_queued_for_gcs', { slug, fileCount: remoteChanges.length, sessionId: ctx.sessionId });
       }

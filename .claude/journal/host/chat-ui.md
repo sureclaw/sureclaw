@@ -2,19 +2,6 @@
 
 Journal entries for the chat UI implementation.
 
-## [2026-03-21 14:30] — Fix four chat UI bugs against kind k8s cluster
-
-**Task:** Fix tool call visibility, thread switching, thread titles, and loading spinner
-**What I did:**
-1. **Transport (ax-chat-transport.ts):** Added `tool-input-available` UIMessageChunk emission for `delta.tool_calls` in OpenAI SSE stream; added `tool-calls` finish reason mapping
-2. **Thread component (thread.tsx):** Added `ToolCallFallback` component rendered via `tools.Fallback` in `MessagePrimitive.Parts`; added `AuiIf`-based loading spinner on last assistant message while running
-3. **History adapter (history-adapter.ts):** Implemented `withFormat()` method — `useExternalHistory` uses this instead of direct `load()`. Without it, history silently never loaded
-4. **Runtime hook (useAxChatRuntime.tsx):** Simplified by passing history adapter directly to `useAISDKRuntime` instead of using `RuntimeAdapterProvider` context (which didn't propagate correctly). Removed `AxHistoryProvider` wrapper
-5. **Thread list adapter (thread-list-adapter.ts):** Fixed `generateTitle()` to poll server for real title with suffix-matching (server prefixes session IDs with `main:http:chat-ui:`)
-**Files touched:** `ui/chat/src/lib/ax-chat-transport.ts`, `ui/chat/src/components/thread.tsx`, `ui/chat/src/lib/history-adapter.ts`, `ui/chat/src/lib/useAxChatRuntime.tsx`, `ui/chat/src/lib/thread-list-adapter.ts`
-**Outcome:** All four issues fixed and verified via Playwright MCP against kind cluster
-**Notes:** Key insight: `useExternalHistory` calls `historyAdapter.withFormat?.(adapter).load()` not `historyAdapter.load()`. The optional chaining silently returns undefined when `withFormat` is missing, making history appear to work but never actually loading.
-
 ## [2026-03-21 16:30] — Add --k8s mode to chat-dev.sh
 
 **Task:** Enable the chat UI dev loop to point at a kind k8s cluster instead of a local AX server
@@ -27,6 +14,19 @@ Journal entries for the chat UI implementation.
 **Files touched:** `scripts/chat-dev.sh`, `.claude/skills/ax-debug/skill.md`
 **Outcome:** Success — `npm run dev:chat start --k8s` now gives Vite HMR + k8s backend in one command
 **Notes:** Port 18080 chosen to avoid conflict with the default local AX server port (8080). Use `npm run k8s:dev debug host` in a separate terminal to attach the Node.js debugger (port 9229).
+
+## [2026-03-21 14:30] — Fix four chat UI bugs against kind k8s cluster
+
+**Task:** Fix tool call visibility, thread switching, thread titles, and loading spinner
+**What I did:**
+1. **Transport (ax-chat-transport.ts):** Added `tool-input-available` UIMessageChunk emission for `delta.tool_calls` in OpenAI SSE stream; added `tool-calls` finish reason mapping
+2. **Thread component (thread.tsx):** Added `ToolCallFallback` component rendered via `tools.Fallback` in `MessagePrimitive.Parts`; added `AuiIf`-based loading spinner on last assistant message while running
+3. **History adapter (history-adapter.ts):** Implemented `withFormat()` method — `useExternalHistory` uses this instead of direct `load()`. Without it, history silently never loaded
+4. **Runtime hook (useAxChatRuntime.tsx):** Simplified by passing history adapter directly to `useAISDKRuntime` instead of using `RuntimeAdapterProvider` context (which didn't propagate correctly). Removed `AxHistoryProvider` wrapper
+5. **Thread list adapter (thread-list-adapter.ts):** Fixed `generateTitle()` to poll server for real title with suffix-matching (server prefixes session IDs with `main:http:chat-ui:`)
+**Files touched:** `ui/chat/src/lib/ax-chat-transport.ts`, `ui/chat/src/components/thread.tsx`, `ui/chat/src/lib/history-adapter.ts`, `ui/chat/src/lib/useAxChatRuntime.tsx`, `ui/chat/src/lib/thread-list-adapter.ts`
+**Outcome:** All four issues fixed and verified via Playwright MCP against kind cluster
+**Notes:** Key insight: `useExternalHistory` calls `historyAdapter.withFormat?.(adapter).load()` not `historyAdapter.load()`. The optional chaining silently returns undefined when `withFormat` is missing, making history appear to work but never actually loading.
 
 ## [2026-03-21 12:40] — Credential modal for SSE credential_required events
 

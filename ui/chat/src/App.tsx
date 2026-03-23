@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
 import type { CredentialRequiredEvent } from './lib/ax-chat-transport';

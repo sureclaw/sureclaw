@@ -8,8 +8,7 @@ import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
 import type { IdentityFiles, SkillSummary } from './prompt/types.js';
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 
 const logger = getLogger().child({ component: 'runner' });
 

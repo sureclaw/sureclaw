@@ -35,9 +35,11 @@ When a light sandbox agent needs browser access:
 2. Agent sends `browser_launch` IPC action to host
 3. Host receives `browser_launch` from a light sandbox → recognizes as escalation request
 4. Host spawns heavy sandbox with same workspace volume
-5. Host terminates light sandbox
-6. Agent process starts fresh in heavy sandbox, resumes from conversation state (stored in host-side storage provider)
-7. All subsequent browser operations are local — no more IPC
+5. Host waits for heavy sandbox readiness + agent bootstrap handshake
+6. Host switches routing/session to heavy sandbox
+7. Host terminates light sandbox
+8. If heavy bootstrap fails, keep light sandbox alive and surface escalation error
+9. All subsequent browser operations are local — no more IPC
 
 The cold-start delay for escalation only happens once per session, and only when the agent actually needs browser.
 

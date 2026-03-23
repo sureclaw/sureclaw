@@ -211,7 +211,7 @@ cmd_start() {
   # ── Vite dev server ──
   log "Starting Vite dev server..."
   cd "$PROJECT_ROOT/ui/chat"
-  VITE_AX_PORT="$ax_port" npx vite --host &
+  VITE_AX_PORT="$ax_port" npx vite --host --port "$VITE_PORT" --strictPort &
   write_pid vite $!
   cd "$PROJECT_ROOT"
 

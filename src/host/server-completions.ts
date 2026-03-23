@@ -34,7 +34,7 @@ import type { EventBus } from './event-bus.js';
 import { maybeSummarizeHistory, type SummarizationConfig } from './history-summarizer.js';
 import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall.js';
 import { createEmbeddingClient } from '../utils/embedding-client.js';
-import { credentialScope, setSessionCredentialContext, clearSessionCredentialContext } from './credential-scopes.js';
+import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
 
 // ── Agent spawn retry ──
@@ -1093,9 +1093,6 @@ export async function processCompletion(
       }
     }
 
-    // Clean up per-session credential request tracking.
-    deps.requestedCredentials?.delete(sessionId);
-
     // Parse structured response (may contain image blocks)
     const parsed = parseAgentResponse(response);
 
@@ -1289,6 +1286,8 @@ export async function processCompletion(
     sessionCanaries.delete(queued.session_id);
     return { responseContent: 'Internal processing error', finishReason: 'stop' };
   } finally {
+    // Clean up per-session credential request tracking.
+    deps.requestedCredentials?.delete(sessionId);
     // Deregister workspace from the shared map so sandbox tool handlers
     // can't access it after the agent finishes.
     if (deps.workspaceMap) {

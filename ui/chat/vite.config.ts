@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const rawPort = process.env.VITE_AX_PORT;
+const axPort = rawPort && /^\d+$/.test(rawPort) ? rawPort : '8080';
+
 export default defineConfig({
   plugins: [react()],
   base: '/',
@@ -11,7 +14,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/v1': {
-        target: `http://127.0.0.1:${process.env.VITE_AX_PORT || '8080'}`,
+        target: `http://127.0.0.1:${axPort}`,
         changeOrigin: true,
       },
     },

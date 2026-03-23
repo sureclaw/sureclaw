@@ -329,8 +329,8 @@ When adding a new UI element to the dashboard:
 - [ ] Cards must use `backdrop-blur-sm` and transparent backgrounds (`bg-card/80`)
 - [ ] Use `color-mix(in srgb, color %, transparent)` for opacity blending — not hex alpha
 - [ ] Test at mobile, sm, and lg breakpoints
-- [ ] Place component in `dashboard/src/components/` or `dashboard/src/pages/`
-- [ ] Run `npm run build` to verify the built output in `src/admin-ui/`
+- [ ] Place component in `ui/admin/src/components/` or `ui/admin/src/pages/`
+- [ ] Run `npm run build` and verify the current admin dashboard build output path
 
 ## Common Mistakes to Avoid
 

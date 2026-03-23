@@ -187,8 +187,9 @@ export function createAdminHandler(deps: AdminDeps) {
           return;
         }
 
-        // Accept token from header or query param (needed for EventSource SSE)
-        const provided = extractToken(req) ?? extractQueryToken(req.url ?? '/');
+        // Accept token from query param only for the SSE endpoint (EventSource can't set headers)
+        const isSseEndpoint = pathname === '/admin/api/events' && req.method === 'GET';
+        const provided = extractToken(req) ?? (isSseEndpoint ? extractQueryToken(req.url ?? '/') : undefined);
         if (!provided || !safeEqual(provided, token)) {
           recordFailure(clientIp);
           sendError(res, 401, 'Unauthorized');

@@ -76,12 +76,20 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
     let pendingEventName: string | null = null;
     const credentialCallback = this.onCredentialRequired;
 
+    // Buffer for incomplete SSE lines split across TextDecoderStream chunks
+    let carry = '';
+    let finished = false;
+
     return stream
       .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
       .pipeThrough(
         new TransformStream<string, UIMessageChunk>({
           transform(rawChunk, controller) {
-            const lines = rawChunk.split('\n');
+            const data = carry + rawChunk;
+            const lines = data.split('\n');
+            // Last element may be incomplete — carry it to next chunk
+            carry = lines.pop() ?? '';
+
             for (const line of lines) {
               const trimmed = line.trim();
               if (!trimmed || trimmed.startsWith(':')) continue;
@@ -94,10 +102,13 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
 
               if (trimmed === 'data: [DONE]') {
                 pendingEventName = null;
-                if (started) {
-                  controller.enqueue({ type: 'text-end', id: textPartId });
+                if (!finished) {
+                  if (started) {
+                    controller.enqueue({ type: 'text-end', id: textPartId });
+                  }
+                  controller.enqueue({ type: 'finish', finishReason: 'stop' });
+                  finished = true;
                 }
-                controller.enqueue({ type: 'finish', finishReason: 'stop' });
                 return;
               }
 
@@ -140,7 +151,10 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
               if (delta?.tool_calls) {
                 for (const tc of delta.tool_calls) {
                   if (tc.function?.name) {
-                    const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+                    let args = {};
+                    if (tc.function.arguments) {
+                      try { args = JSON.parse(tc.function.arguments); } catch { /* partial/malformed args, use empty */ }
+                    }
                     controller.enqueue({
                       type: 'tool-input-available',
                       toolCallId: tc.id ?? `call_${tc.index}`,
@@ -151,7 +165,7 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
                 }
               }
 
-              if (finishReason && finishReason !== 'null') {
+              if (finishReason && finishReason !== 'null' && !finished) {
                 if (started) {
                   controller.enqueue({ type: 'text-end', id: textPartId });
                 }
@@ -164,14 +178,17 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
                         ? 'content-filter'
                         : 'stop';
                 controller.enqueue({ type: 'finish', finishReason: reason });
+                finished = true;
               }
             }
           },
           flush(controller) {
-            if (started) {
-              controller.enqueue({ type: 'text-end', id: textPartId });
+            if (!finished) {
+              if (started) {
+                controller.enqueue({ type: 'text-end', id: textPartId });
+              }
+              controller.enqueue({ type: 'finish', finishReason: 'stop' });
             }
-            controller.enqueue({ type: 'finish', finishReason: 'stop' });
           },
         }),
       );
