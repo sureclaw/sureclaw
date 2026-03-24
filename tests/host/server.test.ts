@@ -198,7 +198,9 @@ describe('Server', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('text/event-stream');
 
-    const lines = res.body.split('\n').filter((l) => l.startsWith('data: '));
+    const allDataLines = res.body.split('\n').filter((l) => l.startsWith('data: '));
+    // Filter to only OpenAI-format chunks and [DONE] (skip named event data like status events)
+    const lines = allDataLines.filter((l) => l === 'data: [DONE]' || l.includes('"chat.completion.chunk"'));
     // role chunk, content chunk, finish chunk, [DONE]
     expect(lines.length).toBeGreaterThanOrEqual(4);
 

@@ -195,6 +195,12 @@ export async function handleCompletions(
             sessionId: event.data.sessionId as string,
             requestId,
           });
+        } else if (event.type === 'status') {
+          sendSSENamedEvent(res, 'status', {
+            operation: event.data.operation as string,
+            phase: event.data.phase as string,
+            message: event.data.message as string,
+          });
         }
       } catch { /* client gone, skip */ }
     });

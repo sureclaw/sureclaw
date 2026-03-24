@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
-import type { CredentialRequiredEvent } from './lib/ax-chat-transport';
+import type { CredentialRequiredEvent, StatusEvent } from './lib/ax-chat-transport';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
 import { CredentialModal } from './components/credential-modal';
@@ -25,10 +25,12 @@ const useTheme = () => {
 /** Inner component that has access to the runtime context for sending messages. */
 const AppContent = ({
   credentialRequest,
+  statusMessage,
   onCredentialProvided,
   onCredentialCancelled,
 }: {
   credentialRequest: CredentialRequiredEvent | null;
+  statusMessage: string | null;
   onCredentialProvided: () => void;
   onCredentialCancelled: () => void;
 }) => {
@@ -92,7 +94,7 @@ const AppContent = ({
         {/* Main content */}
         <main className="flex-1 overflow-hidden">
           <div className="noise-bg h-full">
-            <Thread />
+            <Thread statusMessage={statusMessage} />
           </div>
         </main>
       </div>
@@ -112,6 +114,7 @@ const AppContent = ({
 export const App = () => {
   const [credentialRequest, setCredentialRequest] =
     useState<CredentialRequiredEvent | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const handleCredentialRequired = useCallback(
     (event: CredentialRequiredEvent) => {
@@ -120,12 +123,20 @@ export const App = () => {
     [],
   );
 
-  const runtime = useAxChatRuntime(handleCredentialRequired);
+  const handleStatus = useCallback(
+    (event: StatusEvent) => {
+      setStatusMessage(event.message || null);
+    },
+    [],
+  );
+
+  const runtime = useAxChatRuntime(handleCredentialRequired, handleStatus);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AppContent
         credentialRequest={credentialRequest}
+        statusMessage={statusMessage}
         onCredentialProvided={() => setCredentialRequest(null)}
         onCredentialCancelled={() => setCredentialRequest(null)}
       />

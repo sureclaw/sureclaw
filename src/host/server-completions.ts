@@ -691,6 +691,12 @@ export async function processCompletion(
       // Pre-mount agent, user, and session scopes so their directories exist before sandbox spawn.
       // Session scope backs scratch with GCS — in k8s mode, scratch content survives pod restarts.
       try {
+        eventBus?.emit({
+          type: 'status',
+          requestId,
+          timestamp: Date.now(),
+          data: { operation: 'workspace', phase: 'downloading', message: 'Restoring workspace\u2026' },
+        });
         const mountOpts = { userId: currentUserId };
         const preMounted = await providers.workspace.mount(sessionId, ['agent', 'user', 'session'], mountOpts);
         agentWsPath = preMounted.paths.agent;
@@ -706,6 +712,12 @@ export async function processCompletion(
           requestId,
           timestamp: Date.now(),
           data: { sessionId, scopes: ['agent', 'user', 'session'], agentId: agentName },
+        });
+        eventBus?.emit({
+          type: 'status',
+          requestId,
+          timestamp: Date.now(),
+          data: { operation: 'workspace', phase: 'mounted', message: 'Workspace ready' },
         });
       } catch (err) {
         reqLogger.warn('workspace_premount_failed', { error: (err as Error).message });
@@ -853,6 +865,16 @@ export async function processCompletion(
       stderr = '';
       const attemptStartTime = Date.now();
 
+      eventBus?.emit({
+        type: 'status',
+        requestId,
+        timestamp: Date.now(),
+        data: {
+          operation: 'pod',
+          phase: attempt === 0 ? 'creating' : 'retrying',
+          message: attempt === 0 ? 'Starting sandbox\u2026' : `Retrying sandbox (attempt ${attempt + 1})\u2026`,
+        },
+      });
       const proc = await agentSandbox.spawn(sandboxConfig);
       reqLogger.debug('agent_spawn', { sandbox: config.providers.sandbox, attempt });
       eventBus?.emit({

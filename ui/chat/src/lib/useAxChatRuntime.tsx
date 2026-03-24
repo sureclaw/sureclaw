@@ -9,7 +9,7 @@ import { useAISDKRuntime } from '@assistant-ui/react-ai-sdk';
 import { useChat } from '@ai-sdk/react';
 import { axThreadListAdapter } from './thread-list-adapter';
 import { createAxHistoryAdapter } from './history-adapter';
-import { AxChatTransport, type CredentialRequiredEvent } from './ax-chat-transport';
+import { AxChatTransport, type CredentialRequiredEvent, type StatusEvent } from './ax-chat-transport';
 
 /**
  * Thread-specific runtime using AI SDK.
@@ -35,15 +35,19 @@ const useChatThreadRuntime = (transport: AxChatTransport): AssistantRuntime => {
  */
 export const useAxChatRuntime = (
   onCredentialRequired?: (event: CredentialRequiredEvent) => void,
+  onStatus?: (event: StatusEvent) => void,
 ): AssistantRuntime => {
   const callbackRef = useRef(onCredentialRequired);
   callbackRef.current = onCredentialRequired;
+  const statusRef = useRef(onStatus);
+  statusRef.current = onStatus;
 
   const transport = useMemo(
     () =>
       new AxChatTransport({
         api: '/v1/chat/completions',
         onCredentialRequired: (event) => callbackRef.current?.(event),
+        onStatus: (event) => statusRef.current?.(event),
       }),
     [],
   );
