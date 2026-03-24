@@ -14,7 +14,7 @@ import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
   | 'memory' | 'web' | 'audit' | 'identity'
-  | 'scheduler' | 'skill' | 'delegation' | 'image'
+  | 'scheduler' | 'skill' | 'credential' | 'delegation' | 'image'
   | 'workspace' | 'workspace_scopes' | 'governance' | 'sandbox';
 
 export interface ToolSpec {
@@ -202,28 +202,29 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Manage skills: install from ClawHub or request credentials.\n\n' +
-      'Use `type: "install"` to install a skill by slug or search query. ' +
-      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.\n' +
-      'Use `type: "request_credential"` to request a credential (e.g. API key) that a skill needs.\n' +
+      'Install a skill from ClawHub by slug or search query. ' +
+      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.',
+    parameters: Type.Object({
+      query: Type.Optional(Type.String({ description: 'Search query (finds best match and installs)' })),
+      slug: Type.Optional(Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' })),
+    }),
+    category: 'skill',
+    singletonAction: 'skill_install',
+  },
+
+  // ── Credential ──
+  {
+    name: 'request_credential',
+    label: 'Request Credential',
+    description:
+      'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
       'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
       're-invoked with the credential available as an environment variable.',
-    parameters: Type.Union([
-      Type.Object({
-        type: Type.Literal('install'),
-        query: Type.Optional(Type.String({ description: 'Search query (finds best match and installs)' })),
-        slug: Type.Optional(Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' })),
-      }),
-      Type.Object({
-        type: Type.Literal('request_credential'),
-        envName: Type.String({ description: 'Environment variable name the skill requires (e.g. LINEAR_API_KEY)' }),
-      }),
-    ]),
-    category: 'skill',
-    actionMap: {
-      install: 'skill_install',
-      request_credential: 'credential_request',
-    },
+    parameters: Type.Object({
+      envName: Type.String({ description: 'Environment variable name needed (e.g. LINEAR_API_KEY)' }),
+    }),
+    category: 'credential',
+    singletonAction: 'credential_request',
   },
 
   // ── Workspace ──

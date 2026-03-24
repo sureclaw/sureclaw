@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, normalizeOrigin, normalizeI
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 15 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(15);
+  test('exports exactly 16 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(16);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -52,7 +52,7 @@ describe('tool-catalog', () => {
 
   test('contains all expected tool names', () => {
     const expected = [
-      'memory', 'web', 'identity', 'scheduler', 'skill',
+      'memory', 'web', 'identity', 'scheduler', 'skill', 'request_credential',
       'workspace_write', 'workspace_mount', 'governance', 'audit', 'agent', 'image',
       'bash', 'read_file', 'write_file', 'edit_file',
     ];
@@ -66,18 +66,23 @@ describe('tool-catalog', () => {
     expect(spec!.category).toBe('workspace');
   });
 
-  test('skill tool exists in catalog', () => {
+  test('skill tool exists in catalog as singleton', () => {
     const skillTool = TOOL_CATALOG.find(t => t.name === 'skill');
     expect(skillTool).toBeDefined();
-    expect(skillTool!.actionMap).toBeDefined();
-    expect(Object.keys(skillTool!.actionMap!).sort()).toEqual([
-      'install', 'request_credential',
-    ]);
+    expect(skillTool!.singletonAction).toBe('skill_install');
+    expect(skillTool!.actionMap).toBeUndefined();
   });
 
   test('skill tool has correct param keys', () => {
     const keys = getToolParamKeys('skill');
-    expect(keys.sort()).toEqual(['envName', 'query', 'slug']);
+    expect(keys.sort()).toEqual(['query', 'slug']);
+  });
+
+  test('request_credential tool exists in catalog as singleton', () => {
+    const credTool = TOOL_CATALOG.find(t => t.name === 'request_credential');
+    expect(credTool).toBeDefined();
+    expect(credTool!.singletonAction).toBe('credential_request');
+    expect(credTool!.category).toBe('credential');
   });
 
   test('scheduler tool has correct param keys (union of all members)', () => {
@@ -115,7 +120,7 @@ describe('tool-catalog', () => {
   test('every tool has a valid category', () => {
     const validCategories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skill', 'delegation', 'image',
+      'scheduler', 'skill', 'credential', 'delegation', 'image',
       'workspace', 'workspace_scopes', 'governance', 'sandbox',
     ];
     for (const spec of TOOL_CATALOG) {
@@ -126,7 +131,7 @@ describe('tool-catalog', () => {
   test('every category has at least one tool', () => {
     const categories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skill', 'delegation', 'image',
+      'scheduler', 'skill', 'credential', 'delegation', 'image',
       'workspace', 'workspace_scopes', 'governance', 'sandbox',
     ];
     for (const cat of categories) {
@@ -242,15 +247,21 @@ describe('filterTools', () => {
     expect(result.map(s => s.name)).toContain('skill');
   });
 
-  test('skillInstallEnabled=false excludes skill tool', () => {
+  test('skillInstallEnabled=false excludes skill tool but keeps request_credential', () => {
     const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: false });
     expect(result.map(s => s.name)).not.toContain('skill');
+    expect(result.map(s => s.name)).toContain('request_credential');
   });
 
   test('skillInstallEnabled undefined defaults to including skill tool', () => {
     const ctx: ToolFilterContext = { hasHeartbeat: false, hasWorkspaceScopes: false, hasGovernance: false };
     const result = filterTools(ctx);
     expect(result.map(s => s.name)).toContain('skill');
+  });
+
+  test('request_credential is always present regardless of flags', () => {
+    const result = filterTools(NO_FLAGS);
+    expect(result.map(s => s.name)).toContain('request_credential');
   });
 
   test('hasGovernance includes governance tool', () => {

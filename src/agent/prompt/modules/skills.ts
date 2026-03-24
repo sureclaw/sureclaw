@@ -8,11 +8,11 @@ const SKILL_NOUNS = /\b(skills?|plugins?|extensions?|add-?ons?|modules?|packages
 
 const INQUIRY_PATTERNS = /\b(is there|are there|do you have|any|know of|recommend|suggest)\b/i;
 
-const CLAWHUB_REF = /clawhub/i;
+const REGISTRY_REF = /clawhub|skills\.sh|github\.com/i;
 
 /** Detect if user message indicates skill install intent. */
 export function detectSkillInstallIntent(message: string): boolean {
-  if (CLAWHUB_REF.test(message)) return true;
+  if (REGISTRY_REF.test(message)) return true;
   if (INSTALL_ACTIONS.test(message) && SKILL_NOUNS.test(message)) return true;
   if (INQUIRY_PATTERNS.test(message) && SKILL_NOUNS.test(message)) return true;
   return false;
@@ -80,7 +80,7 @@ export class SkillsModule extends BasePromptModule {
       lines.push(
         '## Skills',
         '',
-        'No skills are currently installed. You can search for and install skills from ClawHub.',
+        'No skills are currently installed. You can search for and install skills from skills.sh or ClawHub.',
       );
     }
 
@@ -99,17 +99,21 @@ export class SkillsModule extends BasePromptModule {
         '',
         '### Installing New Skills',
         '',
-        'To install a skill from ClawHub by search: `skill({ type: "install", query: "what you need" })`',
-        'By slug: `skill({ type: "install", slug: "author/skill-name" })`',
-        'By URL: `skill({ type: "install", slug: "https://clawhub.ai/author/skill-name" })`',
+        'Browse skills at https://skills.sh/ — the primary skill directory.',
         '',
-        'When the user provides a ClawHub URL like `https://clawhub.ai/Author/name`,',
-        'pass it directly as the `slug` — the host extracts the correct slug from the URL.',
+        'By search: `skill({ query: "what you need" })`',
+        'By 3-part path (owner/repo/skill): `skill({ slug: "vercel-labs/agent-skills/react-best-practices" })`',
+        'By skills.sh URL: `skill({ slug: "https://skills.sh/owner/repo/skill" })`',
+        'By GitHub URL: `skill({ slug: "https://github.com/owner/repo/tree/main/skill" })`',
+        'By ClawHub slug: `skill({ slug: "author/skill-name" })`',
+        '',
+        'When the user provides a URL (skills.sh, GitHub, or ClawHub), pass it directly',
+        'as the `slug` — the host extracts the correct slug from the URL.',
         'Do NOT use `query` with a URL — that triggers a search which may find the wrong skill.',
         '',
         'The host downloads, validates, and installs the skill automatically.',
         'The response includes `requiresEnv` (needed credentials) and `missingBins` (missing binaries).',
-        'For each entry in `requiresEnv`, call `skill({ type: "request_credential", envName: "..." })`.',
+        'For each entry in `requiresEnv`, call `request_credential({ envName: "..." })`.',
       );
     }
 

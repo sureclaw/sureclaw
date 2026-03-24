@@ -1,18 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { TOOL_CATALOG } from '../../src/agent/tool-catalog.js';
 
-describe('skill tool credential_request action', () => {
-  const skillTool = TOOL_CATALOG.find(t => t.name === 'skill');
+describe('request_credential tool', () => {
+  const credTool = TOOL_CATALOG.find(t => t.name === 'request_credential');
 
-  it('has request_credential in actionMap', () => {
-    expect(skillTool?.actionMap).toHaveProperty('request_credential', 'credential_request');
+  it('exists as a standalone tool', () => {
+    expect(credTool).toBeDefined();
   });
 
-  it('has install and request_credential types', () => {
-    // Verify all action types exist in the actionMap
-    expect(skillTool?.actionMap).toEqual({
-      install: 'skill_install',
-      request_credential: 'credential_request',
-    });
+  it('has singletonAction credential_request', () => {
+    expect(credTool?.singletonAction).toBe('credential_request');
+  });
+
+  it('has credential category (always included by filterTools)', () => {
+    expect(credTool?.category).toBe('credential');
+  });
+
+  it('has envName parameter', () => {
+    const schema = credTool?.parameters as any;
+    expect(schema.properties?.envName).toBeDefined();
   });
 });

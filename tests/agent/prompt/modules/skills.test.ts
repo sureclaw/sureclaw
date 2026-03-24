@@ -101,8 +101,8 @@ describe('SkillsModule', () => {
     const mod = new SkillsModule();
     const text = mod.render(makeContext({ skillInstallEnabled: true })).join('\n');
     expect(text).toContain('Installing New Skills');
-    expect(text).toContain('skill({ type: "install"');
-    expect(text).toContain('request_credential');
+    expect(text).toContain('skill({ query:');
+    expect(text).toContain('request_credential({ envName:');
   });
 
   test('does NOT render install instructions when skillInstallEnabled is false', () => {

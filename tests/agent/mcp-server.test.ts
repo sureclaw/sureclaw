@@ -134,13 +134,14 @@ describe('IPC MCP Server', () => {
     expect(parsed[1].taint).toBeUndefined();
   });
 
-  test('includes skill tool', () => {
+  test('includes skill and request_credential tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
     const names = Object.keys(tools);
 
     expect(names).toContain('skill');
+    expect(names).toContain('request_credential');
   });
 
   test('identity write calls IPC client with correct action', async () => {
@@ -165,14 +166,14 @@ describe('IPC MCP Server', () => {
     expect(result.content[0].text).toContain('"ok":true');
   });
 
-  test('all 15 consolidated tools are registered without filter', () => {
+  test('all 16 tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expectedTools = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skill',
+      'scheduler', 'skill', 'request_credential',
       'agent', 'image',
       'workspace_write', 'workspace_mount', 'governance',
       'bash', 'read_file', 'write_file', 'edit_file',
@@ -182,7 +183,7 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(15);
+    expect(registeredNames.length).toBe(16);
   });
 
   test('filter excludes scheduler and skill when their flags are false', () => {
@@ -194,7 +195,8 @@ describe('IPC MCP Server', () => {
     const names = Object.keys(tools);
 
     expect(names).not.toContain('scheduler');
-    expect(names).not.toContain('skill'); // skill tool excluded when skillInstallEnabled=false
+    expect(names).not.toContain('skill'); // skill install excluded when skillInstallEnabled=false
+    expect(names).toContain('request_credential'); // always available
     // Core tools present
     expect(names).toContain('memory');
     expect(names).toContain('web');
@@ -211,13 +213,14 @@ describe('IPC MCP Server', () => {
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    // Core: memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) = 6
+    // Core: memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) + credential(1) = 7
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
-    expect(names).not.toContain('skill'); // skill excluded when skillInstallEnabled=false
+    expect(names).toContain('request_credential'); // always available
+    expect(names).not.toContain('skill'); // skill install excluded when skillInstallEnabled=false
     expect(names).not.toContain('scheduler');
     expect(names).not.toContain('workspace_mount');
     expect(names).not.toContain('governance');
