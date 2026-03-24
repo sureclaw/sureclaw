@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveTurnLayer, extractAppHints, runFastPath } from '../../src/host/fast-path.js';
+import { resolveTurnLayer, extractAppHints, runFastPath } from '../../src/host/inprocess.js';
 import type { Config, ProviderRegistry } from '../../src/types.js';
 import type { LLMProvider, ChatChunk, ChatRequest } from '../../src/providers/llm/types.js';
 import type { ConversationStoreProvider, DocumentStore } from '../../src/providers/storage/types.js';

@@ -394,7 +394,7 @@ export async function processCompletion(
 
   // ── Fast path: in-process LLM loop (no pod, no IPC, no proxy) ──
   // Resolve turn layer before setting up any sandbox infrastructure.
-  const { resolveTurnLayer, runFastPath } = await import('./fast-path.js');
+  const { resolveTurnLayer, runFastPath } = await import('./inprocess.js');
   const { hasActiveSandbox } = await import('./sandbox-manager.js');
   const sandboxAlive = providers.storage?.documents
     ? await hasActiveSandbox(providers.storage.documents, sessionId)
