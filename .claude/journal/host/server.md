@@ -2,6 +2,18 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-24 17:30] — MCP Fast Path Architecture (Phases 1-4)
+
+**Task:** Implement the MCP fast path architecture per docs/plans/2026-03-23-mcp-fast-path-architecture.md
+**What I did:** Full implementation across 4 phases:
+- Phase 1: MCP provider abstraction (types, none, activepieces with circuit breaker), wired into provider-map, types, config, registry
+- Phase 2: In-process fast path LLM loop (fast-path.ts), tool router (tool-router.ts), turn layer resolution in server-completions.ts
+- Phase 3: Skill DB storage (storage/skills.ts), skill_install DB persistence, tool discovery with app hints
+- Phase 4: Sandbox escalation manager (sandbox-manager.ts), session-bound pod lifecycle, cross-turn escalation
+**Files touched:** src/providers/mcp/{types,none,activepieces}.ts, src/host/{provider-map,registry,fast-path,tool-router,sandbox-manager,server-completions}.ts, src/{types,config}.ts, src/providers/storage/skills.ts, src/host/ipc-handlers/skills.ts, tests/providers/mcp/activepieces.test.ts, tests/host/{fast-path,tool-router,mcp-exfiltration,sandbox-manager}.test.ts, tests/providers/storage/skills.test.ts
+**Outcome:** Success — 2634 tests pass (73 new), zero regressions, clean build
+**Notes:** AsyncLocalStorage for per-turn isolation. FAST_PATH_LIMITS enforced. All MCP results taint-tagged as external. safePath used for all file I/O.
+
 ## [2026-03-21 07:20] — Fix chat UI: custom OpenAI SSE transport, session ID flow, default user
 
 **Task:** Fix three chat UI issues: empty thread list, broken chat, and missing default user

@@ -17,6 +17,8 @@ import { generateManifest } from '../../utils/manifest-generator.js';
 import { userSkillsDir } from '../../paths.js';
 import { resolveCredential } from '../credential-scopes.js';
 import { getLogger } from '../../logger.js';
+import { upsertSkill, inferMcpApps } from '../../providers/storage/skills.js';
+import type { DocumentStore } from '../../providers/storage/types.js';
 
 const logger = getLogger().child({ component: 'ipc-skills' });
 
@@ -101,6 +103,19 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       // 6. Add domains to proxy allowlist
       if (opts?.domainList && manifest.capabilities.domains.length > 0) {
         opts.domainList.addSkillDomains(slug, manifest.capabilities.domains);
+      }
+
+      // 6b. Store skill in DB for fast-path access (instruction-only model)
+      if (providers.storage?.documents) {
+        const mcpApps = inferMcpApps(skillMd.content);
+        await upsertSkill(providers.storage.documents, {
+          id: slug,
+          agentId: agentName,
+          version: '1.0.0',
+          instructions: skillMd.content,
+          mcpApps,
+        });
+        logger.info('skill_stored_in_db', { slug, agentId: agentName, mcpApps });
       }
 
       await providers.audit.log({

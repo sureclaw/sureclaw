@@ -392,6 +392,81 @@ export async function processCompletion(
     return { responseContent: 'Internal error: message not queued', finishReason: 'stop' };
   }
 
+  // ── Fast path: in-process LLM loop (no pod, no IPC, no proxy) ──
+  // Resolve turn layer before setting up any sandbox infrastructure.
+  const { resolveTurnLayer, runFastPath } = await import('./fast-path.js');
+  const { hasActiveSandbox } = await import('./sandbox-manager.js');
+  const sandboxAlive = providers.storage?.documents
+    ? await hasActiveSandbox(providers.storage.documents, sessionId)
+    : false;
+  const turnLayer = resolveTurnLayer(config, {
+    sandboxPod: sandboxAlive ? { alive: true } : undefined,
+  });
+
+  if (turnLayer === 'in-process') {
+    const agentName = config.agent_name ?? 'main';
+    const currentUserId = userId ?? process.env.USER ?? 'default';
+    try {
+      const fastResult = await runFastPath(
+        {
+          message: textContent,
+          sessionId,
+          requestId,
+          agentId: agentName,
+          userId: currentUserId,
+          clientHistory: clientMessages,
+          persistentSessionId,
+        },
+        {
+          config,
+          providers,
+          conversationStore,
+          documents: providers.storage.documents,
+          router,
+          taintBudget,
+          sessionCanaries,
+          logger,
+          eventBus,
+          workspaceBasePath: config.workspace?.basePath ?? '~/.ax/workspaces',
+        },
+      );
+
+      // Complete the queued message
+      await db.complete(queued.id);
+
+      // Outbound scan
+      const canaryToken = sessionCanaries.get(sessionId) ?? result.canaryToken;
+      const outbound = await router.processOutbound(fastResult.responseContent, sessionId, canaryToken);
+
+      eventBus?.emit({
+        type: 'scan.outbound',
+        requestId,
+        timestamp: Date.now(),
+        data: { verdict: outbound.scanResult.verdict, canaryLeaked: outbound.canaryLeaked },
+      });
+
+      const finishReason = outbound.scanResult.verdict === 'BLOCK' ? 'content_filter' as const : 'stop' as const;
+      eventBus?.emit({
+        type: 'completion.done',
+        requestId,
+        timestamp: Date.now(),
+        data: { finishReason, responseLength: outbound.content.length, sessionId },
+      });
+
+      return {
+        responseContent: outbound.content,
+        agentName,
+        userId: currentUserId,
+        finishReason,
+      };
+    } catch (err) {
+      await db.fail(queued.id);
+      reqLogger.error('fast_path_error', { error: (err as Error).message });
+      return { responseContent: `Fast path error: ${(err as Error).message}`, finishReason: 'stop' };
+    }
+  }
+
+  // ── Sandbox path (existing flow) ──
   let workspace = '';
   const isPersistent = !!persistentSessionId;
   let proxyCleanup: (() => void) | undefined;

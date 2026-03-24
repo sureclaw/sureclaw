@@ -92,6 +92,10 @@ const _PROVIDER_MAP = {
     local: '../providers/workspace/local.js',
     gcs:   '../providers/workspace/gcs.js',
   },
+  mcp: {
+    none:         '../providers/mcp/none.js',
+    activepieces: '../providers/mcp/activepieces.js',
+  },
 } as const;
 
 // Re-export with the same name and looser type for backwards compatibility.
@@ -127,6 +131,7 @@ export type ScreenerProviderName   = keyof ProviderMapType['screener'];
 export type StorageProviderName    = keyof ProviderMapType['storage'];
 export type EventBusProviderName   = keyof ProviderMapType['eventbus'];
 export type WorkspaceProviderName  = keyof ProviderMapType['workspace'];
+export type McpProviderName        = keyof ProviderMapType['mcp'];
 
 /** Union of all provider names for a given kind. */
 export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];
