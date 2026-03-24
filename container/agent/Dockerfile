@@ -11,9 +11,19 @@
 
 FROM node:22-slim
 
-# git needed for workspace provisioning (GCS restore, git clone)
-RUN apt-get update && apt-get install -y --no-install-recommends git curl jq ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# Standard bash tools for agent sandbox (matches Claude Code expectations)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl jq ca-certificates \
+    ripgrep \
+    tree \
+    less \
+    wget \
+    zip unzip \
+    make \
+    patch \
+    file \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/ax
 COPY package.json package-lock.json ./
