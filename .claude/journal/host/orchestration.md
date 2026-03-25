@@ -2,6 +2,14 @@
 
 Agent orchestration system: supervisor, directory, agent-loop, event store, heartbeat, policy tags.
 
+## [2026-03-24 09:15] — Status SSE events for workspace and sandbox provisioning
+
+**Task:** Surface long-running backend operations (workspace mount, sandbox spawn) to frontend via SSE status events
+**What I did:** Added status event emissions in server-completions.ts (workspace downloading/ready, sandbox creating/retrying), forwarding in server-request-handlers.ts as named SSE, frontend transport parsing in ax-chat-transport.ts, runtime wiring through useAxChatRuntime/App.tsx, and dynamic display in Thread component replacing hardcoded "Thinking..."
+**Files touched:** src/host/server-completions.ts, src/host/server-request-handlers.ts, ui/chat/src/lib/ax-chat-transport.ts, ui/chat/src/lib/useAxChatRuntime.tsx, ui/chat/src/App.tsx, ui/chat/src/components/thread.tsx, tests/host/server-completions-status-events.test.ts (new), tests/host/server-request-handlers-status.test.ts (new), tests/host/server.test.ts (fix)
+**Outcome:** Success — 227 test files, 2566 tests all passing
+**Notes:** Had to fix server.test.ts SSE streaming test — status events added extra data: lines that shifted expected indices. Fixed by filtering to only OpenAI-format chunks.
+
 ## [2026-03-01 10:12] — Suppress noisy invalid_state_transition warnings in auto-state
 
 **Task:** Fix `invalid_state_transition from=tool_calling to=tool_calling` warnings flooding logs when LLM makes parallel tool calls

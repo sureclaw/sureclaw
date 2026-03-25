@@ -19,7 +19,9 @@ import {
 import type { FC } from 'react';
 import { MarkdownText } from './markdown-text';
 
-export const Thread: FC = () => {
+export const Thread: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => {
+  const AssistantMessageWithStatus: FC = () => <AssistantMessage statusMessage={statusMessage} />;
+
   return (
     <ThreadPrimitive.Root
       className="aui-root aui-thread-root flex h-full flex-col bg-background"
@@ -31,7 +33,7 @@ export const Thread: FC = () => {
         </ThreadPrimitive.If>
 
         <ThreadPrimitive.Messages
-          components={{ UserMessage, AssistantMessage, EditComposer }}
+          components={{ UserMessage, AssistantMessage: AssistantMessageWithStatus, EditComposer }}
         />
 
         <ThreadPrimitive.If empty={false}>
@@ -104,7 +106,7 @@ const ToolCallFallback: FC<{ toolName: string; args: unknown; status: { type: st
   </div>
 );
 
-const AssistantMessage: FC = () => (
+const AssistantMessage: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => (
   <MessagePrimitive.Root asChild>
     <div className="relative mx-auto w-full max-w-[var(--thread-max-width)] py-4 animate-fade-in-up" data-role="assistant">
       <div className="mx-2 leading-7 break-words text-foreground">
@@ -120,7 +122,7 @@ const AssistantMessage: FC = () => (
       <AuiIf condition={({ message, thread }) => message.isLast && thread.isRunning}>
         <div className="mx-2 mt-1 flex items-center gap-2 text-[13px] text-muted-foreground">
           <LoaderIcon className="size-3.5 animate-spin" strokeWidth={1.8} />
-          <span>Thinking...</span>
+          <span>{statusMessage || 'Thinking\u2026'}</span>
         </div>
       </AuiIf>
       <div className="mt-2 ml-2 flex">

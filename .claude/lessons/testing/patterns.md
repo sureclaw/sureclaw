@@ -1,5 +1,11 @@
 # Testing Patterns
 
+### SSE streaming tests are fragile when new named events are added
+**Date:** 2026-03-24
+**Context:** Adding status named SSE events broke server.test.ts because it filtered all `data:` lines by index, not by content type.
+**Lesson:** When testing SSE streams that may contain named events alongside OpenAI-format chunks, filter data lines by content (e.g. `l.includes('"chat.completion.chunk"')`) rather than positional index. Named events add extra `data:` lines that shift indices.
+**Tags:** sse, testing, named-events, server
+
 ### vi.mock constructor mocks must use regular functions, not arrow functions or vi.fn()
 **Date:** 2026-03-15
 **Context:** Mocking EmbeddingStore class for cortex provider parallel search tests. `vi.fn().mockImplementation(() => inst)` fails with "not a constructor" when the mock is called with `new`.

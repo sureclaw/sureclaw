@@ -195,6 +195,19 @@ export async function handleCompletions(
             sessionId: event.data.sessionId as string,
             requestId,
           });
+        } else if (
+          event.type === 'status' &&
+          typeof event.data.operation === 'string' &&
+          typeof event.data.phase === 'string' &&
+          typeof event.data.message === 'string'
+        ) {
+          sendSSENamedEvent(res, 'status', {
+            operation: event.data.operation,
+            phase: event.data.phase,
+            message: event.data.message,
+          });
+        } else if (event.type === 'status') {
+          logger.warn('status_event_invalid_payload', { requestId, data: event.data });
         }
       } catch { /* client gone, skip */ }
     });

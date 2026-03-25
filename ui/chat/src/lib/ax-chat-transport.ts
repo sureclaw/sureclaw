@@ -23,11 +23,19 @@ export interface CredentialRequiredEvent {
   requestId: string;
 }
 
+export interface StatusEvent {
+  operation: string;
+  phase: string;
+  message: string;
+}
+
 interface AxChatTransportOptions {
   api?: string;
   user?: string;
   model?: string;
   onCredentialRequired?: (event: CredentialRequiredEvent) => void;
+  onStatus?: (event: StatusEvent) => void;
+  onRunStart?: () => void;
 }
 
 /**
@@ -43,6 +51,8 @@ function extractText(msg: UIMessage): string {
 
 export class AxChatTransport extends HttpChatTransport<UIMessage> {
   private onCredentialRequired?: (event: CredentialRequiredEvent) => void;
+  private onStatus?: (event: StatusEvent) => void;
+  private onRunStart?: () => void;
 
   constructor(opts: AxChatTransportOptions = {}) {
     const user = opts.user ?? DEFAULT_USER;
@@ -62,6 +72,8 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
       }),
     });
     this.onCredentialRequired = opts.onCredentialRequired;
+    this.onStatus = opts.onStatus;
+    this.onRunStart = opts.onRunStart;
   }
 
   /**
@@ -70,11 +82,13 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
   protected processResponseStream(
     stream: ReadableStream<Uint8Array>,
   ): ReadableStream<UIMessageChunk> {
+    this.onRunStart?.();
     const textPartId = 'text-0';
     let started = false;
     // Track named SSE events (event: line precedes data: line)
     let pendingEventName: string | null = null;
     const credentialCallback = this.onCredentialRequired;
+    const statusCallback = this.onStatus;
 
     // Buffer for incomplete SSE lines split across TextDecoderStream chunks
     let carry = '';
@@ -123,6 +137,14 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
                 pendingEventName = null;
                 continue;
               }
+              if (pendingEventName === 'status') {
+                try {
+                  const payload = JSON.parse(trimmed.slice(6));
+                  statusCallback?.(payload);
+                } catch { /* malformed event, skip */ }
+                pendingEventName = null;
+                continue;
+              }
               pendingEventName = null;
 
               let parsed: any;
@@ -137,6 +159,8 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
 
               if (delta?.content) {
                 if (!started) {
+                  // Clear status message once real content starts flowing
+                  statusCallback?.({ operation: '', phase: 'clear', message: '' });
                   controller.enqueue({ type: 'text-start', id: textPartId });
                   started = true;
                 }
