@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-03-24 12:55] — Fix CI: bump pi-ai to match pi-agent-core/pi-coding-agent
+
+**Task:** Fix failing GitHub Actions test job on PR #117 (dependabot production dep bump)
+**What I did:** The dependabot PR bumped pi-agent-core and pi-coding-agent to ^0.61.1 but left pi-ai at ^0.58.1. The newer packages depend on pi-ai@^0.61.1 internally, creating nested duplicate copies with incompatible AssistantMessageEventStream types (private property 'isComplete' mismatch). Bumped pi-ai to ^0.61.1 in package.json to deduplicate.
+**Files touched:** package.json, package-lock.json
+**Outcome:** Success — tsc --noEmit passes, all 225 test files (2554 tests) pass, fuzz tests pass
+**Notes:** Dependabot doesn't always catch transitive peer alignment. When pi-* packages are bumped together, pi-ai must be bumped to the same version family.
+
 ## [2026-03-20 08:40] — Phase 2: createRequestHandler() shared route factory
 
 **Task:** Extract remaining duplicated HTTP route dispatch from server-local.ts and server-k8s.ts into a shared createRequestHandler() factory

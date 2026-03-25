@@ -4,6 +4,7 @@ Category-based organization of all journal entries. Total: 120 entries across 10
 
 ## Entries
 
+- 2026-03-24 12:55 — Fix CI: bump pi-ai to match pi-agent-core/pi-coding-agent [refactoring/cleanup.md](refactoring/cleanup.md)
 - 2026-03-22 16:30 — Fix agent_response timeout race in k8s NATS mode [host/server-k8s.md](host/server-k8s.md)
 - 2026-03-18 12:15 — Fix opaque "fetch failed" errors in HTTP IPC client [host/server.md](host/server.md)
 - 2026-03-18 12:00 — Improve logging detail across host and agent [host/server.md](host/server.md)
