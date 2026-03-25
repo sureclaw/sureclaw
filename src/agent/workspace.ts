@@ -40,6 +40,7 @@ const CACHE_BUCKET = process.env.WORKSPACE_CACHE_BUCKET ?? '';
 /** Strict allowlist for cache keys — alphanumeric, dash, underscore only. */
 const CACHE_KEY_RE = /^[a-zA-Z0-9_-]+$/;
 
+
 function validateCacheKey(key: string): void {
   if (!CACHE_KEY_RE.test(key)) {
     throw new Error(`Invalid cache key: ${key} — must match ${CACHE_KEY_RE}`);

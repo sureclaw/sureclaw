@@ -61,10 +61,10 @@ describe('skill_install IPC schema', () => {
 });
 
 describe('skill tool catalog includes install action', () => {
-  test('skill tool actionMap has install', async () => {
+  test('skill tool singletonAction is skill_install', async () => {
     const { TOOL_CATALOG } = await import('../../src/agent/tool-catalog.js');
     const skill = TOOL_CATALOG.find(t => t.name === 'skill');
-    expect(skill?.actionMap).toHaveProperty('install', 'skill_install');
+    expect(skill?.singletonAction).toBe('skill_install');
   });
 });
 

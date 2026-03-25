@@ -187,25 +187,24 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
 
     // ── Skill ──
     tool('skill',
-      'Manage skills: install from ClawHub or request credentials.\n' +
-      'Use type: "install" to install a skill by slug or search query. ' +
-      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.\n' +
-      'Use type: "request_credential" to request a credential (e.g. API key) that a skill needs.',
+      'Install a skill from ClawHub by slug or search query. ' +
+      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.',
       {
-        type: z.enum(['install', 'request_credential']),
-        query: z.string().optional().describe('Search query (for type: "install" — finds best match)'),
-        slug: z.string().optional().describe('ClawHub skill slug (for type: "install")'),
-        envName: z.string().optional().describe('Environment variable name (for type: "request_credential")'),
+        query: z.string().optional().describe('Search query (finds best match and installs)'),
+        slug: z.string().optional().describe('ClawHub skill slug (e.g. "linear-skill")'),
       },
-      (args) => {
-        const { type, ...rest } = args;
-        const SKILL_ACTIONS: Record<string, string> = {
-          install: 'skill_install',
-          request_credential: 'credential_request',
-        };
-        const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
-        return ipcCall(SKILL_ACTIONS[type], params);
+      (args) => ipcCall('skill_install', args),
+    ),
+
+    // ── Credential ──
+    tool('request_credential',
+      'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
+      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
+      're-invoked with the credential available as an environment variable.',
+      {
+        envName: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).describe('Environment variable name needed (e.g. LINEAR_API_KEY). Must be uppercase with underscores only.'),
       },
+      (args) => ipcCall('credential_request', args),
     ),
 
     // ── Workspace ──

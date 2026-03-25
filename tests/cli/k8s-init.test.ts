@@ -56,6 +56,11 @@ describe('k8s init — parseArgs', () => {
     expect(opts.output).toBe('custom.yaml');
   });
 
+  it('parses --mcp-url flag', () => {
+    const opts = parseArgs(['--mcp-url', 'http://activepieces.ax.svc:8080']);
+    expect(opts.mcpUrl).toBe('http://activepieces.ax.svc:8080');
+  });
+
   it('does not have --llm-provider or --embeddings-provider flags', () => {
     const opts = parseArgs(['--llm-provider', 'anthropic', '--embeddings-provider', 'openai']);
     expect(opts).not.toHaveProperty('llmProvider');
@@ -142,6 +147,29 @@ describe('k8s init — generateValuesYaml', () => {
       database: 'internal',
     });
     expect(yaml).toContain('anthropic-api-key');
+  });
+
+  it('includes MCP provider config when mcpUrl is set', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      tier: 'light',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'internal',
+      mcpUrl: 'http://activepieces.ax.svc:8080',
+    });
+    expect(yaml).toContain('mcp: activepieces');
+    expect(yaml).toContain('url: "http://activepieces.ax.svc:8080"');
+  });
+
+  it('omits MCP config when mcpUrl is not set', () => {
+    const yaml = generateValuesYaml({
+      preset: 'small',
+      tier: 'light',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      database: 'internal',
+    });
+    expect(yaml).not.toContain('mcp:');
+    expect(yaml).not.toContain('activepieces');
   });
 
   it('still generates postgresql and nats config', () => {

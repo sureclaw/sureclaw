@@ -66,6 +66,7 @@ const ConfigSchema = z.strictObject({
     storage: providerEnum('storage').optional().default('database'),
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
     workspace: providerEnum('workspace').optional().default('none'),
+    mcp: providerEnum('mcp').optional(),
     screener: z.string().optional(),
   }),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
@@ -158,6 +159,15 @@ const ConfigSchema = z.strictObject({
     port: z.number().int().min(1).max(65535).default(8080),
     disable_auth: z.boolean().optional(),
   }).default({ enabled: true, port: 8080 }),
+  mcp: z.strictObject({
+    url: z.string().url().default('http://localhost:8080'),
+    healthcheck_interval_ms: z.number().int().min(0).default(10_000),
+    circuit_breaker: z.strictObject({
+      failure_threshold: z.number().int().min(1).default(5),
+      cooldown_ms: z.number().int().min(1000).default(30_000),
+    }).default({ failure_threshold: 5, cooldown_ms: 30_000 }),
+    timeout_ms: z.number().int().min(1000).max(120_000).default(30_000),
+  }).optional(),
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
   url_rewrites: z.record(z.string(), z.string()).optional(),

@@ -107,6 +107,11 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     screenCommit: createCommitScreener(screener, audit),
   });
 
+  // Load MCP provider if configured (optional — fast path only)
+  const mcp = config.providers.mcp
+    ? await loadProvider('mcp', config.providers.mcp, config)
+    : undefined;
+
   const registry: ProviderRegistry = {
     llm:         tracedLlm,
     image,
@@ -125,6 +130,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     database,
     eventbus,
     workspace,
+    mcp,
     screener,
   };
 

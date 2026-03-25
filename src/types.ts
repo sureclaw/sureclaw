@@ -16,12 +16,13 @@ import type { StorageProvider } from './providers/storage/types.js';
 import type { EventBusProvider } from './providers/eventbus/types.js';
 import type { DatabaseProvider } from './providers/database/types.js';
 import type { WorkspaceProvider } from './providers/workspace/types.js';
+import type { McpProvider } from './providers/mcp/types.js';
 import type {
   MemoryProviderName, ScannerProviderName, ChannelProviderName,
   WebExtractProviderName, WebSearchProviderName, BrowserProviderName, CredentialProviderName,
   AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
-  DatabaseProviderName, WorkspaceProviderName,
+  DatabaseProviderName, WorkspaceProviderName, McpProviderName,
 } from './host/provider-map.js';
 
 /** Allowed image MIME types (matches Anthropic vision API). */
@@ -89,6 +90,7 @@ export interface Config {
     database?: DatabaseProviderName;
     eventbus: EventBusProviderName;
     workspace: WorkspaceProviderName;
+    mcp?: McpProviderName;
     screener?: string;
   };
   channel_config?: Record<string, Partial<ChannelAccessConfig>>;
@@ -152,6 +154,16 @@ export interface Config {
     port: number;
     disable_auth?: boolean;
   };
+  /** MCP gateway configuration (Activepieces, etc.). */
+  mcp?: {
+    url: string;
+    healthcheck_interval_ms: number;
+    circuit_breaker: {
+      failure_threshold: number;
+      cooldown_ms: number;
+    };
+    timeout_ms: number;
+  };
   /** Enable HTTP forward proxy for agent outbound HTTP/HTTPS requests. */
   web_proxy?: boolean;
   /** Domains that bypass MITM TLS inspection (cert-pinning CLIs). */
@@ -180,5 +192,6 @@ export interface ProviderRegistry {
   database?: DatabaseProvider;
   eventbus: EventBusProvider;
   workspace: WorkspaceProvider;
+  mcp?: McpProvider;
   screener?: SkillScreenerProvider;
 }

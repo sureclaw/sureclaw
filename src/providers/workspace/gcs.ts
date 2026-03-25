@@ -435,16 +435,29 @@ export async function create(config: Config, _name?: string, deps?: { screenComm
 
   // Download all files with content — used by the provision HTTP endpoint
   // so sandbox pods can fetch workspace files from the host (the pod has no GCS credentials).
+  // Parallel downloads (20 concurrent) reduce 473-file download from ~47s to ~3s.
+  const DOWNLOAD_CONCURRENCY = 20;
+
   provider.downloadScope = async (scope, id) => {
     const kp = gcsKeyPrefix(prefix, scope, id);
     const [files] = await bucket.getFiles({ prefix: kp });
     const results: Array<{ path: string; content: Buffer }> = [];
-    for (const file of files) {
-      const path = file.name.slice(kp.length);
-      if (!path) continue;
-      const [content] = await file.download();
-      results.push({ path, content });
+
+    for (let i = 0; i < files.length; i += DOWNLOAD_CONCURRENCY) {
+      const batch = files.slice(i, i + DOWNLOAD_CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(async (file) => {
+          const path = file.name.slice(kp.length);
+          if (!path) return null;
+          const [content] = await file.download();
+          return { path, content };
+        }),
+      );
+      for (const r of batchResults) {
+        if (r) results.push(r);
+      }
     }
+
     return results;
   };
 

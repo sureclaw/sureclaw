@@ -87,6 +87,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasHeartbeat: !!identityFiles.heartbeat?.trim(),
     hasWorkspaceScopes,
     hasGovernance,
+    skillInstallEnabled,
   };
 
   logger.debug('prompt_built', { ...promptResult.metadata, toolFilter });

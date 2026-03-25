@@ -57,6 +57,10 @@ describe('detectSkillInstallIntent', () => {
     expect(detectSkillInstallIntent('use the linear skill')).toBe(false);
   });
 
+  test('returns false for "use the linear skill to list all teams"', () => {
+    expect(detectSkillInstallIntent('use the linear skill to list all teams')).toBe(false);
+  });
+
   test('returns false for "read the skill"', () => {
     expect(detectSkillInstallIntent('read the skill')).toBe(false);
   });
@@ -97,8 +101,8 @@ describe('SkillsModule', () => {
     const mod = new SkillsModule();
     const text = mod.render(makeContext({ skillInstallEnabled: true })).join('\n');
     expect(text).toContain('Installing New Skills');
-    expect(text).toContain('skill({ type: "install"');
-    expect(text).toContain('request_credential');
+    expect(text).toContain('skill({ query:');
+    expect(text).toContain('request_credential({ envName:');
   });
 
   test('does NOT render install instructions when skillInstallEnabled is false', () => {

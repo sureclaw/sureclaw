@@ -14,7 +14,7 @@ import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
   | 'memory' | 'web' | 'audit' | 'identity'
-  | 'scheduler' | 'skill' | 'delegation' | 'image'
+  | 'scheduler' | 'skill' | 'credential' | 'delegation' | 'image'
   | 'workspace' | 'workspace_scopes' | 'governance' | 'sandbox';
 
 export interface ToolSpec {
@@ -202,28 +202,37 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Manage skills: install from ClawHub or request credentials.\n\n' +
-      'Use `type: "install"` to install a skill by slug or search query. ' +
-      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.\n' +
-      'Use `type: "request_credential"` to request a credential (e.g. API key) that a skill needs.\n' +
-      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
-      're-invoked with the credential available as an environment variable.',
+      'Install a skill from ClawHub by slug or search query. ' +
+      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.',
     parameters: Type.Union([
       Type.Object({
-        type: Type.Literal('install'),
-        query: Type.Optional(Type.String({ description: 'Search query (finds best match and installs)' })),
-        slug: Type.Optional(Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' })),
+        slug: Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' }),
+        query: Type.Optional(Type.String({ description: 'Search query (optional refinement)' })),
       }),
       Type.Object({
-        type: Type.Literal('request_credential'),
-        envName: Type.String({ description: 'Environment variable name the skill requires (e.g. LINEAR_API_KEY)' }),
+        query: Type.String({ description: 'Search query (finds best match and installs)' }),
       }),
     ]),
     category: 'skill',
-    actionMap: {
-      install: 'skill_install',
-      request_credential: 'credential_request',
-    },
+    singletonAction: 'skill_install',
+  },
+
+  // ── Credential ──
+  {
+    name: 'request_credential',
+    label: 'Request Credential',
+    description:
+      'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
+      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
+      're-invoked with the credential available as an environment variable.',
+    parameters: Type.Object({
+      envName: Type.String({
+        pattern: '^[A-Z][A-Z0-9_]{1,63}$',
+        description: 'Environment variable name needed (e.g. LINEAR_API_KEY). Must be uppercase with underscores only.',
+      }),
+    }),
+    category: 'credential',
+    singletonAction: 'credential_request',
   },
 
   // ── Workspace ──
@@ -437,6 +446,8 @@ export interface ToolFilterContext {
   hasWorkspaceScopes: boolean;
   /** Enterprise governance enabled */
   hasGovernance: boolean;
+  /** User message indicates skill install intent — show install tool */
+  skillInstallEnabled?: boolean;
 }
 
 /**
@@ -447,7 +458,7 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
   return TOOL_CATALOG.filter(spec => {
     switch (spec.category) {
       case 'scheduler':  return ctx.hasHeartbeat;
-      case 'skill':      return true;
+      case 'skill':      return ctx.skillInstallEnabled !== false;
       case 'workspace':        return ctx.hasWorkspaceScopes;
       case 'workspace_scopes': return ctx.hasWorkspaceScopes;
       case 'governance': return ctx.hasGovernance;
