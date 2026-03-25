@@ -130,7 +130,11 @@ export const App = () => {
     [],
   );
 
-  const runtime = useAxChatRuntime(handleCredentialRequired, handleStatus);
+  const handleRunStart = useCallback(() => {
+    setStatusMessage(null);
+  }, []);
+
+  const runtime = useAxChatRuntime(handleCredentialRequired, handleStatus, handleRunStart);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>

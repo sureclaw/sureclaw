@@ -36,11 +36,14 @@ const useChatThreadRuntime = (transport: AxChatTransport): AssistantRuntime => {
 export const useAxChatRuntime = (
   onCredentialRequired?: (event: CredentialRequiredEvent) => void,
   onStatus?: (event: StatusEvent) => void,
+  onRunStart?: () => void,
 ): AssistantRuntime => {
   const callbackRef = useRef(onCredentialRequired);
   callbackRef.current = onCredentialRequired;
   const statusRef = useRef(onStatus);
   statusRef.current = onStatus;
+  const runStartRef = useRef(onRunStart);
+  runStartRef.current = onRunStart;
 
   const transport = useMemo(
     () =>
@@ -48,6 +51,7 @@ export const useAxChatRuntime = (
         api: '/v1/chat/completions',
         onCredentialRequired: (event) => callbackRef.current?.(event),
         onStatus: (event) => statusRef.current?.(event),
+        onRunStart: () => runStartRef.current?.(),
       }),
     [],
   );

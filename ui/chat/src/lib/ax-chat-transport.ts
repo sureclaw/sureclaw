@@ -35,6 +35,7 @@ interface AxChatTransportOptions {
   model?: string;
   onCredentialRequired?: (event: CredentialRequiredEvent) => void;
   onStatus?: (event: StatusEvent) => void;
+  onRunStart?: () => void;
 }
 
 /**
@@ -51,6 +52,7 @@ function extractText(msg: UIMessage): string {
 export class AxChatTransport extends HttpChatTransport<UIMessage> {
   private onCredentialRequired?: (event: CredentialRequiredEvent) => void;
   private onStatus?: (event: StatusEvent) => void;
+  private onRunStart?: () => void;
 
   constructor(opts: AxChatTransportOptions = {}) {
     const user = opts.user ?? DEFAULT_USER;
@@ -71,6 +73,7 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
     });
     this.onCredentialRequired = opts.onCredentialRequired;
     this.onStatus = opts.onStatus;
+    this.onRunStart = opts.onRunStart;
   }
 
   /**
@@ -79,6 +82,7 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
   protected processResponseStream(
     stream: ReadableStream<Uint8Array>,
   ): ReadableStream<UIMessageChunk> {
+    this.onRunStart?.();
     const textPartId = 'text-0';
     let started = false;
     // Track named SSE events (event: line precedes data: line)
