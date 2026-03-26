@@ -24,11 +24,15 @@ export class HttpIPCClient implements IIPCClient {
   private userId?: string;
   private sessionScope?: string;
   private token?: string;
+  /** Original auth token from pod spawn — used for work-fetch authentication.
+   *  Per-turn tokens rotate via setContext(), but the pod's identity token stays fixed. */
+  private readonly authToken: string | undefined;
 
   constructor(opts: HttpIPCClientOptions) {
     this.hostUrl = opts.hostUrl;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.token = process.env.AX_IPC_TOKEN;
+    this.authToken = this.token;
   }
 
   setContext(ctx: {
@@ -135,7 +139,7 @@ export class HttpIPCClient implements IIPCClient {
       try {
         const res = await fetch(url, {
           method: 'GET',
-          headers: { 'Authorization': `Bearer ${this.token}` },
+          headers: { 'Authorization': `Bearer ${this.authToken}` },
           signal: AbortSignal.timeout(10_000),
         });
 

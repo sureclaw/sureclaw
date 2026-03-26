@@ -1,5 +1,11 @@
 # Agent
 
+### HttpIPCClient has two token scopes — don't conflate them
+**Date:** 2026-03-25
+**Context:** Chat UI stuck on "Thinking..." after turn 3. `fetchWork()` used `this.token` which `setContext()` rotates per-turn for IPC routing. After turn 2, the work-fetch poll sent the wrong token to session-pod-manager, getting 404 forever.
+**Lesson:** `HttpIPCClient` has two distinct tokens: (1) the pod's **auth token** (`AX_IPC_TOKEN` from env, used for `GET /internal/work`) — this is the pod identity, registered once in `tokenToSession`. (2) The **per-turn IPC token** (from payload's `ipcToken`, set via `setContext()`) — used for `POST /internal/ipc` calls and LLM proxy. These must never be conflated. `fetchWork()` must always use the original auth token.
+**Tags:** http-ipc-client, session-pod-manager, token, k8s, work-fetch, multi-turn
+
 ### Weaker models rename discriminator fields — always normalize before actionMap lookup
 **Date:** 2026-03-15
 **Context:** Gemini Flash sent `{"operation":"fetch"}` instead of `{"type":"fetch"}` for the `web` multi-op tool, causing silent tool failure and hallucinated content

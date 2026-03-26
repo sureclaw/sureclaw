@@ -2,6 +2,14 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-25 21:00] — Fix session pod work-fetch token rotation bug
+
+**Task:** Chat UI gets stuck on "Thinking..." after 3 turns against kind-ax cluster
+**What I did:** Diagnosed that `HttpIPCClient.fetchWork()` used `this.token` which got overwritten by `setContext()` on each turn's `applyPayload()`. After turn 2, the token changed from the original pod auth token to a per-turn IPC token that the session-pod-manager doesn't recognize. Added a separate `readonly authToken` field initialized once from `AX_IPC_TOKEN` env, used exclusively by `fetchWork()`.
+**Files touched:** `src/agent/http-ipc-client.ts` (fix), `tests/agent/http-ipc-client.test.ts` (regression test)
+**Outcome:** Success — verified 5+ consecutive turns work in the chat UI against kind-ax cluster
+**Notes:** Sandbox pods use the Docker image, not host volume mounts for dist/. Must rebuild image and `kind load docker-image ghcr.io/project-ax/ax:latest --name ax` for sandbox code changes.
+
 ## [2026-03-19 09:24] — Review PR 106 skill auto-install runner changes
 
 **Task:** Perform a code review of PR #106 adding automatic skill dependency installation in agent runners

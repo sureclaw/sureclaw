@@ -99,4 +99,41 @@ describe('HttpIPCClient', () => {
 
     expect(lastRequest!.headers.authorization).toBe('Bearer env-token-123');
   });
+
+  test('fetchWork uses original auth token even after setContext rotates the IPC token', async () => {
+    // Regression: fetchWork must use the pod's original auth token (from AX_IPC_TOKEN env)
+    // for work-fetch authentication, not the per-turn IPC token set by applyPayload/setContext.
+    // When setContext updates this.token for IPC routing, fetchWork should still authenticate
+    // with the original token that the session-pod-manager recognizes.
+    process.env.AX_IPC_TOKEN = 'spawn-token-1';
+
+    const workTokens: string[] = [];
+    const workServer = createServer((req, res) => {
+      workTokens.push(req.headers.authorization ?? '');
+      // Return 404 (no work) — fetchWork will exit after maxWaitMs
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'no work' }));
+    });
+    await new Promise<void>(resolve => {
+      workServer.listen(0, '127.0.0.1', resolve);
+    });
+    const workPort = (workServer.address() as any).port;
+
+    try {
+      const client = new HttpIPCClient({ hostUrl: `http://127.0.0.1:${workPort}` });
+
+      // Simulate what applyPayload does: rotate the IPC token to a per-turn token
+      client.setContext({ token: 'turn-token-2' });
+
+      // fetchWork should still use the original spawn-token-1, not turn-token-2
+      await client.fetchWork(50, 100);
+
+      expect(workTokens.length).toBeGreaterThan(0);
+      for (const tok of workTokens) {
+        expect(tok).toBe('Bearer spawn-token-1');
+      }
+    } finally {
+      workServer.close();
+    }
+  });
 });
