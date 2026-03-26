@@ -144,7 +144,7 @@ export function createLazyAnthropicClient(proxySocket: string): () => Promise<an
 import type { SkillSummary } from './prompt/types.js';
 
 /**
- * Extract skill metadata from a markdown file for progressive disclosure.
+ * Extract skill metadata from a markdown file.
  * Takes the H1 title as the name and the first non-empty paragraph as the
  * description. Falls back to the filename (without extension) if no H1 found.
  */
@@ -170,10 +170,9 @@ function extractSkillMeta(content: string, filename: string): { name: string; de
 }
 
 /**
- * Read skill files from a directory, returning compact summaries
- * for progressive disclosure. Supports both file-based (.md) and
- * directory-based (subdir/SKILL.md) skills. The agent loads full
- * content on demand via `skill_read`.
+ * Read skill files from a directory, returning metadata for prompt injection.
+ * Supports both file-based (.md) and directory-based (subdir/SKILL.md) skills.
+ * The agent reads full SKILL.md via read_file when it decides to use a skill.
  */
 export function loadSkills(skillsDir: string): SkillSummary[] {
   try {

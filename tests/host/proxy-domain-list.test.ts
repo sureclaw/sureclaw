@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { ProxyDomainList } from '../../src/host/proxy-domain-list.js';
+import { parseAgentSkill } from '../../src/utils/skill-format-parser.js';
+import { generateManifest } from '../../src/utils/manifest-generator.js';
 
 describe('ProxyDomainList', () => {
   test('built-in domains are always allowed', () => {
@@ -76,5 +78,34 @@ describe('ProxyDomainList', () => {
     const allowed = list.getAllowedDomains();
     expect(allowed.has('api.linear.app')).toBe(true);
     expect(allowed.has('registry.npmjs.org')).toBe(true);
+  });
+
+  test('domains extracted from DB-stored skill instructions are allowed after reload', () => {
+    // Simulates the host restart path: skill stored in DB as JSON, parsed on
+    // startup, domains re-extracted from SKILL.md instructions via manifest generator.
+    const skillInstructions = [
+      '---',
+      'name: linear',
+      'description: Query Linear issues',
+      'metadata: {"clawdis":{"requires":{"env":["LINEAR_API_KEY"]}}}',
+      '---',
+      '',
+      '# Linear',
+      '',
+      '```bash',
+      'curl -X POST https://api.linear.app/graphql \\',
+      '  -H "Authorization: $LINEAR_API_KEY"',
+      '```',
+    ].join('\n');
+
+    const parsed = parseAgentSkill(skillInstructions);
+    const manifest = generateManifest(parsed);
+
+    const list = new ProxyDomainList();
+    if (manifest.capabilities.domains.length > 0) {
+      list.addSkillDomains(parsed.name || 'linear', manifest.capabilities.domains);
+    }
+
+    expect(list.isAllowed('api.linear.app')).toBe(true);
   });
 });

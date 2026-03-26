@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-03-26 07:45] — Fix proxy domain allowlist not loading DB-stored skill domains on startup
+
+**Task:** Debug why "check my active linear issues" fails with 403 Forbidden from the web proxy in the kind cluster
+**What I did:** Traced the issue from the agent SSE stream (403 on api.linear.app) to the proxy-domain-list logs (`domain_pending_approval`). Found that `server-init.ts` loads skill domains from filesystem and GCS on startup, but never queries the database `documents` table where skills installed via IPC are stored. Added a 4th domain loading step that calls `listSkills()` from the DB and re-extracts domains via `parseAgentSkill` + `generateManifest`. Also added a regression test.
+**Files touched:** `src/host/server-init.ts`, `tests/host/proxy-domain-list.test.ts`
+**Outcome:** Success — after rebuilding the Docker image and restarting the host pod, `api.linear.app` is loaded from the DB-stored linear skill and the linear.sh script executes successfully.
+**Notes:** The kind cluster used in this debug session did NOT have hostPath volume mounts (wasn't set up via `npm run k8s:dev setup`), so Docker image rebuild + `kind load docker-image` + pod delete was required. Also discovered that `scripts/k8s-dev.sh flush all` uses label `app.kubernetes.io/component=host` but the actual host pod label is `app.kubernetes.io/name=ax-host`.
+
 ## [2026-03-24 17:30] — MCP Fast Path Architecture (Phases 1-4)
 
 **Task:** Implement the MCP fast path architecture per docs/plans/2026-03-23-mcp-fast-path-architecture.md

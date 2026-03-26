@@ -1,5 +1,11 @@
 # Host
 
+### Proxy domain allowlist must also load from DB-stored skills on host startup
+**Date:** 2026-03-26
+**Context:** Skills installed via IPC are stored in the database `documents` table. On host restart, `server-init.ts` rebuilt the domain allowlist from filesystem and GCS skills only — not from the DB. This caused `api.linear.app` to be blocked with 403.
+**Lesson:** When adding a new persistence path for data that feeds into startup initialization (like skills stored in DB vs filesystem), always check that the startup loader covers ALL persistence backends. The DB-stored skill domain extraction was added to `server-init.ts` as step 4 after filesystem and GCS scanning.
+**Tags:** proxy, domains, startup, skills, database, persistence
+
 ### Never have two independent timers managing the same resource lifecycle
 **Date:** 2026-03-26
 **Context:** Session pod idle timeout (session-pod-manager) raced with watchPodExit safety timer (k8s.ts). watchPodExit fired at fixed time from pod creation; session-pod-manager fired from last activity. When watchPodExit won, it cleared the idle timer via removeSessionPod without killing the pod.
