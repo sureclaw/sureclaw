@@ -42,6 +42,10 @@ function createMockK8sClient(pods: PoolPod[] = [], terminalOrphans: PoolPod[] = 
     async listTerminalSandboxPods() {
       return [...orphanState, ...state.filter(p => p.phase === 'Failed' || p.phase === 'Succeeded')];
     },
+    async listStaleSandboxPods(maxAgeMs: number) {
+      const cutoff = Date.now() - maxAgeMs;
+      return state.filter(p => p.phase === 'Running' && p.createdAt.getTime() < cutoff);
+    },
     async createPod(template: PodTemplate) {
       const name = `ax-sandbox-${template.tier}-test-${Math.random().toString(36).slice(2, 6)}`;
       state.push(makePod({ name, tier: template.tier, phase: 'Pending' }));

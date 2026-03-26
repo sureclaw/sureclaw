@@ -4,6 +4,9 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-26 05:48 — Fix session pod idle timeout race with watchPodExit [server-k8s.md](server-k8s.md)
+- 2026-03-26 05:20 — Make skill tool always available (not gated by install intent) [server-k8s.md](server-k8s.md)
+- 2026-03-25 21:30 — Fix session pod premature death + credential scope fallback [server-k8s.md](server-k8s.md)
 - 2026-03-24 17:30 — MCP Fast Path Architecture (Phases 1-4) [server.md](server.md)
 - 2026-03-21 07:20 — Fix chat UI: custom OpenAI SSE transport, session ID flow, default user [server.md](server.md)
 - 2026-03-20 19:35 — Update credential_request IPC handler to return availability status [server.md](server.md)

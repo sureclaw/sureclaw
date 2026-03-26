@@ -83,6 +83,8 @@ export interface CompletionDeps {
   getSessionPod?: (sessionId: string) => { podName: string; pid: number; kill: () => void } | undefined;
   /** Register a newly spawned pod for session reuse (k8s HTTP mode). */
   registerSessionPod?: (sessionId: string, pod: { podName: string; pid: number; kill: () => void }) => void;
+  /** Remove a session pod mapping (called when pod exits unexpectedly). */
+  removeSessionPod?: (sessionId: string) => void;
 }
 
 export interface ExtractedFile {
@@ -812,23 +814,30 @@ export async function processCompletion(
       userWsPath = userWsPath ?? enterpriseUserWs;
     }
 
-    // Inject all stored credentials for this agent/user as MITM proxy placeholders.
-    // The agent discovers missing credentials at runtime via skill.request_credential
-    // IPC, which emits credential.required events for the frontend.
-    if (config.web_proxy) {
-      for (const scope of [credentialScope(agentName, currentUserId), credentialScope(agentName)]) {
-        try {
-          const storedNames = await providers.credentials.list(scope);
-          for (const envName of storedNames) {
-            if (credentialMap.toEnvMap()[envName]) continue;
-            const realValue = await providers.credentials.get(envName, scope);
-            if (realValue) {
+    // Pre-load all stored credentials for this agent/user into the sandbox env.
+    // When web_proxy is enabled: register as MITM proxy placeholders (the proxy
+    // replaces them with real values in intercepted HTTPS traffic).
+    // When web_proxy is disabled (subprocess mode): inject real values directly
+    // since there's no proxy to do placeholder replacement.
+    // Also check global (unscoped) credentials — catches credentials stored
+    // without session context or via process.env fallback in the plaintext provider.
+    for (const scope of [credentialScope(agentName, currentUserId), credentialScope(agentName), undefined]) {
+      try {
+        const storedNames = await providers.credentials.list(scope);
+        for (const envName of storedNames) {
+          // Skip if already registered (user scope takes precedence over agent, agent over global)
+          if (credentialMap.toEnvMap()[envName] || credentialEnv[envName]) continue;
+          const realValue = await providers.credentials.get(envName, scope);
+          if (realValue) {
+            if (config.web_proxy) {
               credentialMap.register(envName, realValue);
-              reqLogger.info('credential_injected', { envName, scope });
+            } else {
+              credentialEnv[envName] = realValue;
             }
+            reqLogger.info('credential_injected', { envName, scope: scope ?? 'global' });
           }
-        } catch { /* list may not be supported */ }
-      }
+        }
+      } catch { /* list may not be supported */ }
     }
 
     // Create a symlink mountRoot for the sandbox tool IPC handlers.
@@ -911,7 +920,12 @@ export async function processCompletion(
     const sandboxConfig = {
       workspace,
       ipcSocket: ipcSocketPath,
-      timeoutSec: config.sandbox.timeout_sec,
+      // Session pods live across turns — session-pod-manager owns idle lifecycle.
+      // watchPodExit's safety timer is a distant backstop (24h) so it never races
+      // with the session-pod-manager's idle timer or premature watch disconnects.
+      timeoutSec: deps.registerSessionPod
+        ? 86400
+        : config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
       cpus: config.sandbox.tiers?.default?.cpus ?? 1,
       command: spawnCommand,
@@ -977,6 +991,21 @@ export async function processCompletion(
             podName: proc.podName,
             pid: proc.pid,
             kill: proc.kill,
+          });
+
+          // Safety net: clean up session mapping if pod exits unexpectedly
+          // (k8s OOM kill, node crash, watchPodExit backstop, watch disconnect)
+          // so the next turn spawns a fresh pod. Also kill the pod to prevent
+          // orphans if watchPodExit resolved without successful k8s deletion.
+          const podName = proc.podName;
+          const podKill = proc.kill;
+          proc.exitCode.then(() => {
+            reqLogger.info('session_pod_exit_detected', { sessionId, podName });
+            podKill();
+            deps.removeSessionPod?.(sessionId);
+          }).catch(() => {
+            podKill();
+            deps.removeSessionPod?.(sessionId);
           });
         }
       }

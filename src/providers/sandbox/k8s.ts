@@ -118,7 +118,10 @@ function buildPodSpec(
         { name: 'workspace', emptyDir: { sizeLimit: '2Gi' } },
         { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
       ],
-      // No activeDeadlineSeconds — host manages lifecycle via idle timeout
+      // k8s-native safety net: kills the pod even if the host crashes and
+      // loses its in-memory idle timers. Uses timeoutSec (24h for session pods,
+      // ~10min for per-turn pods) plus a 5-minute buffer.
+      activeDeadlineSeconds: (config.timeoutSec ?? 600) + 300,
     },
   };
 }

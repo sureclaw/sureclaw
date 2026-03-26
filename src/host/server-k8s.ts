@@ -196,7 +196,7 @@ async function main(): Promise<void> {
       'sandbox_bash', 'sandbox_write_file', 'sandbox_edit_file',
     ]);
 
-    // Wrap handleIPC to intercept agent_response and touch session idle timer
+    // Wrap handleIPC to intercept agent_response and mark session dirty
     const wrappedHandleIPC = isK8s
       ? async (raw: string, ctx: import('./ipc-server.js').IPCContext): Promise<string> => {
           try {
@@ -218,9 +218,6 @@ async function main(): Promise<void> {
           } catch {
             // Not JSON or no action field — fall through to normal handler
           }
-
-          // Touch session pod manager on every IPC call (reset idle timer)
-          sessionPodManager.touch(sessionId);
 
           return handleIPC(raw, ctx);
         }
@@ -267,6 +264,12 @@ async function main(): Promise<void> {
         registerSessionPod: (sid: string, pod: { podName: string; pid: number; kill: () => void }) => {
           sessionPodManager.register(sid, { podName: pod.podName, pid: pod.pid, sessionId: sid, authToken: turnToken, kill: pod.kill });
         },
+        removeSessionPod: (sid: string) => {
+          if (sessionPodManager.has(sid)) {
+            logger.info('session_pod_exited', { sessionId: sid });
+            sessionPodManager.remove(sid);
+          }
+        },
       } : {}),
     };
 
@@ -294,6 +297,12 @@ async function main(): Promise<void> {
     } finally {
       if (agentTimer) clearTimeout(agentTimer);
       activeTokens.delete(turnToken);
+      // Start the idle countdown from turn end, not from last IPC activity.
+      // Prevents the timer from getting a head start during long LLM calls
+      // at the end of a turn (which make no IPC calls).
+      if (isK8s && sessionPodManager.has(sessionId)) {
+        sessionPodManager.touch(sessionId);
+      }
     }
   }
 

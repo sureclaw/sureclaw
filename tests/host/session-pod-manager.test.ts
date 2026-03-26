@@ -97,6 +97,26 @@ describe('SessionPodManager', () => {
     expect(manager.claimWork('nope')).toBeUndefined();
   });
 
+  it('remove clears timers without calling kill', async () => {
+    manager.register('s1', { podName: 'pod-1', pid: 1, sessionId: 's1', kill: killFn });
+    manager.remove('s1');
+    // Advance past all timeouts — kill should never fire
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(killFn).not.toHaveBeenCalled();
+    expect(manager.has('s1')).toBe(false);
+  });
+
+  it('external remove before idle timer prevents kill', async () => {
+    manager.register('s1', { podName: 'pod-1', pid: 1, sessionId: 's1', kill: killFn });
+    manager.markDirty('s1');
+    // Simulate external removal (e.g. watchPodExit safety timer)
+    await vi.advanceTimersByTimeAsync(15_000);
+    manager.remove('s1');
+    // Advance past the original idle timeout
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(killFn).not.toHaveBeenCalled();
+  });
+
   it('falls back to idleTimeoutMs when cleanIdleTimeoutMs not set', async () => {
     const mgr = createSessionPodManager({
       idleTimeoutMs: 30_000,

@@ -1,5 +1,29 @@
 # Host
 
+### Never have two independent timers managing the same resource lifecycle
+**Date:** 2026-03-26
+**Context:** Session pod idle timeout (session-pod-manager) raced with watchPodExit safety timer (k8s.ts). watchPodExit fired at fixed time from pod creation; session-pod-manager fired from last activity. When watchPodExit won, it cleared the idle timer via removeSessionPod without killing the pod.
+**Lesson:** When a resource has a primary lifecycle manager (session-pod-manager), any secondary timer (watchPodExit) must be set to a much larger value (24h backstop) — never competing with the primary. The secondary should only fire as an absolute safety net, not as a normal lifecycle event. Also ensure that any external removal path (removeSessionPod) also calls kill() to prevent orphans.
+**Tags:** k8s, session-pod, idle-timeout, race-condition, timer
+
+### Don't gate tool availability on intent detection — gate prompt instructions instead
+**Date:** 2026-03-26
+**Context:** The `skill` tool (install/update/delete) was filtered from the agent's tools when `skillInstallEnabled=false`, which was the default. Intent detection only matched install-like words, so "delete the linear skill" left the agent with no skill tool.
+**Lesson:** Tool availability should be unconditional. Use intent detection to control prompt instructions (what the agent knows HOW to do), not tool definitions (what the agent CAN do). If a tool supports multiple operations (install+update+delete), don't gate all of them on intent for just one operation.
+**Tags:** tool-catalog, filterTools, skill, intent-detection, prompt
+
+### watchPodExit safety timeout must match session pod lifetime, not request timeout
+**Date:** 2026-03-25
+**Context:** Session pods were dying after 150s because `watchPodExit` used `config.timeoutSec` (120s per-request timeout) for its safety timer. The `.then()` on `exitCode` deletes the pod. Session-pod-manager still had the mapping → next turn queued work on a dead pod → hung forever.
+**Lesson:** When spawning pods that will be registered as session pods (`deps.registerSessionPod` is defined), use `config.sandbox.idle_timeout_sec` (not `timeout_sec`) as the sandbox `timeoutSec`. Also always listen on `proc.exitCode` when registering session pods to clean up the session-pod-manager mapping on unexpected death.
+**Tags:** k8s, session-pod, timeout, watchPodExit, hang
+
+### resolveCredential must include global/unscoped fallback
+**Date:** 2026-03-25
+**Context:** Credentials stored via `/v1/credentials/provide` when session context was missing (host restarted after completion but before user entered credential) ended up in `global` scope. `resolveCredential()` only checked user and agent scopes → returned null → agent asked user for credentials again.
+**Lesson:** `resolveCredential()` must fall back to unscoped `provider.get(envName)` (which maps to `global` scope in the database provider) after trying user and agent scopes. The in-memory `sessionContexts` map is volatile — always assume credentials might be stored at any scope level.
+**Tags:** credentials, scope, global-fallback, session-context
+
 ### K8s work dispatch requires explicit queueWork wiring
 **Date:** 2026-03-25
 **Context:** The k8s simplification commit implemented session pod manager, GET /internal/work endpoint, and agent work loop in isolation — but never called `sessionPodManager.queueWork()` from the completion pipeline. Sandbox pods polled forever getting 404s.

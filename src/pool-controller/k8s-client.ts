@@ -62,6 +62,8 @@ export interface PoolK8sClient {
   /** List all ax-sandbox pods in Failed/Succeeded phase, regardless of tier.
    *  Used by the controller to GC cold-started pods that lack tier labels. */
   listTerminalSandboxPods(): Promise<PoolPod[]>;
+  /** List Running ax-sandbox pods older than maxAgeMs (orphan detection). */
+  listStaleSandboxPods(maxAgeMs: number): Promise<PoolPod[]>;
   createPod(template: PodTemplate): Promise<string>;
   deletePod(name: string): Promise<void>;
   patchPodLabel(name: string, label: string, value: string): Promise<void>;
@@ -115,6 +117,34 @@ export async function createPoolK8sClient(namespace?: string): Promise<PoolK8sCl
         .filter((pod) => {
           const phase = pod.status?.phase;
           return phase === 'Failed' || phase === 'Succeeded';
+        })
+        .map((pod) => ({
+          name: pod.metadata?.name ?? '',
+          tier: pod.metadata?.labels?.['ax.io/tier'] ?? '',
+          status: (pod.metadata?.labels?.['ax.io/status'] as PodPoolStatus) ?? 'warm',
+          createdAt: pod.metadata?.creationTimestamp
+            ? new Date(pod.metadata.creationTimestamp)
+            : new Date(),
+          phase: pod.status?.phase ?? 'Unknown',
+        }));
+    },
+
+    async listStaleSandboxPods(maxAgeMs: number): Promise<PoolPod[]> {
+      const labelSelector = 'app.kubernetes.io/name=ax-sandbox';
+      const response = await api.listNamespacedPod({
+        namespace: ns,
+        labelSelector,
+      });
+
+      const cutoff = Date.now() - maxAgeMs;
+      return (response.items ?? [])
+        .filter((pod) => {
+          const phase = pod.status?.phase;
+          if (phase !== 'Running') return false;
+          const created = pod.metadata?.creationTimestamp
+            ? new Date(pod.metadata.creationTimestamp).getTime()
+            : Date.now();
+          return created < cutoff;
         })
         .map((pod) => ({
           name: pod.metadata?.name ?? '',
