@@ -6,10 +6,6 @@ appVersion: "0.1.0"
 type: application
 
 dependencies:
-  - name: nats
-    version: "1.2.x"
-    repository: "https://nats-io.github.io/k8s/helm/charts/"
-    condition: nats.enabled
   - name: postgresql
     version: "16.x.x"
     repository: "https://charts.bitnami.com/bitnami"

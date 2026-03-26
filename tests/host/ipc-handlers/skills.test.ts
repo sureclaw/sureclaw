@@ -3,12 +3,9 @@
  *
  * Verifies the host-controlled skill installation flow:
  * download from ClawHub, parse SKILL.md, generate manifest,
- * write files to disk, and add domains to the proxy allowlist.
+ * store in DB, and add domains to the proxy allowlist.
  */
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { initLogger } from '../../../src/logger.js';
 
@@ -21,18 +18,6 @@ vi.mock('../../../src/clawhub/registry-client.js', () => ({
   search: vi.fn(),
   fetchSkillPackage: vi.fn(),
 }));
-
-// Mock paths to use temp directory
-let testAxHome: string;
-
-vi.mock('../../../src/paths.js', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../../../src/paths.js')>();
-  return {
-    ...original,
-    userSkillsDir: (agentId: string, userId: string) =>
-      join(testAxHome, 'agents', agentId, 'users', userId, 'skills'),
-  };
-});
 
 import * as clawhub from '../../../src/clawhub/registry-client.js';
 import { createSkillsHandlers } from '../../../src/host/ipc-handlers/skills.js';
@@ -51,7 +36,18 @@ function makeCtx(overrides: Partial<IPCContext> = {}): IPCContext {
   };
 }
 
-function makeProviders(): ProviderRegistry {
+function makeMockDocuments() {
+  const store = new Map<string, string>();
+  return {
+    get: vi.fn(async (_col: string, key: string) => store.get(key) ?? null),
+    put: vi.fn(async (_col: string, key: string, val: string) => { store.set(key, val); }),
+    delete: vi.fn(async (_col: string, key: string) => store.delete(key)),
+    list: vi.fn(async () => [...store.keys()]),
+    _store: store,
+  };
+}
+
+function makeProviders(docs = makeMockDocuments()): ProviderRegistry {
   return {
     audit: {
       log: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +58,9 @@ function makeProviders(): ProviderRegistry {
       set: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockResolvedValue(undefined),
+    },
+    storage: {
+      documents: docs,
     },
   } as unknown as ProviderRegistry;
 }
@@ -101,21 +100,16 @@ function makeSkillPackage(slug: string, files?: Array<{ path: string; content: s
 
 describe('skill_install handler', () => {
   beforeEach(() => {
-    testAxHome = join(tmpdir(), `ax-test-skill-install-${randomUUID()}`);
-    mkdirSync(testAxHome, { recursive: true });
     vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    rmSync(testAxHome, { recursive: true, force: true });
-  });
-
-  test('installs skill by slug: downloads, parses, writes files, generates manifest, adds domains', async () => {
+  test('installs skill by slug: downloads, parses, stores in DB, generates manifest, adds domains', async () => {
     const slug = 'test-skill';
     const pkg = makeSkillPackage(slug);
     vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue(pkg);
 
-    const providers = makeProviders();
+    const docs = makeMockDocuments();
+    const providers = makeProviders(docs);
     const domainList = new ProxyDomainList();
     const handlers = createSkillsHandlers(providers, { domainList });
     const ctx = makeCtx();
@@ -130,11 +124,12 @@ describe('skill_install handler', () => {
     expect(result.domains).toContain('webhook.example.com');
     expect(result.installSteps).toBe(1);
 
-    // Verify files were written
-    const skillDir = join(testAxHome, 'agents', 'main', 'users', 'testuser', 'skills', slug);
-    expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
-    expect(existsSync(join(skillDir, 'scripts', 'run.sh'))).toBe(true);
-    expect(readFileSync(join(skillDir, 'scripts', 'run.sh'), 'utf-8')).toBe('#!/bin/bash\necho hello');
+    // Verify skill was stored in DB
+    expect(docs.put).toHaveBeenCalledWith(
+      'skills',
+      `main/${slug}`,
+      expect.stringContaining('"id":"test-skill"'),
+    );
 
     // Verify domains were added to proxy allowlist
     expect(domainList.isAllowed('api.example.com')).toBe(true);
@@ -251,20 +246,22 @@ describe('skill_install handler', () => {
     expect(result.domains).toContain('api.example.com');
   });
 
-  test('uses fallback userId when ctx.userId is not set', async () => {
-    const slug = 'fallback-user';
+  test('returns not installed when no storage provider', async () => {
+    const slug = 'no-storage';
     vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue(makeSkillPackage(slug));
 
-    const providers = makeProviders();
+    // No storage.documents
+    const providers = {
+      audit: { log: vi.fn().mockResolvedValue(undefined), query: vi.fn().mockResolvedValue([]) },
+      credentials: { get: vi.fn().mockResolvedValue(null), set: vi.fn(), list: vi.fn(), delete: vi.fn() },
+    } as unknown as ProviderRegistry;
     const handlers = createSkillsHandlers(providers);
-    const ctx = makeCtx({ userId: undefined });
+    const ctx = makeCtx();
 
     const result = await handlers.skill_install({ slug }, ctx);
 
-    expect(result.installed).toBe(true);
-    // Files should be written under 'default' user
-    const skillDir = join(testAxHome, 'agents', 'main', 'users', 'default', 'skills', slug);
-    expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
+    expect(result.installed).toBe(false);
+    expect(result.reason).toBe('No storage provider available');
   });
 
   test('skill with no domains does not call addSkillDomains', async () => {
@@ -363,29 +360,30 @@ Do stuff.
     expect(result.slug).toBe(resolvedSlug);
   });
 
-  test('blocks path traversal in package file paths', async () => {
-    const slug = 'evil-skill';
+  test('stores all files in DB record', async () => {
+    const slug = 'multi-file';
+    const files = [
+      { path: 'SKILL.md', content: SKILL_MD_CONTENT },
+      { path: 'scripts/run.sh', content: '#!/bin/bash\necho hello' },
+      { path: '../../../etc/evil.txt', content: 'pwned' },
+    ];
     vi.mocked(clawhub.fetchSkillPackage).mockResolvedValue({
       slug,
-      displayName: 'Evil Skill',
-      files: [
-        { path: 'SKILL.md', content: SKILL_MD_CONTENT },
-        { path: '../../../etc/evil.txt', content: 'pwned' },
-      ],
+      displayName: 'Multi File',
+      files,
       requiresEnv: [],
     });
 
-    const providers = makeProviders();
+    const docs = makeMockDocuments();
+    const providers = makeProviders(docs);
     const handlers = createSkillsHandlers(providers);
     const ctx = makeCtx();
 
     const result = await handlers.skill_install({ slug }, ctx);
 
     expect(result.installed).toBe(true);
-    // SKILL.md should be written but the traversal file should be skipped
-    const skillDir = join(testAxHome, 'agents', 'main', 'users', 'testuser', 'skills', slug);
-    expect(existsSync(join(skillDir, 'SKILL.md'))).toBe(true);
-    // The evil file should NOT exist outside the skill directory
-    expect(existsSync(join(testAxHome, 'etc', 'evil.txt'))).toBe(false);
+    // All files (including traversal paths) are stored in DB — DB is not path-sensitive
+    const stored = JSON.parse(docs._store.get(`main/${slug}`)!);
+    expect(stored.files).toHaveLength(3);
   });
 });

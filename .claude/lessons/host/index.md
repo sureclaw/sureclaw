@@ -4,6 +4,7 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Never have two independent timers managing the same resource lifecycle [entries.md](entries.md)
 - Admin state is filesystem-based and doesn't sync across k8s pods [entries.md](entries.md)
 - Admin TCP port must handle EADDRINUSE gracefully [entries.md](entries.md)
 - Tailwind v4 uses @tailwindcss/postcss, not direct tailwindcss plugin [entries.md](entries.md)

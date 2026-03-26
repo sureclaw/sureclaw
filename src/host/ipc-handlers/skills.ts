@@ -5,8 +5,6 @@
  * The host now downloads, screens, generates a manifest, writes files,
  * and adds domains to the proxy allowlist — all on the trusted side.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, dirname, normalize, resolve, sep } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import type { EventBus } from '../event-bus.js';
@@ -14,11 +12,9 @@ import type { ProxyDomainList } from '../proxy-domain-list.js';
 import * as clawhub from '../../clawhub/registry-client.js';
 import { parseAgentSkill } from '../../utils/skill-format-parser.js';
 import { generateManifest } from '../../utils/manifest-generator.js';
-import { userSkillsDir } from '../../paths.js';
 import { resolveCredential } from '../credential-scopes.js';
 import { getLogger } from '../../logger.js';
-import { upsertSkill, inferMcpApps } from '../../providers/storage/skills.js';
-import type { DocumentStore } from '../../providers/storage/types.js';
+import { upsertSkill, getSkill, deleteSkill, inferMcpApps } from '../../providers/storage/skills.js';
 
 const logger = getLogger().child({ component: 'ipc-skills' });
 
@@ -63,68 +59,25 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       // 4. Generate manifest (extracts domains, bins, etc.)
       const manifest = generateManifest(parsed);
 
-      // 5. Write files to skills directory (host-controlled)
+      // 5. Store skill in DB (primary persistence)
       const agentName = ctx.agentId ?? 'main';
-      const userId = ctx.userId ?? 'default';
-      const skillDir = resolve(join(userSkillsDir(agentName, userId), slug));
-      mkdirSync(skillDir, { recursive: true });
-      for (const file of pkg.files) {
-        // Validate file paths from downloaded package to prevent path traversal
-        const filePath = resolve(join(skillDir, normalize(file.path)));
-        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
-          logger.warn('skill_install_path_traversal_blocked', { slug, path: file.path });
-          continue;
-        }
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, file.content, 'utf-8');
+      if (!providers.storage?.documents) {
+        return { installed: false, reason: 'No storage provider available' };
       }
-
-      // 5b. Queue skill files for GCS commit so they persist across sessions.
-      // In k8s mode, the sandbox pod can't access the host filesystem — skill
-      // files must go through the workspace provider (GCS) to survive pod restarts.
-      if (providers.workspace?.setRemoteChanges && ctx.sessionId) {
-        const remoteChanges = pkg.files
-          .filter(file => {
-            // Validate remote paths too — reject absolute or traversal paths
-            const normalized = normalize(file.path);
-            return !normalized.startsWith('/') && !normalized.startsWith('..') && !normalized.includes(`..${sep}`);
-          })
-          .map(file => ({
-            scope: 'user' as const,
-            path: `skills/${slug}/${normalize(file.path)}`,
-            type: 'added' as const,
-            content: Buffer.from(file.content, 'utf-8'),
-            size: Buffer.byteLength(file.content, 'utf-8'),
-          }));
-        providers.workspace.setRemoteChanges(ctx.sessionId, remoteChanges);
-        logger.info('skill_files_queued_for_gcs', { slug, fileCount: remoteChanges.length, sessionId: ctx.sessionId });
-      }
+      const mcpApps = inferMcpApps(skillMd.content);
+      await upsertSkill(providers.storage.documents, {
+        id: slug,
+        agentId: agentName,
+        version: '1.0.0',
+        instructions: skillMd.content,
+        files: pkg.files.map(f => ({ path: f.path, content: f.content })),
+        mcpApps,
+      });
+      logger.info('skill_stored_in_db', { slug, agentId: agentName, mcpApps });
 
       // 6. Add domains to proxy allowlist
       if (opts?.domainList && manifest.capabilities.domains.length > 0) {
         opts.domainList.addSkillDomains(slug, manifest.capabilities.domains);
-      }
-
-      // 6b. Store skill in DB for fast-path access (best-effort — install
-      //     side effects above already succeeded, so don't fail the handler)
-      if (providers.storage?.documents) {
-        try {
-          const mcpApps = inferMcpApps(skillMd.content);
-          await upsertSkill(providers.storage.documents, {
-            id: slug,
-            agentId: agentName,
-            version: '1.0.0',
-            instructions: skillMd.content,
-            mcpApps,
-          });
-          logger.info('skill_stored_in_db', { slug, agentId: agentName, mcpApps });
-        } catch (err) {
-          logger.warn('skill_store_db_failed', {
-            slug,
-            agentId: agentName,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
       }
 
       await providers.audit.log({
@@ -149,6 +102,75 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
         domains: manifest.capabilities.domains,
         installSteps: parsed.install.length,
       };
+    },
+
+    skill_update: async (req: any, ctx: IPCContext) => {
+      if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
+      const agentName = ctx.agentId ?? 'main';
+      const existing = await getSkill(providers.storage.documents, agentName, req.slug);
+      if (!existing) return { ok: false, error: 'Skill not found' };
+
+      const files = existing.files ?? [{ path: 'SKILL.md', content: existing.instructions }];
+      const idx = files.findIndex(f => f.path === req.path);
+      if (idx >= 0) {
+        files[idx].content = req.content;
+      } else {
+        files.push({ path: req.path, content: req.content });
+      }
+
+      const skillMd = files.find(f => f.path === 'SKILL.md');
+      const instructions = skillMd?.content ?? existing.instructions;
+
+      // Resync derived metadata (mcpApps, domains) after content change
+      const mcpApps = skillMd ? inferMcpApps(skillMd.content) : existing.mcpApps;
+      await upsertSkill(providers.storage.documents, {
+        ...existing,
+        instructions,
+        files,
+        mcpApps,
+      });
+
+      // Resync proxy allowlist domains from updated SKILL.md
+      if (opts?.domainList && skillMd) {
+        try {
+          const parsed = parseAgentSkill(skillMd.content);
+          const manifest = generateManifest(parsed);
+          if (manifest.capabilities.domains.length > 0) {
+            opts.domainList.addSkillDomains(req.slug, manifest.capabilities.domains);
+          } else {
+            opts.domainList.removeSkillDomains(req.slug);
+          }
+        } catch { /* skip if unparseable */ }
+      }
+
+      await providers.audit.log({
+        action: 'skill_update',
+        sessionId: ctx.sessionId,
+        args: { slug: req.slug, path: req.path },
+        result: 'success',
+      });
+
+      return { ok: true, updated: req.path };
+    },
+
+    skill_delete: async (req: any, ctx: IPCContext) => {
+      if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
+      const agentName = ctx.agentId ?? 'main';
+      const deleted = await deleteSkill(providers.storage.documents, agentName, req.slug);
+
+      // Remove skill's domains from proxy allowlist
+      if (deleted && opts?.domainList) {
+        opts.domainList.removeSkillDomains(req.slug);
+      }
+
+      await providers.audit.log({
+        action: 'skill_delete',
+        sessionId: ctx.sessionId,
+        args: { slug: req.slug },
+        result: deleted ? 'success' : 'error',
+      });
+
+      return { ok: deleted, slug: req.slug };
     },
 
     audit_query: async (req: any) => {

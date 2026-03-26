@@ -69,4 +69,21 @@ describe('resolveCredential', () => {
     const val = await resolveCredential(provider, 'KEY', 'main');
     expect(val).toBe('agent-val');
   });
+
+  test('falls back to global scope when scoped credentials are missing', async () => {
+    const provider = mockProvider({
+      'global': { KEY: 'global-val' },
+    });
+    const val = await resolveCredential(provider, 'KEY', 'main', 'alice');
+    expect(val).toBe('global-val');
+  });
+
+  test('scoped credential takes precedence over global', async () => {
+    const provider = mockProvider({
+      'global': { KEY: 'global-val' },
+      'agent:main': { KEY: 'agent-val' },
+    });
+    const val = await resolveCredential(provider, 'KEY', 'main', 'alice');
+    expect(val).toBe('agent-val');
+  });
 });

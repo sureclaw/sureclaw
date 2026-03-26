@@ -7,6 +7,7 @@
 //   3. If ready < minReady → create (minReady - ready) new pods
 //   4. If ready > maxReady → delete (ready - maxReady) newest idle pods
 //   5. Clean up Failed/Succeeded pods (garbage collection)
+//   6. Clean up Running pods older than staleMaxAgeMs (orphan detection)
 
 import { getLogger } from '../logger.js';
 import type { PoolK8sClient, TierConfig, PodTemplate } from './k8s-client.js';
@@ -14,11 +15,18 @@ import type { PoolMetrics } from './metrics.js';
 
 const logger = getLogger().child({ component: 'pool-controller' });
 
+/** Max age for a Running sandbox pod before the controller considers it stale.
+ *  Default 2 hours — well beyond the 30-minute idle timeout, but catches pods
+ *  orphaned by host crashes where in-memory timers were lost. */
+const DEFAULT_STALE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+
 export interface PoolControllerConfig {
   tiers: TierConfig[];
   reconcileIntervalMs: number;
   k8sClient: PoolK8sClient;
   metrics: PoolMetrics;
+  /** Max age (ms) for Running sandbox pods before orphan GC. Default 2h. */
+  staleMaxAgeMs?: number;
 }
 
 export interface PoolController {
@@ -34,6 +42,7 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
   let reconciling = false;
 
   const { tiers, reconcileIntervalMs, k8sClient, metrics } = config;
+  const staleMaxAgeMs = config.staleMaxAgeMs ?? DEFAULT_STALE_MAX_AGE_MS;
 
   // Initialize metrics targets
   for (const tier of tiers) {
@@ -57,6 +66,8 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
       }
       // GC cold-started sandbox pods that lack tier labels (not covered by per-tier GC)
       await gcTerminalSandboxPods();
+      // GC Running pods older than staleMaxAgeMs — catches orphans from host crashes
+      await gcStaleSandboxPods();
     } catch (err) {
       logger.error('reconcile_error', { error: (err as Error).message });
     } finally {
@@ -169,6 +180,30 @@ export function createPoolController(config: PoolControllerConfig): PoolControll
       }
     } catch (err) {
       logger.warn('gc_terminal_list_failed', { error: (err as Error).message });
+    }
+  }
+
+  /** GC Running sandbox pods older than staleMaxAgeMs — orphan safety net.
+   *  Catches pods whose host-side idle timers were lost (host crash/restart). */
+  async function gcStaleSandboxPods(): Promise<void> {
+    try {
+      const stale = await k8sClient.listStaleSandboxPods(staleMaxAgeMs);
+      for (const pod of stale) {
+        try {
+          await k8sClient.deletePod(pod.name);
+          logger.info('gc_stale_sandbox_pod', {
+            name: pod.name,
+            ageMs: Date.now() - pod.createdAt.getTime(),
+          });
+        } catch (err) {
+          logger.warn('gc_stale_delete_failed', {
+            name: pod.name,
+            error: (err as Error).message,
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('gc_stale_list_failed', { error: (err as Error).message });
     }
   }
 

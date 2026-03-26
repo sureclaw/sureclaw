@@ -191,6 +191,7 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
       // No governance gate — deny if an allowlist was provided but domain isn't in it
       if (allowedDomains) {
         onDenied?.(domain);
+        logger.warn('domain_denied', { domain, method, url });
         return `Domain ${domain} is not in the approved domain list. Install a skill that declares this domain, or ask an admin to approve it.`;
       }
       return null; // No allowlist configured — auto-approve (backward compat)

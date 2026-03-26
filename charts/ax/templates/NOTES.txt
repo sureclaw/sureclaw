@@ -5,8 +5,7 @@ Release:   {{ .Release.Name }}
 
 Components:
   - Host:            {{ .Values.host.replicas }} replica(s)
-  - Pool Controller: {{ .Values.poolController.replicas }} replica(s)
-  - NATS:            {{ if .Values.nats.enabled }}enabled (subchart){{ else }}external{{ end }}
+  - Pool Controller: {{ if .Values.poolController.enabled }}{{ .Values.poolController.replicas }} replica(s){{ else }}disabled{{ end }}
   - PostgreSQL:      {{ if .Values.postgresql.internal.enabled }}in-cluster{{ else }}external{{ end }}
 
 {{- if .Values.host.ingress.enabled }}

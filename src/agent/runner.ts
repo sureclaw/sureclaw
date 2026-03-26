@@ -7,8 +7,9 @@ import type {
 import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
-import type { IdentityFiles, SkillSummary } from './prompt/types.js';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import type { IdentityFiles } from './prompt/types.js';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { join, dirname, resolve, sep } from 'node:path';
 
 const logger = getLogger().child({ component: 'runner' });
 
@@ -72,6 +73,9 @@ export interface AgentConfig {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
+  /** Pre-loaded skills from host (via stdin payload from DB).
+   *  Written to workspace skills/ directory before runner starts. */
+  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -272,14 +276,6 @@ export interface StdinPayload {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (loaded from DocumentStore). */
   identity?: Partial<IdentityFiles>;
-  /** GCS cache key for workspace restore. */
-  workspaceCacheKey?: string;
-  /** GCS prefix for agent scope provisioning. */
-  agentGcsPrefix?: string;
-  /** GCS prefix for user scope provisioning. */
-  userGcsPrefix?: string;
-  /** GCS prefix for session/scratch scope provisioning. */
-  sessionGcsPrefix?: string;
   /** Whether agent scope is read-only (non-admin users). */
   agentReadOnly?: boolean;
   /** Web proxy URL for outbound HTTP/HTTPS (warm pool pods get this from payload, not pod env). */
@@ -288,6 +284,11 @@ export interface StdinPayload {
   credentialEnv?: Record<string, string>;
   /** MITM CA cert PEM — written to disk so sandbox processes trust the proxy. */
   caCert?: string;
+  /** Pre-loaded skills from DB (loaded from DocumentStore on host).
+   *  Each skill includes its full file contents so the runner can write
+   *  them to the workspace skills/ directory for installSkillDeps() and
+   *  buildSystemPrompt() to read. */
+  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
 }
 
 /**
@@ -334,133 +335,19 @@ export function parseStdinPayload(data: string): StdinPayload {
         // Identity from host (loaded from DocumentStore)
         identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
         // Workspace provisioning fields (sandbox-side providers provision in-pod)
-        workspaceCacheKey: typeof parsed.workspaceCacheKey === 'string' ? parsed.workspaceCacheKey : undefined,
-        agentGcsPrefix: typeof parsed.agentGcsPrefix === 'string' ? parsed.agentGcsPrefix : undefined,
-        userGcsPrefix: typeof parsed.userGcsPrefix === 'string' ? parsed.userGcsPrefix : undefined,
-        sessionGcsPrefix: typeof parsed.sessionGcsPrefix === 'string' ? parsed.sessionGcsPrefix : undefined,
         agentReadOnly: parsed.agentReadOnly === true,
         webProxyUrl: typeof parsed.webProxyUrl === 'string' ? parsed.webProxyUrl : undefined,
         credentialEnv: parsed.credentialEnv && typeof parsed.credentialEnv === 'object' && !Array.isArray(parsed.credentialEnv)
           ? parsed.credentialEnv as Record<string, string>
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
+        skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
       };
     }
   } catch {
     // Not JSON — fall through to plain text
   }
   return defaults;
-}
-
-/**
- * Provision workspace scopes inside the pod (k8s sandbox-side lifecycle).
- * Called after receiving work payload, before running the agent.
- * Writes hash snapshots to /tmp/.ax-hashes.json for the release step.
- */
-async function provisionWorkspaceFromPayload(payload: StdinPayload): Promise<void> {
-  const { provisionScope } = await import('./workspace.js');
-  const { CANONICAL } = await import('../providers/sandbox/canonical-paths.js');
-  const snapshot: Record<string, [string, string][]> = {};
-
-  // HTTP provisioning options — in k8s the pod fetches files from the host
-  // (the host has GCS credentials, the pod doesn't).
-  const hostUrl = process.env.AX_HOST_URL;
-  const token = payload.ipcToken ?? process.env.AX_IPC_TOKEN;
-
-  // In k8s mode, always provision all scopes via HTTP when a host URL is available.
-  // This doesn't require GCS prefix fields in the payload — the host resolves
-  // the GCS paths from its own config. The agentGcsPrefix fields in the payload
-  // are only needed for the legacy direct-GCS path (non-k8s).
-  if (hostUrl && payload.workspaceProvider === 'gcs') {
-    const agentId = payload.agentId ?? 'assistant';
-    const userId = payload.userId ?? '';
-    const sessionId = payload.sessionId ?? '';
-    const httpOpts = (scope: string, id: string) => ({ hostUrl, token, scope, id });
-
-    try {
-      const result = await provisionScope(CANONICAL.agent, '', payload.agentReadOnly ?? true, httpOpts('agent', agentId));
-      snapshot.agent = [...result.hashes.entries()];
-      logger.info('provision_agent_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_agent_scope_failed', { error: (err as Error).message });
-    }
-
-    try {
-      const result = await provisionScope(CANONICAL.user, '', false, httpOpts('user', userId));
-      snapshot.user = [...result.hashes.entries()];
-      logger.info('provision_user_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_user_scope_failed', { error: (err as Error).message });
-    }
-
-    try {
-      const result = await provisionScope(CANONICAL.scratch, '', false, httpOpts('session', sessionId));
-      snapshot.session = [...result.hashes.entries()];
-      logger.info('provision_session_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_session_scope_failed', { error: (err as Error).message });
-    }
-
-    // Write hash snapshot for workspace release to diff against
-    if (Object.keys(snapshot).length > 0) {
-      try {
-        writeFileSync('/tmp/.ax-hashes.json', JSON.stringify(snapshot), 'utf-8');
-        logger.debug('hash_snapshot_written', { scopes: Object.keys(snapshot) });
-      } catch (err) {
-        logger.warn('hash_snapshot_write_failed', { error: (err as Error).message });
-      }
-    }
-    return;
-  }
-
-  // Agent scope → /workspace/agent
-  if (payload.agentGcsPrefix) {
-    try {
-      const result = await provisionScope(CANONICAL.agent, payload.agentGcsPrefix, payload.agentReadOnly ?? true, {
-        hostUrl, token, scope: 'agent', id: payload.agentId ?? 'assistant',
-      });
-      snapshot.agent = [...result.hashes.entries()];
-      logger.info('provision_agent_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_agent_scope_failed', { error: (err as Error).message });
-    }
-  }
-
-  // User scope → /workspace/user
-  if (payload.userGcsPrefix) {
-    try {
-      const result = await provisionScope(CANONICAL.user, payload.userGcsPrefix, false, {
-        hostUrl, token, scope: 'user', id: payload.userId ?? '',
-      });
-      snapshot.user = [...result.hashes.entries()];
-      logger.info('provision_user_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_user_scope_failed', { error: (err as Error).message });
-    }
-  }
-
-  // Session scope → /workspace/scratch (GCS overlay on top of git workspace)
-  if (payload.sessionGcsPrefix) {
-    try {
-      const result = await provisionScope(CANONICAL.scratch, payload.sessionGcsPrefix, false, {
-        hostUrl, token, scope: 'session', id: payload.sessionId ?? '',
-      });
-      snapshot.session = [...result.hashes.entries()];
-      logger.info('provision_session_scope', { source: result.source, fileCount: result.fileCount });
-    } catch (err) {
-      logger.warn('provision_session_scope_failed', { error: (err as Error).message });
-    }
-  }
-
-  // Write hash snapshot for workspace release to diff against
-  if (Object.keys(snapshot).length > 0) {
-    try {
-      writeFileSync('/tmp/.ax-hashes.json', JSON.stringify(snapshot), 'utf-8');
-      logger.debug('hash_snapshot_written', { scopes: Object.keys(snapshot) });
-    } catch (err) {
-      logger.warn('hash_snapshot_write_failed', { error: (err as Error).message });
-    }
-  }
 }
 
 /**
@@ -520,10 +407,8 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       token: payload.ipcToken,
     });
   }
-  // IPC token — warm pool pods don't have AX_IPC_TOKEN in their pod spec,
-  // so the host sends it in the payload. Set it in process.env so workspace-release.ts
-  // can use it for direct HTTP release (bypassing the legacy staging path).
-  if (payload.ipcToken && !process.env.AX_IPC_TOKEN) {
+  // IPC token — updated each turn. The host sends a fresh per-turn token in the payload.
+  if (payload.ipcToken) {
     process.env.AX_IPC_TOKEN = payload.ipcToken;
   }
 
@@ -539,14 +424,15 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   } else {
     logger.debug('web_proxy_url_absent', { envSet: !!process.env.AX_WEB_PROXY_URL, payloadSet: !!payload.webProxyUrl });
   }
-  // Credential placeholder env vars — warm pool pods don't have these in their pod spec,
-  // so the host sends them in the payload. The MITM proxy replaces placeholders with real
-  // values in intercepted HTTPS traffic.
+  // Credential placeholder env vars — always overwrite, even if already set.
+  // Placeholders rotate per-turn (each turn creates a new CredentialPlaceholderMap
+  // on the host with fresh ax-cred:<random> tokens). On session pods that persist
+  // across turns, the old placeholders become stale — the shared credential
+  // registry on the host only has the new turn's map, so old placeholders
+  // won't be replaced by the MITM proxy.
   if (payload.credentialEnv) {
     for (const [key, value] of Object.entries(payload.credentialEnv)) {
-      if (!process.env[key]) {
-        process.env[key] = value;
-      }
+      process.env[key] = value;
     }
     logger.info('credential_env_set', { count: Object.keys(payload.credentialEnv).length });
   }
@@ -586,7 +472,34 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
   config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
   config.workspaceProvider = payload.workspaceProvider;
-  // Identity from host (loaded from DocumentStore; skills are now filesystem-based)
+  // Write skills from DB payload to workspace skills/ directory so
+  // installSkillDeps() and buildSystemPrompt()'s loadSkillsMultiDir() find them.
+  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.userWorkspace) {
+    const skillsBase = resolve(config.userWorkspace, 'skills');
+    // Prune stale skills from previous turns so deleted skills don't linger on disk
+    if (existsSync(skillsBase)) {
+      rmSync(skillsBase, { recursive: true, force: true });
+    }
+    for (const skill of payload.skills) {
+      // SC-SEC-004: Constrain skill writes to the skills root
+      const skillDir = resolve(skillsBase, skill.slug.replace(/[/\\]/g, '_').replace(/\.\./g, '_'));
+      if (!skillDir.startsWith(skillsBase + sep)) {
+        logger.warn('skill_path_traversal_blocked', { slug: skill.slug });
+        continue;
+      }
+      for (const file of skill.files) {
+        const filePath = resolve(skillDir, file.path);
+        // Containment check: ensure file stays within the skill directory
+        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
+          logger.warn('skill_file_path_traversal_blocked', { slug: skill.slug, path: file.path });
+          continue;
+        }
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, file.content, 'utf-8');
+      }
+    }
+    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
+  }
   if (payload.identity) {
     config.identity = {
       agents: payload.identity.agents ?? '',
@@ -600,41 +513,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   }
 }
 
-/**
- * NATS work subscription: subscribe to sandbox.work with a queue group so NATS
- * delivers work to exactly one warm pod per tier. Replaces the old per-pod
- * subject (agent.work.{podName}) — no k8s API label-patch claiming needed.
- */
-export async function waitForNATSWork(): Promise<string> {
-  const podName = process.env.POD_NAME ?? 'unknown';
-  const tier = process.env.SANDBOX_TIER ?? 'light';
-
-  const natsModule = await import('nats');
-  const { natsConnectOptions } = await import('../utils/nats.js');
-  const nc = await natsModule.connect(natsConnectOptions('runner', podName));
-
-  // Queue group subscription: NATS delivers to exactly one subscriber per tier
-  const sub = nc.subscribe('sandbox.work', { max: 1, queue: tier });
-  logger.info('nats_work_waiting', { subject: 'sandbox.work', queue: tier, podName });
-  process.stderr.write(`[diag] waiting for work on sandbox.work (queue: ${tier})\n`);
-
-  for await (const msg of sub) {
-    const data = new TextDecoder().decode(msg.data);
-    logger.info('nats_work_received', { queue: tier, bytes: data.length });
-    process.stderr.write(`[diag] work received: ${data.length} bytes\n`);
-
-    // Reply with podName so host can track which pod is processing
-    if (msg.reply) {
-      msg.respond(new TextEncoder().encode(JSON.stringify({ podName })));
-    }
-
-    await nc.drain();
-    return data;
-  }
-
-  await nc.drain();
-  throw new Error('NATS work subscription ended without receiving a message');
-}
 
 // Run if this is the main module
 const isMain = process.argv[1]?.endsWith('runner.js') ||
@@ -650,7 +528,7 @@ if (isMain) {
   const isHTTPMode = !!process.env.AX_HOST_URL;
 
   if (isHTTPMode) {
-    // K8s HTTP mode: use HttpIPCClient for IPC, NATS only for work dispatch.
+    // K8s HTTP mode: session-long work loop.
     const { HttpIPCClient } = await import('./http-ipc-client.js');
     const client = new HttpIPCClient({
       hostUrl: process.env.AX_HOST_URL!,
@@ -658,16 +536,42 @@ if (isMain) {
     await client.connect();
     config.ipcClient = client;
 
-    // Wait for work payload via NATS queue group
-    waitForNATSWork().then(async (data) => {
-      const payload = parseStdinPayload(data);
-      applyPayload(config, payload);
+    // Session-long work loop: fetch → process → respond → repeat
+    (async () => {
+      while (true) {
+        logger.info('work_loop_waiting');
+        // Long-poll for work (wait up to 5 minutes, then re-poll)
+        const data = await client.fetchWork(2000, 5 * 60 * 1000);
+        if (!data) {
+          logger.info('work_loop_no_work');
+          continue;
+        }
 
-      // Sandbox-side workspace lifecycle: provision before agent runs
-      await provisionWorkspaceFromPayload(payload);
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed._type === 'session_expiring') {
+            logger.info('session_expiring_received', { secondsRemaining: parsed.secondsRemaining });
+            process.exit(0);
+          }
 
-      return run(config);
-    }).catch((err) => {
+          const payload = parseStdinPayload(data);
+          applyPayload(config, payload);
+          // applyPayload already calls client.setContext with the per-turn
+          // token and session context from the payload — no override needed.
+
+          await run(config);
+        } catch (err) {
+          logger.error('work_loop_error', { error: (err as Error).message, stack: (err as Error).stack });
+          try {
+            await client.call({
+              action: 'agent_response',
+              content: `Agent error: ${(err as Error).message}`,
+              error: true,
+            });
+          } catch { /* best effort */ }
+        }
+      }
+    })().catch((err) => {
       logger.error('main_error', { error: (err as Error).message, stack: (err as Error).stack });
       process.exitCode = 1;
       process.stderr.write(`Agent runner error: ${(err as Error).message ?? err}\n`);

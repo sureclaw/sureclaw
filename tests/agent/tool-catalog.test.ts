@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, normalizeOrigin, normalizeI
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 16 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(16);
+  test('exports exactly 18 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(18);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -53,7 +53,8 @@ describe('tool-catalog', () => {
   test('contains all expected tool names', () => {
     const expected = [
       'memory', 'web', 'identity', 'scheduler', 'skill', 'request_credential',
-      'workspace_write', 'workspace_mount', 'governance', 'audit', 'agent', 'image',
+      'workspace_write', 'workspace_read', 'workspace_list', 'workspace_mount',
+      'governance', 'audit', 'agent', 'image',
       'bash', 'read_file', 'write_file', 'edit_file',
     ];
     expect(TOOL_NAMES).toEqual(expected);
@@ -66,16 +67,18 @@ describe('tool-catalog', () => {
     expect(spec!.category).toBe('workspace');
   });
 
-  test('skill tool exists in catalog as singleton', () => {
+  test('skill tool exists in catalog with actionMap', () => {
     const skillTool = TOOL_CATALOG.find(t => t.name === 'skill');
     expect(skillTool).toBeDefined();
-    expect(skillTool!.singletonAction).toBe('skill_install');
-    expect(skillTool!.actionMap).toBeUndefined();
+    expect(skillTool!.actionMap).toBeDefined();
+    expect(skillTool!.actionMap!.install).toBe('skill_install');
+    expect(skillTool!.actionMap!.update).toBe('skill_update');
+    expect(skillTool!.actionMap!.delete).toBe('skill_delete');
   });
 
   test('skill tool has correct param keys', () => {
     const keys = getToolParamKeys('skill');
-    expect(keys.sort()).toEqual(['query', 'slug']);
+    expect(keys.sort()).toEqual(['content', 'path', 'query', 'slug']);
   });
 
   test('request_credential tool exists in catalog as singleton', () => {
@@ -218,15 +221,16 @@ describe('filterTools', () => {
 
   test('all flags false returns only always-on categories', () => {
     const result = filterTools(NO_FLAGS);
-    // scheduler/workspace/governance/skill are excluded when their flags are false
+    // scheduler/workspace/governance are excluded when their flags are false
+    // skill is always included (delete/update shouldn't require install intent)
     const alwaysOn = TOOL_CATALOG.filter(s =>
-      !['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
+      !['scheduler', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
     );
     expect(result.length).toBe(alwaysOn.length);
 
     // Verify excluded categories
     for (const spec of result) {
-      expect(['scheduler', 'skill', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
+      expect(['scheduler', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
     }
   });
 
@@ -247,9 +251,9 @@ describe('filterTools', () => {
     expect(result.map(s => s.name)).toContain('skill');
   });
 
-  test('skillInstallEnabled=false excludes skill tool but keeps request_credential', () => {
+  test('skill tool always present regardless of skillInstallEnabled flag', () => {
     const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: false });
-    expect(result.map(s => s.name)).not.toContain('skill');
+    expect(result.map(s => s.name)).toContain('skill');
     expect(result.map(s => s.name)).toContain('request_credential');
   });
 

@@ -19,7 +19,6 @@
  *   K8S_NAMESPACE — target namespace (default: "ax")
  *   K8S_POD_IMAGE — container image (default: "ax/agent:latest")
  *   K8S_RUNTIME_CLASS — runtime class name (default: "gvisor")
- *   NATS_URL — NATS server URL passed to sandbox pods
  *   K8S_IMAGE_PULL_SECRETS — comma-separated secret names for private registries
  */
 
@@ -51,7 +50,6 @@ function buildPodSpec(
     image: string;
     namespace: string;
     runtimeClass: string;
-    natsUrl: string;
   },
 ) {
   const [cmd, ...args] = config.command;
@@ -67,98 +65,63 @@ function buildPodSpec(
         'app.kubernetes.io/name': 'ax-sandbox',
         'app.kubernetes.io/component': 'execution',
         'ax.io/plane': 'execution',
-        'ax.dev/session-id': config.ipcSocket
-          .replace(/[^a-zA-Z0-9-_.]/g, '_')  // sanitize invalid chars
-          .replace(/^[^a-zA-Z0-9]+/, '')       // strip leading non-alnum
-          .replace(/[^a-zA-Z0-9]+$/, '')       // strip trailing non-alnum
-          .slice(0, 63) || 'unknown',
       },
     },
     spec: {
-      // Only set runtimeClassName when a non-empty class is configured
       ...(options.runtimeClass ? { runtimeClassName: options.runtimeClass } : {}),
       restartPolicy: 'Never',
-
-      // Security: no service account token, no host networking
       automountServiceAccountToken: false,
       hostNetwork: false,
-
-      // Private registry credentials
       ...(process.env.K8S_IMAGE_PULL_SECRETS ? {
         imagePullSecrets: process.env.K8S_IMAGE_PULL_SECRETS.split(',').map(s => ({ name: s.trim() })),
       } : {}),
-
-      containers: [
-        {
-          name: 'sandbox',
-          image: options.image,
-          ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
-          command: [cmd, ...args],
-          workingDir: CANONICAL.root,
-
-          resources: {
-            requests: {
-              cpu: DEFAULT_CPU_LIMIT,
-              memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
-            },
-            limits: {
-              cpu: DEFAULT_CPU_LIMIT,
-              memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
-            },
+      containers: [{
+        name: 'sandbox',
+        image: options.image,
+        ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
+        command: [cmd, ...args],
+        workingDir: '/workspace',
+        resources: {
+          requests: {
+            cpu: DEFAULT_CPU_LIMIT,
+            memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
           },
-
-          securityContext: {
-            readOnlyRootFilesystem: true,
-            allowPrivilegeEscalation: false,
-            runAsNonRoot: true,
-            runAsUser: 1000,
-            capabilities: { drop: ['ALL'] },
+          limits: {
+            cpu: DEFAULT_CPU_LIMIT,
+            memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
           },
-
-          env: [
-            // NATS connectivity
-            { name: 'NATS_URL', value: options.natsUrl },
-            // NATS sandbox user credentials (static auth)
-            ...(process.env.NATS_SANDBOX_PASS ? [
-              { name: 'NATS_USER', value: 'sandbox' },
-              { name: 'NATS_PASS', value: process.env.NATS_SANDBOX_PASS },
-            ] : []),
-            // Suppress agent debug/info logs — pod logs are piped into the
-            // SandboxProcess.stdout stream which becomes the HTTP response.
-            // Without this, pino JSON lines pollute the response content.
-            { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? (process.env.AX_VERBOSE === '1' ? 'debug' : 'warn') },
-            // GCS workspace config — used by in-pod provisionScope() and provisionWorkspace()
-            ...(process.env.GCS_WORKSPACE_BUCKET ? [{ name: 'GCS_WORKSPACE_BUCKET', value: process.env.GCS_WORKSPACE_BUCKET }] : []),
-            ...(process.env.WORKSPACE_CACHE_BUCKET ? [{ name: 'WORKSPACE_CACHE_BUCKET', value: process.env.WORKSPACE_CACHE_BUCKET }] : []),
-            // Canonical paths from sandbox config (filter out socket-based vars — k8s uses HTTP)
-            ...Object.entries(envVars)
-              .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
-              .map(([name, value]) => ({ name, value })),
-            // Per-turn extra env vars (IPC token, request ID, etc.)
-            ...Object.entries(config.extraEnv ?? {})
-              .map(([name, value]) => ({ name, value })),
-            // Pod identity
-            { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
-          ],
-
-          volumeMounts: [
-            { name: 'scratch', mountPath: CANONICAL.scratch },
-            { name: 'tmp', mountPath: '/tmp' },
-            { name: 'agent-ws', mountPath: CANONICAL.agent },
-            { name: 'user-ws', mountPath: CANONICAL.user },
-          ],
         },
-      ],
-
+        securityContext: {
+          // Writable root: allows npm install, pip install, etc.
+          readOnlyRootFilesystem: false,
+          allowPrivilegeEscalation: false,
+          runAsNonRoot: true,
+          runAsUser: 1000,
+          capabilities: { drop: ['ALL'] },
+        },
+        env: [
+          // No NATS env vars — work comes via HTTP
+          { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? (process.env.AX_VERBOSE === '1' ? 'debug' : 'warn') },
+          ...Object.entries(envVars)
+            .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
+            .map(([name, value]) => ({ name, value })),
+          ...Object.entries(config.extraEnv ?? {})
+            .map(([name, value]) => ({ name, value })),
+          { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
+        ],
+        volumeMounts: [
+          { name: 'workspace', mountPath: '/workspace' },
+          { name: 'tmp', mountPath: '/tmp' },
+        ],
+      }],
       volumes: [
-        { name: 'scratch', emptyDir: { sizeLimit: '1Gi' } },
-        { name: 'tmp', emptyDir: { sizeLimit: '64Mi' } },
-        { name: 'agent-ws', emptyDir: { sizeLimit: '1Gi' } },
-        { name: 'user-ws', emptyDir: { sizeLimit: '1Gi' } },
+        { name: 'workspace', emptyDir: { sizeLimit: '2Gi' } },
+        { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
       ],
-
-      // Timeout: kill the pod after timeoutSec
-      activeDeadlineSeconds: config.timeoutSec ?? 600,
+      // k8s-native safety net: kills the pod even if the host crashes and
+      // loses its in-memory idle timers. Uses timeoutSec (24h for session pods,
+      // ~10min for per-turn pods) plus a 5-minute buffer.
+      activeDeadlineSeconds: (config.timeoutSec ?? 600) + 300,
     },
   };
 }
@@ -185,8 +148,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   const runtimeClass = process.env.K8S_RUNTIME_CLASS !== undefined
     ? process.env.K8S_RUNTIME_CLASS   // allow empty string to disable
     : DEFAULT_RUNTIME_CLASS;
-  const natsUrl = process.env.NATS_URL ?? 'nats://nats:4222';
-
   // Track active pods for cleanup
   const activePods = new Map<number, string>(); // synthetic PID → pod name
 
@@ -264,7 +225,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       image,
       namespace,
       runtimeClass,
-      natsUrl,
     });
 
     try {

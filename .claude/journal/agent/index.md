@@ -4,6 +4,7 @@ Agent process: runner, tools, prompt builder, MCP server, tool catalog.
 
 ## Entries
 
+- 2026-03-26 05:55 — Fix skill reading and credential request prompt guidance [prompt.md](prompt.md)
 - 2026-03-22 07:18 — Conditionally show skill install instructions based on user message intent [prompt.md](prompt.md)
 - 2026-03-19 09:24 — Review PR 106 skill auto-install runner changes [runner.md](runner.md)
 - 2026-03-19 08:20 — Add skill dependency installer [runner.md](runner.md)

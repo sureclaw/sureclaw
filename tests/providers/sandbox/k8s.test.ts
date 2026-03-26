@@ -141,7 +141,7 @@ describe('sandbox-k8s provider', () => {
     const podSpec = mockCreateNamespacedPod.mock.calls[0][0].body.spec;
     const container = podSpec.containers[0];
 
-    expect(container.securityContext.readOnlyRootFilesystem).toBe(true);
+    expect(container.securityContext.readOnlyRootFilesystem).toBe(false);
     expect(container.securityContext.allowPrivilegeEscalation).toBe(false);
     expect(container.securityContext.runAsNonRoot).toBe(true);
     expect(container.securityContext.capabilities.drop).toEqual(['ALL']);
@@ -160,14 +160,14 @@ describe('sandbox-k8s provider', () => {
     expect(container.resources.requests.memory).toBe('256Mi');
   });
 
-  test('pod includes NATS_URL in env', async () => {
+  test('pod does not include NATS env vars', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
     const env = mockCreateNamespacedPod.mock.calls[0][0].body.spec.containers[0].env;
     const natsEnv = env.find((e: any) => e.name === 'NATS_URL');
-    expect(natsEnv).toBeDefined();
+    expect(natsEnv).toBeUndefined();
   });
 
   test('pod excludes AX_IPC_SOCKET (k8s uses HTTP IPC via AX_HOST_URL)', async () => {
@@ -180,13 +180,14 @@ describe('sandbox-k8s provider', () => {
     expect(socketEnv).toBeUndefined();
   });
 
-  test('pod includes activeDeadlineSeconds from timeoutSec', async () => {
+  test('pod includes activeDeadlineSeconds as safety net (timeoutSec + 300s buffer)', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
     const spec = mockCreateNamespacedPod.mock.calls[0][0].body.spec;
-    expect(spec.activeDeadlineSeconds).toBe(30);
+    // timeoutSec (30) + 300s buffer = 330
+    expect(spec.activeDeadlineSeconds).toBe(330);
   });
 
   test('exitCode resolves when pod succeeds and pod is deleted', async () => {
@@ -274,21 +275,13 @@ describe('sandbox-k8s provider', () => {
     expect(available).toBe(false);
   });
 
-  test('pod includes NATS_USER=sandbox and NATS_PASS when NATS_SANDBOX_PASS is set', async () => {
-    process.env.NATS_SANDBOX_PASS = 'test-sandbox-pass';
-    try {
-      const { create } = await import('../../../src/providers/sandbox/k8s.js');
-      const provider = await create(mockConfig());
-      await provider.spawn(mockSandboxConfig());
+  test('pod has writable root filesystem for package installs', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+    await provider.spawn(mockSandboxConfig());
 
-      const env = mockCreateNamespacedPod.mock.calls[0][0].body.spec.containers[0].env;
-      const userEnv = env.find((e: any) => e.name === 'NATS_USER');
-      const passEnv = env.find((e: any) => e.name === 'NATS_PASS');
-      expect(userEnv).toEqual({ name: 'NATS_USER', value: 'sandbox' });
-      expect(passEnv).toEqual({ name: 'NATS_PASS', value: 'test-sandbox-pass' });
-    } finally {
-      delete process.env.NATS_SANDBOX_PASS;
-    }
+    const container = mockCreateNamespacedPod.mock.calls[0][0].body.spec.containers[0];
+    expect(container.securityContext.readOnlyRootFilesystem).toBe(false);
   });
 
   test('pod includes extraEnv vars from SandboxConfig', async () => {

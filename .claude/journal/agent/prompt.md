@@ -2,6 +2,19 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-03-26 07:00] — Credential flow investigation and skill prompt fixes
+
+**Task:** Agent couldn't use Linear skill — made 10+ tool calls to find SKILL.md, then failed to use credentials
+**What I did:**
+1. Updated SkillsModule prompt to explicitly instruct `read_file` with concrete path examples, ban `workspace_read`/`bash`/`find`
+2. Updated `request_credential` tool description with imperative "MUST stop" when `available: false`
+3. Fixed `applyPayload()` in `runner.ts` to always overwrite credential env vars (defensive — placeholders rotate per-turn)
+4. Improved credential pre-loading in `server-completions.ts`: removed `web_proxy` gate, added global scope
+5. Verified via kind cluster: credential flow works e2e — pod has placeholder, proxy replaces it, API call reaches Linear
+**Files touched:** src/agent/runner.ts, src/host/server-completions.ts, src/agent/prompt/modules/skills.ts, src/agent/tool-catalog.ts, tests/*, etc.
+**Outcome:** Credential flow confirmed working. Root cause of original issue not conclusively identified — likely in the skill script content or `web_fetch` fallback (which bypasses MITM proxy, so no credential injection).
+**Notes:** `web_fetch` IPC goes to host directly — no placeholder replacement. If agent falls back from bash to web_fetch, credentials won't work.
+
 ## [2026-03-22 07:18] — Conditionally show skill install instructions based on user message intent
 
 **Task:** Make install instructions conditional in skills prompt module to prevent agent confusion between "use existing skill" and "install new one"

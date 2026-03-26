@@ -1,5 +1,37 @@
 # K8s Deployment Journal
 
+## [2026-03-25 20:35] — Remove skill_list/skill_read IPC and workspace GCS provisioning
+
+**Task:** Remove dead IPC actions and dead workspace GCS provisioning code
+**What I did:** (1) Removed skill_list/skill_read from IPC schemas, handlers, tool catalog, MCP server, capabilities template, and manifest generator. (2) Removed provision() and cleanup() from workspace-cli.ts, gutted workspace.ts to only keep diffScope (used by release). (3) Removed GCS prefix fields (agentGcsPrefix, userGcsPrefix, sessionGcsPrefix, workspaceCacheKey) from StdinPayload and resolveWorkspaceGcsPrefixes() from server-completions.ts. (4) Updated all tests.
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/skills.ts`, `src/agent/tool-catalog.ts`, `src/agent/mcp-server.ts`, `templates/capabilities.yaml`, `src/utils/manifest-generator.ts`, `src/agent/workspace-cli.ts`, `src/agent/workspace.ts`, `src/agent/runner.ts`, `src/host/server-completions.ts`, 6 test files
+**Outcome:** Success — all 2634 tests pass. skill tool now has install/update/delete only. Workspace provisioning is gone.
+**Notes:** Skills are DB-backed and delivered via payload. Agent reads from filesystem (written by runner from payload). workspace_* IPC tools handle all workspace operations. Only workspace-cli.ts release() remains for end-of-turn diff upload.
+
+## [2026-03-25 20:10] — Move skill persistence from GCS/filesystem to database-only
+
+**Task:** Skills were being stored in GCS bucket instead of only in database
+**What I did:** Removed GCS write (setRemoteChanges) and filesystem write (mkdirSync/writeFileSync) from skill_install handler. Made DB upsertSkill the primary persistence. Added skills delivery via stdinPayload (loaded from DB on host, delivered to agent like identity). Agent-setup now uses preloaded skills from payload when available, falls back to filesystem dirs.
+**Files touched:** `src/host/ipc-handlers/skills.ts` (removed GCS+filesystem writes, DB is primary), `src/host/server-completions.ts` (load skills from DB, add to stdinPayload), `src/agent/runner.ts` (skills field in AgentConfig/StdinPayload/applyPayload), `src/agent/agent-setup.ts` (prefer payload skills over filesystem), `tests/host/ipc-handlers/skills.test.ts` (rewritten for DB assertions), `tests/sandbox-isolation.test.ts` (updated for new pattern)
+**Outcome:** Success — skills stored in DB only, delivered via payload, no GCS or filesystem writes
+**Notes:** The skill_install handler had 3 persistence paths (filesystem, GCS, DB). Now only DB. Agent loads skills from payload (like identity) with filesystem fallback for subprocess mode.
+
+## [2026-03-25 19:45] — Fix session-long pod reuse: token keying + per-turn token update
+
+**Task:** Sandbox pods were killed immediately after each turn instead of being reused across turns
+**What I did:** Three fixes: (1) Changed work queue keying from per-turn token to sessionId in session-pod-manager. (2) Added authToken to SessionPod + reverse token→session map so pods authenticate with their original spawn token. (3) Fixed agent runner to update AX_IPC_TOKEN unconditionally from each turn's payload and removed stale env var override in work loop.
+**Files touched:** `src/host/session-pod-manager.ts` (authToken field, tokenToSession map, queueWork/claimWork by sessionId, findSessionByToken), `src/host/server-k8s.ts` (authToken in registerSessionPod, findSessionByToken in /internal/work), `src/host/server-completions.ts` (queueWork by sessionId, skip kill when session pod tracked, pod reuse via getSessionPod/registerSessionPod), `src/agent/runner.ts` (unconditional AX_IPC_TOKEN update, removed stale setContext override)
+**Outcome:** Success — one sandbox pod serves multiple turns, no pod per turn. Turn 2 skips spawn entirely.
+**Notes:** The root cause was a per-turn token mismatch: each turn creates a new turnToken, but the pod keeps polling with its original token. Fix uses session-level auth (original token for authentication) + per-turn tokens (delivered in payload for IPC calls).
+
+## [2026-03-25 19:15] — Fix k8s work dispatch: sessionPodManager.queueWork never called
+
+**Task:** Debug chat UI stuck on "Starting sandbox" in kind-ax cluster
+**What I did:** Traced the HTTP work dispatch flow: host spawns pod, pod polls GET /internal/work, but work was never queued. The session pod manager's `queueWork()` existed but was never wired into the completion pipeline. Added `queueWork` callback to `CompletionDeps`, passed it from `server-k8s.ts`, and called it in the k8s branch of `server-completions.ts` where stdin write is skipped.
+**Files touched:** `src/host/server-completions.ts` (added `queueWork` to `CompletionDeps`, called it in k8s branch), `src/host/server-k8s.ts` (passed `queueWork` via `turnDeps`)
+**Outcome:** Success — pod now fetches work and responds in ~5s
+**Notes:** The simplification commit (c650600) implemented all the pieces (session pod manager, /internal/work endpoint, agent work loop) but missed wiring `queueWork()` into the completion pipeline. The three pieces were implemented in isolation.
+
 ## [2026-03-18 06:00] — Fix PR review: scheduler preProcessed reuse and LLM model precedence
 
 **Task:** Address two code review comments on the k8s-scheduler-and-model-routing PR

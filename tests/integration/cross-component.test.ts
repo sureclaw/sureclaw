@@ -425,8 +425,14 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
       'agent_orch_timeline',
     ]);
 
+    // Host→pod push notifications (no handler on host side)
+    const hostPushActions = new Set([
+      'session_expiring',
+    ]);
+
     for (const action of VALID_ACTIONS) {
       if (orchestrationActions.has(action)) continue;
+      if (hostPushActions.has(action)) continue;
       const result = JSON.parse(await handleIPC(JSON.stringify({
         action,
         // Send minimal fields — some will fail validation, that's OK
@@ -446,8 +452,8 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
         ...(action === 'browser_type' ? { session: 'sess', ref: 0, text: 'test' } : {}),
         ...(action === 'browser_screenshot' ? { session: 'sess' } : {}),
         ...(action === 'browser_close' ? { session: 'sess' } : {}),
-        ...(action === 'skill_read' ? { name: 'test' } : {}),
-        ...(action === 'skill_list' ? {} : {}),
+        ...(action === 'skill_update' ? { slug: 'test', path: 'SKILL.md', content: 'test' } : {}),
+        ...(action === 'skill_delete' ? { slug: 'test' } : {}),
         ...(action === 'skill_propose' ? { skill: 'test', content: 'test' } : {}),
         ...(action === 'audit_query' ? {} : {}),
         ...(action === 'agent_delegate' ? { task: 'test' } : {}),
@@ -458,11 +464,13 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
         ...(action === 'scheduler_run_at' ? { datetime: new Date(Date.now() + 60_000).toISOString(), prompt: 'test' } : {}),
         ...(action === 'scheduler_remove_cron' ? { jobId: 'j1' } : {}),
         ...(action === 'scheduler_list_jobs' ? {} : {}),
+        ...(action === 'workspace_list' ? { scope: 'session' } : {}),
+        ...(action === 'workspace_read' ? { scope: 'session', path: 'test.txt' } : {}),
       }), ctx));
 
       // The key assertion: we must NOT get "No handler for action"
       // Getting ok:true or a handler error are both acceptable — they prove the handler exists
-      if (!result.ok) {
+      if (!result.ok && typeof result.error === 'string') {
         expect(
           result.error,
           `Action "${action}" returned "No handler" — missing handler in createIPCHandler`,
@@ -506,7 +514,7 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
 
         const result = JSON.parse(await handleIPC(JSON.stringify(payload), ctx));
 
-        if (!result.ok) {
+        if (!result.ok && typeof result.error === 'string') {
           expect(
             result.error,
             `Action "${action}" (tool "${tool.name}") has no handler in createIPCHandler`,

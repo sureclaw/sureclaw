@@ -42,12 +42,14 @@ config:
     skills: database
     storage: database
     database: postgresql
-    eventbus: nats
+    eventbus: postgres
     sandbox: k8s
     audit: database
     scheduler: plainjob
   sandbox:
     timeout_sec: 120
+    idle_timeout_sec: 1800
+    clean_idle_timeout_sec: 300
     memory_mb: 512
   scheduler:
     active_hours:
@@ -101,36 +103,6 @@ host:
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 70
-  env: []
-
-# ─── Pool Controller ─────────────────────────────────────────────
-poolController:
-  enabled: true
-  replicas: 1
-  image:
-    registry: ""
-    repository: ax
-    tag: ""
-    pullPolicy: ""
-  command: ["node", "dist/pool-controller/main.js"]
-  ports:
-    metrics: 9092
-  resources:
-    requests:
-      cpu: "250m"
-      memory: "256Mi"
-    limits:
-      cpu: "250m"
-      memory: "256Mi"
-  readinessProbe:
-    httpGet:
-      path: /health
-      port: 9092
-    initialDelaySeconds: 3
-    periodSeconds: 10
-  reconcileIntervalMs: 5000
-  extraVolumes: []
-  extraVolumeMounts: []
   env: []
 
 # ─── Sandbox Pods ─────────────────────────────────────────────────
@@ -190,38 +162,6 @@ postgresql:
     # Must include psql CLI. Defaults to docker.io/bitnamilegacy/postgresql:17.6.0-debian-12-r4.
     initImage: ""
 
-# ─── NATS (subchart) ─────────────────────────────────────────────
-nats:
-  enabled: true
-  externalUrl: ""
-  config:
-    cluster:
-      enabled: true
-      replicas: 3
-    jetstream:
-      enabled: true
-      memoryStore:
-        maxSize: 256Mi
-      fileStore:
-        maxSize: 8Gi
-        pvc:
-          size: 10Gi
-    authorization:
-      users:
-        - user: host
-          password: ""  # Set via nats-auth-secret; empty = no auth in dev
-          permissions:
-            publish: ">"
-            subscribe: ">"
-        - user: sandbox
-          password: ""
-          permissions:
-            publish:
-              allow: ["ipc.request.*.*", "ipc.llm.*.*", "_INBOX.>"]
-            subscribe:
-              allow: ["_INBOX.>", "sandbox.work"]
-              deny: ["session.>", "results.>", "events.>"]
-
 # ─── Web Proxy ──────────────────────────────────────────────────
 # HTTP forward proxy for sandboxed agents. Allows outbound HTTP/HTTPS
 # requests (npm install, pip install, curl, git clone) through a
@@ -233,6 +173,11 @@ webProxy:
 # ─── Network Policies ────────────────────────────────────────────
 networkPolicies:
   enabled: true
+
+# ─── Pool Controller ────────────────────────────────────────────
+poolController:
+  enabled: true
+  replicas: 1
 
 # ─── API Credentials ─────────────────────────────────────────────
 # Each key maps an env var name to a secret key in the existingSecret.

@@ -109,7 +109,7 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 
 **TCP Bridge** (`tcp-bridge.ts`): HTTP server on localhost:0 forwarding to Unix socket proxy. Strips encoding headers. Used for local deployments.
 
-**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_install, credential_request, agent_delegate, image_generate, sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file.
+**MCP Server** (`mcp-server.ts`): Agent SDK MCP server exposing IPC tools as Zod-based tool definitions. Includes: memory_*, web_*, audit_query, identity_write, user_write, scheduler_*, skill_install, request_credential (standalone, always available), agent_delegate, image_generate, sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file.
 
 ## Local Sandbox (Container Mode)
 

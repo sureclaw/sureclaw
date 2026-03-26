@@ -241,9 +241,7 @@ describe('server workspace isolation', () => {
     expect(spawnSection).not.toContain("'--skills'");
     expect(spawnSection).not.toContain("'--agent-dir'");
 
-    // Skills are now filesystem-based — no longer loaded from DB or sent via payload
-    expect(source).not.toContain("loadSkillsFromDB");
-    expect(source).not.toContain("skills: skillsPayload");
+    // Skills are DB-backed and delivered via payload — no CLI args or host paths
     expect(source).not.toContain("mergeSkillsOverlay");
     expect(source).not.toContain("wsSkillsDir");
     expect(source).not.toContain("hostSkillsDir");
@@ -426,7 +424,7 @@ describe('spawn command construction', () => {
 // ── MCP Server Tool Registry ─────────────────────────────────────────
 
 describe('MCP server tool registry security', () => {
-  test('exposes exactly 16 IPC tools', () => {
+  test('exposes exactly 18 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -435,13 +433,14 @@ describe('MCP server tool registry security', () => {
       'memory', 'web', 'identity', 'scheduler', 'skill', 'request_credential',
       'audit', 'agent', 'image',
       // Enterprise tools
-      'workspace_write', 'workspace_mount', 'governance',
+      'workspace_write', 'workspace_read', 'workspace_list',
+      'workspace_mount', 'governance',
       // Sandbox tools
       'bash', 'read_file', 'write_file', 'edit_file',
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(16);
+    expect(Object.keys(tools).length).toBe(18);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {
@@ -459,25 +458,13 @@ describe('MCP server tool registry security', () => {
 
 // ── K8s Pod Spec Workspace Tier Volumes ───────────────────────────────
 
-describe('k8s pod spec workspace tier volumes', () => {
-  test('k8s pod spec always declares agent and user workspace volumes', async () => {
+describe('k8s pod spec workspace volumes', () => {
+  test('k8s pod spec declares workspace and tmp volumes', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/k8s.ts'), 'utf-8');
-    expect(source).toContain("name: 'agent-ws'");
-    expect(source).toContain("name: 'user-ws'");
-    expect(source).toContain('CANONICAL.agent');
-    expect(source).toContain('CANONICAL.user');
-  });
-});
-
-// ── K8s Pod Spec GCS/Git Env Vars ─────────────────────────────────────
-
-describe('k8s pod spec GCS/git env vars', () => {
-  test('k8s pod spec includes GCS workspace env vars', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/k8s.ts'), 'utf-8');
-    expect(source).toContain('GCS_WORKSPACE_BUCKET');
-    expect(source).toContain('WORKSPACE_CACHE_BUCKET');
+    expect(source).toContain("name: 'workspace'");
+    expect(source).toContain("name: 'tmp'");
+    expect(source).toContain("mountPath: '/workspace'");
   });
 });
 
@@ -570,19 +557,17 @@ describe('lifecycle dispatch replaces three-phase orchestration', () => {
 
 // ── Work Payload Workspace Provisioning Fields ───────────────────────
 
-describe('work payload includes workspace provisioning fields', () => {
-  test('stdinPayload includes GCS scope fields when workspace provider is active', async () => {
+describe('work payload includes skills from DB', () => {
+  test('stdinPayload includes skills field', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
-    expect(source).toContain('agentGcsPrefix');
-    expect(source).toContain('userGcsPrefix');
-    expect(source).toContain('sessionGcsPrefix');
+    expect(source).toContain('skills: skillsPayload');
   });
 
-  test('StdinPayload type includes provisioning fields', async () => {
+  test('StdinPayload type includes skills and agentReadOnly fields', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    expect(source).toContain('agentGcsPrefix');
+    expect(source).toContain('skills?:');
     expect(source).toContain('agentReadOnly');
   });
 });

@@ -96,6 +96,8 @@ export interface Config {
   channel_config?: Record<string, Partial<ChannelAccessConfig>>;
   sandbox: {
     timeout_sec: number;
+    idle_timeout_sec?: number;
+    clean_idle_timeout_sec?: number;
     memory_mb: number;
     tiers?: {
       default: { memory_mb: number; cpus: number };
@@ -113,6 +115,7 @@ export interface Config {
     proactive_hint_confidence_threshold?: number;
     proactive_hint_cooldown_sec?: number;
     agent_dir?: string;
+    timeout_sec?: number;
     defaultDelivery?: CronDelivery;
   };
   history: {

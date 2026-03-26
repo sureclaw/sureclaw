@@ -73,6 +73,8 @@ const ConfigSchema = z.strictObject({
   max_tokens: z.number().int().min(256).max(200_000).optional().default(8192),
   sandbox: z.strictObject({
     timeout_sec: z.number().int().min(1).max(3600),
+    idle_timeout_sec: z.number().int().min(60).max(7200).optional(),
+    clean_idle_timeout_sec: z.number().int().min(60).max(7200).optional(),
     memory_mb: z.number().int().min(64).max(8192),
     tiers: z.strictObject({
       default: z.strictObject({
@@ -93,6 +95,7 @@ const ConfigSchema = z.strictObject({
     }),
     max_token_budget: z.number().int().min(1),
     heartbeat_interval_min: z.number().int().min(1),
+    timeout_sec: z.number().int().min(1).max(3600).optional(),
     agent_dir: z.string().optional(),
     defaultDelivery: z.strictObject({
       mode: z.enum(['channel', 'none']),

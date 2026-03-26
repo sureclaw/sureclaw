@@ -159,6 +159,16 @@ export const SkillInstallSchema = ipcAction('skill_install', {
   slug: safeString(200).optional(),
 });
 
+export const SkillUpdateSchema = ipcAction('skill_update', {
+  slug: safeString(200),
+  path: safeString(1024),
+  content: safeString(500_000),
+});
+
+export const SkillDeleteSchema = ipcAction('skill_delete', {
+  slug: safeString(200),
+});
+
 export const CredentialRequestSchema = ipcAction('credential_request', {
   envName: safeString(200),
 });
@@ -279,6 +289,23 @@ export const WorkspaceWriteSchema = ipcAction('workspace_write', {
   tier: z.enum(['agent', 'user', 'session']),
   path: safeString(1024),
   content: safeString(500_000),
+});
+
+export const WorkspaceListSchema = ipcAction('workspace_list', {
+  scope: z.enum(['agent', 'user', 'session']),
+  prefix: safeString(1024).optional(),
+});
+
+export const WorkspaceReadSchema = ipcAction('workspace_read', {
+  scope: z.enum(['agent', 'user', 'session']),
+  path: safeString(1024),
+});
+
+// ── Session Lifecycle ──────────────────────────────────
+
+export const SessionExpiringSchema = ipcAction('session_expiring', {
+  secondsRemaining: z.number().int().min(0).max(600),
+  reason: z.enum(['idle_timeout', 'shutdown']),
 });
 
 // ── Enterprise: Governance ─────────────────────────────

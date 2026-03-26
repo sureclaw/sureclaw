@@ -43,22 +43,6 @@ spec:
               value: "0.0.0.0"
             - name: PORT
               value: {{ .Values.host.ports.http | quote }}
-            - name: NATS_URL
-              value: {{ include "ax.natsUrl" . | quote }}
-            - name: NATS_USER
-              value: "host"
-            - name: NATS_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "ax.fullname" . }}-nats-auth
-                  key: host-password
-                  optional: true
-            - name: NATS_SANDBOX_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "ax.fullname" . }}-nats-auth
-                  key: sandbox-password
-                  optional: true
             - name: K8S_RUNTIME_CLASS
               value: {{ include "ax.preset.sandboxRuntimeClass" . | quote }}
             - name: K8S_NAMESPACE

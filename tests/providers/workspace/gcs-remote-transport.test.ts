@@ -108,23 +108,13 @@ describe('GCS RemoteTransport (k8s NATS mode)', () => {
   // ── Host staging endpoint integration ──
 
   describe('host staging endpoint', () => {
-    test('server-k8s.ts has /internal/workspace-staging endpoint', async () => {
+    test('server-k8s.ts uses session pod manager for session-long pods', async () => {
       const { readFileSync } = await import('node:fs');
       const source = readFileSync('src/host/server-k8s.ts', 'utf-8');
 
-      expect(source).toContain('/internal/workspace-staging');
-      expect(source).toContain('handleWorkspaceStaging');
-      expect(source).toContain('staging_key');
-    });
-
-    test('server-k8s.ts decompresses gzipped staging data on workspace_release', async () => {
-      const { readFileSync } = await import('node:fs');
-      const source = readFileSync('src/host/server-k8s.ts', 'utf-8');
-
-      // workspace_release IPC now uses staging_key to look up stored data
-      expect(source).toContain('stagingStore.get(stagingKey)');
-      expect(source).toContain('gunzipSync');
-      expect(source).toContain('stagingStore.delete(stagingKey)');
+      // Session pod manager replaces old staging/workspace release
+      expect(source).toContain('sessionPodManager');
+      expect(source).toContain('agent_response');
     });
 
     test('host passes AX_HOST_URL to sandbox pods', async () => {

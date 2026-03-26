@@ -151,10 +151,10 @@ describe('ipc-tools', () => {
     expect(tool!.description).toContain('cron');
   });
 
-  test('total tool count is 16 without filter', () => {
+  test('total tool count is 18 without filter', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(16);
+    expect(tools.length).toBe(18);
   });
 
   test('filter excludes scheduler tool when hasHeartbeat is false', () => {
@@ -218,11 +218,11 @@ describe('ipc-tools', () => {
     expect(names).toContain('agent');
     expect(names).toContain('image');
     expect(names).toContain('request_credential'); // always available
-    expect(names).not.toContain('skill'); // skill install excluded when skillInstallEnabled=false
+    expect(names).toContain('skill'); // always available — delete/update don't require install intent
     expect(names).toContain('bash');
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
-    expect(tools.length).toBe(11);
+    expect(tools.length).toBe(12);
   });
 });

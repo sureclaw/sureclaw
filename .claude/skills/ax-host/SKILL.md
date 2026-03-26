@@ -35,9 +35,12 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/ipc-handlers/plugin.ts` | Plugin status/list queries (host-internal actions) |
 | `src/host/ipc-handlers/scheduler.ts` | Scheduler job management IPC handlers |
 | `src/host/ipc-handlers/sandbox-tools.ts` | Sandbox tool IPC handlers (sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file) and audit gate protocol (sandbox_approve, sandbox_result) for in-container tool execution with host approval |
-| `src/host/ipc-handlers/skills.ts` | Skill read/list/propose/import/search IPC handlers (backed by DocumentStore) |
+| `src/host/ipc-handlers/skills.ts` | Skill read/list/propose/import/search IPC handlers + `credential_request` handler (backed by DocumentStore) |
 | `src/host/ipc-handlers/web.ts` | Web fetch/search IPC handlers |
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
+| `src/host/inprocess.ts` | In-process fast path — runs LLM orchestration loop directly in host process (no pods, no IPC, no proxy). Uses `FastPathDeps`, `FastPathRequest`, `FastPathResult`. AsyncLocalStorage for per-turn context isolation |
+| `src/host/tool-router.ts` | Tool router for in-process fast path — routes tool calls to MCP provider, lazy file I/O, or sandbox escalation. Per-turn limits (`FAST_PATH_LIMITS`). Exports `routeToolCall()`, `ToolRouterContext`, `ToolResult` |
+| `src/host/sandbox-manager.ts` | Sandbox session manager — tracks session-bound sandbox pods for cross-turn escalation from fast path. CRUD on DocumentStore with TTL (30min default, 1hr max) |
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics) |
@@ -97,9 +100,47 @@ Typed pub/sub for real-time completion observability.
 - **Synchronous emit** (fire-and-forget) -- never blocks the hot path
 - **Global listeners**: receive all events (max 100)
 - **Per-request listeners**: scoped to requestId (max 50 per request)
-- **Event types**: dot-namespaced (e.g. `completion.start`, `llm.done`, `scan.inbound`)
+- **Event types**: dot-namespaced (e.g. `completion.start`, `llm.done`, `scan.inbound`, `status`)
 - **No secrets**: event.data never contains credentials or sensitive info
 - **SSE endpoint**: `GET /v1/events?request_id=...&types=...` with 15s keepalive
+
+## Status SSE Events
+
+`server-completions.ts` emits structured `status` events via the EventBus during completion processing. `server-request-handlers.ts` forwards these as SSE named events (`event: status\ndata: {...}\n\n`) to chat UI clients.
+
+**Status event structure:**
+```json
+{ "type": "status", "requestId": "...", "timestamp": 12345, "data": { "operation": "workspace|pod", "phase": "...", "message": "..." } }
+```
+
+**Current status events:**
+| Operation | Phase | Message | When |
+|-----------|-------|---------|------|
+| `workspace` | `downloading` | `Restoring workspace…` | Before workspace mount |
+| `workspace` | `mounted` | `Workspace ready` | After successful mount |
+| `pod` | `creating` | `Starting sandbox…` | Before first agent spawn |
+| `pod` | `retrying` | `Retrying sandbox (attempt N)…` | On agent retry |
+
+**SSE forwarding** (`server-request-handlers.ts`): Validates that `operation`, `phase`, and `message` are all strings before forwarding. Invalid payloads are logged as `status_event_invalid_payload`.
+
+## MCP Fast Path (In-Process Agent)
+
+The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration loop directly in the host process — no sandbox pods, no IPC, no proxy, no GCS sync. Used for lightweight MCP tool-calling tasks via the MCP provider interface.
+
+**Key components:**
+- **`inprocess.ts`** — LLM turn loop: builds tool definitions from MCP provider + built-in file tools, calls LLM, routes tool calls, persists history
+- **`tool-router.ts`** — Routes tool calls to: MCP provider (`callTool`), built-in `file_read`/`file_write` (using `safePath()`), or `request_sandbox` (escalation to full sandbox)
+- **`sandbox-manager.ts`** — Tracks session-bound sandbox pods for cross-turn escalation. CRUD on DocumentStore with TTL (30min default, 1hr max)
+
+**Per-turn limits** (`FAST_PATH_LIMITS`):
+| Limit | Value |
+|-------|-------|
+| `maxToolCallsPerTurn` | 50 |
+| `maxTurnDurationMs` | 5 minutes |
+| `maxToolResultSizeBytes` | 1 MB |
+| `maxTotalContextBytes` | 10 MB |
+
+**MCP Provider** (`src/providers/mcp/types.ts`): Interface for external tool gateways (e.g., Activepieces). Methods: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`, `listApps()`. Implementations: `none` (no-op), `activepieces` (with circuit breaker and healthcheck).
 
 ## File Storage (server-files.ts)
 
@@ -287,3 +328,7 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **AX_HOST_URL env var**: Passed to sandbox pods for HTTP workspace provision and release. Points to `http://ax-host.{namespace}.svc`. NetworkPolicy must allow sandbox→host on port 8080.
 - **GCS prefix must come from same source for read and write**: The GCS backend commits files using `config.workspace.prefix`. The provision path must use the same source via `resolveWorkspaceGcsPrefixes()`. If only the env var `AX_WORKSPACE_GCS_PREFIX` is set (not `config.workspace.prefix`), provisioning may silently point to the wrong path.
 - **WorkspaceProvider.downloadScope()**: Optional method used by the provision endpoint. Only GCS provider implements it. The host calls `providers.workspace.downloadScope(scope, id)` and returns gzipped JSON to the pod.
+- **Status SSE events**: `server-completions.ts` emits `type: 'status'` events via EventBus with `{operation, phase, message}` data. `server-request-handlers.ts` validates all three fields are strings before forwarding as SSE named events. Invalid payloads are logged and dropped.
+- **MCP fast path runs in host process**: `inprocess.ts` has no sandbox isolation — tools execute directly. Only safe for trusted MCP providers. `FAST_PATH_LIMITS` enforces per-turn resource limits.
+- **MCP provider category**: New `mcp` category in provider-map.ts with `none` (no-op) and `activepieces` implementations. Config key: `config.mcp`. Must be loaded via registry.ts like other providers.
+- **`credential_request` handler in skills.ts**: The `credential_request` IPC handler lives in `src/host/ipc-handlers/skills.ts` (alongside `skill_install`), not in its own file.

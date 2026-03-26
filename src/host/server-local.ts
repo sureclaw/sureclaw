@@ -339,7 +339,10 @@ export async function createServer(
       channels: providers.channels,
       scheduler: providers.scheduler,
       runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
-        return processCompletion(completionDeps, content, requestId, messages, sessionId, preProcessed, userId);
+        const deps = config.scheduler.timeout_sec
+          ? { ...completionDeps, config: { ...config, sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } }
+          : completionDeps;
+        return processCompletion(deps, content, requestId, messages, sessionId, preProcessed, userId);
       },
     });
     await providers.scheduler.start(schedulerCallback);

@@ -86,6 +86,7 @@ const _PROVIDER_MAP = {
   eventbus: {
     inprocess: '../providers/eventbus/inprocess.js',
     nats:      '../providers/eventbus/nats.js',
+    postgres:  '../providers/eventbus/postgres.js',
   },
   workspace: {
     none:  '../providers/workspace/none.js',

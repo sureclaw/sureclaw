@@ -1,5 +1,35 @@
 # Agent
 
+### Prompt instructions must specify exact tool names and paths — not just filesystem locations
+**Date:** 2026-03-26
+**Context:** Agent was making 10+ attempts to read a skill SKILL.md file — trying workspace_read, read_file, bash cat, bash find — because the skills prompt said "read from ./user/skills/" without specifying which tool.
+**Lesson:** When telling the agent to access a resource in the system prompt, always specify the exact tool name AND a concrete parameter example. Vague "read from" instructions cause the LLM to guess across multiple tools. Explicitly ban wrong tools if there are common confusions (e.g., "Do NOT use workspace_read for this").
+**Tags:** prompt, skills, tool-guidance, LLM-behavior
+
+### request_credential returns immediately — the agent must be told to stop
+**Date:** 2026-03-26
+**Context:** Agent called request_credential, got available=false, then kept trying to run the skill script and call APIs without the credential. The tool description said "ends the current turn" but nothing enforced it.
+**Lesson:** IPC tools that expect the agent to change behavior (like stopping) must have IMPERATIVE instructions in the description, not passive descriptions. "This ends the current turn" is passive; "you MUST stop immediately" is imperative. The LLM treats tool descriptions as suggestions unless the language is directive.
+**Tags:** credential, tool-description, LLM-behavior, prompt
+
+### web_fetch IPC bypasses MITM proxy — no credential placeholder replacement
+**Date:** 2026-03-26
+**Context:** Agent fell back from bash (skill script) to web_fetch IPC to call Linear API. web_fetch goes through IPC to the host, which makes the HTTP request directly — not through the MITM proxy. Credential placeholders in headers are sent as-is.
+**Lesson:** The `web_fetch` IPC tool cannot inject credentials. Only bash/curl child processes benefit from credential placeholder replacement (via HTTP_PROXY → MITM proxy). If the agent falls back from a skill script to web_fetch, credentials won't work. This is a design gap.
+**Tags:** credential, web_fetch, proxy, MITM, IPC
+
+### Debugging k8s credential issues: kubectl exec vs runner process.env
+**Date:** 2026-03-26
+**Context:** Used `kubectl exec` to inspect sandbox pod env — saw `SSL_CERT_FILE=/etc/ax/ca.crt` (doesn't exist) and `HTTP_PROXY=NOT SET`. Thought credentials were broken. But `kubectl exec` shows pod-spec env, not the runner's `process.env` which is updated at runtime.
+**Lesson:** `kubectl exec` starts a fresh process with pod-level env vars. The runner modifies `process.env` after processing the work payload (writes CA cert to /tmp/, sets HTTP_PROXY/HTTPS_PROXY, updates SSL_CERT_FILE). Child processes spawned BY the runner inherit the updated env. Diagnose by: (1) check host logs for `credential_injected`, (2) check `/tmp/ax-ca-bundle.pem` exists, (3) test curl with manually-set env vars matching what the runner would set.
+**Tags:** k8s, kubectl, debugging, process-env, credential, proxy
+
+### HttpIPCClient has two token scopes — don't conflate them
+**Date:** 2026-03-25
+**Context:** Chat UI stuck on "Thinking..." after turn 3. `fetchWork()` used `this.token` which `setContext()` rotates per-turn for IPC routing. After turn 2, the work-fetch poll sent the wrong token to session-pod-manager, getting 404 forever.
+**Lesson:** `HttpIPCClient` has two distinct tokens: (1) the pod's **auth token** (`AX_IPC_TOKEN` from env, used for `GET /internal/work`) — this is the pod identity, registered once in `tokenToSession`. (2) The **per-turn IPC token** (from payload's `ipcToken`, set via `setContext()`) — used for `POST /internal/ipc` calls and LLM proxy. These must never be conflated. `fetchWork()` must always use the original auth token.
+**Tags:** http-ipc-client, session-pod-manager, token, k8s, work-fetch, multi-turn
+
 ### Weaker models rename discriminator fields — always normalize before actionMap lookup
 **Date:** 2026-03-15
 **Context:** Gemini Flash sent `{"operation":"fetch"}` instead of `{"type":"fetch"}` for the `web` multi-op tool, causing silent tool failure and hallucinated content

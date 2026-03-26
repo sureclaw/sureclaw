@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logger.js';
 import type { Config, ProviderRegistry } from '../types.js';
-import { dataDir, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir, axHome } from '../paths.js';
+import { dataDir, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
 import { createRouter, type Router } from './router.js';
 import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
@@ -184,79 +184,24 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const workspaceMap = new Map<string, string>();
   const requestedCredentials = new Map<string, Set<string>>();
 
-  // ── Domain allowlist for proxy — populated from installed skills ──
+  // ── Domain allowlist for proxy — populated from DB-stored skills ──
   const domainList = new ProxyDomainList();
-  {
+  if (providers.storage?.documents) {
     const { parseAgentSkill } = await import('../utils/skill-format-parser.js');
     const { generateManifest } = await import('../utils/manifest-generator.js');
-
-    /** Parse a SKILL.md and add its domains to the allowlist. */
-    function addDomainsFromSkill(raw: string, label: string): void {
-      const parsed = parseAgentSkill(raw);
-      const manifest = generateManifest(parsed);
-      if (manifest.capabilities.domains.length > 0) {
-        domainList.addSkillDomains(parsed.name || label, manifest.capabilities.domains);
-      }
-    }
-
-    /** Scan a local skills directory and add any declared domains to the allowlist. */
-    function loadDomainsFromDir(skillsDir: string): void {
-      try {
-        const entries = readdirSync(skillsDir, { withFileTypes: true });
-        for (const entry of entries) {
-          try {
-            let raw: string | undefined;
-            if (entry.isFile() && entry.name.endsWith('.md')) {
-              raw = readFileSync(join(skillsDir, entry.name), 'utf-8');
-            } else if (entry.isDirectory()) {
-              const mdPath = join(skillsDir, entry.name, 'SKILL.md');
-              if (existsSync(mdPath)) raw = readFileSync(mdPath, 'utf-8');
-            }
-            if (raw) addDomainsFromSkill(raw, entry.name);
-          } catch { /* skip unparseable skills */ }
-        }
-      } catch { /* dir doesn't exist yet */ }
-    }
-
-    // 1. Local filesystem — agent-level skills (shared)
-    loadDomainsFromDir(agentSkillsDir(agentName));
-
-    // 2. Local filesystem — user-level skills (per-user)
+    const { listSkills } = await import('../providers/storage/skills.js');
     try {
-      const usersDir = join(axHome(), 'agents', agentName, 'users');
-      const userEntries = readdirSync(usersDir, { withFileTypes: true });
-      for (const userEntry of userEntries) {
-        if (userEntry.isDirectory()) {
-          loadDomainsFromDir(join(usersDir, userEntry.name, 'skills'));
-        }
-      }
-    } catch { /* users dir doesn't exist yet */ }
-
-    // 3. GCS workspace — skill files persisted across pod restarts (k8s mode).
-    //    Local filesystem is ephemeral in k8s, so we also scan GCS for skills.
-    if (providers.workspace?.downloadScope) {
-      /** Scan a single scope/id pair for skill .md files and extract domains. */
-      async function scanGcsScope(scope: 'agent' | 'user', id: string): Promise<void> {
-        const files = await providers.workspace!.downloadScope!(scope, id);
-        for (const f of files) {
-          if (!/^skills\/.*\.md$/i.test(f.path)) continue;
-          try {
-            addDomainsFromSkill(f.content.toString('utf-8'), f.path);
-          } catch { /* skip unparseable */ }
-        }
-      }
-
-      // Agent scope — single ID (the agent name)
-      try { await scanGcsScope('agent', agentName); } catch { /* scope not available */ }
-
-      // User scope — enumerate all user IDs that have files in GCS, scan in parallel
-      if (providers.workspace.listScopeIds) {
+      const skills = await listSkills(providers.storage.documents, agentName);
+      for (const skill of skills) {
         try {
-          const userIds = await providers.workspace.listScopeIds('user');
-          await Promise.all(userIds.map(id => scanGcsScope('user', id).catch(() => {})));
-        } catch { /* listScopeIds not available */ }
+          const parsed = parseAgentSkill(skill.instructions);
+          const manifest = generateManifest(parsed);
+          if (manifest.capabilities.domains.length > 0) {
+            domainList.addSkillDomains(parsed.name || skill.id, manifest.capabilities.domains);
+          }
+        } catch { /* skip unparseable */ }
       }
-    }
+    } catch { /* documents not available */ }
   }
 
   // ── CompletionDeps ──

@@ -82,5 +82,42 @@ export function createWorkspaceHandlers(providers: ProviderRegistry, opts: Works
       return { written: true, tier, path: req.path };
     },
 
+    workspace_list: async (req: any, ctx: IPCContext) => {
+      if (!providers.workspace?.listFiles) {
+        return { ok: false, error: 'Workspace provider does not support listing' };
+      }
+      const scope = req.scope as WorkspaceScope;
+      const id = scope === 'session' ? ctx.sessionId
+        : scope === 'user' ? (ctx.userId ?? ctx.sessionId)
+        : opts.agentName;
+      const files = await providers.workspace.listFiles(scope, id);
+
+      const filtered = req.prefix
+        ? files.filter((f: { path: string }) => f.path.startsWith(req.prefix))
+        : files;
+
+      return { ok: true, files: filtered.map((f: { path: string; size: number }) => ({ path: f.path, size: f.size })) };
+    },
+
+    workspace_read: async (req: any, ctx: IPCContext) => {
+      if (!providers.workspace?.downloadScope) {
+        return { ok: false, error: 'Workspace provider does not support reading' };
+      }
+      const scope = req.scope as WorkspaceScope;
+      const id = scope === 'session' ? ctx.sessionId
+        : scope === 'user' ? (ctx.userId ?? ctx.sessionId)
+        : opts.agentName;
+      const allFiles = await providers.workspace.downloadScope(scope, id);
+      const file = allFiles.find((f: { path: string }) => f.path === req.path);
+      if (!file) return { ok: false, error: `File not found: ${req.path}` };
+
+      return {
+        ok: true,
+        path: file.path,
+        content: file.content.toString('utf-8'),
+        size: file.content.length,
+      };
+    },
+
   };
 }

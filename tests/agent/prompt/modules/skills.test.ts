@@ -121,7 +121,7 @@ describe('SkillsModule', () => {
     expect(text).not.toContain('Installing New Skills');
   });
 
-  test('renders compact skill table instead of full content', () => {
+  test('renders skill table with paths', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({
       skills: [
@@ -133,10 +133,7 @@ describe('SkillsModule', () => {
     expect(text).toContain('Available Skills');
     expect(text).toContain('| Daily Standup | Generates daily standup summaries |');
     expect(text).toContain('| Code Review | Reviews pull requests for quality |');
-    // Should NOT contain full skill content — only compact table
-    // References consolidated skill tool with type: "read"
-    expect(text).toContain('skill');
-    expect(text).toContain('read');
+    expect(text).toContain('user/skills/');
   });
 
   test('priority is 70', () => {
@@ -172,12 +169,13 @@ describe('SkillsModule', () => {
     expect(rendered).toContain('Creating Skills');
   });
 
-  test('includes progressive disclosure guidance', () => {
+  test('includes skill usage guidance', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test', 'Desc')] });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('Never read more than one skill up front');
     expect(rendered).toContain('scan this list');
+    expect(rendered).toContain('read_file');
+    expect(rendered).toContain('Do NOT use workspace_read');
   });
 
   test('renderMinimal shows skill count', () => {
@@ -187,8 +185,6 @@ describe('SkillsModule', () => {
     });
     const text = mod.renderMinimal!(ctx).join('\n');
     expect(text).toContain('3 skills available');
-    expect(text).toContain('skill');
-    expect(text).toContain('Read');
   });
 
   test('renderMinimal with no skills shows simple message', () => {

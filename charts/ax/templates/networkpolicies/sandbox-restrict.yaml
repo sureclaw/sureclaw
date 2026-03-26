@@ -14,15 +14,7 @@ spec:
     - Ingress
     - Egress
   egress:
-    # Allow NATS client connections
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: nats
-      ports:
-        - port: 4222
-          protocol: TCP
-    # Allow workspace staging uploads + LLM proxy calls to host
+    # Allow HTTP IPC + LLM proxy calls to host
     - to:
         - podSelector:
             matchLabels:

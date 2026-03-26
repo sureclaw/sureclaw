@@ -61,5 +61,10 @@ export async function resolveCredential(
   const agentVal = await provider.get(envName, credentialScope(agentName));
   if (agentVal !== null) return agentVal;
 
+  // Fall back to global (unscoped) — catches credentials stored when session
+  // context was unavailable (e.g. host restarted before user entered credential).
+  const globalVal = await provider.get(envName);
+  if (globalVal !== null) return globalVal;
+
   return null;
 }

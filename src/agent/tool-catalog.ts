@@ -1,9 +1,9 @@
 /**
  * Shared IPC tool catalog — single source of truth for tool metadata.
  *
- * Both TypeBox consumers (ipc-tools.ts, pi-session.ts) derive their tool
- * arrays from this catalog. The Zod consumer (mcp-server.ts) stays manually
- * written but a sync test ensures its tool names and parameter keys match.
+ * TypeBox consumers (ipc-tools.ts, pi-session.ts) derive their tool arrays
+ * from this catalog. The Zod consumer (mcp-server.ts) imports descriptions
+ * via getToolDescription() and defines only Zod schemas + execution logic.
  *
  * Tools are consolidated: each entry may represent multiple IPC actions
  * selected via a `type` discriminator parameter. The actionMap / singletonAction
@@ -89,27 +89,31 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'web',
     label: 'Web',
     description:
-      'Retrieve web content.\n\n' +
-      'Use `type: "fetch"` to get the raw HTTP response body (HTML, JSON, etc.) — best for APIs or when you need exact response content.\n' +
-      'Use `type: "extract"` to get cleaned, readable text from a webpage — best for articles and page content.\n' +
-      'Use `type: "search"` to find information on the web when you don\'t have a specific URL.\n' +
-      'Never put a URL in `query`.',
+      'Access the web. Pick ONE type:\n\n' +
+      'type="search": Find information when you do NOT have a URL. Requires `query` (plain text, NOT a URL). Returns a list of relevant URLs and snippets.\n' +
+      'type="extract": Read a webpage when you HAVE a URL and want the text content. Requires `url`. Returns cleaned readable text (like reader mode). Best for articles, docs, blog posts.\n' +
+      'type="fetch": Make a raw HTTP request when you HAVE a URL and need the exact response (HTML, JSON, headers). Requires `url`. Best for APIs and machine-readable data.\n\n' +
+      'RULES:\n' +
+      '- If you have a URL and want to read it → use "extract" (not "search")\n' +
+      '- If you need to find something and have no URL → use "search"\n' +
+      '- If you need raw JSON/HTML or custom headers → use "fetch"\n' +
+      '- NEVER put a URL in the `query` field. URLs go in `url` only.',
     parameters: Type.Union([
       Type.Object({
         type: Type.Literal('fetch'),
-        url: Type.String(),
+        url: Type.String({ description: 'The full URL to fetch (e.g. "https://api.example.com/data"). Required for type="fetch".' }),
         method: Type.Optional(Type.Union([Type.Literal('GET'), Type.Literal('HEAD')])),
         headers: Type.Optional(Type.Record(Type.String(), Type.String())),
         timeoutMs: Type.Optional(Type.Number()),
       }),
       Type.Object({
         type: Type.Literal('extract'),
-        url: Type.String(),
+        url: Type.String({ description: 'The full URL of the webpage to extract text from (e.g. "https://example.com/article"). Required for type="extract".' }),
       }),
       Type.Object({
         type: Type.Literal('search'),
-        query: Type.String(),
-        maxResults: Type.Optional(Type.Number()),
+        query: Type.String({ description: 'Search query in plain text (e.g. "how to parse JSON in Python"). Must NOT be a URL. Required for type="search".' }),
+        maxResults: Type.Optional(Type.Number({ description: 'Maximum number of search results to return (default: 5)' })),
       }),
     ]),
     category: 'web',
@@ -202,19 +206,33 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Install a skill from ClawHub by slug or search query. ' +
-      'The host downloads, screens, writes files, and adds domains to the proxy allowlist.',
+      'Install, update, and delete skills.\n\nUse `type` to select:\n' +
+      '- install: Install a skill from ClawHub by slug or search query\n' +
+      '- update: Update a specific file in a skill\n' +
+      '- delete: Uninstall a skill by slug',
     parameters: Type.Union([
       Type.Object({
-        slug: Type.String({ description: 'ClawHub skill slug (e.g. "linear-skill")' }),
-        query: Type.Optional(Type.String({ description: 'Search query (optional refinement)' })),
+        type: Type.Literal('install'),
+        slug: Type.Optional(Type.String({ description: 'ClawHub skill slug' })),
+        query: Type.Optional(Type.String({ description: 'Search query' })),
       }),
       Type.Object({
-        query: Type.String({ description: 'Search query (finds best match and installs)' }),
+        type: Type.Literal('update'),
+        slug: Type.String({ description: 'Skill slug to update' }),
+        path: Type.String({ description: 'File path within the skill (e.g. "SKILL.md")' }),
+        content: Type.String({ description: 'New file content' }),
+      }),
+      Type.Object({
+        type: Type.Literal('delete'),
+        slug: Type.String({ description: 'Skill slug to delete' }),
       }),
     ]),
     category: 'skill',
-    singletonAction: 'skill_install',
+    actionMap: {
+      install: 'skill_install',
+      update: 'skill_update',
+      delete: 'skill_delete',
+    },
   },
 
   // ── Credential ──
@@ -223,8 +241,11 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     label: 'Request Credential',
     description:
       'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
-      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
-      're-invoked with the credential available as an environment variable.',
+      'The host will prompt the user to provide it.\n\n' +
+      'IMPORTANT: If the response shows available=false, you MUST stop immediately.\n' +
+      'Tell the user what credential is needed and why, then end your turn.\n' +
+      'Do NOT attempt to use the skill, call APIs, or run scripts without the credential.\n' +
+      'The credential will be available as an environment variable when you are re-invoked on the next turn.',
     parameters: Type.Object({
       envName: Type.String({
         pattern: '^[A-Z][A-Z0-9_]{1,63}$',
@@ -248,6 +269,34 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     }),
     category: 'workspace',
     singletonAction: 'workspace_write',
+  },
+
+  // ── Workspace Read ──
+  {
+    name: 'workspace_read',
+    label: 'Read Workspace File',
+    description:
+      'Read a file from a workspace scope (agent, user, or session). Returns the file content as text.',
+    parameters: Type.Object({
+      scope: Type.String({ description: '"agent", "user", or "session"' }),
+      path: Type.String({ description: 'Relative path within the scope' }),
+    }),
+    category: 'workspace',
+    singletonAction: 'workspace_read',
+  },
+
+  // ── Workspace List ──
+  {
+    name: 'workspace_list',
+    label: 'List Workspace Files',
+    description:
+      'List files in a workspace scope (agent, user, or session). Optionally filter by path prefix.',
+    parameters: Type.Object({
+      scope: Type.String({ description: '"agent", "user", or "session"' }),
+      prefix: Type.Optional(Type.String({ description: 'Filter by path prefix' })),
+    }),
+    category: 'workspace',
+    singletonAction: 'workspace_list',
   },
 
   // ── Workspace Scopes ──
@@ -414,6 +463,13 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
 /** All tool names, derived from the catalog. */
 export const TOOL_NAMES: string[] = TOOL_CATALOG.map(s => s.name);
 
+/** Look up a tool's description by name. Single source of truth for both TypeBox and Zod consumers. */
+export function getToolDescription(name: string): string {
+  const spec = TOOL_CATALOG.find(s => s.name === name);
+  if (!spec) throw new Error(`Unknown tool: ${name}`);
+  return spec.description;
+}
+
 /** Extract parameter key names for a given tool (for sync tests). */
 export function getToolParamKeys(name: string): string[] {
   const spec = TOOL_CATALOG.find(s => s.name === name);
@@ -458,7 +514,7 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
   return TOOL_CATALOG.filter(spec => {
     switch (spec.category) {
       case 'scheduler':  return ctx.hasHeartbeat;
-      case 'skill':      return ctx.skillInstallEnabled !== false;
+      case 'skill':      return true;  // always available — delete/update shouldn't require install intent
       case 'workspace':        return ctx.hasWorkspaceScopes;
       case 'workspace_scopes': return ctx.hasWorkspaceScopes;
       case 'governance': return ctx.hasGovernance;

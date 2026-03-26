@@ -8,11 +8,17 @@
 
 import type { DocumentStore } from './types.js';
 
+export interface SkillFile {
+  path: string;
+  content: string;
+}
+
 export interface SkillRecord {
   id: string;
   agentId: string;
   version: string;
   instructions: string;
+  files: SkillFile[];
   mcpApps: string[];
   mcpTools: string[] | null;
   authType: 'oauth' | 'api_key' | null;
@@ -24,6 +30,7 @@ export interface SkillUpsertInput {
   agentId: string;
   version: string;
   instructions: string;
+  files?: SkillFile[];
   mcpApps: string[];
   mcpTools?: string[] | null;
   authType?: 'oauth' | 'api_key' | null;
@@ -42,6 +49,7 @@ export async function upsertSkill(
     agentId: input.agentId,
     version: input.version,
     instructions: input.instructions,
+    files: input.files ?? [{ path: 'SKILL.md', content: input.instructions }],
     mcpApps: input.mcpApps,
     mcpTools: input.mcpTools ?? null,
     authType: input.authType ?? null,

@@ -121,6 +121,7 @@ Uses `docker run` with:
 - IPC socket directory mounted for agent containers
 - Optional gVisor runtime (`AX_DOCKER_RUNTIME=gvisor`)
 - Image configurable via `AX_DOCKER_IMAGE` (default: `ax/agent:latest`)
+- **Standard bash tools in image**: Agent container image includes common tools (jq, curl, wget, git, vim, etc.) for sandbox bash operations
 
 ## Apple Container Provider (`apple.ts`)
 

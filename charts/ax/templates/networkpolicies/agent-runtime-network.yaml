@@ -13,14 +13,6 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # NATS
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: nats
-      ports:
-        - port: 4222
-          protocol: TCP
     # PostgreSQL (any provider — Cloud SQL, RDS, self-hosted, in-cluster)
     - ports:
         - port: 5432

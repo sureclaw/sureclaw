@@ -59,7 +59,7 @@ The `skill_install` handler updates its local `slug` variable to `pkg.slug` (the
 
 | File | Purpose |
 |------|---------|
-| `src/host/ipc-handlers/skills.ts` | `skill_install`, `credential_request`, `audit_query` IPC handlers |
+| `src/host/ipc-handlers/skills.ts` | `skill_install`, `credential_request` (standalone tool, always available), `audit_query` IPC handlers |
 | `src/clawhub/registry-client.ts` | ClawHub API client: search, fetchSkill, fetchSkillPackage, listPopular |
 | `src/utils/skill-format-parser.ts` | `parseAgentSkill(raw)` -- SKILL.md to ParsedAgentSkill |
 | `src/utils/manifest-generator.ts` | `generateManifest(parsed)` -- static analysis for domains, bins, etc. |

@@ -1,5 +1,15 @@
 # EventBus Provider Journal
 
+## [2026-03-25 17:18] -- Postgres LISTEN/NOTIFY EventBusProvider implementation
+
+**Task:** Create Postgres LISTEN/NOTIFY EventBusProvider as Task 1 of K8s simplification plan.
+**What I did:** Created src/providers/eventbus/postgres.ts using Postgres LISTEN/NOTIFY for real-time event distribution. Each event published to two channels: events_global and events_{requestId}. Uses two dedicated pg.Client connections (one for LISTEN, one for NOTIFY). Includes payload size guard (7900 bytes). Added postgres entry to provider-map. Created integration test that skips without POSTGRESQL_URL.
+**Files touched:**
+  - Created: src/providers/eventbus/postgres.ts, tests/providers/eventbus/postgres.test.ts
+  - Modified: src/host/provider-map.ts
+**Outcome:** Success. Test file loads and skips correctly without POSTGRESQL_URL. No TypeScript errors introduced. Existing eventbus tests all pass.
+**Notes:** Follows same createRequire pattern as database/postgres.ts for pg import. Uses sanitizeChannel() to make requestIds safe for Postgres channel names.
+
 ## [2026-03-04 21:05] -- NATS EventBusProvider implementation
 
 **Task:** Implement NATS EventBusProvider (Phase 2 Task 5).

@@ -88,6 +88,7 @@ Format: colon-separated segments with minimum 3 parts.
 Interactive wizard for generating Kubernetes deployment configuration:
 
 - **Presets**: `small` and `large` only (medium removed) — control resource allocation. Warm pool enabled by default.
+- **MCP provider option**: Prompts for Activepieces MCP setup (URL) — generates `mcp: activepieces` provider config with `config.mcp.url` in Helm values.
 - **Compound model IDs**: Supports `provider/model` format (e.g., `anthropic/claude-sonnet-4-20250514`)
 - **`extractProvider(compoundId)`** — Splits on first `/` to get provider name
 - **`secretKeyForProvider(provider)`** — e.g., `anthropic` → `anthropic-api-key`

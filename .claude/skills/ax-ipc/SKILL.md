@@ -62,7 +62,7 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Browser     | `browser_screenshot`   | `session`                                                 | `data` (base64)               |
 | Browser     | `browser_close`        | `session`                                                 | `ok`                          |
 | Skills      | `skill_search`         | `query`, `limit?`                                         | (search results)              |
-| Credentials | `credential_request`   | `envName`, `description?`                                 | `ok`, `available`             |
+| Credentials | `credential_request`   | `envName`                                                 | `ok`, `available`             |
 | Workspace   | `workspace_release`    | `staging_key`                                             | `ok`                          |
 | Audit       | `audit_query`          | `filter?` (action, sessionId, since, until, limit)        | `entries`                     |
 | Delegation  | `agent_delegate`       | `task`, `context?`, `runner?`, `model?`, `maxTokens?`, `timeoutSec?` | `response`             |

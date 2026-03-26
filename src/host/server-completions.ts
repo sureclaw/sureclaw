@@ -63,23 +63,28 @@ export interface CompletionDeps {
   ipcHandler?: (raw: string, ctx: import('./ipc-server.js').IPCContext) => Promise<string>;
   /** Extra env vars to inject into sandbox pods (per-turn IPC token, request ID). */
   extraSandboxEnv?: Record<string, string>;
-  /** Promise that resolves with the agent response content (NATS mode).
+  /** Promise that resolves with the agent response content (k8s HTTP mode).
    *  When set, processCompletion waits on this instead of reading stdout. */
   agentResponsePromise?: Promise<string>;
-  /** Callback to publish work payload via NATS (k8s mode).
-   *  If podName is undefined, uses queue group (warm pool) — returns the claiming pod's name.
-   *  If podName is set, publishes to that specific pod (cold start fallback). */
-  publishWork?: (podName: string | undefined, payload: string) => Promise<string>;
   /** Shared credential registry for k8s shared proxy MITM mode.
    *  Per-session credential maps are registered/deregistered here so the
    *  shared proxy can replace placeholders from any active session. */
   sharedCredentialRegistry?: import('./credential-placeholders.js').SharedCredentialRegistry;
   /** Domain allowlist for proxy — populated from installed skill manifests. */
   domainList?: import('./proxy-domain-list.js').ProxyDomainList;
-  /** Callback to start the agent_response timeout timer (NATS mode).
+  /** Callback to start the agent_response timeout timer (k8s HTTP mode).
    *  Called after work is published so the timer doesn't include pre-processing time
    *  (scanner LLM calls, workspace provisioning, etc.). */
   startAgentResponseTimer?: () => void;
+  /** Queue a work payload for a session-long pod to fetch via GET /internal/work.
+   *  Called in k8s HTTP mode instead of writing to stdin. Keyed by sessionId. */
+  queueWork?: (sessionId: string, payload: string) => void;
+  /** Check if a session-long pod already exists for this session (k8s HTTP mode). */
+  getSessionPod?: (sessionId: string) => { podName: string; pid: number; kill: () => void } | undefined;
+  /** Register a newly spawned pod for session reuse (k8s HTTP mode). */
+  registerSessionPod?: (sessionId: string, pod: { podName: string; pid: number; kill: () => void }) => void;
+  /** Remove a session pod mapping (called when pod exits unexpectedly). */
+  removeSessionPod?: (sessionId: string) => void;
 }
 
 export interface ExtractedFile {
@@ -144,29 +149,6 @@ const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
  *  - Empty-string prefix is valid (files live at bucket root) — mirrors gcs.ts default.
  *  - Trailing slash is normalised the same way as buildGcsPrefix in gcs.ts.
  */
-export function resolveWorkspaceGcsPrefixes(
-  config: Config,
-  agentName: string,
-  userId: string,
-  sessionId: string,
-): { agentGcsPrefix?: string; userGcsPrefix?: string; sessionGcsPrefix?: string } {
-  // Only GCS workspace provider stores files in GCS that can be provisioned.
-  if (config.providers.workspace !== 'gcs') return {};
-
-  // Mirror gcs.ts: `wsConfig.prefix ?? ''` — empty string is a valid prefix
-  // meaning files live directly under the bucket root.
-  const rawPrefix = config.workspace?.prefix ?? process.env.AX_WORKSPACE_GCS_PREFIX ?? '';
-
-  // Mirror buildGcsPrefix trailing-slash normalisation in gcs.ts.
-  const base = rawPrefix.endsWith('/') ? rawPrefix : rawPrefix ? `${rawPrefix}/` : '';
-
-  return {
-    agentGcsPrefix:   `${base}agent/${agentName}/`,
-    userGcsPrefix:    `${base}user/${userId}/`,
-    sessionGcsPrefix: `${base}scratch/${sessionId}/`,
-  };
-}
-
 /**
  * Load identity files from DocumentStore for a given agent and user.
  * Returns an IdentityPayload with fields populated from matching documents.
@@ -762,12 +744,15 @@ export async function processCompletion(
     // and use the provider's directories (writable). Otherwise fall back to
     // the legacy read-only enterprise paths.
     const hasWorkspaceProvider = config.providers.workspace && config.providers.workspace !== 'none';
+    // Skip host-side workspace pre-mount when sandbox handles provisioning itself
+    // (k8s pods provision via GET /internal/workspace/provision — host mount is a no-op).
+    const shouldPreMount = hasWorkspaceProvider && agentSandbox.workspaceLocation !== 'sandbox';
     let agentWsPath: string | undefined;
     let userWsPath: string | undefined;
     let agentWorkspaceWritable = false;
     let userWorkspaceWritable = false;
 
-    if (hasWorkspaceProvider) {
+    if (shouldPreMount) {
       // Pre-mount agent, user, and session scopes so their directories exist before sandbox spawn.
       // Session scope backs scratch with GCS — in k8s mode, scratch content survives pod restarts.
       try {
@@ -829,23 +814,30 @@ export async function processCompletion(
       userWsPath = userWsPath ?? enterpriseUserWs;
     }
 
-    // Inject all stored credentials for this agent/user as MITM proxy placeholders.
-    // The agent discovers missing credentials at runtime via skill.request_credential
-    // IPC, which emits credential.required events for the frontend.
-    if (config.web_proxy) {
-      for (const scope of [credentialScope(agentName, currentUserId), credentialScope(agentName)]) {
-        try {
-          const storedNames = await providers.credentials.list(scope);
-          for (const envName of storedNames) {
-            if (credentialMap.toEnvMap()[envName]) continue;
-            const realValue = await providers.credentials.get(envName, scope);
-            if (realValue) {
+    // Pre-load all stored credentials for this agent/user into the sandbox env.
+    // When web_proxy is enabled: register as MITM proxy placeholders (the proxy
+    // replaces them with real values in intercepted HTTPS traffic).
+    // When web_proxy is disabled (subprocess mode): inject real values directly
+    // since there's no proxy to do placeholder replacement.
+    // Also check global (unscoped) credentials — catches credentials stored
+    // without session context or via process.env fallback in the plaintext provider.
+    for (const scope of [credentialScope(agentName, currentUserId), credentialScope(agentName), undefined]) {
+      try {
+        const storedNames = await providers.credentials.list(scope);
+        for (const envName of storedNames) {
+          // Skip if already registered (user scope takes precedence over agent, agent over global)
+          if (credentialMap.toEnvMap()[envName] || credentialEnv[envName]) continue;
+          const realValue = await providers.credentials.get(envName, scope);
+          if (realValue) {
+            if (config.web_proxy) {
               credentialMap.register(envName, realValue);
-              reqLogger.info('credential_injected', { envName, scope });
+            } else {
+              credentialEnv[envName] = realValue;
             }
+            reqLogger.info('credential_injected', { envName, scope: scope ?? 'global' });
           }
-        } catch { /* list may not be supported */ }
-      }
+        }
+      } catch { /* list may not be supported */ }
     }
 
     // Create a symlink mountRoot for the sandbox tool IPC handlers.
@@ -870,12 +862,24 @@ export async function processCompletion(
     // Identity files are keyed as <agentName>/<filename> and <agentName>/users/<userId>/<filename>
     const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
 
-    // Identity is delivered to the agent via stdin payload (below).
-    // Skills are now loaded directly from filesystem directories by the agent.
+    // ── Load installed skills from DB ──
+    let skillsPayload: Array<{ slug: string; files: Array<{ path: string; content: string }> }> = [];
+    if (providers.storage?.documents) {
+      try {
+        const { listSkills } = await import('../providers/storage/skills.js');
+        const dbSkills = await listSkills(providers.storage.documents, agentName);
+        skillsPayload = dbSkills.map(s => ({
+          slug: s.id,
+          files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
+        }));
+      } catch (err) {
+        reqLogger.warn('skills_load_failed', { error: (err as Error).message });
+      }
+    }
+
+    // Identity and skills are delivered to the agent via stdin payload (below).
 
     // ── Workspace GCS prefixes ──
-    const gcsPrefixes = resolveWorkspaceGcsPrefixes(config, agentName, currentUserId ?? '', sessionId);
-
     // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);
     const stdinPayload = JSON.stringify({
@@ -890,8 +894,7 @@ export async function processCompletion(
       sessionId,
       requestId,
       sessionScope: sessionScope ?? 'dm',
-      // Per-turn IPC token for NATS subject scoping (warm pods need this in the payload
-      // since they don't have AX_IPC_TOKEN env var — it's set at pod creation time for cold pods only)
+      // Per-turn IPC token for HTTP IPC authentication
       ipcToken: deps.extraSandboxEnv?.AX_IPC_TOKEN,
       // Web proxy URL — warm pool pods don't have this in their pod spec
       webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
@@ -900,14 +903,18 @@ export async function processCompletion(
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
       workspaceProvider: config.providers.workspace,
-      // Identity from DocumentStore (skills are now filesystem-based)
+      // Identity and skills from DocumentStore
       identity: identityPayload,
-      // Workspace provisioning fields (sandbox-side providers provision in-pod)
-      ...gcsPrefixes,
+      skills: skillsPayload.length > 0 ? skillsPayload : undefined,
       agentReadOnly: !agentWorkspaceWritable,
       // Credential placeholders — warm pool pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
-      credentialEnv: credentialMap.toEnvMap(),
+      credentialEnv: {
+        ...credentialMap.toEnvMap(),
+        // When web_proxy is off, real credential values must be delivered via payload
+        // since per-turn extraEnv is only applied on spawn (not reused session pods).
+        ...(!config.web_proxy ? credentialEnv : {}),
+      },
       // MITM CA cert — sandbox pods need this to trust the proxy's TLS certs.
       caCert: caCertPem,
     });
@@ -918,7 +925,12 @@ export async function processCompletion(
     const sandboxConfig = {
       workspace,
       ipcSocket: ipcSocketPath,
-      timeoutSec: config.sandbox.timeout_sec,
+      // Session pods live across turns — session-pod-manager owns idle lifecycle.
+      // watchPodExit's safety timer is a distant backstop (24h) so it never races
+      // with the session-pod-manager's idle timer or premature watch disconnects.
+      timeoutSec: deps.registerSessionPod
+        ? 86400
+        : config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
       cpus: config.sandbox.tiers?.default?.cpus ?? 1,
       command: spawnCommand,
@@ -945,17 +957,63 @@ export async function processCompletion(
       stderr = '';
       const attemptStartTime = Date.now();
 
-      eventBus?.emit({
-        type: 'status',
-        requestId,
-        timestamp: Date.now(),
-        data: {
-          operation: 'pod',
-          phase: attempt === 0 ? 'creating' : 'retrying',
-          message: attempt === 0 ? 'Starting sandbox\u2026' : `Retrying sandbox (attempt ${attempt + 1})\u2026`,
-        },
-      });
-      const proc = await agentSandbox.spawn(sandboxConfig);
+      // K8s session-long pods: reuse existing pod if available
+      const existingPod = deps.getSessionPod?.(sessionId);
+      let proc: Awaited<ReturnType<typeof agentSandbox.spawn>>;
+
+      if (existingPod && deps.agentResponsePromise) {
+        // Reuse session pod — skip spawn, just queue work
+        reqLogger.debug('session_pod_reuse', { podName: existingPod.podName, sessionId });
+        // Create a minimal proc wrapper for the existing pod
+        const { PassThrough } = await import('node:stream');
+        const dummyStream = new PassThrough();
+        dummyStream.end();
+        proc = {
+          pid: existingPod.pid,
+          podName: existingPod.podName,
+          exitCode: new Promise<number>(() => {}), // never resolves — session pod stays alive
+          stdout: dummyStream,
+          stderr: new PassThrough().end() as any,
+          stdin: new PassThrough().end() as any,
+          kill: existingPod.kill,
+        };
+      } else {
+        eventBus?.emit({
+          type: 'status',
+          requestId,
+          timestamp: Date.now(),
+          data: {
+            operation: 'pod',
+            phase: attempt === 0 ? 'creating' : 'retrying',
+            message: attempt === 0 ? 'Starting sandbox\u2026' : `Retrying sandbox (attempt ${attempt + 1})\u2026`,
+          },
+        });
+        proc = await agentSandbox.spawn(sandboxConfig);
+
+        // Register newly spawned pod for session reuse
+        if (deps.registerSessionPod && proc.podName) {
+          deps.registerSessionPod(sessionId, {
+            podName: proc.podName,
+            pid: proc.pid,
+            kill: proc.kill,
+          });
+
+          // Safety net: clean up session mapping if pod exits unexpectedly
+          // (k8s OOM kill, node crash, watchPodExit backstop, watch disconnect)
+          // so the next turn spawns a fresh pod. Also kill the pod to prevent
+          // orphans if watchPodExit resolved without successful k8s deletion.
+          const podName = proc.podName;
+          const podKill = proc.kill;
+          proc.exitCode.then(() => {
+            reqLogger.info('session_pod_exit_detected', { sessionId, podName });
+            podKill();
+            deps.removeSessionPod?.(sessionId);
+          }).catch(() => {
+            podKill();
+            deps.removeSessionPod?.(sessionId);
+          });
+        }
+      }
       reqLogger.debug('agent_spawn', { sandbox: config.providers.sandbox, attempt });
       eventBus?.emit({
         type: 'completion.agent',
@@ -1041,26 +1099,9 @@ export async function processCompletion(
         }
       }
 
-      // Deliver work payload to agent.
-      // NATS mode (k8s): publish to agent.work.{podName} — no stdin.
-      // Stdin mode (subprocess/apple/cold k8s): write to proc.stdin.
-      if (proc.podName && deps.publishWork) {
-        reqLogger.debug('nats_work_publish', { podName: proc.podName, payloadBytes: stdinPayload.length });
-        try {
-          await deps.publishWork(proc.podName, stdinPayload);
-          // Start the agent_response timeout AFTER work is published, not before
-          // processCompletion runs. Pre-processing (scanner LLM calls, workspace
-          // provisioning, CA generation) can take minutes and must not eat into
-          // the agent's execution timeout budget.
-          deps.startAgentResponseTimer?.();
-        } catch (err) {
-          reqLogger.error('nats_work_publish_failed', { podName: proc.podName, error: (err as Error).message });
-          agentSandbox.kill(proc.pid);
-        }
-      } else {
-        // Send raw user message to agent (not the taint-tagged queued.content).
-        // Guard: if the bridge connect failed and we killed the process, stdin
-        // is already closed — writing would throw EPIPE.
+      // Deliver work payload to agent via stdin (subprocess/apple mode).
+      // In k8s HTTP mode, pods fetch work via GET /internal/work instead.
+      if (!deps.agentResponsePromise) {
         try {
           reqLogger.debug('stdin_write', { payloadBytes: stdinPayload.length });
           proc.stdin.write(stdinPayload);
@@ -1068,35 +1109,51 @@ export async function processCompletion(
         } catch {
           // Process already killed (bridge failure) — stdin write throws EPIPE
         }
+      } else {
+        // K8s HTTP mode: queue work for pod to fetch via GET /internal/work
+        if (deps.queueWork) {
+          deps.queueWork(sessionId, stdinPayload);
+          reqLogger.debug('work_queued', { sessionId });
+        }
+        // Start the response timeout timer now
+        deps.startAgentResponseTimer?.();
       }
 
       // Wait for agent to complete.
-      // NATS mode: response comes via agent_response IPC (agentResponsePromise).
+      // K8s HTTP mode: response comes via agent_response IPC (agentResponsePromise).
       // Stdin mode: response comes from stdout.
       let agentResponseReceived = false;
       if (deps.agentResponsePromise) {
-        // In NATS mode, we race the agent_response promise against pod exit.
-        // The stdout/stderr are already closed (dummy streams) for k8s.
+        // In k8s mode, we race the agent_response promise against pod exit.
         try {
           response = await deps.agentResponsePromise;
           agentResponseReceived = true;
-          reqLogger.debug('nats_agent_response_received', { responseLength: response.length });
+          reqLogger.debug('agent_response_received', { responseLength: response.length });
         } catch (err) {
-          reqLogger.warn('nats_agent_response_error', { error: (err as Error).message });
+          reqLogger.warn('agent_response_error', { error: (err as Error).message });
           // Fall through to let exitCode determine retry
         }
 
-        // In NATS/k8s mode, the cold-start pod may never have received work
-        // (a warm pool pod claimed it first via the queue group). Don't block
-        // on proc.exitCode — it would hang until the pod's activeDeadlineSeconds.
+        // In k8s HTTP mode, the pod fetches work via GET /internal/work.
+        // Don't block on proc.exitCode — it would hang until the pod's idle timeout.
         // If we got the response, treat it as success; otherwise let retry logic handle it.
         // NOTE: Use !== undefined (not truthiness) because an empty string ('')
         // is a valid agent response (e.g. agent only made tool calls with no text).
         if (agentResponseReceived) {
           exitCode = 0;
-          proc.kill(); // clean up the idle cold-start pod
+          // Session-long pods stay alive for reuse — idle timeout handles cleanup.
+          // Only kill if session pod manager is not tracking this pod.
+          if (!deps.getSessionPod?.(sessionId)) {
+            proc.kill();
+          }
         } else {
-          exitCode = await proc.exitCode;
+          // Don't block indefinitely on session pods — they stay alive for reuse,
+          // so proc.exitCode may never resolve. Race against a short timeout.
+          if (deps.getSessionPod?.(sessionId)) {
+            exitCode = 1; // Trigger retry logic
+          } else {
+            exitCode = await proc.exitCode;
+          }
         }
       } else {
         await Promise.all([stdoutDone, stderrDone]);

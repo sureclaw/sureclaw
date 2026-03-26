@@ -35,6 +35,7 @@ AX uses a **provider contract pattern**: every subsystem is a TypeScript interfa
 | storage       | `StorageProvider`      | `src/providers/storage/`       |
 | eventbus      | `EventBusProvider`     | `src/providers/eventbus/`      |
 | workspace     | `WorkspaceProvider`    | `src/providers/workspace/`     |
+| mcp           | `McpProvider`          | `src/providers/mcp/`           |
 
 ## Provider Map (SC-SEC-002)
 

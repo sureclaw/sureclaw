@@ -41,7 +41,7 @@ export class SkillsModule extends BasePromptModule {
       const rows = ctx.skills
         .map(s => {
           const warn = s.warnings?.length ? ` \u26A0 ${s.warnings.join(', ')}` : '';
-          return `| ${s.name} | ${s.description}${warn} |`;
+          return `| ${s.name} | ${s.description}${warn} | \`user/skills/${s.path}\` |`;
         })
         .join('\n');
 
@@ -53,15 +53,13 @@ export class SkillsModule extends BasePromptModule {
         '',
         'These skills are already installed locally. Do NOT download or re-install them.',
         'Before replying, scan this list for a skill that matches the current task.',
-        'If exactly one skill clearly applies: read the skill file from ./user/skills/ or',
-        './agent/skills/ to load its full instructions, then follow them. If multiple could',
-        'apply: choose the most specific one, then read and follow it. If none clearly',
-        'apply: do not load any skill \u2014 just respond normally.',
         '',
-        'Never read more than one skill up front; only read after selecting.',
+        '**To use a skill:** call `read_file` with the exact path from the table, then follow its instructions.',
+        'That is the ONLY step needed — one read_file call, then act on what it says.',
+        'Do NOT use workspace_read, workspace_list, bash ls, or any other discovery tool.',
         '',
-        '| Skill | Description |',
-        '|-------|-------------|',
+        '| Skill | Description | Path |',
+        '|-------|-------------|------|',
         rows,
       );
 
@@ -124,7 +122,7 @@ export class SkillsModule extends BasePromptModule {
     return [
       '## Skills',
       ctx.skills.length > 0
-        ? `${ctx.skills.length} skills available. Read skill files from ./user/skills/ or ./agent/skills/ as needed.`
+        ? `${ctx.skills.length} skills available. Use read_file with the skill path to load one.`
         : 'No skills installed.',
     ];
   }

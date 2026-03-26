@@ -110,21 +110,6 @@ sandbox:
             hostPath:
               path: /ax-dev/skills
 
-nats:
-  enabled: true
-  config:
-    cluster:
-      enabled: false
-      replicas: 1
-    jetstream:
-      enabled: true
-      memoryStore:
-        maxSize: 256Mi
-      fileStore:
-        maxSize: 1Gi
-        pvc:
-          size: 2Gi
-
 postgresql:
   external:
     enabled: true
@@ -162,5 +147,5 @@ config:
   providers:
     storage: database
     database: postgresql
-    eventbus: nats
+    eventbus: postgres
     sandbox: k8s

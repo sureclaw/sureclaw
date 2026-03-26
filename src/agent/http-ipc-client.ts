@@ -24,11 +24,15 @@ export class HttpIPCClient implements IIPCClient {
   private userId?: string;
   private sessionScope?: string;
   private token?: string;
+  /** Original auth token from pod spawn — used for work-fetch authentication.
+   *  Per-turn tokens rotate via setContext(), but the pod's identity token stays fixed. */
+  private readonly authToken: string | undefined;
 
   constructor(opts: HttpIPCClientOptions) {
     this.hostUrl = opts.hostUrl;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.token = process.env.AX_IPC_TOKEN;
+    this.authToken = this.token;
   }
 
   setContext(ctx: {
@@ -121,5 +125,46 @@ export class HttpIPCClient implements IIPCClient {
     const result = await res.json() as Record<string, unknown>;
     logger.debug('call_done', { action });
     return result;
+  }
+
+  /**
+   * Fetch work payload from host. Returns null if no work pending (404).
+   * Used by session-long pods to receive each turn's payload.
+   */
+  async fetchWork(pollIntervalMs = 2000, maxWaitMs = 0): Promise<string | null> {
+    const url = `${this.hostUrl}/internal/work`;
+    const startTime = Date.now();
+
+    while (true) {
+      try {
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${this.authToken}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        if (res.ok) {
+          return await res.text();
+        }
+
+        if (res.status === 404) {
+          if (maxWaitMs > 0 && (Date.now() - startTime) < maxWaitMs) {
+            await new Promise(r => setTimeout(r, pollIntervalMs));
+            continue;
+          }
+          return null;
+        }
+
+        logger.warn('fetch_work_error', { status: res.status });
+        return null;
+      } catch (err) {
+        logger.warn('fetch_work_failed', { error: (err as Error).message });
+        if (maxWaitMs > 0 && (Date.now() - startTime) < maxWaitMs) {
+          await new Promise(r => setTimeout(r, pollIntervalMs));
+          continue;
+        }
+        return null;
+      }
+    }
   }
 }

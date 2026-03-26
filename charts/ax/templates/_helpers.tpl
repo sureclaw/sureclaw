@@ -84,17 +84,6 @@ imagePullPolicy: {{ $policy }}
 {{- end }}
 
 {{/*
-NATS URL — uses subchart service if enabled, otherwise external URL.
-*/}}
-{{- define "ax.natsUrl" -}}
-{{- if .Values.nats.enabled -}}
-nats://{{ include "ax.fullname" . }}-nats.{{ .Release.Namespace }}.svc.cluster.local:4222
-{{- else -}}
-{{ .Values.nats.externalUrl | default "nats://nats:4222" }}
-{{- end -}}
-{{- end }}
-
-{{/*
 DATABASE_URL env block — renders the correct env vars for external or internal PostgreSQL.
 Include with: {{ include "ax.databaseEnv" . | nindent <N> }}
 */}}
@@ -131,13 +120,3 @@ AX plane label for network policy selectors.
 ax.io/plane: {{ . }}
 {{- end }}
 
-{{/*
-NATS JetStream stream replicas — matches cluster size, or 1 if clustering disabled.
-*/}}
-{{- define "ax.natsReplicas" -}}
-{{- if .Values.nats.config.cluster.enabled -}}
-{{- .Values.nats.config.cluster.replicas | default 1 -}}
-{{- else -}}
-1
-{{- end -}}
-{{- end }}

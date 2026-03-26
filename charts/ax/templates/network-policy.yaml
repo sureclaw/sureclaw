@@ -1,5 +1,5 @@
 {{- if and .Values.webProxy.enabled .Values.networkPolicies.enabled }}
-# Sandbox pod egress: web proxy, HTTP IPC, and NATS on the host/NATS pods.
+# Sandbox pod egress: web proxy and HTTP IPC on host pods.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -23,14 +23,6 @@ spec:
         - port: {{ .Values.webProxy.port }}
           protocol: TCP
         - port: 8080
-          protocol: TCP
-    # NATS
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/name: nats
-      ports:
-        - port: 4222
           protocol: TCP
     # DNS
     - ports:
