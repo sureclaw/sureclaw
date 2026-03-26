@@ -241,9 +241,7 @@ describe('server workspace isolation', () => {
     expect(spawnSection).not.toContain("'--skills'");
     expect(spawnSection).not.toContain("'--agent-dir'");
 
-    // Skills are now filesystem-based — no longer loaded from DB or sent via payload
-    expect(source).not.toContain("loadSkillsFromDB");
-    expect(source).not.toContain("skills: skillsPayload");
+    // Skills are DB-backed and delivered via payload — no CLI args or host paths
     expect(source).not.toContain("mergeSkillsOverlay");
     expect(source).not.toContain("wsSkillsDir");
     expect(source).not.toContain("hostSkillsDir");
@@ -559,19 +557,17 @@ describe('lifecycle dispatch replaces three-phase orchestration', () => {
 
 // ── Work Payload Workspace Provisioning Fields ───────────────────────
 
-describe('work payload includes workspace provisioning fields', () => {
-  test('stdinPayload includes GCS scope fields when workspace provider is active', async () => {
+describe('work payload includes skills from DB', () => {
+  test('stdinPayload includes skills field', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
-    expect(source).toContain('agentGcsPrefix');
-    expect(source).toContain('userGcsPrefix');
-    expect(source).toContain('sessionGcsPrefix');
+    expect(source).toContain('skills: skillsPayload');
   });
 
-  test('StdinPayload type includes provisioning fields', async () => {
+  test('StdinPayload type includes skills and agentReadOnly fields', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    expect(source).toContain('agentGcsPrefix');
+    expect(source).toContain('skills?:');
     expect(source).toContain('agentReadOnly');
   });
 });

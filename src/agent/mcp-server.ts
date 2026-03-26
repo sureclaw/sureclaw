@@ -113,18 +113,23 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     // ── Web ──
     tool(
       'web',
-      'Retrieve web content.\n\n' +
-      'If the user message contains a URL, ALWAYS use `type: "fetch"` with `url`.\n' +
-      'Only use `type: "search"` when no URL is provided and the user is asking to find information on the web.\n' +
-      'Never put a URL in `query`.',
+      'Access the web. Pick ONE type:\n\n' +
+      'type="search": Find information when you do NOT have a URL. Requires `query` (plain text, NOT a URL). Returns a list of relevant URLs and snippets.\n' +
+      'type="extract": Read a webpage when you HAVE a URL and want the text content. Requires `url`. Returns cleaned readable text (like reader mode). Best for articles, docs, blog posts.\n' +
+      'type="fetch": Make a raw HTTP request when you HAVE a URL and need the exact response (HTML, JSON, headers). Requires `url`. Best for APIs and machine-readable data.\n\n' +
+      'RULES:\n' +
+      '- If you have a URL and want to read it → use "extract" (not "search")\n' +
+      '- If you need to find something and have no URL → use "search"\n' +
+      '- If you need raw JSON/HTML or custom headers → use "fetch"\n' +
+      '- NEVER put a URL in the `query` field. URLs go in `url` only.',
       {
-        type: z.enum(['fetch', 'search']),
-        url: z.string().url().optional(),
-        method: z.enum(['GET', 'HEAD']).optional(),
-        headers: z.record(z.string(), z.string()).optional(),
-        timeoutMs: z.number().optional(),
-        query: z.string().optional(),
-        maxResults: z.number().optional(),
+        type: z.enum(['fetch', 'extract', 'search']).describe('Operation type: "search" to find info (no URL needed), "extract" to read a webpage (URL required), "fetch" for raw HTTP requests (URL required)'),
+        url: z.string().url().optional().describe('The URL to fetch or extract. Required for type="fetch" and type="extract". Do NOT use with type="search".'),
+        method: z.enum(['GET', 'HEAD']).optional().describe('HTTP method. Only used with type="fetch". Defaults to GET.'),
+        headers: z.record(z.string(), z.string()).optional().describe('Custom HTTP headers. Only used with type="fetch".'),
+        timeoutMs: z.number().optional().describe('Request timeout in ms. Only used with type="fetch".'),
+        query: z.string().optional().describe('Search query in plain text. Required for type="search". Must NOT be a URL.'),
+        maxResults: z.number().optional().describe('Max search results. Only used with type="search".'),
       },
       (args) => {
         const { type, ...rest } = args;
@@ -187,14 +192,12 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
 
     // ── Skill ──
     tool('skill',
-      'Install, list, read, update, and delete skills.\n\nUse `type` to select:\n' +
+      'Install, update, and delete skills.\n\nUse `type` to select:\n' +
       '- install: Install a skill from ClawHub by slug or search query\n' +
-      '- list: List all installed skills\n' +
-      '- read: Read a skill\'s files by slug\n' +
       '- update: Update a specific file in a skill\n' +
       '- delete: Uninstall a skill by slug',
       {
-        type: z.enum(['install', 'list', 'read', 'update', 'delete']),
+        type: z.enum(['install', 'update', 'delete']),
         slug: z.string().optional().describe('ClawHub skill slug'),
         query: z.string().optional().describe('Search query'),
         path: z.string().optional().describe('File path within the skill (e.g. "SKILL.md")'),
@@ -202,8 +205,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       },
       (args) => {
         const SKILL_ACTIONS: Record<string, string> = {
-          install: 'skill_install', list: 'skill_list', read: 'skill_read',
-          update: 'skill_update', delete: 'skill_delete',
+          install: 'skill_install', update: 'skill_update', delete: 'skill_delete',
         };
         const { type, ...rest } = args;
         const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));

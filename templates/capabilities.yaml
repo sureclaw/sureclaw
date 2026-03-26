@@ -6,12 +6,9 @@ allowed_tools:
   - memory_query
   - memory_list
   - memory_delete
-  - skill_read
-  - skill_list
   - audit_query
 scopes:
   memory: read-write
-  skills: read-only
   web: none
   browser: none
 limits:

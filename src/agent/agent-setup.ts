@@ -33,7 +33,9 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  // Load skills from workspace directories (user shadows agent)
+  // Load skills from workspace directories (user shadows agent).
+  // In k8s mode, the runner writes DB-loaded skills to the workspace
+  // skills/ directory before we get here (see applyPayload in runner.ts).
   const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [];
   if (config.agentWorkspace) {
     skillDirs.push({ dir: join(config.agentWorkspace, 'skills'), scope: 'agent' });

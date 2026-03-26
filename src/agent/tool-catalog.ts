@@ -89,27 +89,31 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'web',
     label: 'Web',
     description:
-      'Retrieve web content.\n\n' +
-      'Use `type: "fetch"` to get the raw HTTP response body (HTML, JSON, etc.) — best for APIs or when you need exact response content.\n' +
-      'Use `type: "extract"` to get cleaned, readable text from a webpage — best for articles and page content.\n' +
-      'Use `type: "search"` to find information on the web when you don\'t have a specific URL.\n' +
-      'Never put a URL in `query`.',
+      'Access the web. Pick ONE type:\n\n' +
+      'type="search": Find information when you do NOT have a URL. Requires `query` (plain text, NOT a URL). Returns a list of relevant URLs and snippets.\n' +
+      'type="extract": Read a webpage when you HAVE a URL and want the text content. Requires `url`. Returns cleaned readable text (like reader mode). Best for articles, docs, blog posts.\n' +
+      'type="fetch": Make a raw HTTP request when you HAVE a URL and need the exact response (HTML, JSON, headers). Requires `url`. Best for APIs and machine-readable data.\n\n' +
+      'RULES:\n' +
+      '- If you have a URL and want to read it → use "extract" (not "search")\n' +
+      '- If you need to find something and have no URL → use "search"\n' +
+      '- If you need raw JSON/HTML or custom headers → use "fetch"\n' +
+      '- NEVER put a URL in the `query` field. URLs go in `url` only.',
     parameters: Type.Union([
       Type.Object({
         type: Type.Literal('fetch'),
-        url: Type.String(),
+        url: Type.String({ description: 'The full URL to fetch (e.g. "https://api.example.com/data"). Required for type="fetch".' }),
         method: Type.Optional(Type.Union([Type.Literal('GET'), Type.Literal('HEAD')])),
         headers: Type.Optional(Type.Record(Type.String(), Type.String())),
         timeoutMs: Type.Optional(Type.Number()),
       }),
       Type.Object({
         type: Type.Literal('extract'),
-        url: Type.String(),
+        url: Type.String({ description: 'The full URL of the webpage to extract text from (e.g. "https://example.com/article"). Required for type="extract".' }),
       }),
       Type.Object({
         type: Type.Literal('search'),
-        query: Type.String(),
-        maxResults: Type.Optional(Type.Number()),
+        query: Type.String({ description: 'Search query in plain text (e.g. "how to parse JSON in Python"). Must NOT be a URL. Required for type="search".' }),
+        maxResults: Type.Optional(Type.Number({ description: 'Maximum number of search results to return (default: 5)' })),
       }),
     ]),
     category: 'web',
@@ -202,10 +206,8 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Install, list, read, update, and delete skills.\n\nUse `type` to select:\n' +
+      'Install, update, and delete skills.\n\nUse `type` to select:\n' +
       '- install: Install a skill from ClawHub by slug or search query\n' +
-      '- list: List all installed skills\n' +
-      '- read: Read a skill\'s files by slug\n' +
       '- update: Update a specific file in a skill\n' +
       '- delete: Uninstall a skill by slug',
     parameters: Type.Union([
@@ -213,13 +215,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
         type: Type.Literal('install'),
         slug: Type.Optional(Type.String({ description: 'ClawHub skill slug' })),
         query: Type.Optional(Type.String({ description: 'Search query' })),
-      }),
-      Type.Object({
-        type: Type.Literal('list'),
-      }),
-      Type.Object({
-        type: Type.Literal('read'),
-        slug: Type.String({ description: 'Skill slug to read' }),
       }),
       Type.Object({
         type: Type.Literal('update'),
@@ -235,8 +230,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     category: 'skill',
     actionMap: {
       install: 'skill_install',
-      list: 'skill_list',
-      read: 'skill_read',
       update: 'skill_update',
       delete: 'skill_delete',
     },

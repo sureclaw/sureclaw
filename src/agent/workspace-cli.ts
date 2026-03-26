@@ -1,16 +1,14 @@
 #!/usr/bin/env node
-// src/agent/workspace-cli.ts — CLI for container provision/cleanup/release phases.
+// src/agent/workspace-cli.ts — CLI for workspace release phase.
 //
-// Invoked as: node dist/agent/workspace-cli.js provision|cleanup|release [options]
+// Invoked as: node dist/agent/workspace-cli.js release [options]
 //
-// provision: GCS cache restore / scope provisioning / hash snapshot
-// cleanup:   diff scopes / upload changes to GCS / delete workspace
-// release:   diff scopes / gzip / upload to host staging endpoint (k8s NATS mode)
+// release: diff scopes / gzip / upload to host via HTTP
 
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { provisionWorkspace, provisionScope, diffScope, releaseWorkspace } from './workspace.js';
+import { diffScope } from './workspace.js';
 import type { FileHashMap } from './workspace.js';
 
 /** Parse CLI args into a key/value map. Expects --key=value or --key value. */
@@ -31,104 +29,10 @@ function parseArgs(argv: string[]): Record<string, string> {
   return result;
 }
 
-/** Snapshot file: stores scope hashes for diff on cleanup. */
-const HASH_SNAPSHOT_FILE = '.ax-hashes.json';
-
 interface HashSnapshot {
   agent?: [string, string][];
   user?: [string, string][];
   session?: [string, string][];
-}
-
-async function provision(args: Record<string, string>): Promise<void> {
-  const workspace = args.workspace ?? '/workspace';
-  const session = args.session ?? 'default';
-
-  // Provision workspace (GCS cache → empty)
-  const wsResult = await provisionWorkspace(workspace, session, {
-    cacheKey: args['cache-key'],
-  });
-  console.log(`[provision] workspace ready: ${wsResult.source} (${wsResult.durationMs}ms)`);
-
-  // Provision scopes
-  const snapshot: HashSnapshot = {};
-
-  if (args['agent-gcs-prefix']) {
-    const agentPath = join(workspace, session, 'agent');
-    const agentReadOnly = args['agent-read-only'] === 'true';
-    const result = await provisionScope(agentPath, args['agent-gcs-prefix'], agentReadOnly);
-    snapshot.agent = [...result.hashes.entries()];
-    console.log(`[provision] agent scope: ${result.source} (${result.fileCount} files)`);
-  }
-
-  if (args['user-gcs-prefix']) {
-    const userPath = join(workspace, session, 'user');
-    const userReadOnly = args['user-read-only'] === 'true';
-    const result = await provisionScope(userPath, args['user-gcs-prefix'], userReadOnly);
-    snapshot.user = [...result.hashes.entries()];
-    console.log(`[provision] user scope: ${result.source} (${result.fileCount} files)`);
-  }
-
-  if (args['session-gcs-prefix']) {
-    const sessionPath = join(workspace, session, 'scratch');
-    const result = await provisionScope(sessionPath, args['session-gcs-prefix'], false);
-    snapshot.session = [...result.hashes.entries()];
-    console.log(`[provision] session scope: ${result.source} (${result.fileCount} files)`);
-  }
-
-  // Write hash snapshot for cleanup phase
-  const snapshotPath = join(workspace, session, HASH_SNAPSHOT_FILE);
-  writeFileSync(snapshotPath, JSON.stringify(snapshot), 'utf-8');
-  console.log('[provision] hash snapshot written');
-}
-
-async function cleanup(args: Record<string, string>): Promise<void> {
-  const workspace = args.workspace ?? '/workspace';
-  const session = args.session ?? 'default';
-  const wsPath = join(workspace, session);
-
-  // Read hash snapshot
-  const snapshotPath = join(wsPath, HASH_SNAPSHOT_FILE);
-  let snapshot: HashSnapshot = {};
-  if (existsSync(snapshotPath)) {
-    try {
-      snapshot = JSON.parse(readFileSync(snapshotPath, 'utf-8'));
-    } catch {
-      console.warn('[cleanup] failed to read hash snapshot');
-    }
-  }
-
-  // Diff each scope
-  const changes: Record<string, any[]> = {};
-
-  if (snapshot.agent) {
-    const agentPath = join(wsPath, 'agent');
-    const baseHashes: FileHashMap = new Map(snapshot.agent);
-    changes.agent = diffScope(agentPath, baseHashes);
-    console.log(`[cleanup] agent scope: ${changes.agent.length} changes`);
-  }
-
-  if (snapshot.user) {
-    const userPath = join(wsPath, 'user');
-    const baseHashes: FileHashMap = new Map(snapshot.user);
-    changes.user = diffScope(userPath, baseHashes);
-    console.log(`[cleanup] user scope: ${changes.user.length} changes`);
-  }
-
-  if (snapshot.session) {
-    const scratchPath = join(wsPath, 'scratch');
-    const baseHashes: FileHashMap = new Map(snapshot.session);
-    changes.session = diffScope(scratchPath, baseHashes);
-    console.log(`[cleanup] session scope: ${changes.session.length} changes`);
-  }
-
-  // Release workspace (GCS cache update, cleanup)
-  await releaseWorkspace(wsPath, {
-    updateCache: args['update-cache'] === 'true',
-    cacheKey: args['cache-key'],
-  });
-
-  console.log('[cleanup] workspace released');
 }
 
 // ═══════════════════════════════════════════════════════
@@ -289,25 +193,12 @@ async function release(args: Record<string, string>): Promise<void> {
 
 const [,, command, ...rawArgs] = process.argv;
 
-if (command === 'provision') {
-  provision(parseArgs(rawArgs)).catch(err => {
-    console.error(`[provision] fatal: ${(err as Error).message}`);
-    process.exit(1);
-  });
-} else if (command === 'cleanup') {
-  cleanup(parseArgs(rawArgs)).catch(err => {
-    console.error(`[cleanup] fatal: ${(err as Error).message}`);
-    process.exit(1);
-  });
-} else if (command === 'release') {
+if (command === 'release') {
   release(parseArgs(rawArgs)).catch(err => {
     console.error(`[release] fatal: ${(err as Error).message}`);
     process.exit(1);
   });
 } else {
-  console.error(`Usage: workspace-cli.js <provision|cleanup|release> [options]`);
-  console.error(`  provision: --workspace --session --cache-key --agent-gcs-prefix --user-gcs-prefix --session-gcs-prefix`);
-  console.error(`  cleanup:   --workspace --session --update-cache --cache-key`);
-  console.error(`  release:   --host-url <url> [--scopes session,agent,user]`);
+  console.error(`Usage: workspace-cli.js release --host-url <url> [--token <token>] [--scopes session,agent,user]`);
   process.exit(1);
 }

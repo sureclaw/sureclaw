@@ -1,5 +1,21 @@
 # K8s Deployment Journal
 
+## [2026-03-25 20:35] — Remove skill_list/skill_read IPC and workspace GCS provisioning
+
+**Task:** Remove dead IPC actions and dead workspace GCS provisioning code
+**What I did:** (1) Removed skill_list/skill_read from IPC schemas, handlers, tool catalog, MCP server, capabilities template, and manifest generator. (2) Removed provision() and cleanup() from workspace-cli.ts, gutted workspace.ts to only keep diffScope (used by release). (3) Removed GCS prefix fields (agentGcsPrefix, userGcsPrefix, sessionGcsPrefix, workspaceCacheKey) from StdinPayload and resolveWorkspaceGcsPrefixes() from server-completions.ts. (4) Updated all tests.
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/skills.ts`, `src/agent/tool-catalog.ts`, `src/agent/mcp-server.ts`, `templates/capabilities.yaml`, `src/utils/manifest-generator.ts`, `src/agent/workspace-cli.ts`, `src/agent/workspace.ts`, `src/agent/runner.ts`, `src/host/server-completions.ts`, 6 test files
+**Outcome:** Success — all 2634 tests pass. skill tool now has install/update/delete only. Workspace provisioning is gone.
+**Notes:** Skills are DB-backed and delivered via payload. Agent reads from filesystem (written by runner from payload). workspace_* IPC tools handle all workspace operations. Only workspace-cli.ts release() remains for end-of-turn diff upload.
+
+## [2026-03-25 20:10] — Move skill persistence from GCS/filesystem to database-only
+
+**Task:** Skills were being stored in GCS bucket instead of only in database
+**What I did:** Removed GCS write (setRemoteChanges) and filesystem write (mkdirSync/writeFileSync) from skill_install handler. Made DB upsertSkill the primary persistence. Added skills delivery via stdinPayload (loaded from DB on host, delivered to agent like identity). Agent-setup now uses preloaded skills from payload when available, falls back to filesystem dirs.
+**Files touched:** `src/host/ipc-handlers/skills.ts` (removed GCS+filesystem writes, DB is primary), `src/host/server-completions.ts` (load skills from DB, add to stdinPayload), `src/agent/runner.ts` (skills field in AgentConfig/StdinPayload/applyPayload), `src/agent/agent-setup.ts` (prefer payload skills over filesystem), `tests/host/ipc-handlers/skills.test.ts` (rewritten for DB assertions), `tests/sandbox-isolation.test.ts` (updated for new pattern)
+**Outcome:** Success — skills stored in DB only, delivered via payload, no GCS or filesystem writes
+**Notes:** The skill_install handler had 3 persistence paths (filesystem, GCS, DB). Now only DB. Agent loads skills from payload (like identity) with filesystem fallback for subprocess mode.
+
 ## [2026-03-25 19:45] — Fix session-long pod reuse: token keying + per-turn token update
 
 **Task:** Sandbox pods were killed immediately after each turn instead of being reused across turns

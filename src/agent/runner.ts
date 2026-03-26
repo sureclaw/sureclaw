@@ -7,8 +7,9 @@ import type {
 import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
-import type { IdentityFiles, SkillSummary } from './prompt/types.js';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import type { IdentityFiles } from './prompt/types.js';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 
 const logger = getLogger().child({ component: 'runner' });
 
@@ -72,6 +73,9 @@ export interface AgentConfig {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
+  /** Pre-loaded skills from host (via stdin payload from DB).
+   *  Written to workspace skills/ directory before runner starts. */
+  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -272,14 +276,6 @@ export interface StdinPayload {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (loaded from DocumentStore). */
   identity?: Partial<IdentityFiles>;
-  /** GCS cache key for workspace restore. */
-  workspaceCacheKey?: string;
-  /** GCS prefix for agent scope provisioning. */
-  agentGcsPrefix?: string;
-  /** GCS prefix for user scope provisioning. */
-  userGcsPrefix?: string;
-  /** GCS prefix for session/scratch scope provisioning. */
-  sessionGcsPrefix?: string;
   /** Whether agent scope is read-only (non-admin users). */
   agentReadOnly?: boolean;
   /** Web proxy URL for outbound HTTP/HTTPS (warm pool pods get this from payload, not pod env). */
@@ -288,6 +284,11 @@ export interface StdinPayload {
   credentialEnv?: Record<string, string>;
   /** MITM CA cert PEM — written to disk so sandbox processes trust the proxy. */
   caCert?: string;
+  /** Pre-loaded skills from DB (loaded from DocumentStore on host).
+   *  Each skill includes its full file contents so the runner can write
+   *  them to the workspace skills/ directory for installSkillDeps() and
+   *  buildSystemPrompt() to read. */
+  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
 }
 
 /**
@@ -334,16 +335,13 @@ export function parseStdinPayload(data: string): StdinPayload {
         // Identity from host (loaded from DocumentStore)
         identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
         // Workspace provisioning fields (sandbox-side providers provision in-pod)
-        workspaceCacheKey: typeof parsed.workspaceCacheKey === 'string' ? parsed.workspaceCacheKey : undefined,
-        agentGcsPrefix: typeof parsed.agentGcsPrefix === 'string' ? parsed.agentGcsPrefix : undefined,
-        userGcsPrefix: typeof parsed.userGcsPrefix === 'string' ? parsed.userGcsPrefix : undefined,
-        sessionGcsPrefix: typeof parsed.sessionGcsPrefix === 'string' ? parsed.sessionGcsPrefix : undefined,
         agentReadOnly: parsed.agentReadOnly === true,
         webProxyUrl: typeof parsed.webProxyUrl === 'string' ? parsed.webProxyUrl : undefined,
         credentialEnv: parsed.credentialEnv && typeof parsed.credentialEnv === 'object' && !Array.isArray(parsed.credentialEnv)
           ? parsed.credentialEnv as Record<string, string>
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
+        skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
       };
     }
   } catch {
@@ -474,7 +472,19 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
   config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
   config.workspaceProvider = payload.workspaceProvider;
-  // Identity from host (loaded from DocumentStore; skills are now filesystem-based)
+  // Write skills from DB payload to workspace skills/ directory so
+  // installSkillDeps() and buildSystemPrompt()'s loadSkillsMultiDir() find them.
+  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.userWorkspace) {
+    const skillsBase = join(config.userWorkspace, 'skills');
+    for (const skill of payload.skills) {
+      for (const file of skill.files) {
+        const filePath = join(skillsBase, skill.slug, file.path);
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, file.content, 'utf-8');
+      }
+    }
+    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
+  }
   if (payload.identity) {
     config.identity = {
       agents: payload.identity.agents ?? '',

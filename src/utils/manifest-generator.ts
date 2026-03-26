@@ -84,7 +84,7 @@ const SCRIPT_PATH_RE = /(?:scripts|bins?)\/[\w.-]+\.(?:py|sh|ts|js|rb|pl)\b/g;
 const IPC_TOOLS = [
   'memory_write', 'memory_query', 'memory_read', 'memory_delete', 'memory_list',
   'web_fetch', 'web_search',
-  'skill_read', 'skill_list', 'skill_propose',
+  'skill_install', 'skill_update', 'skill_delete',
   'workspace_mount',
   'agent_delegate',
   'browser_launch', 'browser_navigate', 'browser_snapshot',

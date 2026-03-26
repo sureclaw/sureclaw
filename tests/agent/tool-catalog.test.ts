@@ -72,8 +72,6 @@ describe('tool-catalog', () => {
     expect(skillTool).toBeDefined();
     expect(skillTool!.actionMap).toBeDefined();
     expect(skillTool!.actionMap!.install).toBe('skill_install');
-    expect(skillTool!.actionMap!.list).toBe('skill_list');
-    expect(skillTool!.actionMap!.read).toBe('skill_read');
     expect(skillTool!.actionMap!.update).toBe('skill_update');
     expect(skillTool!.actionMap!.delete).toBe('skill_delete');
   });

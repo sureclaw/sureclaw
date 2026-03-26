@@ -147,29 +147,6 @@ const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
  *  - Empty-string prefix is valid (files live at bucket root) — mirrors gcs.ts default.
  *  - Trailing slash is normalised the same way as buildGcsPrefix in gcs.ts.
  */
-export function resolveWorkspaceGcsPrefixes(
-  config: Config,
-  agentName: string,
-  userId: string,
-  sessionId: string,
-): { agentGcsPrefix?: string; userGcsPrefix?: string; sessionGcsPrefix?: string } {
-  // Only GCS workspace provider stores files in GCS that can be provisioned.
-  if (config.providers.workspace !== 'gcs') return {};
-
-  // Mirror gcs.ts: `wsConfig.prefix ?? ''` — empty string is a valid prefix
-  // meaning files live directly under the bucket root.
-  const rawPrefix = config.workspace?.prefix ?? process.env.AX_WORKSPACE_GCS_PREFIX ?? '';
-
-  // Mirror buildGcsPrefix trailing-slash normalisation in gcs.ts.
-  const base = rawPrefix.endsWith('/') ? rawPrefix : rawPrefix ? `${rawPrefix}/` : '';
-
-  return {
-    agentGcsPrefix:   `${base}agent/${agentName}/`,
-    userGcsPrefix:    `${base}user/${userId}/`,
-    sessionGcsPrefix: `${base}scratch/${sessionId}/`,
-  };
-}
-
 /**
  * Load identity files from DocumentStore for a given agent and user.
  * Returns an IdentityPayload with fields populated from matching documents.
@@ -876,12 +853,24 @@ export async function processCompletion(
     // Identity files are keyed as <agentName>/<filename> and <agentName>/users/<userId>/<filename>
     const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
 
-    // Identity is delivered to the agent via stdin payload (below).
-    // Skills are now loaded directly from filesystem directories by the agent.
+    // ── Load installed skills from DB ──
+    let skillsPayload: Array<{ slug: string; files: Array<{ path: string; content: string }> }> = [];
+    if (providers.storage?.documents) {
+      try {
+        const { listSkills } = await import('../providers/storage/skills.js');
+        const dbSkills = await listSkills(providers.storage.documents, agentName);
+        skillsPayload = dbSkills.map(s => ({
+          slug: s.id,
+          files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
+        }));
+      } catch (err) {
+        reqLogger.warn('skills_load_failed', { error: (err as Error).message });
+      }
+    }
+
+    // Identity and skills are delivered to the agent via stdin payload (below).
 
     // ── Workspace GCS prefixes ──
-    const gcsPrefixes = resolveWorkspaceGcsPrefixes(config, agentName, currentUserId ?? '', sessionId);
-
     // Build stdin payload once — reused across retry attempts.
     const taintState = taintBudget.getState(sessionId);
     const stdinPayload = JSON.stringify({
@@ -905,10 +894,9 @@ export async function processCompletion(
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
       workspaceProvider: config.providers.workspace,
-      // Identity from DocumentStore (skills are now filesystem-based)
+      // Identity and skills from DocumentStore
       identity: identityPayload,
-      // Workspace provisioning fields (sandbox-side providers provision in-pod)
-      ...gcsPrefixes,
+      skills: skillsPayload.length > 0 ? skillsPayload : undefined,
       agentReadOnly: !agentWorkspaceWritable,
       // Credential placeholders — warm pool pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.

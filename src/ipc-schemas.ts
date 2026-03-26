@@ -159,12 +159,6 @@ export const SkillInstallSchema = ipcAction('skill_install', {
   slug: safeString(200).optional(),
 });
 
-export const SkillListSchema = ipcAction('skill_list', {});
-
-export const SkillReadSchema = ipcAction('skill_read', {
-  slug: safeString(200),
-});
-
 export const SkillUpdateSchema = ipcAction('skill_update', {
   slug: safeString(200),
   path: safeString(1024),
