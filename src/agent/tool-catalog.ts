@@ -1,9 +1,9 @@
 /**
  * Shared IPC tool catalog — single source of truth for tool metadata.
  *
- * Both TypeBox consumers (ipc-tools.ts, pi-session.ts) derive their tool
- * arrays from this catalog. The Zod consumer (mcp-server.ts) stays manually
- * written but a sync test ensures its tool names and parameter keys match.
+ * TypeBox consumers (ipc-tools.ts, pi-session.ts) derive their tool arrays
+ * from this catalog. The Zod consumer (mcp-server.ts) imports descriptions
+ * via getToolDescription() and defines only Zod schemas + execution logic.
  *
  * Tools are consolidated: each entry may represent multiple IPC actions
  * selected via a `type` discriminator parameter. The actionMap / singletonAction
@@ -459,6 +459,13 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
 
 /** All tool names, derived from the catalog. */
 export const TOOL_NAMES: string[] = TOOL_CATALOG.map(s => s.name);
+
+/** Look up a tool's description by name. Single source of truth for both TypeBox and Zod consumers. */
+export function getToolDescription(name: string): string {
+  const spec = TOOL_CATALOG.find(s => s.name === name);
+  if (!spec) throw new Error(`Unknown tool: ${name}`);
+  return spec.description;
+}
 
 /** Extract parameter key names for a given tool (for sync tests). */
 export function getToolParamKeys(name: string): string[] {

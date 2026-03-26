@@ -10,7 +10,7 @@ import { z } from 'zod/v4';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { IIPCClient } from './runner.js';
-import { normalizeOrigin, filterTools } from './tool-catalog.js';
+import { normalizeOrigin, filterTools, getToolDescription } from './tool-catalog.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 import { createLocalSandbox } from './local-sandbox.js';
 
@@ -86,14 +86,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
   // Define all MCP tools (10 consolidated), then filter based on context
   const allTools = [
     // ── Memory ──
-    tool('memory',
-      'Store, search, read, delete, and list memory entries.\n\n' +
-      'Use `type` to select:\n' +
-      '- write: Store a memory entry (requires scope, content)\n' +
-      '- query: Search entries (requires scope, optional query/limit/tags)\n' +
-      '- read: Read entry by ID (requires id)\n' +
-      '- delete: Delete entry by ID (requires id)\n' +
-      '- list: List entries in scope (requires scope, optional limit)',
+    tool('memory', getToolDescription('memory'),
       {
         type: z.enum(['write', 'query', 'read', 'delete', 'list']),
         scope: z.string().optional(),
@@ -111,17 +104,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Web ──
-    tool(
-      'web',
-      'Access the web. Pick ONE type:\n\n' +
-      'type="search": Find information when you do NOT have a URL. Requires `query` (plain text, NOT a URL). Returns a list of relevant URLs and snippets.\n' +
-      'type="extract": Read a webpage when you HAVE a URL and want the text content. Requires `url`. Returns cleaned readable text (like reader mode). Best for articles, docs, blog posts.\n' +
-      'type="fetch": Make a raw HTTP request when you HAVE a URL and need the exact response (HTML, JSON, headers). Requires `url`. Best for APIs and machine-readable data.\n\n' +
-      'RULES:\n' +
-      '- If you have a URL and want to read it → use "extract" (not "search")\n' +
-      '- If you need to find something and have no URL → use "search"\n' +
-      '- If you need raw JSON/HTML or custom headers → use "fetch"\n' +
-      '- NEVER put a URL in the `query` field. URLs go in `url` only.',
+    tool('web', getToolDescription('web'),
       {
         type: z.enum(['fetch', 'extract', 'search']).describe('Operation type: "search" to find info (no URL needed), "extract" to read a webpage (URL required), "fetch" for raw HTTP requests (URL required)'),
         url: z.string().url().optional().describe('The URL to fetch or extract. Required for type="fetch" and type="extract". Do NOT use with type="search".'),
@@ -139,12 +122,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Identity ──
-    tool('identity',
-      'Read, write, or update identity files or user preferences.\n\n' +
-      'Use `type` to select:\n' +
-      '- read: Read current content of SOUL.md or IDENTITY.md (requires file)\n' +
-      '- write: Update SOUL.md or IDENTITY.md (requires file, content, reason, origin)\n' +
-      '- user_write: Update user preferences USER.md (requires content, reason, origin)',
+    tool('identity', getToolDescription('identity'),
       {
         type: z.enum(['read', 'write', 'user_write']),
         file: z.enum(['SOUL.md', 'IDENTITY.md']).optional(),
@@ -168,13 +146,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Scheduler ──
-    tool('scheduler',
-      'Schedule recurring and one-shot tasks.\n\n' +
-      'Use `type` to select:\n' +
-      '- add_cron: Schedule recurring task (requires schedule, prompt)\n' +
-      '- run_at: Schedule one-shot task (requires datetime, prompt)\n' +
-      '- remove: Remove a scheduled job (requires jobId)\n' +
-      '- list: List all scheduled jobs',
+    tool('scheduler', getToolDescription('scheduler'),
       {
         type: z.enum(['add_cron', 'run_at', 'remove', 'list']),
         schedule: z.string().optional().describe('Cron expression, e.g. "0 9 * * 1" for 9am every Monday'),
@@ -191,11 +163,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Skill ──
-    tool('skill',
-      'Install, update, and delete skills.\n\nUse `type` to select:\n' +
-      '- install: Install a skill from ClawHub by slug or search query\n' +
-      '- update: Update a specific file in a skill\n' +
-      '- delete: Uninstall a skill by slug',
+    tool('skill', getToolDescription('skill'),
       {
         type: z.enum(['install', 'update', 'delete']),
         slug: z.string().optional().describe('ClawHub skill slug'),
@@ -214,10 +182,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Credential ──
-    tool('request_credential',
-      'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
-      'The host will prompt the user to provide it. This ends the current turn; you will be\n' +
-      're-invoked with the credential available as an environment variable.',
+    tool('request_credential', getToolDescription('request_credential'),
       {
         envName: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).describe('Environment variable name needed (e.g. LINEAR_API_KEY). Must be uppercase with underscores only.'),
       },
@@ -225,8 +190,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Workspace ──
-    tool('workspace_write',
-      'Write a text file to a workspace tier (agent, user, or session) without requiring a sandbox.',
+    tool('workspace_write', getToolDescription('workspace_write'),
       {
         tier: z.string().describe('"agent", "user", or "session"'),
         path: z.string().describe('Relative path within the tier (e.g. "docs/notes.md")'),
@@ -236,8 +200,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Workspace Read ──
-    tool('workspace_read',
-      'Read a file from a workspace scope (agent, user, or session). Returns the file content as text.',
+    tool('workspace_read', getToolDescription('workspace_read'),
       {
         scope: z.string().describe('"agent", "user", or "session"'),
         path: z.string().describe('Relative path within the scope'),
@@ -246,8 +209,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Workspace List ──
-    tool('workspace_list',
-      'List files in a workspace scope (agent, user, or session). Optionally filter by path prefix.',
+    tool('workspace_list', getToolDescription('workspace_list'),
       {
         scope: z.string().describe('"agent", "user", or "session"'),
         prefix: z.string().optional().describe('Filter by path prefix'),
@@ -256,8 +218,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Workspace Scopes ──
-    tool('workspace_mount',
-      'Mount workspace scopes for file persistence. Scopes: session (temporary), user (private), agent (shared). Additive — call multiple times to add scopes.',
+    tool('workspace_mount', getToolDescription('workspace_mount'),
       {
         scopes: z.array(z.string()).describe('Scopes to mount: "session", "user", or "agent"'),
       },
@@ -265,12 +226,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Governance ──
-    tool('governance',
-      'Enterprise governance: propose identity changes, list proposals, list agents.\n\n' +
-      'Use `type` to select:\n' +
-      '- propose: Propose a change to a shared identity file (requires file, content, reason, origin)\n' +
-      '- list_proposals: List governance proposals (optional status filter)\n' +
-      '- list_agents: List registered agents (optional status filter)',
+    tool('governance', getToolDescription('governance'),
       {
         type: z.enum(['propose', 'list_proposals', 'list_agents']),
         file: z.string().optional().describe('"SOUL.md" or "IDENTITY.md"'),
@@ -290,18 +246,14 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Audit (singleton) ──
-    tool('audit', 'Query the audit log with filters.', {
+    tool('audit', getToolDescription('audit'), {
       action: z.string().optional(),
       sessionId: z.string().optional(),
       limit: z.number().optional(),
     }, (args) => ipcCall('audit_query', args)),
 
     // ── Agent ──
-    tool('agent',
-      'Delegate tasks to sub-agents and collect results.\n\n' +
-      'Use `type` to select:\n' +
-      '- delegate: Launch a sub-agent in its own sandbox (blocks by default, or fire-and-forget with wait: false)\n' +
-      '- collect: Collect results from fire-and-forget delegates launched with wait: false',
+    tool('agent', getToolDescription('agent'),
       {
         type: z.enum(['delegate', 'collect']),
         task: z.string().optional().describe('The task description for the sub-agent (delegate)'),
@@ -325,10 +277,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     ),
 
     // ── Image (singleton) ──
-    tool('image',
-      'Generate an image from a text prompt using a configured image model. ' +
-      'Returns a JSON object with a `url` field. Display the image in your response ' +
-      'using markdown: ![description](url)',
+    tool('image', getToolDescription('image'),
       {
         prompt: z.string().describe('Text description of the image to generate'),
         model: z.string().optional().describe('Model ID override (defaults to first configured image model)'),
@@ -340,8 +289,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
 
     // ── Sandbox (singleton tools for bash/file ops) ──
     // When localSandbox is set, tools execute in-container with host audit gate.
-    tool('bash',
-      'Execute a bash command in the workspace directory.',
+    tool('bash', getToolDescription('bash'),
       {
         command: z.string().describe('The bash command to execute'),
       },
@@ -350,8 +298,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         : (args) => ipcCall('sandbox_bash', args),
     ),
 
-    tool('read_file',
-      'Read the contents of a file in the workspace.',
+    tool('read_file', getToolDescription('read_file'),
       {
         path: z.string().describe('Relative path to the file'),
       },
@@ -360,8 +307,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         : (args) => ipcCall('sandbox_read_file', args),
     ),
 
-    tool('write_file',
-      'Write content to a file in the workspace.',
+    tool('write_file', getToolDescription('write_file'),
       {
         path: z.string().describe('Relative path to the file'),
         content: z.string().describe('Content to write'),
@@ -371,8 +317,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         : (args) => ipcCall('sandbox_write_file', args),
     ),
 
-    tool('edit_file',
-      'Replace a string in a file.',
+    tool('edit_file', getToolDescription('edit_file'),
       {
         path: z.string().describe('Relative path to the file'),
         old_string: z.string().describe('Text to find'),
