@@ -543,19 +543,8 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
 
   logger.debug('session_complete', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
 
-  // In k8s mode, release workspace files then send agent_response
+  // In k8s mode, send agent_response via IPC
   if (isK8sTransport) {
-    // Upload workspace file changes to host via sidecar before agent_response
-    const hostUrl = process.env.AX_HOST_URL;
-    if (hostUrl) {
-      try {
-        const { releaseWorkspaceScopes } = await import('../workspace-release.js');
-        await releaseWorkspaceScopes(hostUrl);
-      } catch (err) {
-        logger.warn('workspace_release_failed', { error: (err as Error).message });
-        // Non-fatal — don't lose the response over workspace sync failure
-      }
-    }
 
     const buffered = eventState.getBuffered();
     logger.debug('k8s_agent_response', { contentLength: buffered.length });

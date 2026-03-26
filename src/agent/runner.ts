@@ -408,7 +408,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
     });
   }
   // IPC token — updated each turn. The host sends a fresh per-turn token in the payload.
-  // Set it in process.env so workspace-release.ts can use it for direct HTTP release.
   if (payload.ipcToken) {
     process.env.AX_IPC_TOKEN = payload.ipcToken;
   }
