@@ -180,13 +180,14 @@ describe('sandbox-k8s provider', () => {
     expect(socketEnv).toBeUndefined();
   });
 
-  test('pod does not include activeDeadlineSeconds (host manages lifecycle)', async () => {
+  test('pod includes activeDeadlineSeconds as safety net (timeoutSec + 300s buffer)', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
     await provider.spawn(mockSandboxConfig());
 
     const spec = mockCreateNamespacedPod.mock.calls[0][0].body.spec;
-    expect(spec.activeDeadlineSeconds).toBeUndefined();
+    // timeoutSec (30) + 300s buffer = 330
+    expect(spec.activeDeadlineSeconds).toBe(330);
   });
 
   test('exitCode resolves when pod succeeds and pod is deleted', async () => {
