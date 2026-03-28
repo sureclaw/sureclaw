@@ -1,4 +1,17 @@
-# Cap'n Web MCP Integration
+# Scripted Tool Execution
+
+## [2026-03-28 20:48] — Replace Cap'n Web with proxy-based batching (zero dependencies)
+
+**Task:** Remove capnweb dependency entirely. Implement dependent call pipelining with JavaScript Proxy + $ref substitution over existing IPC.
+**What I did:**
+- Removed `capnweb` npm dependency
+- Created `src/host/ipc-handlers/tool-batch.ts` — executes ordered tool calls with `$ref` resolution. `evaluatePath()` handles `[0].id` style paths. Errors are per-call (`$error` marker), not batch-aborting.
+- Rewrote codegen runtime (`_runtime.ts`) — proxy-based: `callTool()` returns a thenable Proxy that tracks property access as `$ref` paths. Multiple calls made before the first `await` are batched into one `tool_batch` IPC call via `setTimeout(0)`.
+- Updated tool stubs to import `callTool` from `_runtime.ts`
+- Removed `src/host/capnweb/server.ts` (was Cap'n Web RpcTarget wrapper)
+**Files touched:** `package.json`, `src/ipc-schemas.ts`, `src/host/ipc-handlers/tool-batch.ts`, `src/host/capnweb/codegen.ts`, `src/host/ipc-server.ts`, `tests/`
+**Outcome:** Success — 2650 tests pass. Zero external dependencies. ~80 lines of runtime code.
+**Notes:** The proxy approach gives the LLM the same DX as Cap'n Web (typed stubs, natural property access for pipelining) without any dependency. Sequential code (`await` between calls) works too — just 1 round trip per await.
 
 ## [2026-03-28 20:25] — Route Cap'n Web batch through existing IPC socket
 

@@ -442,11 +442,14 @@ export const SandboxResultSchema = ipcAction('sandbox_result', {
   error: safeString(10_000).optional(),
 });
 
-// ── Cap'n Web RPC Batch ─────────────────────────────
+// ── Tool Batch (scripted tool execution) ────────────
 
-export const CapnwebBatchSchema = ipcAction('capnweb_batch', {
-  /** Newline-delimited Cap'n Web RPC messages (the batch payload). */
-  body: safeString(1_000_000),
+export const ToolBatchSchema = ipcAction('tool_batch', {
+  /** Ordered tool calls. Args may contain { $ref, path } for dependent pipelining. */
+  calls: z.array(z.object({
+    tool: safeString(200),
+    args: z.record(z.unknown()),
+  })),
 });
 
 // ── Plugin Management ────────────────────────────────

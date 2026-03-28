@@ -20,10 +20,9 @@ import { createImageHandlers } from './ipc-handlers/image.js';
 import { createPluginHandlers } from './ipc-handlers/plugin.js';
 import { createOrchestrationHandlers } from './ipc-handlers/orchestration.js';
 import { createSandboxToolHandlers } from './ipc-handlers/sandbox-tools.js';
-import { createCapnWebHandlers } from './ipc-handlers/capnweb.js';
+import { createToolBatchHandlers, type ToolBatchProvider } from './ipc-handlers/tool-batch.js';
 import { type AgentRegistry, FileAgentRegistry } from './agent-registry.js';
 import type { Orchestrator } from './orchestration/orchestrator.js';
-import type { RpcTarget } from 'capnweb';
 
 const logger = getLogger().child({ component: 'ipc' });
 
@@ -91,8 +90,8 @@ export interface IPCHandlerOptions {
   requestedCredentials?: Map<string, Set<string>>;
   /** Proxy domain allowlist — skill_install adds domains from skill manifests. */
   domainList?: import('../host/proxy-domain-list.js').ProxyDomainList;
-  /** Returns the Cap'n Web RpcTarget for a given session (null = not configured). */
-  capnwebTarget?: (ctx: IPCContext) => RpcTarget | null;
+  /** Returns the MCP provider for tool batch execution (null = not configured). */
+  toolBatchProvider?: (ctx: IPCContext) => ToolBatchProvider | null;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -132,7 +131,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...(opts?.workspaceMap ? createSandboxToolHandlers(providers, {
       workspaceMap: opts.workspaceMap,
     }) : {}),
-    ...(opts?.capnwebTarget ? createCapnWebHandlers(opts.capnwebTarget) : {}),
+    ...(opts?.toolBatchProvider ? createToolBatchHandlers(opts.toolBatchProvider) : {}),
   };
 
   return async function handleIPC(raw: string, ctx: IPCContext): Promise<string> {

@@ -1,5 +1,5 @@
 /**
- * Tests for Cap'n Web TypeScript stub generation.
+ * Tests for tool stub generation.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -13,40 +13,30 @@ import { initLogger } from '../../../src/logger.js';
 initLogger({ file: false, level: 'silent' });
 
 describe('groupToolsByServer', () => {
-  it('should group tools by underscore-separated prefix', () => {
-    const tools: McpToolSchema[] = [
-      { name: 'linear_getIssues', description: 'Get issues', inputSchema: {} },
-      { name: 'linear_getTeams', description: 'Get teams', inputSchema: {} },
-      { name: 'github_getRepository', description: 'Get repo', inputSchema: {} },
-    ];
-
-    const groups = groupToolsByServer(tools);
-
+  it('should group by underscore prefix', () => {
+    const groups = groupToolsByServer([
+      { name: 'linear_getIssues', description: '', inputSchema: {} },
+      { name: 'linear_getTeams', description: '', inputSchema: {} },
+      { name: 'github_getRepo', description: '', inputSchema: {} },
+    ]);
     expect(groups).toHaveLength(2);
-    const linear = groups.find((g) => g.server === 'linear');
-    const github = groups.find((g) => g.server === 'github');
-    expect(linear?.tools).toHaveLength(2);
-    expect(github?.tools).toHaveLength(1);
+    expect(groups.find(g => g.server === 'linear')?.tools).toHaveLength(2);
+    expect(groups.find(g => g.server === 'github')?.tools).toHaveLength(1);
   });
 
-  it('should group tools by slash-separated prefix', () => {
-    const tools: McpToolSchema[] = [
-      { name: 'linear/getIssues', description: 'Get issues', inputSchema: {} },
-      { name: 'linear/getTeams', description: 'Get teams', inputSchema: {} },
-    ];
-
-    const groups = groupToolsByServer(tools);
+  it('should group by slash prefix', () => {
+    const groups = groupToolsByServer([
+      { name: 'linear/getIssues', description: '', inputSchema: {} },
+      { name: 'linear/getTeams', description: '', inputSchema: {} },
+    ]);
     expect(groups).toHaveLength(1);
     expect(groups[0].server).toBe('linear');
-    expect(groups[0].tools).toHaveLength(2);
   });
 
-  it('should put unprefixed tools in default group', () => {
-    const tools: McpToolSchema[] = [
-      { name: 'search', description: 'Search', inputSchema: {} },
-    ];
-
-    const groups = groupToolsByServer(tools);
+  it('should put unprefixed tools in default', () => {
+    const groups = groupToolsByServer([
+      { name: 'search', description: '', inputSchema: {} },
+    ]);
     expect(groups[0].server).toBe('default');
   });
 });
@@ -54,29 +44,25 @@ describe('groupToolsByServer', () => {
 describe('generateToolStubs', () => {
   let tempDir: string;
 
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'ax-codegen-test-'));
-  });
+  beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), 'ax-codegen-')); });
+  afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
 
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('should generate _runtime.ts with IPC batch transport', () => {
+  it('should generate proxy-based _runtime.ts with zero deps', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({ outputDir, groups: [] });
 
     const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
-    expect(runtime).toContain('RpcSession');
+    expect(runtime).toContain('callTool');
     expect(runtime).toContain('AX_IPC_SOCKET');
-    expect(runtime).toContain('capnweb_batch');
-    expect(runtime).toContain('IPCBatchTransport');
-    expect(runtime).toContain('export const tools');
-    // Should NOT contain HTTP batch
-    expect(runtime).not.toContain('newHttpBatchRpcSession');
+    expect(runtime).toContain('tool_batch');
+    expect(runtime).toContain('Proxy');
+    expect(runtime).toContain('$ref');
+    // No external dependencies
+    expect(runtime).not.toContain('capnweb');
+    expect(runtime).not.toContain('RpcSession');
   });
 
-  it('should generate per-server directories with tool files', () => {
+  it('should generate per-server tool files', () => {
     const outputDir = join(tempDir, 'tools');
     const result = generateToolStubs({
       outputDir,
@@ -89,72 +75,56 @@ describe('generateToolStubs', () => {
               description: 'Get Linear issues',
               inputSchema: {
                 type: 'object',
-                properties: {
-                  teamId: { type: 'string' },
-                  limit: { type: 'number' },
-                },
+                properties: { teamId: { type: 'string' }, limit: { type: 'number' } },
                 required: ['teamId'],
               },
             },
-            {
-              name: 'getTeams',
-              description: 'Get Linear teams',
-              inputSchema: { type: 'object', properties: {} },
-            },
+            { name: 'getTeams', description: 'Get teams', inputSchema: {} },
           ],
         },
         {
           server: 'github',
-          tools: [
-            {
-              name: 'getRepository',
-              description: 'Get GitHub repository',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  owner: { type: 'string' },
-                  name: { type: 'string' },
-                },
-                required: ['owner', 'name'],
-              },
+          tools: [{
+            name: 'getRepository',
+            description: 'Get repo',
+            inputSchema: {
+              type: 'object',
+              properties: { owner: { type: 'string' }, name: { type: 'string' } },
+              required: ['owner', 'name'],
             },
-          ],
+          }],
         },
       ],
     });
 
-    // Verify file structure
     expect(existsSync(join(outputDir, '_runtime.ts'))).toBe(true);
     expect(existsSync(join(outputDir, 'linear', 'getIssues.ts'))).toBe(true);
     expect(existsSync(join(outputDir, 'linear', 'getTeams.ts'))).toBe(true);
     expect(existsSync(join(outputDir, 'linear', 'index.ts'))).toBe(true);
     expect(existsSync(join(outputDir, 'github', 'getRepository.ts'))).toBe(true);
-    expect(existsSync(join(outputDir, 'github', 'index.ts'))).toBe(true);
 
-    // Verify tool stub content
-    const getIssues = readFileSync(join(outputDir, 'linear', 'getIssues.ts'), 'utf8');
-    expect(getIssues).toContain('export function getIssues');
-    expect(getIssues).toContain('teamId: string');
-    expect(getIssues).toContain('limit?: number');
-    expect(getIssues).toContain("tools.getIssues(params)");
+    const stub = readFileSync(join(outputDir, 'linear', 'getIssues.ts'), 'utf8');
+    expect(stub).toContain('export function getIssues');
+    expect(stub).toContain('teamId: string');
+    expect(stub).toContain('limit?: number');
+    expect(stub).toContain('callTool');
 
-    // Verify barrel export
     const barrel = readFileSync(join(outputDir, 'linear', 'index.ts'), 'utf8');
-    expect(barrel).toContain("export { getIssues } from './getIssues.js'");
-    expect(barrel).toContain("export { getTeams } from './getTeams.js'");
+    expect(barrel).toContain("export { getIssues }");
+    expect(barrel).toContain("export { getTeams }");
 
     expect(result.toolCount).toBe(3);
   });
 
-  it('should handle complex input schemas', () => {
+  it('should handle complex schemas', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({
       outputDir,
       groups: [{
         server: 'api',
         tools: [{
-          name: 'createItem',
-          description: 'Create an item',
+          name: 'create',
+          description: 'Create',
           inputSchema: {
             type: 'object',
             properties: {
@@ -168,19 +138,19 @@ describe('generateToolStubs', () => {
       }],
     });
 
-    const content = readFileSync(join(outputDir, 'api', 'createItem.ts'), 'utf8');
+    const content = readFileSync(join(outputDir, 'api', 'create.ts'), 'utf8');
     expect(content).toContain('name: string');
     expect(content).toContain('tags?: Array<string>');
     expect(content).toContain('deep?: boolean');
   });
 
-  it('should sanitize tool names to valid TS identifiers', () => {
+  it('should sanitize names to valid identifiers', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({
       outputDir,
       groups: [{
         server: 'test',
-        tools: [{ name: 'get-items', description: 'Hyphenated', inputSchema: {} }],
+        tools: [{ name: 'get-items', description: '', inputSchema: {} }],
       }],
     });
 

@@ -2,13 +2,18 @@
  * Generates typed TypeScript stubs from MCP tool schemas.
  *
  * Output structure:
- *   /tools/_runtime.ts          — IPC-based Cap'n Web batch transport
+ *   /tools/_runtime.ts          — Proxy-based batch transport over IPC
  *   /tools/<server>/index.ts    — Barrel re-exports for a server's tools
  *   /tools/<server>/<tool>.ts   — One file per tool with typed wrapper function
  *
- * The agent reaches the host via the existing IPC socket.
- * The generated runtime sends Cap'n Web batch payloads as a single
- * `capnweb_batch` IPC call — same socket, same framing as all other tools.
+ * The generated runtime uses JavaScript Proxy to let agents write
+ * natural-looking code while secretly building a call graph:
+ *
+ *   const teams = linear.getTeams({});              // proxy, not awaited
+ *   const issues = linear.getIssues({ teamId: teams[0].id }); // tracks dep
+ *   const [t, i] = await Promise.all([teams, issues]);        // one IPC call
+ *
+ * Zero external dependencies — just the IPC socket that's already there.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -17,7 +22,7 @@ import { safePath } from '../../utils/safe-path.js';
 import type { McpToolSchema } from '../../providers/mcp/types.js';
 import { getLogger } from '../../logger.js';
 
-const logger = getLogger().child({ component: 'capnweb-codegen' });
+const logger = getLogger().child({ component: 'tool-codegen' });
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,20 +82,25 @@ function jsonSchemaToTS(schema: Record<string, unknown>, indent = 2): string {
 }
 
 // ---------------------------------------------------------------------------
-// Runtime template — IPC-based Cap'n Web batch transport
+// Runtime template — proxy-based batch over IPC, zero dependencies
 // ---------------------------------------------------------------------------
 
 function generateRuntime(): string {
+  // NOTE: the backslash-n in string literals below are literal characters
+  // in the generated file, not escape sequences in this template.
   return `/**
- * Cap'n Web runtime — auto-generated, do not edit.
+ * Tool runtime — auto-generated, do not edit.
  *
- * Sends Cap'n Web batch RPC over the existing IPC socket using the
- * capnweb_batch action. Same socket, same framing as all other IPC tools.
+ * Proxy-based batching over IPC. Write normal-looking code:
+ *   const teams = getTeams({});
+ *   const issues = getIssues({ teamId: teams[0].id });
+ *   const [t, i] = await Promise.all([teams, issues]); // one round trip
+ *
+ * Zero external dependencies.
  */
-import { RpcSession } from 'capnweb';
 import { connect } from 'node:net';
 
-// ── Minimal IPC client (length-prefixed JSON over Unix socket) ──
+// ── Minimal IPC client ──
 
 const socketPath = process.env.AX_IPC_SOCKET!;
 let msgId = 0;
@@ -127,66 +137,87 @@ async function ipcCall(action: string, params: Record<string, unknown>): Promise
   ipcSocket.write(Buffer.concat([hdr, payload]));
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    setTimeout(() => { pending.delete(id); reject(new Error('IPC timeout')); }, 30_000);
+    setTimeout(() => { pending.delete(id); reject(new Error('IPC timeout')); }, 60_000);
   });
 }
 
-// ── Cap'n Web batch transport over IPC ──
+// ── Proxy-based call graph ──
 
-class IPCBatchTransport {
-  #outbox: string[] = [];
-  #inbox: string[] = [];
-  #waiters: Array<{ resolve: (m: string) => void; reject: (e: Error) => void }> = [];
-  #flushScheduled = false;
-  #done = false;
+const REF = Symbol('ref');
 
-  async send(message: string) {
-    this.#outbox.push(message);
-    if (!this.#flushScheduled) {
-      this.#flushScheduled = true;
-      // Flush on next microtask — batches all calls made synchronously
-      setTimeout(() => this.#flush(), 0);
-    }
+type PendingCall = { tool: string; args: Record<string, unknown> };
+let pendingCalls: PendingCall[] = [];
+let flushPromise: Promise<unknown[]> | null = null;
+
+function scheduleFlush(): Promise<unknown[]> {
+  if (!flushPromise) {
+    flushPromise = new Promise<unknown[]>((resolve, reject) => {
+      setTimeout(async () => {
+        const calls = pendingCalls;
+        pendingCalls = [];
+        flushPromise = null;
+        try {
+          const resp = await ipcCall('tool_batch', { calls });
+          resolve(resp.results ?? []);
+        } catch (e) { reject(e); }
+      }, 0);
+    });
   }
-
-  async #flush() {
-    this.#flushScheduled = false;
-    const batch = this.#outbox.join('\\n');
-    this.#outbox = [];
-    const resp = await ipcCall('capnweb_batch', { body: batch });
-    if (resp.error) {
-      for (const w of this.#waiters) w.reject(new Error(resp.error));
-      this.#waiters = [];
-      return;
-    }
-    const messages = (resp.body as string).split('\\n').filter(Boolean);
-    for (const msg of messages) {
-      const w = this.#waiters.shift();
-      if (w) w.resolve(msg);
-      else this.#inbox.push(msg);
-    }
-    // Signal end of batch
-    this.#done = true;
-    for (const w of this.#waiters) w.reject(new Error('Batch ended'));
-    this.#waiters = [];
-  }
-
-  receive(): Promise<string> {
-    if (this.#inbox.length > 0) return Promise.resolve(this.#inbox.shift()!);
-    if (this.#done) return Promise.reject(new Error('Batch ended'));
-    return new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }));
-  }
-
-  abort() { this.#done = true; }
+  return flushPromise;
 }
 
-// ── Session ──
+function createRef(callId: number, path: string): any {
+  const marker = { [REF]: true, callId, path };
+  return new Proxy(marker as any, {
+    get(target, prop) {
+      if (prop === REF) return true;
+      if (prop === 'callId') return target.callId;
+      if (prop === 'path') return target.path;
+      if (prop === 'then' || prop === Symbol.toPrimitive || prop === Symbol.toStringTag) return undefined;
+      const seg = typeof prop === 'string' && /^\\d+$/.test(prop) ? \`[\${prop}]\` : \`.\${String(prop)}\`;
+      return createRef(callId, target.path + seg);
+    }
+  });
+}
 
-const transport = new IPCBatchTransport();
-const session = new RpcSession<any>(transport as any);
+function serializeArgs(value: any): any {
+  if (value && value[REF]) return { $ref: value.callId, path: value.path };
+  if (Array.isArray(value)) return value.map(serializeArgs);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = serializeArgs(v);
+    return out;
+  }
+  return value;
+}
 
-/** The remote tools API — each method maps to an MCP tool. */
-export const tools: any = session.getRemoteMain();
+/**
+ * Register a tool call. Returns a thenable proxy:
+ * - await it → flushes batch, returns result
+ * - access properties → creates $ref for pipelining
+ */
+export function callTool(tool: string, args: Record<string, unknown>): any {
+  const callId = pendingCalls.length;
+  pendingCalls.push({ tool, args: serializeArgs(args) });
+  const flush = scheduleFlush();
+
+  return new Proxy({}, {
+    get(_, prop) {
+      if (prop === 'then') {
+        return (resolve: any, reject: any) => {
+          flush.then((results: any) => {
+            const r = results[callId];
+            if (r && typeof r === 'object' && '$error' in r) reject(new Error(r.$error));
+            else resolve(r);
+          }).catch(reject);
+        };
+      }
+      if (prop === Symbol.toPrimitive || prop === Symbol.toStringTag) return undefined;
+      const seg = typeof prop === 'string' && /^\\d+$/.test(prop) ? \`[\${prop}]\` : \`.\${String(prop)}\`;
+      return createRef(callId, seg);
+    }
+  });
+}
 
 // Cleanup
 process.on('exit', () => { ipcSocket?.destroy(); });
@@ -214,10 +245,10 @@ function generateToolStub(
     ` * MCP server: ${server}`,
     ` * MCP tool:   ${tool.name}`,
     ` */`,
-    `import { tools } from './_runtime.js';`,
+    `import { callTool } from '../_runtime.js';`,
     ``,
     `export function ${methodName}(params: ${paramsType}) {`,
-    `  return tools.${rpcMethod}(params);`,
+    `  return callTool(${JSON.stringify(rpcMethod)}, params);`,
     `}`,
   ];
 
@@ -225,25 +256,16 @@ function generateToolStub(
 }
 
 // ---------------------------------------------------------------------------
-// Server barrel export
+// Barrel exports
 // ---------------------------------------------------------------------------
 
 function generateBarrel(
   tools: Array<{ fileName: string; methodName: string }>,
 ): string {
-  const lines = tools.map(
+  return tools.map(
     ({ fileName, methodName }) =>
       `export { ${methodName} } from './${fileName}.js';`,
-  );
-  return lines.join('\n') + '\n';
-}
-
-// ---------------------------------------------------------------------------
-// Per-server _runtime.ts that re-exports from root _runtime
-// ---------------------------------------------------------------------------
-
-function generateServerRuntime(): string {
-  return `// Re-export tools from root runtime\nexport { tools } from '../_runtime.js';\n`;
+  ).join('\n') + '\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -251,23 +273,15 @@ function generateServerRuntime(): string {
 // ---------------------------------------------------------------------------
 
 export interface GeneratedStubs {
-  /** All file paths that were written. */
   files: string[];
-  /** Total number of tools generated. */
   toolCount: number;
 }
 
-/**
- * Generate TypeScript tool stubs on the filesystem.
- *
- * @returns Metadata about what was generated.
- */
 export function generateToolStubs(opts: CodegenOptions): GeneratedStubs {
   const { outputDir, groups } = opts;
   const files: string[] = [];
   let toolCount = 0;
 
-  // Write root _runtime.ts
   const runtimePath = safePath(outputDir, '_runtime.ts');
   mkdirSync(dirname(runtimePath), { recursive: true });
   writeFileSync(runtimePath, generateRuntime(), 'utf8');
@@ -277,39 +291,31 @@ export function generateToolStubs(opts: CodegenOptions): GeneratedStubs {
     const serverDir = safePath(outputDir, group.server);
     mkdirSync(serverDir, { recursive: true });
 
-    // Per-server _runtime.ts re-export
-    const serverRuntimePath = join(serverDir, '_runtime.ts');
-    writeFileSync(serverRuntimePath, generateServerRuntime(), 'utf8');
-    files.push(serverRuntimePath);
-
     const barrelEntries: Array<{ fileName: string; methodName: string }> = [];
 
     for (const tool of group.tools) {
       const methodName = toMethodName(tool.name);
-      const fileName = methodName;
-      const filePath = join(serverDir, `${fileName}.ts`);
-
+      const filePath = join(serverDir, `${methodName}.ts`);
       writeFileSync(filePath, generateToolStub(group.server, tool, methodName), 'utf8');
       files.push(filePath);
-      barrelEntries.push({ fileName, methodName });
+      barrelEntries.push({ fileName: methodName, methodName });
       toolCount++;
     }
 
-    // Barrel index.ts
     const barrelPath = join(serverDir, 'index.ts');
     writeFileSync(barrelPath, generateBarrel(barrelEntries), 'utf8');
     files.push(barrelPath);
   }
 
-  logger.info('capnweb_stubs_generated', { outputDir, toolCount, fileCount: files.length });
+  logger.info('tool_stubs_generated', { outputDir, toolCount, fileCount: files.length });
   return { files, toolCount };
 }
 
 /**
  * Group flat MCP tool schemas by server name.
  *
- * Expects tool names in the form 'serverName_toolName' or 'serverName/toolName'.
- * Tools without a separator are placed in a 'default' group.
+ * Expects tool names in 'serverName_toolName' or 'serverName/toolName' form.
+ * Tools without a separator go in a 'default' group.
  */
 export function groupToolsByServer(tools: McpToolSchema[]): ToolStubGroup[] {
   const map = new Map<string, McpToolSchema[]>();
