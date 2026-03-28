@@ -1,5 +1,17 @@
 # Scripted Tool Execution
 
+## [2026-03-28 21:10] — Add DB caching for generated tool stubs
+
+**Task:** Cache generated tool stubs in DocumentStore so they can be quickly loaded on sandbox spin-up without regenerating. Only regenerate when MCP tool schemas change.
+**What I did:**
+- Created `src/providers/storage/tool-stubs.ts` — CRUD for tool stub cache in DocumentStore, keyed by agent name, invalidated by schema hash (SHA-256 of canonical tool JSON)
+- Created `src/host/capnweb/generate-and-cache.ts` — `prepareToolStubs()` orchestrates: check cache → generate if miss → store → return files
+- Follows existing pattern: same flow as skills (DB → stdin payload → agent writes to workspace)
+- Works without DB too (local dev) — just generates, no caching
+**Files touched:** `src/providers/storage/tool-stubs.ts`, `src/host/capnweb/generate-and-cache.ts`, `src/host/capnweb/index.ts`, `tests/host/capnweb/generate-and-cache.test.ts`
+**Outcome:** Success — 2658 tests pass (8 new tests for caching)
+**Notes:** Next step: wire `prepareToolStubs()` into `server-completions.ts` alongside skill loading, add `toolStubs` to stdin payload, and add to `applyPayload()` in runner.ts.
+
 ## [2026-03-28 20:48] — Replace Cap'n Web with proxy-based batching (zero dependencies)
 
 **Task:** Remove capnweb dependency entirely. Implement dependent call pipelining with JavaScript Proxy + $ref substitution over existing IPC.
