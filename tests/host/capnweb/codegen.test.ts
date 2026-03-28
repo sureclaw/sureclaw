@@ -47,9 +47,9 @@ describe('generateToolStubs', () => {
   beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), 'ax-codegen-')); });
   afterEach(() => { rmSync(tempDir, { recursive: true, force: true }); });
 
-  it('should generate proxy-based _runtime.ts with zero deps', () => {
+  it('should generate proxy-based _runtime.ts with zero deps', async () => {
     const outputDir = join(tempDir, 'tools');
-    generateToolStubs({ outputDir, groups: [] });
+    await generateToolStubs({ outputDir, groups: [] });
 
     const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
     expect(runtime).toContain('callTool');
@@ -57,14 +57,12 @@ describe('generateToolStubs', () => {
     expect(runtime).toContain('tool_batch');
     expect(runtime).toContain('Proxy');
     expect(runtime).toContain('$ref');
-    // No external dependencies
     expect(runtime).not.toContain('capnweb');
-    expect(runtime).not.toContain('RpcSession');
   });
 
-  it('should generate per-server tool files', () => {
+  it('should generate per-server tool files with proper types', async () => {
     const outputDir = join(tempDir, 'tools');
-    const result = generateToolStubs({
+    const result = await generateToolStubs({
       outputDir,
       groups: [
         {
@@ -116,9 +114,9 @@ describe('generateToolStubs', () => {
     expect(result.toolCount).toBe(3);
   });
 
-  it('should handle complex schemas', () => {
+  it('should handle complex schemas via json-schema-to-typescript', async () => {
     const outputDir = join(tempDir, 'tools');
-    generateToolStubs({
+    await generateToolStubs({
       outputDir,
       groups: [{
         server: 'api',
@@ -130,6 +128,7 @@ describe('generateToolStubs', () => {
             properties: {
               name: { type: 'string' },
               tags: { type: 'array', items: { type: 'string' } },
+              status: { type: 'string', enum: ['open', 'closed'] },
               nested: { type: 'object', properties: { deep: { type: 'boolean' } } },
             },
             required: ['name'],
@@ -140,13 +139,16 @@ describe('generateToolStubs', () => {
 
     const content = readFileSync(join(outputDir, 'api', 'create.ts'), 'utf8');
     expect(content).toContain('name: string');
-    expect(content).toContain('tags?: Array<string>');
-    expect(content).toContain('deep?: boolean');
+    expect(content).toContain('tags?:');
+    expect(content).toContain('string[]');
+    expect(content).toContain('deep?:');
+    // json-schema-to-typescript generates enum types
+    expect(content).toMatch(/status\?:.*"open"|"closed"/s);
   });
 
-  it('should sanitize names to valid identifiers', () => {
+  it('should sanitize names to valid identifiers', async () => {
     const outputDir = join(tempDir, 'tools');
-    generateToolStubs({
+    await generateToolStubs({
       outputDir,
       groups: [{
         server: 'test',

@@ -19,6 +19,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { safePath } from '../../utils/safe-path.js';
+import { compile } from 'json-schema-to-typescript';
 import type { McpToolSchema } from '../../providers/mcp/types.js';
 import { getLogger } from '../../logger.js';
 
@@ -53,32 +54,31 @@ function toMethodName(name: string): string {
     .replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
-/** Convert JSON Schema to a simplified TypeScript type string. */
-function jsonSchemaToTS(schema: Record<string, unknown>, indent = 2): string {
-  if (!schema || typeof schema !== 'object') return 'unknown';
-
-  const type = schema.type as string | undefined;
-
-  if (type === 'string') return 'string';
-  if (type === 'number' || type === 'integer') return 'number';
-  if (type === 'boolean') return 'boolean';
-  if (type === 'null') return 'null';
-  if (type === 'array') {
-    const items = schema.items as Record<string, unknown> | undefined;
-    return `Array<${items ? jsonSchemaToTS(items, indent) : 'unknown'}>`;
-  }
-  if (type === 'object' || schema.properties) {
-    const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
-    const required = new Set((schema.required ?? []) as string[]);
-    const pad = ' '.repeat(indent);
-    const entries = Object.entries(props).map(([key, propSchema]) => {
-      const opt = required.has(key) ? '' : '?';
-      return `${pad}${key}${opt}: ${jsonSchemaToTS(propSchema, indent + 2)};`;
+/**
+ * Convert a JSON Schema to an inline TypeScript type string.
+ *
+ * Uses json-schema-to-typescript for full JSON Schema support (anyOf, oneOf,
+ * $ref, enum, nullable, additionalProperties, etc.), then extracts just the
+ * interface body as an inline type.
+ */
+async function jsonSchemaToTS(schema: Record<string, unknown>): Promise<string> {
+  if (!schema || typeof schema !== 'object') return 'Record<string, unknown>';
+  // Ensure it's typed as object for the compiler
+  const normalized = schema.type ? schema : { type: 'object', ...schema };
+  try {
+    const compiled = await compile(normalized as any, 'Params', {
+      bannerComment: '',
+      additionalProperties: false,
     });
-    if (entries.length === 0) return 'Record<string, unknown>';
-    return `{\n${entries.join('\n')}\n${' '.repeat(indent - 2)}}`;
+    // Extract the interface body: everything between the first { and last }
+    const match = compiled.match(/\{([\s\S]*)\}/);
+    if (match) {
+      return `{${match[1]}}`;
+    }
+  } catch {
+    // Fall through to default
   }
-  return 'unknown';
+  return 'Record<string, unknown>';
 }
 
 // ---------------------------------------------------------------------------
@@ -228,13 +228,13 @@ process.on('exit', () => { ipcSocket?.destroy(); });
 // Per-tool stub
 // ---------------------------------------------------------------------------
 
-function generateToolStub(
+async function generateToolStub(
   server: string,
   tool: McpToolSchema,
   methodName: string,
-): string {
+): Promise<string> {
   const paramsType = tool.inputSchema
-    ? jsonSchemaToTS(tool.inputSchema)
+    ? await jsonSchemaToTS(tool.inputSchema)
     : 'Record<string, unknown>';
   const rpcMethod = tool.name;
 
@@ -277,7 +277,7 @@ export interface GeneratedStubs {
   toolCount: number;
 }
 
-export function generateToolStubs(opts: CodegenOptions): GeneratedStubs {
+export async function generateToolStubs(opts: CodegenOptions): Promise<GeneratedStubs> {
   const { outputDir, groups } = opts;
   const files: string[] = [];
   let toolCount = 0;
@@ -296,7 +296,7 @@ export function generateToolStubs(opts: CodegenOptions): GeneratedStubs {
     for (const tool of group.tools) {
       const methodName = toMethodName(tool.name);
       const filePath = join(serverDir, `${methodName}.ts`);
-      writeFileSync(filePath, generateToolStub(group.server, tool, methodName), 'utf8');
+      writeFileSync(filePath, await generateToolStub(group.server, tool, methodName), 'utf8');
       files.push(filePath);
       barrelEntries.push({ fileName: methodName, methodName });
       toolCount++;
