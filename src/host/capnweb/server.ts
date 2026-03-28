@@ -1,32 +1,34 @@
 /**
  * Cap'n Web RPC server — exposes MCP tools as typed RPC methods.
  *
- * The host creates a Unix socket server. When the sandboxed agent connects,
- * a Cap'n Web RpcSession is established with an RpcTarget whose methods
- * wrap McpProvider.callTool(). Promise pipelining lets the agent batch
- * multiple tool calls into fewer round trips.
+ * Instead of a separate socket, this registers as an internal route on the
+ * existing web proxy. The agent reaches it via normal HTTP through the proxy:
  *
- * Socket path: /tmp/.ax-ipc-<uuid>/capnweb.sock (alongside proxy.sock)
+ *   Agent: POST http://ax-capnweb/rpc → proxy → internal route → Cap'n Web handler
+ *
+ * Cap'n Web's HTTP batch mode batches all pending calls (including pipelined
+ * dependent calls) into a single HTTP request-response round trip.
  */
 
-import { createServer, type Server, type Socket } from 'node:net';
-import { RpcTarget, RpcSession } from 'capnweb';
-import { SocketRpcTransport } from '../../capnweb/transport.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { RpcTarget } from 'capnweb';
+import { nodeHttpBatchRpcResponse } from 'capnweb';
 import type { McpProvider, McpToolSchema, McpToolCall } from '../../providers/mcp/types.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'capnweb' });
 
+/** Hostname used by the agent to reach the Cap'n Web RPC endpoint via the proxy. */
+export const CAPNWEB_INTERNAL_HOST = 'ax-capnweb';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface CapnWebServerOptions {
-  /** Unix socket path for the Cap'n Web RPC server. */
-  socketPath: string;
+export interface CapnWebHandlerOptions {
   /** MCP provider for executing tool calls. */
   mcpProvider: McpProvider;
-  /** Available MCP tools (call mcpProvider.listTools() before creating the server). */
+  /** Available MCP tools (call mcpProvider.listTools() before creating). */
   tools: McpToolSchema[];
   /** Session context for tool call attribution. */
   context: {
@@ -90,65 +92,40 @@ export function createMcpToolsTarget(
 }
 
 // ---------------------------------------------------------------------------
-// Server
+// HTTP handler (registered as proxy internal route)
 // ---------------------------------------------------------------------------
 
-export class CapnWebServer {
-  private server: Server | null = null;
-  private sessions = new Set<RpcSession<unknown>>();
-  private target: RpcTarget;
+/**
+ * Creates an HTTP request handler for Cap'n Web batch RPC.
+ *
+ * Register this as an internal route on the web proxy:
+ * ```ts
+ * const capnwebHandler = createCapnWebHandler({ mcpProvider, tools, context });
+ * startWebProxy({ ..., internalRoutes: new Map([['ax-capnweb', capnwebHandler]]) });
+ * ```
+ *
+ * The agent then calls tools via:
+ * ```ts
+ * const api = newHttpBatchRpcSession('http://ax-capnweb/rpc');
+ * ```
+ */
+export function createCapnWebHandler(
+  opts: CapnWebHandlerOptions,
+): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const target = createMcpToolsTarget(opts.mcpProvider, opts.tools, opts.context);
 
-  constructor(private readonly opts: CapnWebServerOptions) {
-    this.target = createMcpToolsTarget(
-      opts.mcpProvider,
-      opts.tools,
-      opts.context,
-    );
-  }
+  logger.info('capnweb_handler_created', { toolCount: opts.tools.length });
 
-  /** Start listening on the Unix socket. */
-  async start(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.server = createServer((socket: Socket) => this.onConnection(socket));
-      this.server.on('error', reject);
-      this.server.listen(this.opts.socketPath, () => {
-        logger.info('capnweb_server_started', {
-          socketPath: this.opts.socketPath,
-          toolCount: this.opts.tools.length,
-        });
-        resolve();
-      });
-    });
-  }
-
-  private onConnection(socket: Socket): void {
-    const transport = new SocketRpcTransport(socket);
-    const session = new RpcSession(transport as any, this.target);
-    this.sessions.add(session);
-
-    socket.on('close', () => {
-      this.sessions.delete(session);
-    });
-
-    logger.debug('capnweb_client_connected');
-  }
-
-  /** Gracefully shut down: drain all sessions and close the server. */
-  async stop(): Promise<void> {
-    const drains = [...this.sessions].map((s) =>
-      s.drain().catch(() => {}),
-    );
-    await Promise.all(drains);
-    this.sessions.clear();
-
-    return new Promise<void>((resolve) => {
-      if (!this.server) return resolve();
-      this.server.close(() => resolve());
-    });
-  }
-
-  /** The RpcTarget instance (useful for testing). */
-  get rpcTarget(): RpcTarget {
-    return this.target;
-  }
+  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    logger.debug('capnweb_batch_request');
+    try {
+      await nodeHttpBatchRpcResponse(req, res, target);
+    } catch (err) {
+      logger.error('capnweb_batch_error', { error: (err as Error).message });
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Internal Cap\'n Web RPC error');
+      }
+    }
+  };
 }

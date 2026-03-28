@@ -62,19 +62,32 @@ describe('generateToolStubs', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should generate _runtime.ts with socket path', () => {
+  it('should generate _runtime.ts with HTTP batch session', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({
       outputDir,
       groups: [],
-      socketPath: '/tmp/test.sock',
     });
 
     const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
-    expect(runtime).toContain('/tmp/test.sock');
-    expect(runtime).toContain('RpcSession');
-    expect(runtime).toContain('SocketRpcTransport');
+    expect(runtime).toContain('newHttpBatchRpcSession');
+    expect(runtime).toContain('ax-capnweb');
     expect(runtime).toContain('export const tools');
+    // Should NOT contain socket/transport code
+    expect(runtime).not.toContain('SocketRpcTransport');
+    expect(runtime).not.toContain('node:net');
+  });
+
+  it('should accept custom rpcUrl', () => {
+    const outputDir = join(tempDir, 'tools');
+    generateToolStubs({
+      outputDir,
+      groups: [],
+      rpcUrl: 'http://custom-host:8080/rpc',
+    });
+
+    const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
+    expect(runtime).toContain('http://custom-host:8080/rpc');
   });
 
   it('should generate per-server directories with tool files', () => {
@@ -122,7 +135,6 @@ describe('generateToolStubs', () => {
           ],
         },
       ],
-      socketPath: '/tmp/capnweb.sock',
     });
 
     // Verify file structure
@@ -148,7 +160,7 @@ describe('generateToolStubs', () => {
 
     // Verify metadata
     expect(result.toolCount).toBe(3);
-    expect(result.files.length).toBeGreaterThan(3); // runtime + stubs + barrels
+    expect(result.files.length).toBeGreaterThan(3);
   });
 
   it('should handle complex input schemas', () => {
@@ -180,7 +192,6 @@ describe('generateToolStubs', () => {
           ],
         },
       ],
-      socketPath: '/tmp/capnweb.sock',
     });
 
     const content = readFileSync(join(outputDir, 'api', 'createItem.ts'), 'utf8');
@@ -205,10 +216,8 @@ describe('generateToolStubs', () => {
           ],
         },
       ],
-      socketPath: '/tmp/capnweb.sock',
     });
 
-    // Hyphen converted to camelCase
     expect(existsSync(join(outputDir, 'test', 'getItems.ts'))).toBe(true);
     const content = readFileSync(join(outputDir, 'test', 'getItems.ts'), 'utf8');
     expect(content).toContain('export function getItems');

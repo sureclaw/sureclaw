@@ -6,6 +6,12 @@
 **Lesson:** Cap'n Web's `RpcTarget` only exposes prototype methods over RPC, not instance properties or methods added via `Object.defineProperty()` on instances. To dynamically add methods, create a class that `extends RpcTarget` and add methods to its `.prototype` before instantiation. Arrow functions on prototype work for capturing external state via closure (mcpProvider, ctx).
 **Tags:** capnweb, rpc-target, dynamic-methods, prototype
 
+### Reuse existing proxy as transport for new internal services
+**Date:** 2026-03-28
+**Context:** Initially built a separate Unix socket + custom RpcTransport for Cap'n Web. Realized the web proxy is already an HTTP server that every sandbox can reach.
+**Lesson:** When a sandboxed agent needs to reach a new host-side service, don't create a new transport. Add an `internalRoutes` intercept to the existing web proxy. The proxy detects the hostname before DNS/SSRF checks and handles the request in-process. This works for all sandbox types (Docker, Apple, k8s) because they all already have `HTTP_PROXY` configured. The pattern: `internalRoutes: new Map([['ax-service', handler]])` → agent fetches `http://ax-service/path` through its existing proxy.
+**Tags:** proxy, transport, capnweb, internal-routes, sandbox, simplification
+
 ### Replace async approval callbacks with synchronous allowlists to avoid deadlocks
 **Date:** 2026-03-22
 **Context:** Wiring ProxyDomainList into proxy startup to replace onApprove callback that caused deadlocks (proxy blocked waiting for user approval while agent was blocked waiting for proxy).

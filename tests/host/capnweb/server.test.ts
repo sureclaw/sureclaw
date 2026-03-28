@@ -1,19 +1,15 @@
 /**
- * Tests for Cap'n Web RPC server.
+ * Tests for Cap'n Web RPC handler.
  *
- * Creates a real Unix socket server, connects with a Cap'n Web client,
- * and verifies that MCP tool calls are proxied correctly with
- * promise pipelining / batching.
+ * Creates a real HTTP server with the Cap'n Web handler registered,
+ * connects with Cap'n Web's HTTP batch client, and verifies that MCP
+ * tool calls are proxied correctly with batching.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { tmpdir } from 'node:os';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { connect } from 'node:net';
-import { RpcSession } from 'capnweb';
-import { CapnWebServer, createMcpToolsTarget } from '../../../src/host/capnweb/server.js';
-import { SocketRpcTransport } from '../../../src/capnweb/transport.js';
+import { createServer, type Server } from 'node:http';
+import { createCapnWebHandler, createMcpToolsTarget } from '../../../src/host/capnweb/server.js';
+import { newHttpBatchRpcSession } from 'capnweb';
 import type { McpProvider, McpToolSchema, McpToolCall, McpToolResult, McpCredentialStatus } from '../../../src/providers/mcp/types.js';
 import { initLogger } from '../../../src/logger.js';
 
@@ -24,7 +20,7 @@ initLogger({ file: false, level: 'silent' });
 // Mock MCP provider
 // ---------------------------------------------------------------------------
 
-function createMockMcpProvider(responses: Record<string, unknown>): McpProvider {
+function createMockMcpProvider(responses: Record<string, unknown>): McpProvider & { calls: McpToolCall[] } {
   const calls: McpToolCall[] = [];
   return {
     calls,
@@ -47,27 +43,28 @@ function createMockMcpProvider(responses: Record<string, unknown>): McpProvider 
       return { available: true, app, authType: 'api_key' };
     },
     async storeCredential() {},
-    async listApps() {
-      return [];
-    },
-  } as McpProvider & { calls: McpToolCall[] };
+    async listApps() { return []; },
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Helper: create a client session connected to the server
+// Helper: start an HTTP server with the Cap'n Web handler
 // ---------------------------------------------------------------------------
 
-async function createClient<T>(socketPath: string): Promise<{ stub: T; close: () => void }> {
+async function startTestServer(handler: (req: any, res: any) => Promise<void>): Promise<{ url: string; close: () => void }> {
+  const server: Server = createServer((req, res) => {
+    handler(req, res).catch((err) => {
+      res.writeHead(500);
+      res.end(String(err));
+    });
+  });
+
   return new Promise((resolve) => {
-    const socket = connect(socketPath, () => {
-      const transport = new SocketRpcTransport(socket);
-      const session = new RpcSession<T>(transport as any);
-      const stub = session.getRemoteMain() as T;
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
       resolve({
-        stub,
-        close: () => {
-          socket.destroy();
-        },
+        url: `http://127.0.0.1:${addr.port}/rpc`,
+        close: () => server.close(),
       });
     });
   });
@@ -77,60 +74,41 @@ async function createClient<T>(socketPath: string): Promise<{ stub: T; close: ()
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('CapnWebServer', () => {
-  let tempDir: string;
-  let server: CapnWebServer;
+describe('createCapnWebHandler', () => {
+  let serverInfo: { url: string; close: () => void } | null = null;
 
-  beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'ax-capnweb-test-'));
+  afterEach(() => {
+    serverInfo?.close();
+    serverInfo = null;
   });
 
-  afterEach(async () => {
-    if (server) await server.stop();
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  it('should serve MCP tool calls via Cap\'n Web RPC', async () => {
-    const socketPath = join(tempDir, 'capnweb.sock');
+  it('should serve MCP tool calls via HTTP batch RPC', async () => {
     const mcpProvider = createMockMcpProvider({
       getTeams: [{ id: 'team-1', name: 'Engineering' }],
       getIssues: [{ id: 'issue-1', title: 'Fix bug' }],
-    }) as McpProvider & { calls: McpToolCall[] };
+    });
 
     const tools: McpToolSchema[] = await mcpProvider.listTools();
-
-    server = new CapnWebServer({
-      socketPath,
+    const handler = createCapnWebHandler({
       mcpProvider,
       tools,
       context: { agentId: 'test-agent', userId: 'test-user', sessionId: 'test-session' },
     });
-    await server.start();
 
-    const { stub, close } = await createClient<any>(socketPath);
+    serverInfo = await startTestServer(handler);
 
-    try {
-      // Call a tool
-      const teams = await stub.getTeams({});
-      expect(teams).toEqual([{ id: 'team-1', name: 'Engineering' }]);
+    const api = newHttpBatchRpcSession<any>(serverInfo.url);
+    const teams = await api.getTeams({});
 
-      // Verify the MCP provider received the correct call
-      expect(mcpProvider.calls).toHaveLength(1);
-      expect(mcpProvider.calls[0].tool).toBe('getTeams');
-      expect(mcpProvider.calls[0].agentId).toBe('test-agent');
-    } finally {
-      close();
-    }
+    expect(teams).toEqual([{ id: 'team-1', name: 'Engineering' }]);
+    expect(mcpProvider.calls).toHaveLength(1);
+    expect(mcpProvider.calls[0].tool).toBe('getTeams');
+    expect(mcpProvider.calls[0].agentId).toBe('test-agent');
   });
 
-  it('should batch independent calls via promise pipelining', async () => {
-    const socketPath = join(tempDir, 'capnweb.sock');
-    const callOrder: string[] = [];
-    const mcpProvider = createMockMcpProvider({}) as McpProvider & { calls: McpToolCall[] };
-
-    // Override callTool to track timing
+  it('should batch independent calls into a single HTTP request', async () => {
+    const mcpProvider = createMockMcpProvider({});
     mcpProvider.callTool = async (call: McpToolCall) => {
-      callOrder.push(call.tool);
       return { content: { tool: call.tool }, taint: 'external' as const };
     };
 
@@ -139,37 +117,29 @@ describe('CapnWebServer', () => {
       { name: 'getRepos', description: 'Get repos', inputSchema: {} },
     ];
 
-    server = new CapnWebServer({
-      socketPath,
+    const handler = createCapnWebHandler({
       mcpProvider,
       tools,
       context: { agentId: 'a', userId: 'u', sessionId: 's' },
     });
-    await server.start();
 
-    const { stub, close } = await createClient<any>(socketPath);
+    serverInfo = await startTestServer(handler);
 
-    try {
-      // Fire both calls without awaiting — Cap'n Web should batch them
-      const teamsPromise = stub.getTeams({});
-      const reposPromise = stub.getRepos({});
+    // newHttpBatchRpcSession batches all calls made before the microtask
+    // boundary into a single HTTP POST. Both calls below resolve from
+    // one round trip.
+    const api = newHttpBatchRpcSession<any>(serverInfo.url);
+    const teamsPromise = api.getTeams({});
+    const reposPromise = api.getRepos({});
 
-      const [teams, repos] = await Promise.all([teamsPromise, reposPromise]);
+    const [teams, repos] = await Promise.all([teamsPromise, reposPromise]);
 
-      expect(teams).toEqual({ tool: 'getTeams' });
-      expect(repos).toEqual({ tool: 'getRepos' });
-      // Both tools were called
-      expect(callOrder).toContain('getTeams');
-      expect(callOrder).toContain('getRepos');
-    } finally {
-      close();
-    }
+    expect(teams).toEqual({ tool: 'getTeams' });
+    expect(repos).toEqual({ tool: 'getRepos' });
   });
 
   it('should propagate errors from MCP tool calls', async () => {
-    const socketPath = join(tempDir, 'capnweb.sock');
-    const mcpProvider = createMockMcpProvider({}) as McpProvider & { calls: McpToolCall[] };
-
+    const mcpProvider = createMockMcpProvider({});
     mcpProvider.callTool = async () => ({
       content: 'Rate limit exceeded',
       isError: true,
@@ -180,21 +150,16 @@ describe('CapnWebServer', () => {
       { name: 'failingTool', description: 'Always fails', inputSchema: {} },
     ];
 
-    server = new CapnWebServer({
-      socketPath,
+    const handler = createCapnWebHandler({
       mcpProvider,
       tools,
       context: { agentId: 'a', userId: 'u', sessionId: 's' },
     });
-    await server.start();
 
-    const { stub, close } = await createClient<any>(socketPath);
+    serverInfo = await startTestServer(handler);
 
-    try {
-      await expect(stub.failingTool({})).rejects.toThrow('Rate limit exceeded');
-    } finally {
-      close();
-    }
+    const api = newHttpBatchRpcSession<any>(serverInfo.url);
+    await expect(api.failingTool({})).rejects.toThrow('Rate limit exceeded');
   });
 });
 
@@ -216,7 +181,6 @@ describe('createMcpToolsTarget', () => {
       sessionId: 's',
     });
 
-    // Verify prototype methods exist
     expect(typeof (target as any).tool_a).toBe('function');
     expect(typeof (target as any).tool_b).toBe('function');
   });

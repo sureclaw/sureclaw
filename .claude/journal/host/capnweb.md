@@ -1,5 +1,18 @@
 # Cap'n Web MCP Integration
 
+## [2026-03-28 20:10] — Simplify Cap'n Web transport: use existing web proxy instead of separate socket
+
+**Task:** Eliminate the separate Unix socket transport and route Cap'n Web through the existing web proxy.
+**What I did:**
+- Removed `src/capnweb/transport.ts` (custom SocketRpcTransport) — no longer needed
+- Rewrote `src/host/capnweb/server.ts` — replaced `CapnWebServer` (socket server) with `createCapnWebHandler()` that returns a request handler using `nodeHttpBatchRpcResponse`
+- Added `internalRoutes` option to `WebProxyOptions` in `web-proxy.ts` — intercepts requests to internal hostnames (e.g. `ax-capnweb`) before DNS/SSRF checks, handles them in-process
+- Simplified `codegen.ts` runtime template from 60 lines (inlined transport) to 4 lines (`newHttpBatchRpcSession(url)`)
+- Added 3 proxy internal routes tests + updated capnweb tests to use HTTP batch
+**Files touched:** `src/host/web-proxy.ts`, `src/host/capnweb/server.ts`, `src/host/capnweb/codegen.ts`, `src/host/capnweb/index.ts`, `tests/host/web-proxy.test.ts`, `tests/host/capnweb/*.test.ts`
+**Outcome:** Success — all 2646 tests pass. Much simpler architecture: no separate socket, no custom transport, just the existing proxy with a handler.
+**Notes:** The generated `_runtime.ts` is now `import { newHttpBatchRpcSession } from 'capnweb'; export const tools = newHttpBatchRpcSession('http://ax-capnweb/rpc');`. The proxy intercepts `ax-capnweb` hostname and routes to the Cap'n Web handler. Works for all sandbox types since all sandboxes already have `HTTP_PROXY` configured.
+
 ## [2026-03-28 18:30] — Implement Cap'n Web RPC server and codegen for MCP tools
 
 **Task:** Integrate Cap'n Web (Cloudflare's JS RPC library) to expose MCP tools as typed TypeScript stubs on the agent filesystem, enabling the agent to write scripts that batch multiple tool calls without consuming LLM tokens.
@@ -11,4 +24,4 @@
 - Added comprehensive tests (11 passing) covering RPC tool calls, promise pipelining/batching, error propagation, codegen output, schema-to-TS conversion, and name sanitization
 **Files touched:** `src/capnweb/transport.ts`, `src/host/capnweb/server.ts`, `src/host/capnweb/codegen.ts`, `src/host/capnweb/index.ts`, `tests/host/capnweb/server.test.ts`, `tests/host/capnweb/codegen.test.ts`, `package.json`
 **Outcome:** Success — all 11 new tests pass, all 2642 existing tests still pass
-**Notes:** Transport uses same 4-byte length-prefix framing as existing IPC but on a dedicated socket. The codegen inlines the transport code in `_runtime.ts` so the agent sandbox only needs `capnweb` npm package. Next steps: wire into sandbox creation flow, add `AX_CAPNWEB_SOCKET` env var to sandbox config.
+**Notes:** Superseded by the proxy-based approach above.

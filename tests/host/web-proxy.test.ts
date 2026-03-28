@@ -813,6 +813,95 @@ describe('web-proxy', () => {
     });
   });
 
+  describe('internal routes', () => {
+    test('intercepts requests to internal hostname and handles locally', async () => {
+      const handled: { method: string; url: string }[] = [];
+      const internalRoutes = new Map([
+        ['ax-capnweb', async (req: any, res: any) => {
+          handled.push({ method: req.method, url: req.url });
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ rpc: true }));
+        }],
+      ]);
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-internal',
+        internalRoutes,
+      });
+      cleanups.push(proxy.stop);
+
+      // Request to internal hostname — should be handled locally, not forwarded
+      const result = await proxyFetch(
+        proxy.address as number,
+        'http://ax-capnweb/rpc',
+        { method: 'POST', body: '{"batch":true}' },
+      );
+
+      expect(result.status).toBe(200);
+      expect(JSON.parse(result.body)).toEqual({ rpc: true });
+      expect(handled).toHaveLength(1);
+      expect(handled[0].url).toBe('http://ax-capnweb/rpc');
+    });
+
+    test('does not intercept requests to non-internal hostnames', async () => {
+      const echo = await startEchoServer();
+      cleanups.push(() => echo.server.close());
+
+      const internalRoutes = new Map([
+        ['ax-capnweb', async (_req: any, res: any) => {
+          res.writeHead(200);
+          res.end('internal');
+        }],
+      ]);
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-internal-passthrough',
+        allowedIPs: ALLOW_LOCALHOST,
+        internalRoutes,
+      });
+      cleanups.push(proxy.stop);
+
+      // Request to a different hostname goes through normal proxy path
+      const result = await proxyFetch(
+        proxy.address as number,
+        `http://127.0.0.1:${echo.port}/normal`,
+      );
+
+      expect(result.status).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.url).toBe('/normal');
+    });
+
+    test('bypasses SSRF checks for internal routes', async () => {
+      // Internal routes should work even without allowedIPs — they never
+      // hit DNS resolution or private IP checks
+      const internalRoutes = new Map([
+        ['ax-internal', async (_req: any, res: any) => {
+          res.writeHead(200);
+          res.end('ok');
+        }],
+      ]);
+
+      const proxy = await startWebProxy({
+        listen: 0,
+        sessionId: 'test-internal-ssrf',
+        // No allowedIPs — normal requests to private IPs would be blocked
+        internalRoutes,
+      });
+      cleanups.push(proxy.stop);
+
+      const result = await proxyFetch(
+        proxy.address as number,
+        'http://ax-internal/test',
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toBe('ok');
+    });
+  });
+
   describe('MITM TLS inspection', () => {
     test('intercepts HTTPS and replaces credential placeholder in header', async () => {
       // 1. Start a TLS echo server (simulates api.linear.app)
