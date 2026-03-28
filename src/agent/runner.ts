@@ -289,6 +289,9 @@ export interface StdinPayload {
    *  them to the workspace skills/ directory for installSkillDeps() and
    *  buildSystemPrompt() to read. */
   skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
+  /** Pre-generated tool stubs for scripted MCP tool execution.
+   *  Cached in DocumentStore by schema hash, written to /tools/ in workspace. */
+  toolStubs?: Array<{ path: string; content: string }>;
 }
 
 /**
@@ -342,6 +345,7 @@ export function parseStdinPayload(data: string): StdinPayload {
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
+        toolStubs: Array.isArray(parsed.toolStubs) ? parsed.toolStubs : undefined,
       };
     }
   } catch {
@@ -500,6 +504,27 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
     }
     logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
   }
+
+  // ── Write tool stubs to /tools/ ──
+  if (Array.isArray(payload.toolStubs) && payload.toolStubs.length > 0) {
+    // Use workspace root (CWD) for tools — available to all sandbox scripts
+    const toolsBase = resolve(process.env.AX_WORKSPACE ?? process.cwd(), 'tools');
+    if (existsSync(toolsBase)) {
+      rmSync(toolsBase, { recursive: true, force: true });
+    }
+    for (const file of payload.toolStubs) {
+      const filePath = resolve(toolsBase, file.path);
+      // SC-SEC-004: Constrain tool stub writes to the tools root
+      if (!filePath.startsWith(toolsBase + sep) && filePath !== toolsBase) {
+        logger.warn('tool_stub_path_traversal_blocked', { path: file.path });
+        continue;
+      }
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, file.content, 'utf-8');
+    }
+    logger.info('tool_stubs_written', { count: payload.toolStubs.length, dir: toolsBase });
+  }
+
   if (payload.identity) {
     config.identity = {
       agents: payload.identity.agents ?? '',

@@ -877,6 +877,23 @@ export async function processCompletion(
       }
     }
 
+    // ── Load or generate tool stubs (cached by schema hash) ──
+    let toolStubsPayload: Array<{ path: string; content: string }> | undefined;
+    if (providers.mcp && providers.mcp.listTools) {
+      try {
+        const { prepareToolStubs } = await import('./capnweb/generate-and-cache.js');
+        const mcpTools = await providers.mcp.listTools();
+        const stubs = await prepareToolStubs({
+          documents: providers.storage?.documents,
+          agentName,
+          tools: mcpTools,
+        });
+        if (stubs && stubs.length > 0) toolStubsPayload = stubs;
+      } catch (err) {
+        reqLogger.warn('tool_stubs_load_failed', { error: (err as Error).message });
+      }
+    }
+
     // Identity and skills are delivered to the agent via stdin payload (below).
 
     // ── Workspace GCS prefixes ──
@@ -903,9 +920,10 @@ export async function processCompletion(
       agentWorkspace: agentWsPath,
       userWorkspace: userWsPath,
       workspaceProvider: config.providers.workspace,
-      // Identity and skills from DocumentStore
+      // Identity, skills, and tool stubs from DocumentStore
       identity: identityPayload,
       skills: skillsPayload.length > 0 ? skillsPayload : undefined,
+      toolStubs: toolStubsPayload,
       agentReadOnly: !agentWorkspaceWritable,
       // Credential placeholders — warm pool pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
