@@ -442,6 +442,13 @@ export const SandboxResultSchema = ipcAction('sandbox_result', {
   error: safeString(10_000).optional(),
 });
 
+// ── Cap'n Web RPC Batch ─────────────────────────────
+
+export const CapnwebBatchSchema = ipcAction('capnweb_batch', {
+  /** Newline-delimited Cap'n Web RPC messages (the batch payload). */
+  body: safeString(1_000_000),
+});
+
 // ── Plugin Management ────────────────────────────────
 
 export const PluginListSchema = ipcAction('plugin_list', {});

@@ -2,21 +2,19 @@
  * Generates typed TypeScript stubs from MCP tool schemas.
  *
  * Output structure:
- *   /tools/_runtime.ts          — Cap'n Web HTTP batch session (4 lines)
+ *   /tools/_runtime.ts          — IPC-based Cap'n Web batch transport
  *   /tools/<server>/index.ts    — Barrel re-exports for a server's tools
  *   /tools/<server>/<tool>.ts   — One file per tool with typed wrapper function
  *
- * The agent reaches the host via the existing web proxy:
- *   newHttpBatchRpcSession('http://ax-capnweb/rpc')
- * The proxy intercepts 'ax-capnweb' as an internal route and handles
- * the Cap'n Web batch in-process — no separate socket or transport needed.
+ * The agent reaches the host via the existing IPC socket.
+ * The generated runtime sends Cap'n Web batch payloads as a single
+ * `capnweb_batch` IPC call — same socket, same framing as all other tools.
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { safePath } from '../../utils/safe-path.js';
 import type { McpToolSchema } from '../../providers/mcp/types.js';
-import { CAPNWEB_INTERNAL_HOST } from './server.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'capnweb-codegen' });
@@ -37,11 +35,6 @@ export interface CodegenOptions {
   outputDir: string;
   /** Grouped tools to generate stubs for. */
   groups: ToolStubGroup[];
-  /**
-   * Cap'n Web RPC URL. Defaults to http://ax-capnweb/rpc which routes
-   * through the web proxy's internal route handler.
-   */
-  rpcUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,20 +77,119 @@ function jsonSchemaToTS(schema: Record<string, unknown>, indent = 2): string {
 }
 
 // ---------------------------------------------------------------------------
-// Runtime template
+// Runtime template — IPC-based Cap'n Web batch transport
 // ---------------------------------------------------------------------------
 
-function generateRuntime(rpcUrl: string): string {
+function generateRuntime(): string {
   return `/**
  * Cap'n Web runtime — auto-generated, do not edit.
  *
- * Connects to the host via HTTP batch RPC through the web proxy.
- * All tool stub files import from here.
+ * Sends Cap'n Web batch RPC over the existing IPC socket using the
+ * capnweb_batch action. Same socket, same framing as all other IPC tools.
  */
-import { newHttpBatchRpcSession } from 'capnweb';
+import { RpcSession } from 'capnweb';
+import { connect } from 'node:net';
+
+// ── Minimal IPC client (length-prefixed JSON over Unix socket) ──
+
+const socketPath = process.env.AX_IPC_SOCKET!;
+let msgId = 0;
+let ipcSocket: import('node:net').Socket;
+let ipcBuffer = Buffer.alloc(0);
+const pending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+
+function ensureConnected(): Promise<void> {
+  if (ipcSocket) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    ipcSocket = connect(socketPath, () => resolve());
+    ipcSocket.on('error', reject);
+    ipcSocket.on('data', (chunk: Buffer) => {
+      ipcBuffer = Buffer.concat([ipcBuffer, chunk]);
+      while (ipcBuffer.length >= 4) {
+        const len = ipcBuffer.readUInt32BE(0);
+        if (ipcBuffer.length < 4 + len) break;
+        const msg = JSON.parse(ipcBuffer.subarray(4, 4 + len).toString('utf8'));
+        ipcBuffer = ipcBuffer.subarray(4 + len);
+        if (msg._heartbeat) continue;
+        const p = pending.get(msg._msgId);
+        if (p) { pending.delete(msg._msgId); p.resolve(msg); }
+      }
+    });
+  });
+}
+
+async function ipcCall(action: string, params: Record<string, unknown>): Promise<any> {
+  await ensureConnected();
+  const id = String(++msgId);
+  const payload = Buffer.from(JSON.stringify({ action, ...params, _msgId: id }), 'utf8');
+  const hdr = Buffer.alloc(4);
+  hdr.writeUInt32BE(payload.length, 0);
+  ipcSocket.write(Buffer.concat([hdr, payload]));
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    setTimeout(() => { pending.delete(id); reject(new Error('IPC timeout')); }, 30_000);
+  });
+}
+
+// ── Cap'n Web batch transport over IPC ──
+
+class IPCBatchTransport {
+  #outbox: string[] = [];
+  #inbox: string[] = [];
+  #waiters: Array<{ resolve: (m: string) => void; reject: (e: Error) => void }> = [];
+  #flushScheduled = false;
+  #done = false;
+
+  async send(message: string) {
+    this.#outbox.push(message);
+    if (!this.#flushScheduled) {
+      this.#flushScheduled = true;
+      // Flush on next microtask — batches all calls made synchronously
+      setTimeout(() => this.#flush(), 0);
+    }
+  }
+
+  async #flush() {
+    this.#flushScheduled = false;
+    const batch = this.#outbox.join('\\n');
+    this.#outbox = [];
+    const resp = await ipcCall('capnweb_batch', { body: batch });
+    if (resp.error) {
+      for (const w of this.#waiters) w.reject(new Error(resp.error));
+      this.#waiters = [];
+      return;
+    }
+    const messages = (resp.body as string).split('\\n').filter(Boolean);
+    for (const msg of messages) {
+      const w = this.#waiters.shift();
+      if (w) w.resolve(msg);
+      else this.#inbox.push(msg);
+    }
+    // Signal end of batch
+    this.#done = true;
+    for (const w of this.#waiters) w.reject(new Error('Batch ended'));
+    this.#waiters = [];
+  }
+
+  receive(): Promise<string> {
+    if (this.#inbox.length > 0) return Promise.resolve(this.#inbox.shift()!);
+    if (this.#done) return Promise.reject(new Error('Batch ended'));
+    return new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }));
+  }
+
+  abort() { this.#done = true; }
+}
+
+// ── Session ──
+
+const transport = new IPCBatchTransport();
+const session = new RpcSession<any>(transport as any);
 
 /** The remote tools API — each method maps to an MCP tool. */
-export const tools: any = newHttpBatchRpcSession(${JSON.stringify(rpcUrl)});
+export const tools: any = session.getRemoteMain();
+
+// Cleanup
+process.on('exit', () => { ipcSocket?.destroy(); });
 `;
 }
 
@@ -113,7 +205,7 @@ function generateToolStub(
   const paramsType = tool.inputSchema
     ? jsonSchemaToTS(tool.inputSchema)
     : 'Record<string, unknown>';
-  const rpcMethod = tool.name; // Original MCP tool name used as RpcTarget method
+  const rpcMethod = tool.name;
 
   const lines = [
     `/**`,
@@ -172,14 +264,13 @@ export interface GeneratedStubs {
  */
 export function generateToolStubs(opts: CodegenOptions): GeneratedStubs {
   const { outputDir, groups } = opts;
-  const rpcUrl = opts.rpcUrl ?? `http://${CAPNWEB_INTERNAL_HOST}/rpc`;
   const files: string[] = [];
   let toolCount = 0;
 
   // Write root _runtime.ts
   const runtimePath = safePath(outputDir, '_runtime.ts');
   mkdirSync(dirname(runtimePath), { recursive: true });
-  writeFileSync(runtimePath, generateRuntime(rpcUrl), 'utf8');
+  writeFileSync(runtimePath, generateRuntime(), 'utf8');
   files.push(runtimePath);
 
   for (const group of groups) {

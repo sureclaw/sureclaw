@@ -101,19 +101,6 @@ export interface WebProxyOptions {
    * Works for both HTTP forwarding and HTTPS CONNECT tunneling.
    */
   urlRewrites?: Map<string, string>;
-  /**
-   * Internal route handlers — intercepted before DNS resolution and SSRF checks.
-   *
-   * Map of hostname -> request handler. When the proxy receives a request
-   * targeting one of these hostnames, it delegates to the handler directly
-   * instead of forwarding externally. This lets sandbox processes reach
-   * host-side services (e.g. Cap'n Web RPC) through the existing proxy
-   * without a separate socket or transport.
-   *
-   * Example: { 'ax-capnweb': capnwebHandler } intercepts requests to
-   * http://ax-capnweb/rpc and handles them in-process.
-   */
-  internalRoutes?: Map<string, (req: IncomingMessage, res: ServerResponse) => void | Promise<void>>;
 }
 
 // ── Private IP blocking ──────────────────────────────────────────────
@@ -171,7 +158,7 @@ function containsCanary(body: Buffer, canaryToken?: string): boolean {
 // ── Proxy implementation ─────────────────────────────────────────────
 
 export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy> {
-  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains, onDenied, urlRewrites, internalRoutes } = options;
+  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains, onDenied, urlRewrites } = options;
   const activeSockets = new Set<net.Socket>();
   /** Per-domain decision cache — avoids repeated callbacks for the same domain. */
   const domainDecisions = new Map<string, boolean>();
@@ -241,23 +228,6 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     let responseBytes = 0;
 
     try {
-      // Internal route intercept — handled in-process, no DNS or SSRF check.
-      // This lets sandbox processes reach host-side services (Cap'n Web RPC,
-      // etc.) through the same proxy they already use for external HTTP.
-      if (internalRoutes?.size) {
-        try {
-          const internalUrl = new URL(url);
-          const handler = internalRoutes.get(internalUrl.hostname);
-          if (handler) {
-            logger.debug('internal_route', { hostname: internalUrl.hostname, path: internalUrl.pathname });
-            await handler(req, res);
-            return;
-          }
-        } catch {
-          // URL parse failed — fall through to normal proxy logic
-        }
-      }
-
       // Apply URL rewrite if domain matches
       const rewrittenUrl = rewriteUrl(url);
       const targetUrl = new URL(rewrittenUrl);

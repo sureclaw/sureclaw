@@ -1,5 +1,19 @@
 # Cap'n Web MCP Integration
 
+## [2026-03-28 20:25] — Route Cap'n Web batch through existing IPC socket
+
+**Task:** Replace proxy-based transport with IPC-based transport. Cap'n Web batch goes over the same IPC socket as all other tool calls.
+**What I did:**
+- Added `capnweb_batch` IPC schema in `ipc-schemas.ts`
+- Created `src/host/ipc-handlers/capnweb.ts` — IPC handler that processes batch via `newHttpBatchRpcResponse` with synthetic Request/Response
+- Wired handler into `ipc-server.ts` via `capnwebTarget` option
+- Rewrote codegen runtime to use `IPCBatchTransport` over `AX_IPC_SOCKET` instead of `newHttpBatchRpcSession` over HTTP
+- Reverted all web proxy `internalRoutes` changes — no proxy modifications needed
+- Added `capnweb_batch` to `knownInternalActions` in sync test
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/capnweb.ts`, `src/host/ipc-server.ts`, `src/host/capnweb/server.ts`, `src/host/capnweb/codegen.ts`, `src/host/web-proxy.ts`, `tests/`
+**Outcome:** Success — 2644 tests pass. Clean separation: Cap'n Web batch is just another IPC action, no proxy changes, no separate socket.
+**Notes:** The batch protocol maps perfectly to IPC request-response: client accumulates messages, sends as one `capnweb_batch` call, gets all responses back.
+
 ## [2026-03-28 20:10] — Simplify Cap'n Web transport: use existing web proxy instead of separate socket
 
 **Task:** Eliminate the separate Unix socket transport and route Cap'n Web through the existing web proxy.

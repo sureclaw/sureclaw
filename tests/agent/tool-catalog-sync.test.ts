@@ -202,6 +202,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'workspace_release',
       // Session lifecycle (host → pod push notification)
       'session_expiring',
+      // Cap'n Web RPC batch (script-based tool execution, not agent-facing tool)
+      'capnweb_batch',
     ]);
 
     for (const action of schemaActions) {

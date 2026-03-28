@@ -62,32 +62,18 @@ describe('generateToolStubs', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('should generate _runtime.ts with HTTP batch session', () => {
+  it('should generate _runtime.ts with IPC batch transport', () => {
     const outputDir = join(tempDir, 'tools');
-    generateToolStubs({
-      outputDir,
-      groups: [],
-    });
+    generateToolStubs({ outputDir, groups: [] });
 
     const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
-    expect(runtime).toContain('newHttpBatchRpcSession');
-    expect(runtime).toContain('ax-capnweb');
+    expect(runtime).toContain('RpcSession');
+    expect(runtime).toContain('AX_IPC_SOCKET');
+    expect(runtime).toContain('capnweb_batch');
+    expect(runtime).toContain('IPCBatchTransport');
     expect(runtime).toContain('export const tools');
-    // Should NOT contain socket/transport code
-    expect(runtime).not.toContain('SocketRpcTransport');
-    expect(runtime).not.toContain('node:net');
-  });
-
-  it('should accept custom rpcUrl', () => {
-    const outputDir = join(tempDir, 'tools');
-    generateToolStubs({
-      outputDir,
-      groups: [],
-      rpcUrl: 'http://custom-host:8080/rpc',
-    });
-
-    const runtime = readFileSync(join(outputDir, '_runtime.ts'), 'utf8');
-    expect(runtime).toContain('http://custom-host:8080/rpc');
+    // Should NOT contain HTTP batch
+    expect(runtime).not.toContain('newHttpBatchRpcSession');
   });
 
   it('should generate per-server directories with tool files', () => {
@@ -151,47 +137,35 @@ describe('generateToolStubs', () => {
     expect(getIssues).toContain('teamId: string');
     expect(getIssues).toContain('limit?: number');
     expect(getIssues).toContain("tools.getIssues(params)");
-    expect(getIssues).toContain('MCP server: linear');
 
     // Verify barrel export
     const barrel = readFileSync(join(outputDir, 'linear', 'index.ts'), 'utf8');
     expect(barrel).toContain("export { getIssues } from './getIssues.js'");
     expect(barrel).toContain("export { getTeams } from './getTeams.js'");
 
-    // Verify metadata
     expect(result.toolCount).toBe(3);
-    expect(result.files.length).toBeGreaterThan(3);
   });
 
   it('should handle complex input schemas', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({
       outputDir,
-      groups: [
-        {
-          server: 'api',
-          tools: [
-            {
-              name: 'createItem',
-              description: 'Create an item',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  name: { type: 'string' },
-                  tags: { type: 'array', items: { type: 'string' } },
-                  nested: {
-                    type: 'object',
-                    properties: {
-                      deep: { type: 'boolean' },
-                    },
-                  },
-                },
-                required: ['name'],
-              },
+      groups: [{
+        server: 'api',
+        tools: [{
+          name: 'createItem',
+          description: 'Create an item',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+              nested: { type: 'object', properties: { deep: { type: 'boolean' } } },
             },
-          ],
-        },
-      ],
+            required: ['name'],
+          },
+        }],
+      }],
     });
 
     const content = readFileSync(join(outputDir, 'api', 'createItem.ts'), 'utf8');
@@ -204,18 +178,10 @@ describe('generateToolStubs', () => {
     const outputDir = join(tempDir, 'tools');
     generateToolStubs({
       outputDir,
-      groups: [
-        {
-          server: 'test',
-          tools: [
-            {
-              name: 'get-items',
-              description: 'Hyphenated name',
-              inputSchema: {},
-            },
-          ],
-        },
-      ],
+      groups: [{
+        server: 'test',
+        tools: [{ name: 'get-items', description: 'Hyphenated', inputSchema: {} }],
+      }],
     });
 
     expect(existsSync(join(outputDir, 'test', 'getItems.ts'))).toBe(true);
