@@ -140,7 +140,7 @@ The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration lo
 | `maxToolResultSizeBytes` | 1 MB |
 | `maxTotalContextBytes` | 10 MB |
 
-**MCP Provider** (`src/providers/mcp/types.ts`): Interface for external tool gateways (e.g., Activepieces). Methods: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`, `listApps()`. Implementations: `none` (no-op), `activepieces` (with circuit breaker and healthcheck).
+**MCP Provider** (`src/providers/mcp/types.ts`): Interface for external tool gateways. Methods: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`, `listApps()`. Implementations: `none` (no-op), `database` (per-agent HTTP/SSE MCP servers stored in DB, with per-server circuit breakers, credential placeholder resolution, and `server__tool` name prefixing). CRUD helpers: `addMcpServer()`, `removeMcpServer()`, `listMcpServers()`, `updateMcpServer()`, `testMcpServer()`.
 
 ## File Storage (server-files.ts)
 
@@ -330,5 +330,5 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **WorkspaceProvider.downloadScope()**: Optional method used by the provision endpoint. Only GCS provider implements it. The host calls `providers.workspace.downloadScope(scope, id)` and returns gzipped JSON to the pod.
 - **Status SSE events**: `server-completions.ts` emits `type: 'status'` events via EventBus with `{operation, phase, message}` data. `server-request-handlers.ts` validates all three fields are strings before forwarding as SSE named events. Invalid payloads are logged and dropped.
 - **MCP fast path runs in host process**: `inprocess.ts` has no sandbox isolation — tools execute directly. Only safe for trusted MCP providers. `FAST_PATH_LIMITS` enforces per-turn resource limits.
-- **MCP provider category**: New `mcp` category in provider-map.ts with `none` (no-op) and `activepieces` implementations. Config key: `config.mcp`. Must be loaded via registry.ts like other providers.
+- **MCP provider category**: `mcp` category in provider-map.ts with `none` (no-op) and `database` implementations. The `database` provider requires `{ database, credentials }` deps passed via registry.ts (not the generic `loadProvider` path). Admin API endpoints under `/admin/api/agents/:id/mcp-servers`.
 - **`credential_request` handler in skills.ts**: The `credential_request` IPC handler lives in `src/host/ipc-handlers/skills.ts` (alongside `skill_install`), not in its own file.

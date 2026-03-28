@@ -245,7 +245,7 @@ Every subsystem is a swappable provider. Here's what ships in the box:
 | **Database** | SQLite (with sqlite-vec), PostgreSQL (with pgvector) |
 | **Storage** | file, database |
 | **EventBus** | inprocess, NATS JetStream |
-| **MCP Gateway** | none (disabled), activepieces (280+ integrations with circuit breaker) |
+| **MCP Gateway** | none (disabled), database (per-agent HTTP/SSE MCP servers with circuit breaker) |
 | **Workspace** | none (disabled), local (filesystem), gcs (Google Cloud Storage) |
 
 18 provider categories. 50+ implementations. All swappable.
@@ -697,189 +697,88 @@ flux/
 
 Secrets are encrypted with SOPS (age-based). See `flux/README.md` for setup instructions.
 
-## MCP Fast Path with Activepieces
+## MCP Fast Path
 
 Most agent turns are simple — call an API, answer a question, look something up. They don't need a full sandbox container with network isolation, GCS workspace sync, and a MITM proxy. That's like renting a U-Haul to pick up a coffee.
 
-The **MCP fast path** runs these simple turns entirely in the host process. No pods, no IPC, no proxy. MCP tools (Linear, Gmail, Google Slides, etc.) route through an [Activepieces](https://www.activepieces.com/) gateway that handles authentication and API calls. The agent never sees credentials. When a turn actually needs shell access, filesystem, or git — the agent requests sandbox escalation and a dedicated pod is provisioned on demand.
+The **MCP fast path** runs these simple turns entirely in the host process. No pods, no IPC, no proxy. MCP tools route through external HTTP/SSE MCP servers that handle authentication and API calls. The agent never sees credentials. When a turn actually needs shell access, filesystem, or git — the agent requests sandbox escalation and a dedicated pod is provisioned on demand.
 
 **Result:** 95% of turns skip all container infrastructure. The other 5% get a session-bound sandbox that persists across turns.
 
-### Setting Up Activepieces
+### Setting Up MCP Servers
 
-Activepieces is an open-source (MIT) automation platform with 280+ pre-built integrations and built-in OAuth. AX uses it as an MCP tool gateway — Activepieces holds the credentials and makes the API calls, AX routes the tool calls.
+The `database` MCP provider stores per-agent server definitions in the database. Each agent can connect to multiple MCP servers, and tool names are prefixed with the server name to avoid collisions.
 
-#### 1. Deploy Activepieces
+#### 1. Configure AX
 
-**Docker (local development):**
-
-```bash
-docker run -d \
-  --name activepieces \
-  -p 8080:8080 \
-  -e AP_ENGINE_EXECUTABLE_PATH=dist/packages/engine/main.js \
-  -e AP_ENCRYPTION_KEY=$(openssl rand -hex 16) \
-  -e AP_JWT_SECRET=$(openssl rand -hex 32) \
-  -e AP_FRONTEND_URL=http://localhost:8080 \
-  -e AP_SANDBOX_RUN_MODE=UNSANDBOXED \
-  -v activepieces_data:/root/.activepieces \
-  activepieces/activepieces:latest
-```
-
-**Kubernetes (alongside AX):**
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: activepieces
-  namespace: ax
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: activepieces
-  template:
-    metadata:
-      labels:
-        app: activepieces
-    spec:
-      containers:
-        - name: activepieces
-          image: activepieces/activepieces:latest
-          ports:
-            - containerPort: 8080
-          env:
-            - name: AP_ENGINE_EXECUTABLE_PATH
-              value: dist/packages/engine/main.js
-            - name: AP_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: activepieces-secrets
-                  key: encryption-key
-            - name: AP_JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: activepieces-secrets
-                  key: jwt-secret
-            - name: AP_FRONTEND_URL
-              value: http://activepieces.ax.svc:8080
-            - name: AP_SANDBOX_RUN_MODE
-              value: UNSANDBOXED
-          volumeMounts:
-            - name: data
-              mountPath: /root/.activepieces
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: activepieces-data
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: activepieces
-  namespace: ax
-spec:
-  selector:
-    app: activepieces
-  ports:
-    - port: 8080
-      targetPort: 8080
-```
-
-Create the secrets first:
-
-```bash
-kubectl create secret generic activepieces-secrets \
-  --namespace ax \
-  --from-literal=encryption-key=$(openssl rand -hex 16) \
-  --from-literal=jwt-secret=$(openssl rand -hex 32)
-```
-
-#### 2. Connect Your Apps in Activepieces
-
-Open the Activepieces UI (`http://localhost:8080` or your K8s ingress) and connect the services your agent needs:
-
-1. Go to **Connections** and add your service accounts (Linear API key, Google OAuth, Slack bot token, etc.)
-2. These credentials stay in Activepieces — AX never sees them. The agent calls tools by name, Activepieces handles auth.
-
-Activepieces supports OAuth flows for most services, so connecting Google Workspace, GitHub, Slack, etc. is a few clicks. For services that use API keys (Linear, OpenAI, etc.), paste the key once and you're done.
-
-#### 3. Configure AX
-
-Add the MCP provider to your `ax.yaml`:
+Enable the MCP provider in your `ax.yaml`:
 
 ```yaml
 providers:
-  mcp: activepieces    # enable MCP fast path
-
-mcp:
-  url: http://localhost:8080           # Docker
-  # url: http://activepieces.ax.svc:8080  # Kubernetes
-  timeout_ms: 30000
-  healthcheck_interval_ms: 10000
-  circuit_breaker:
-    failure_threshold: 5     # open circuit after 5 consecutive failures
-    cooldown_ms: 30000       # retry after 30s
+  mcp: database    # enable database-backed MCP servers
 ```
 
-That's it. AX will now route MCP-eligible turns through the in-process path and use Activepieces for tool calls. Turns that need sandbox capabilities (bash, git, filesystem) still work exactly as before — the agent requests escalation when it needs it.
+#### 2. Add MCP Servers
 
-#### 4. Verify It Works
+Use the CLI to register MCP servers for an agent:
 
 ```bash
-# Start AX
-npm start
+# Add an MCP server
+ax mcp add main linear --url http://linear-mcp.example.com/mcp \
+  --header "Authorization: Bearer {LINEAR_API_KEY}"
 
-# Send a message that uses an MCP tool
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"List my open Linear issues"}]}'
+# Add another server for the same agent
+ax mcp add main github --url http://github-mcp.example.com/mcp \
+  --header "Authorization: Bearer {GITHUB_TOKEN}"
+
+# List configured servers
+ax mcp list main
+
+# Test connectivity
+ax mcp test main linear
 ```
 
-If the agent has a Linear skill installed and Activepieces has a Linear connection configured, the tool call routes through Activepieces — no container, no proxy, no GCS sync.
+Credential placeholders like `{LINEAR_API_KEY}` are resolved from the credential provider at call time — the actual secrets never touch the database.
+
+#### 3. Manage via Admin API
+
+MCP servers can also be managed via the admin API:
+
+```bash
+# List servers for an agent
+curl http://localhost:8080/admin/api/agents/main/mcp-servers
+
+# Add a server
+curl -X POST http://localhost:8080/admin/api/agents/main/mcp-servers \
+  -H "Content-Type: application/json" \
+  -d '{"name": "linear", "url": "http://linear-mcp.example.com/mcp"}'
+
+# Test a server
+curl -X POST http://localhost:8080/admin/api/agents/main/mcp-servers/linear/test
+```
 
 ### How Credentials Stay Secure
 
 ```text
 LLM loop (in host process, no credentials)
   │
-  ├─ tool_call("linear_get_issues", { query: "bugs" })
+  ├─ tool_call("linear__get_issues", { query: "bugs" })
   │
   ▼
 Host (trusted) → McpProvider.callTool()
   │
+  ├─ resolveHeaders({LINEAR_API_KEY} → actual key from credential provider)
+  │
   ▼
-Activepieces (has the agent's Linear API key in its own DB)
+MCP Server (receives request with resolved credentials)
   │
   ├─ HTTPS to api.linear.app with bearer token
   │
   ▼
-Response flows back: Activepieces → Host → LLM loop
+Response flows back: MCP Server → Host → LLM loop
 ```
 
-The LLM never sees credentials. Activepieces manages them. The host just routes tool calls. Same security invariant as the sandbox model, minus the MITM proxy complexity.
-
-### When Credentials Are Missing
-
-If the agent calls a tool and the credential isn't configured in Activepieces, the tool call fails immediately — no blocking, no mid-conversation OAuth popups. The agent tells the user, and an admin notification goes out:
-
-```text
-⚠️ Agent "engineering-bot" tried to use Linear but no credential is configured.
-   Triggered by: @alice in #engineering
-   → Connect Linear in the Activepieces UI
-```
-
-### Swapping Gateways
-
-Activepieces is our recommended gateway, but the `McpProvider` interface supports alternatives. Swap by changing one line in config:
-
-```yaml
-providers:
-  mcp: activepieces   # or: nango, obot, or a custom implementation
-```
-
-No code changes needed. We have trust issues with vendor lock-in too.
+The LLM never sees credentials. The credential provider manages them. The host resolves placeholders at call time and routes tool calls. Same security invariant as the sandbox model, minus the MITM proxy complexity.
 
 ## CLI
 
@@ -891,6 +790,10 @@ ax configure          # Interactive setup wizard
 ax plugin add <pkg>   # Install a provider plugin
 ax plugin list        # List installed plugins
 ax plugin verify      # Check plugin integrity
+ax mcp add <agent> <name> --url <url>  # Add MCP server
+ax mcp list <agent>   # List MCP servers
+ax mcp test <agent> <name>  # Test MCP server connection
+ax mcp remove <agent> <name>  # Remove MCP server
 ```
 
 ## Contributing

@@ -16,6 +16,7 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `src/cli/bootstrap.ts` | Agent identity reset (deletes SOUL.md/IDENTITY.md, copies templates) |
 | `src/cli/plugin.ts` | Plugin management: add, remove, list, verify |
 | `src/cli/k8s-init.ts` | `ax k8s init` wizard — generates Helm values and K8s secrets for deployment |
+| `src/cli/mcp.ts` | MCP server management: add, remove, list, test |
 | `src/cli/setup-server.ts` | Server setup utilities (config loading, provider initialization) |
 | `src/cli/reload.ts` | Hot-reload config/skills without restart |
 | `src/cli/utils/commands.ts` | Command parsing helpers |
@@ -32,6 +33,7 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `ax bootstrap [agent]` | `runBootstrap(args)` | Reset agent identity; prompts confirmation if SOUL.md exists |
 | `ax plugin <cmd>` | `runPlugin(args)` | Plugin management: add, remove, list, verify |
 | `ax k8s init` | `runK8sInit(args)` | Interactive wizard for Kubernetes deployment setup |
+| `ax mcp <cmd>` | `runMcp(args)` | MCP server management: add, remove, list, test |
 | `ax reload` | `runReload(args)` | Hot-reload config and skills |
 
 ## Server Flags
@@ -88,7 +90,7 @@ Format: colon-separated segments with minimum 3 parts.
 Interactive wizard for generating Kubernetes deployment configuration:
 
 - **Presets**: `small` and `large` only (medium removed) — control resource allocation. Warm pool enabled by default.
-- **MCP provider option**: Prompts for Activepieces MCP setup (URL) — generates `mcp: activepieces` provider config with `config.mcp.url` in Helm values.
+- **MCP**: Removed (MCP servers are now managed via `ax mcp` CLI commands and the database provider, not through k8s-init).
 - **Compound model IDs**: Supports `provider/model` format (e.g., `anthropic/claude-sonnet-4-20250514`)
 - **`extractProvider(compoundId)`** — Splits on first `/` to get provider name
 - **`secretKeyForProvider(provider)`** — e.g., `anthropic` → `anthropic-api-key`
