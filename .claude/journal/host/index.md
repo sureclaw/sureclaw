@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-28 18:30 — Implement Cap'n Web RPC server and codegen for MCP tools [capnweb.md](capnweb.md)
 - 2026-03-26 08:37 — Add scheduler sandbox timeout override [scheduler.md](scheduler.md)
 - 2026-03-26 05:48 — Fix session pod idle timeout race with watchPodExit [server-k8s.md](server-k8s.md)
 - 2026-03-26 05:20 — Make skill tool always available (not gated by install intent) [server-k8s.md](server-k8s.md)

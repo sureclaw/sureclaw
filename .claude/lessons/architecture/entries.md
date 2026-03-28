@@ -1,5 +1,11 @@
 # Architecture
 
+### Cap'n Web RpcTarget only exposes prototype methods — use dynamic class construction
+**Date:** 2026-03-28
+**Context:** Building Cap'n Web RPC server that dynamically creates methods from MCP tool schemas.
+**Lesson:** Cap'n Web's `RpcTarget` only exposes prototype methods over RPC, not instance properties or methods added via `Object.defineProperty()` on instances. To dynamically add methods, create a class that `extends RpcTarget` and add methods to its `.prototype` before instantiation. Arrow functions on prototype work for capturing external state via closure (mcpProvider, ctx).
+**Tags:** capnweb, rpc-target, dynamic-methods, prototype
+
 ### Replace async approval callbacks with synchronous allowlists to avoid deadlocks
 **Date:** 2026-03-22
 **Context:** Wiring ProxyDomainList into proxy startup to replace onApprove callback that caused deadlocks (proxy blocked waiting for user approval while agent was blocked waiting for proxy).
