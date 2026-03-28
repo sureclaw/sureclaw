@@ -155,5 +155,42 @@ export function storageMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet
         await db.schema.dropTable('chat_sessions').ifExists().execute();
       },
     },
+
+    storage_006_mcp_servers: {
+      async up(db: Kysely<any>) {
+        await db.schema
+          .createTable('mcp_servers')
+          .ifNotExists()
+          .addColumn('id', 'text', col => col.primaryKey())
+          .addColumn('agent_id', 'text', col => col.notNull())
+          .addColumn('name', 'text', col => col.notNull())
+          .addColumn('url', 'text', col => col.notNull())
+          .addColumn('headers', 'text')
+          .addColumn('enabled', 'integer', col => col.notNull().defaultTo(1))
+          .addColumn('created_at', isSqlite ? 'text' : 'timestamptz', col =>
+            col.notNull().defaultTo(isSqlite ? sql`(datetime('now'))` : sql`NOW()`))
+          .addColumn('updated_at', isSqlite ? 'text' : 'timestamptz', col =>
+            col.notNull().defaultTo(isSqlite ? sql`(datetime('now'))` : sql`NOW()`))
+          .execute();
+
+        await db.schema
+          .createIndex('idx_mcp_servers_agent')
+          .ifNotExists()
+          .on('mcp_servers')
+          .column('agent_id')
+          .execute();
+
+        await db.schema
+          .createIndex('idx_mcp_servers_unique')
+          .ifNotExists()
+          .unique()
+          .on('mcp_servers')
+          .columns(['agent_id', 'name'])
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema.dropTable('mcp_servers').ifExists().execute();
+      },
+    },
   };
 }
