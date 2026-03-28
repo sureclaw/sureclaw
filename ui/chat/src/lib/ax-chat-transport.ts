@@ -93,6 +93,7 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
     // Buffer for incomplete SSE lines split across TextDecoderStream chunks
     let carry = '';
     let finished = false;
+    let toolsStarted = false;
 
     return stream
       .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
@@ -173,6 +174,10 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
 
               // Handle tool calls from the OpenAI SSE stream
               if (delta?.tool_calls) {
+                if (!toolsStarted) {
+                  statusCallback?.({ operation: '', phase: 'clear', message: '' });
+                  toolsStarted = true;
+                }
                 for (const tc of delta.tool_calls) {
                   if (tc.function?.name) {
                     let args = {};

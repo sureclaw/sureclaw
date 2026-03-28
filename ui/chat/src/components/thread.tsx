@@ -2,22 +2,27 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CopyIcon,
   LoaderIcon,
   PencilIcon,
   RefreshCwIcon,
   Square,
-  WrenchIcon,
 } from 'lucide-react';
 import {
   ActionBarPrimitive,
   AuiIf,
+  ChainOfThoughtPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAuiState,
 } from '@assistant-ui/react';
-import type { FC } from 'react';
+import { createContext, useContext, type FC } from 'react';
 import { MarkdownText } from './markdown-text';
+
+const StatusMessageContext = createContext<string | null>(null);
 
 export const Thread: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => {
   const AssistantMessageWithStatus: FC = () => <AssistantMessage statusMessage={statusMessage} />;
@@ -89,42 +94,125 @@ const Composer: FC = () => (
   </div>
 );
 
-const ToolCallFallback: FC<{ toolName: string; args: unknown; status: { type: string } }> = ({ toolName, args, status }) => (
-  <div className="my-2 rounded-lg border border-border/40 bg-card/60 px-4 py-3 backdrop-blur-sm">
-    <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
-      <WrenchIcon className="size-3.5 text-amber" strokeWidth={1.8} />
-      <span className="text-foreground">{toolName}</span>
-      {status.type === 'running' && (
-        <LoaderIcon className="size-3 animate-spin text-muted-foreground" strokeWidth={1.8} />
-      )}
-    </div>
-    {args != null && typeof args === 'object' && Object.keys(args as Record<string, unknown>).length > 0 && (
-      <pre className="mt-2 overflow-x-auto rounded-md bg-background/60 px-3 py-2 text-[11px] font-mono text-muted-foreground">
-        {JSON.stringify(args, null, 2)}
-      </pre>
-    )}
+const formatArgs = (args: unknown): string => {
+  if (args == null || typeof args !== 'object') return '';
+  const entries = Object.entries(args as Record<string, unknown>);
+  if (entries.length === 0) return '';
+  const params = entries.map(([key, value]) => {
+    if (typeof value === 'string') return `${key}: "${value.length > 80 ? value.slice(0, 80) + '\u2026' : value}"`;
+    return `${key}: ${JSON.stringify(value)}`;
+  }).join(', ');
+  return `(${params})`;
+};
+
+const ToolCallFallback: FC<{ toolName: string; args: unknown; status: { type: string } }> = ({ toolName, args }) => (
+  <div className="px-4 py-1.5 text-[13px] text-muted-foreground font-mono truncate">
+    <span className="font-semibold text-foreground">{toolName}</span>{formatArgs(args)}
   </div>
 );
 
-const AssistantMessage: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => (
-  <MessagePrimitive.Root asChild>
-    <div className="relative mx-auto w-full max-w-[var(--thread-max-width)] py-4 animate-fade-in-up" data-role="assistant">
-      <div className="mx-2 leading-7 break-words text-foreground">
-        <MessagePrimitive.Parts
+const ChainOfThoughtTriggerContent: FC = () => {
+  const statusMessage = useContext(StatusMessageContext);
+  const isActive = useAuiState((s: Record<string, unknown>) => {
+    const cot = s.chainOfThought as { status: { type: string }; parts: unknown[] };
+    return cot.status.type === 'running';
+  });
+  const partsCount = useAuiState((s: Record<string, unknown>) => {
+    const cot = s.chainOfThought as { parts: unknown[] };
+    return cot.parts.length;
+  });
+  const collapsed = useAuiState((s: Record<string, unknown>) => {
+    const cot = s.chainOfThought as { collapsed: boolean };
+    return cot.collapsed;
+  });
+
+  return (
+    <>
+      {collapsed
+        ? <ChevronRightIcon className="size-3.5 shrink-0" strokeWidth={1.8} />
+        : <ChevronDownIcon className="size-3.5 shrink-0" strokeWidth={1.8} />
+      }
+      {isActive ? (
+        <>
+          <LoaderIcon className="size-3.5 shrink-0 animate-spin text-amber" strokeWidth={1.8} />
+          <span>{'Thinking\u2026'}</span>
+        </>
+      ) : (
+        <span>Done ({partsCount} tool {partsCount === 1 ? 'call' : 'calls'})</span>
+      )}
+    </>
+  );
+};
+
+const MyChainOfThought: FC = () => (
+  <ChainOfThoughtPrimitive.Root className="my-2 rounded-lg border border-border/40 bg-card/60 backdrop-blur-sm overflow-hidden">
+    <ChainOfThoughtPrimitive.AccordionTrigger className="flex w-full cursor-pointer items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground">
+      <ChainOfThoughtTriggerContent />
+    </ChainOfThoughtPrimitive.AccordionTrigger>
+    <AuiIf condition={(s: Record<string, unknown>) => {
+      const cot = s.chainOfThought as { collapsed: boolean };
+      return !cot.collapsed;
+    }}>
+      <div className="border-t border-border/30 py-1">
+        <ChainOfThoughtPrimitive.Parts
           components={{
-            Text: MarkdownText,
+            Reasoning: ({ text }: { text: string }) => (
+              <p className="whitespace-pre-wrap px-4 py-1.5 text-[12px] italic text-muted-foreground">{text}</p>
+            ),
             tools: {
               Fallback: ToolCallFallback,
             },
           }}
         />
       </div>
-      <AuiIf condition={({ message, thread }) => message.isLast && thread.isRunning}>
-        <div className="mx-2 mt-1 flex items-center gap-2 text-[13px] text-muted-foreground">
-          <LoaderIcon className="size-3.5 animate-spin" strokeWidth={1.8} />
-          <span>{statusMessage || 'Thinking\u2026'}</span>
+    </AuiIf>
+  </ChainOfThoughtPrimitive.Root>
+);
+
+const ThinkingChip: FC = () => {
+  const statusMessage = useContext(StatusMessageContext);
+  return (
+    <div className="my-2 rounded-lg border border-border/40 bg-card/60 backdrop-blur-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium text-muted-foreground">
+        <ChevronRightIcon className="size-3.5 shrink-0" strokeWidth={1.8} />
+        <LoaderIcon className="size-3.5 shrink-0 animate-spin text-amber" strokeWidth={1.8} />
+        <span>{statusMessage || 'Thinking\u2026'}</span>
+      </div>
+    </div>
+  );
+};
+
+const ThinkingIndicator: FC<{ status: { type: string } }> = ({ status }) => {
+  if (status.type !== 'running') return null;
+  return <ThinkingChip />;
+};
+
+const AssistantMessage: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => (
+  <MessagePrimitive.Root asChild>
+    <div className="relative mx-auto w-full max-w-[var(--thread-max-width)] py-4 animate-fade-in-up" data-role="assistant">
+      <StatusMessageContext.Provider value={statusMessage ?? null}>
+        <div className="mx-2 leading-7 break-words text-foreground">
+          <MessagePrimitive.Parts
+            unstable_showEmptyOnNonTextEnd={false}
+            components={{
+              Text: MarkdownText,
+              ChainOfThought: MyChainOfThought,
+              Empty: ThinkingIndicator,
+            }}
+          />
         </div>
-      </AuiIf>
+        <AuiIf condition={(s: Record<string, unknown>) => {
+          const msg = s.message as { isLast: boolean; parts: { type: string }[] };
+          const thr = s.thread as { isRunning: boolean };
+          if (!msg.isLast || !thr.isRunning) return false;
+          if (!msg.parts || msg.parts.length === 0) return false;
+          return !msg.parts.some((p) => p.type === 'tool-call' || p.type === 'reasoning');
+        }}>
+          <div className="mx-2">
+            <ThinkingChip />
+          </div>
+        </AuiIf>
+      </StatusMessageContext.Provider>
       <div className="mt-2 ml-2 flex">
         <ActionBarPrimitive.Root
           hideWhenRunning
