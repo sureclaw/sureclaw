@@ -192,6 +192,7 @@ export interface ProviderRegistry {
   database?: DatabaseProvider;
   eventbus: EventBusProvider;
   workspace: WorkspaceProvider;
+  /** @deprecated Use McpConnectionManager for unified MCP tool discovery and routing. */
   mcp?: McpProvider;
   screener?: SkillScreenerProvider;
 }

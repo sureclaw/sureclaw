@@ -1,5 +1,6 @@
 import type { DocumentStore } from '../providers/storage/types.js';
 import type { AuditProvider } from '../providers/audit/types.js';
+import type { DatabaseProvider } from '../providers/database/types.js';
 import type { Config } from '../types.js';
 import type { McpConnectionManager } from './mcp-manager.js';
 import { listPlugins } from './store.js';
@@ -72,5 +73,47 @@ export async function autoInstallDeclaredPlugins(
         logger.warn('auto_install_error', { source: decl.source, agentId, error: (err as Error).message });
       }
     }
+  }
+}
+
+/**
+ * Load MCP servers from the mcp_servers DB table into the manager.
+ * These are servers configured via `ax mcp add` or the admin dashboard.
+ */
+export async function loadDatabaseMcpServers(
+  database: DatabaseProvider | undefined,
+  mcpManager: McpConnectionManager,
+): Promise<void> {
+  if (!database) return;
+  try {
+    const rows = await database.db
+      .selectFrom('mcp_servers')
+      .selectAll()
+      .where('enabled', '=', 1)
+      .execute() as Array<{
+        agent_id: string;
+        name: string;
+        url: string;
+        headers: string | null;
+      }>;
+
+    let count = 0;
+    for (const row of rows) {
+      mcpManager.addServer(row.agent_id, {
+        name: row.name,
+        type: 'http',
+        url: row.url,
+      }, {
+        source: 'database',
+        headers: row.headers ? JSON.parse(row.headers) : undefined,
+      });
+      count++;
+    }
+
+    if (count > 0) {
+      logger.info('database_mcp_servers_loaded', { count });
+    }
+  } catch {
+    // mcp_servers table may not exist yet — skip silently
   }
 }

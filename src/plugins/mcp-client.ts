@@ -19,9 +19,14 @@ const CALL_TOOL_TIMEOUT_MS = 60_000;
  * List tools from a remote MCP server.
  * Connects, queries, and disconnects in one shot.
  */
-export async function listToolsFromServer(url: string): Promise<McpToolSchema[]> {
+export async function listToolsFromServer(
+  url: string,
+  opts?: { headers?: Record<string, string> },
+): Promise<McpToolSchema[]> {
   const client = new Client({ name: 'ax-host', version: '1.0.0' });
-  const transport = new StreamableHTTPClientTransport(new URL(url));
+  const transport = new StreamableHTTPClientTransport(new URL(url), {
+    requestInit: opts?.headers ? { headers: opts.headers } : undefined,
+  });
 
   try {
     await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `MCP connect to ${url}`);
@@ -48,9 +53,12 @@ export async function callToolOnServer(
   url: string,
   toolName: string,
   args: Record<string, unknown>,
+  opts?: { headers?: Record<string, string> },
 ): Promise<{ content: string; isError?: boolean }> {
   const client = new Client({ name: 'ax-host', version: '1.0.0' });
-  const transport = new StreamableHTTPClientTransport(new URL(url));
+  const transport = new StreamableHTTPClientTransport(new URL(url), {
+    requestInit: opts?.headers ? { headers: opts.headers } : undefined,
+  });
 
   try {
     await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `MCP connect to ${url}`);

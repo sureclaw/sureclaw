@@ -2,6 +2,28 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-03-29 15:00] — Unified tool routing via resolveServer + mcpCallTool
+
+**Task:** Replace dual routing path (resolvePluginServer for plugins + providers.mcp.callTool for everything else) with a single unified path using resolveServer/mcpCallTool/getServerMeta/resolveHeaders
+**What I did:** Updated ToolRouterContext and ToolBatchOptions with new unified fields (resolveServer, mcpCallTool, getServerMeta, resolveHeaders), added handleUnifiedMcpCall handler, updated server-init.ts and inprocess.ts to wire through McpConnectionManager, kept deprecated fields for backward compat, added comprehensive tests for unified path + priority over deprecated path
+**Files touched:** src/host/tool-router.ts, src/host/ipc-handlers/tool-batch.ts, src/host/server-init.ts, src/host/inprocess.ts, tests/host/tool-router.test.ts, tests/host/ipc-handlers/tool-batch.test.ts
+**Outcome:** Success — all 2752 tests pass. Unified path takes priority, deprecated fields still work as fallback.
+**Notes:** The unified path resolves headers from getServerMeta and optionally runs them through resolveHeaders for credential placeholder resolution before passing to mcpCallTool.
+
+## [2026-03-29 14:30] — Admin API for Cowork plugins + DB-MCP sync
+
+**Task:** Add admin API endpoints for Cowork plugin management and sync DB MCP server changes to the McpConnectionManager.
+**What I did:**
+- Added `mcpManager` to `AdminDeps` interface in server-admin.ts
+- Added 3 Cowork plugin endpoints: GET/POST `/admin/api/agents/:id/plugins`, DELETE `/admin/api/agents/:id/plugins/:name`
+- Added mcpManager sync after DB MCP server add/remove operations in existing POST/DELETE handlers
+- Added `mcpManager` to `AdminSetupOpts` in server-webhook-admin.ts, passing it through to createAdminHandler
+- Added `mcpManager` to `HostCore` interface and return value in server-init.ts
+- Wired `mcpManager` through in both server-local.ts and server-k8s.ts
+**Files touched:** src/host/server-admin.ts, src/host/server-webhook-admin.ts, src/host/server-init.ts, src/host/server-local.ts, src/host/server-k8s.ts
+**Outcome:** Success — all 2739 tests pass across 243 test files
+**Notes:** Plugin endpoints use lazy dynamic imports for store/install modules. mcpManager fallback creates a new McpConnectionManager if not provided.
+
 ## [2026-03-29 12:31] — Wire plugin MCP tool execution into host tool router
 
 **Task:** Route agent tool calls from plugin MCP servers to the correct remote server via URL.

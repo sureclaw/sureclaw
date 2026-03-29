@@ -1,7 +1,18 @@
 import type { PluginMcpServer } from './types.js';
+import { listToolsFromServer } from './mcp-client.js';
+import type { McpToolSchema } from '../providers/mcp/types.js';
 
 interface ManagedServer extends PluginMcpServer {
   pluginName?: string;
+  source?: string;
+  headers?: Record<string, string>;
+}
+
+/** Options for addServer (new calling convention). */
+export interface AddServerOpts {
+  source?: string;
+  pluginName?: string;
+  headers?: Record<string, string>;
 }
 
 /**
@@ -21,13 +32,28 @@ export class McpConnectionManager {
   /** agentId → (toolName → serverUrl) */
   private readonly toolServerMap = new Map<string, Map<string, string>>();
 
-  addServer(agentId: string, server: PluginMcpServer, pluginName?: string): void {
+  addServer(agentId: string, server: PluginMcpServer, optsOrPluginName?: string | AddServerOpts): void {
     let agentServers = this.servers.get(agentId);
     if (!agentServers) {
       agentServers = new Map();
       this.servers.set(agentId, agentServers);
     }
-    agentServers.set(server.name, { ...server, pluginName });
+
+    let pluginName: string | undefined;
+    let source: string | undefined;
+    let headers: Record<string, string> | undefined;
+
+    if (typeof optsOrPluginName === 'string') {
+      // Backward-compat: string arg is pluginName, derive source
+      pluginName = optsOrPluginName;
+      source = `plugin:${optsOrPluginName}`;
+    } else if (optsOrPluginName) {
+      pluginName = optsOrPluginName.pluginName;
+      source = optsOrPluginName.source ?? (pluginName ? `plugin:${pluginName}` : undefined);
+      headers = optsOrPluginName.headers;
+    }
+
+    agentServers.set(server.name, { ...server, pluginName, source, headers });
   }
 
   removeServer(agentId: string, serverName: string): boolean {
@@ -37,24 +63,52 @@ export class McpConnectionManager {
   }
 
   removeServersByPlugin(agentId: string, pluginName: string): number {
-    const agentServers = this.servers.get(agentId);
-    if (!agentServers) return 0;
-    // Clear tool mappings BEFORE removing servers (needs server URLs to find tools)
-    this.clearToolsForPlugin(agentId, pluginName);
-    let count = 0;
-    for (const [name, server] of agentServers) {
-      if (server.pluginName === pluginName) {
-        agentServers.delete(name);
-        count++;
-      }
-    }
-    return count;
+    return this.removeServersBySource(agentId, `plugin:${pluginName}`);
   }
 
   listServers(agentId: string): PluginMcpServer[] {
     const agentServers = this.servers.get(agentId);
     if (!agentServers) return [];
+    return [...agentServers.values()].map(({ pluginName: _, source: _s, headers: _h, ...rest }) => rest);
+  }
+
+  /**
+   * List servers with source and headers metadata exposed.
+   * Used by the unified registry to pass headers through to MCP calls.
+   */
+  listServersWithMeta(agentId: string): Array<PluginMcpServer & { source?: string; headers?: Record<string, string> }> {
+    const agentServers = this.servers.get(agentId);
+    if (!agentServers) return [];
     return [...agentServers.values()].map(({ pluginName: _, ...rest }) => rest);
+  }
+
+  /**
+   * Get metadata (source, headers) for a specific server.
+   */
+  getServerMeta(agentId: string, name: string): { source?: string; headers?: Record<string, string> } | undefined {
+    const server = this.servers.get(agentId)?.get(name);
+    if (!server) return undefined;
+    return { source: server.source, headers: server.headers };
+  }
+
+  /**
+   * Remove all servers matching a given source tag and clear their tool mappings.
+   */
+  removeServersBySource(agentId: string, source: string): number {
+    const agentServers = this.servers.get(agentId);
+    if (!agentServers) return 0;
+
+    // Clear tool mappings BEFORE removing servers (needs server URLs to find tools)
+    this.clearToolsForSource(agentId, source);
+
+    let count = 0;
+    for (const [name, server] of agentServers) {
+      if (server.source === source) {
+        agentServers.delete(name);
+        count++;
+      }
+    }
+    return count;
   }
 
   getServerUrls(agentId: string): string[] {
@@ -97,17 +151,61 @@ export class McpConnectionManager {
    * Called when a plugin is uninstalled so stale tool routes are removed.
    */
   clearToolsForPlugin(agentId: string, pluginName: string): void {
+    this.clearToolsForSource(agentId, `plugin:${pluginName}`);
+  }
+
+  /**
+   * Clear tool mappings for all servers matching a given source tag.
+   */
+  private clearToolsForSource(agentId: string, source: string): void {
     const agentServers = this.servers.get(agentId);
     const agentTools = this.toolServerMap.get(agentId);
     if (!agentServers || !agentTools) return;
 
-    const pluginUrls = new Set<string>();
+    const sourceUrls = new Set<string>();
     for (const server of agentServers.values()) {
-      if (server.pluginName === pluginName) pluginUrls.add(server.url);
+      if (server.source === source) sourceUrls.add(server.url);
     }
 
     for (const [toolName, url] of agentTools) {
-      if (pluginUrls.has(url)) agentTools.delete(toolName);
+      if (sourceUrls.has(url)) agentTools.delete(toolName);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Unified tool discovery
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Discover tools from ALL registered MCP servers for an agent.
+   * Resolves credential placeholders in headers if a resolver is provided.
+   * Registers tool->server URL mappings for later routing.
+   */
+  async discoverAllTools(
+    agentId: string,
+    opts?: {
+      resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+    },
+  ): Promise<McpToolSchema[]> {
+    const allTools: McpToolSchema[] = [];
+    const agentServers = this.servers.get(agentId);
+    if (!agentServers) return allTools;
+
+    for (const [, server] of agentServers) {
+      try {
+        const resolvedHeaders = server.headers && opts?.resolveHeaders
+          ? await opts.resolveHeaders(server.headers)
+          : server.headers;
+
+        const tools = await listToolsFromServer(server.url, resolvedHeaders ? { headers: resolvedHeaders } : undefined);
+        if (tools.length > 0) {
+          this.registerTools(agentId, server.url, tools.map(t => t.name));
+          allTools.push(...tools);
+        }
+      } catch {
+        // One server failing doesn't affect others
+      }
+    }
+    return allTools;
   }
 }

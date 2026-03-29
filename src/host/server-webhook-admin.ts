@@ -66,11 +66,12 @@ export interface AdminSetupOpts {
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
   domainList?: import('./proxy-domain-list.js').ProxyDomainList;
+  mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
 
 export function setupAdminHandler(opts: AdminSetupOpts) {
-  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList } = opts;
+  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager } = opts;
   return config.admin?.enabled
-    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList })
+    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager })
     : null;
 }

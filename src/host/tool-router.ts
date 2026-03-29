@@ -51,19 +51,27 @@ export interface ToolRouterContext {
   agentId: string;
   userId: string;
   sessionId: string;
-  mcp?: McpProvider;
   eventBus?: EventBus;
   workspaceBasePath: string;
   /** Accumulated byte size of all tool results in the current turn. */
   totalBytes: number;
   /** Number of tool calls made so far in the current turn. */
   callCount: number;
-  /**
-   * Resolve a tool name to a plugin MCP server URL.
-   * Returns undefined if the tool is not from a plugin server.
-   */
+
+  /** Unified MCP tool resolver -- returns server URL for any MCP tool (database, plugin, etc.) */
+  resolveServer?: (agentId: string, toolName: string) => string | undefined;
+  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
+  mcpCallTool?: (serverUrl: string, toolName: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+  /** Get server metadata (headers) for credential resolution */
+  getServerMeta?: (agentId: string, serverName: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Resolve credential placeholders in headers */
+  resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+
+  /** @deprecated Use resolveServer instead */
+  mcp?: McpProvider;
+  /** @deprecated Use resolveServer instead */
   resolvePluginServer?: (toolName: string) => string | undefined;
-  /** Execute a tool call on a plugin MCP server (by URL). */
+  /** @deprecated Use mcpCallTool instead */
   pluginMcpCallTool?: PluginMcpCallTool;
 }
 
@@ -105,12 +113,32 @@ async function handleMcpToolCall(
   call: ToolCall,
   ctx: ToolRouterContext,
 ): Promise<ToolResult> {
-  // Check if this tool belongs to a plugin MCP server
+  // ── Unified path: resolveServer covers ALL MCP tools (plugins, database, etc.) ──
+  if (ctx.resolveServer) {
+    const serverUrl = ctx.resolveServer(ctx.agentId, call.name);
+    if (serverUrl && ctx.mcpCallTool) {
+      // Resolve headers from server metadata if available
+      let headers: Record<string, string> | undefined;
+      if (ctx.getServerMeta) {
+        // Find the server name that owns this URL by checking all known servers
+        const meta = ctx.getServerMeta(ctx.agentId, call.name);
+        if (meta?.headers) {
+          headers = ctx.resolveHeaders
+            ? await ctx.resolveHeaders(meta.headers)
+            : meta.headers;
+        }
+      }
+      return handleUnifiedMcpCall(call, serverUrl, headers, ctx);
+    }
+  }
+
+  // ── Legacy fallback: resolvePluginServer (deprecated) ──
   const pluginServerUrl = ctx.resolvePluginServer?.(call.name);
   if (pluginServerUrl && ctx.pluginMcpCallTool) {
     return handlePluginMcpToolCall(call, ctx, pluginServerUrl);
   }
 
+  // ── Legacy fallback: providers.mcp (deprecated) ──
   if (!ctx.mcp) {
     return {
       toolUseId: call.id,
@@ -179,6 +207,57 @@ async function handleMcpToolCall(
     return {
       toolUseId: call.id,
       content: `Tool call failed: ${(err as Error).message}`,
+      isError: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unified MCP call handler (resolveServer + mcpCallTool)
+// ---------------------------------------------------------------------------
+
+async function handleUnifiedMcpCall(
+  call: ToolCall,
+  serverUrl: string,
+  headers: Record<string, string> | undefined,
+  ctx: ToolRouterContext,
+): Promise<ToolResult> {
+  try {
+    const result = await ctx.mcpCallTool!(serverUrl, call.name, call.args, headers ? { headers } : undefined);
+
+    const content = typeof result.content === 'string'
+      ? result.content
+      : JSON.stringify(result.content);
+
+    // Enforce per-result size limit
+    if (Buffer.byteLength(content) > FAST_PATH_LIMITS.maxToolResultSizeBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Tool result too large (>${FAST_PATH_LIMITS.maxToolResultSizeBytes} bytes). Ask for a smaller response.`,
+        isError: true,
+      };
+    }
+
+    ctx.totalBytes += Buffer.byteLength(content);
+    if (ctx.totalBytes > FAST_PATH_LIMITS.maxTotalContextBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Total context size limit exceeded (>${FAST_PATH_LIMITS.maxTotalContextBytes} bytes). Reduce tool usage.`,
+        isError: true,
+      };
+    }
+
+    return {
+      toolUseId: call.id,
+      content,
+      isError: result.isError,
+      // Unified MCP results are always taint-tagged as external
+      taint: { source: `mcp:${serverUrl}`, trust: 'external' as const, timestamp: new Date() },
+    };
+  } catch (err) {
+    return {
+      toolUseId: call.id,
+      content: `MCP tool call failed: ${(err as Error).message}`,
       isError: true,
     };
   }

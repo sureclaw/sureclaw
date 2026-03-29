@@ -24,6 +24,7 @@ import { createAgentRegistry, type AgentRegistry } from './agent-registry.js';
 import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
+import { reloadPluginMcpServers, loadDatabaseMcpServers } from '../plugins/startup.js';
 
 const logger = getLogger();
 
@@ -63,6 +64,7 @@ export interface HostCore {
   domainList: ProxyDomainList;
   defaultUserId: string;
   modelId: string;
+  mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
 
 /**
@@ -280,18 +282,37 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     workspaceMap,
     requestedCredentials,
     domainList,
+    // Legacy: providers.mcp (database MCP provider) is kept as fallback for
+    // tool batching. When all callers migrate to McpConnectionManager, remove
+    // providers.mcp and the legacy fallback paths in tool-router.ts,
+    // tool-batch.ts, inprocess.ts, and server-completions.ts.
     toolBatchProvider: (providers.mcp || mcpManager)
       ? {
           getProvider: providers.mcp ? () => providers.mcp! : () => null,
-          resolvePluginServer: mcpManager
+          resolveServer: mcpManager
             ? (agentId: string, toolName: string) => mcpManager.getToolServerUrl(agentId, toolName)
             : undefined,
-          pluginMcpCallTool: mcpManager ? callToolOnServer : undefined,
+          mcpCallTool: mcpManager ? callToolOnServer : undefined,
+          getServerMeta: mcpManager
+            ? (agentId: string, serverName: string) => mcpManager.getServerMeta(agentId, serverName)
+            : undefined,
         }
       : undefined,
     coworkPlugins: mcpManager ? { mcpManager, domainList } : undefined,
   });
   completionDeps.ipcHandler = handleIPC;
+
+  // ── Load MCP servers into the manager from plugins and database ──
+  // Database MCP servers and plugin servers are loaded into McpConnectionManager,
+  // which provides unified tool discovery and routing via discoverAllTools() and
+  // getToolServerUrl(). The legacy providers.mcp path remains as a fallback
+  // until the unified manager fully replaces it.
+  if (mcpManager && providers.storage?.documents) {
+    await reloadPluginMcpServers(providers.storage.documents, mcpManager);
+  }
+  if (mcpManager && providers.database) {
+    await loadDatabaseMcpServers(providers.database, mcpManager);
+  }
 
   const defaultCtx = { sessionId: 'server', agentId: 'system', userId: defaultUserId };
   const ipcServer = await createIPCServer(ipcSocketPath, handleIPC, defaultCtx);
@@ -325,5 +346,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     domainList,
     defaultUserId,
     modelId,
+    mcpManager,
   };
 }

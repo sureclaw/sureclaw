@@ -84,9 +84,19 @@ export type PluginMcpCallTool = (
 export interface ToolBatchOptions {
   /** Returns the MCP provider for executing tools in this session. Returns null if not configured. */
   getProvider: (ctx: IPCContext) => ToolBatchProvider | null;
-  /** Resolve a tool name to a plugin MCP server URL (returns undefined for non-plugin tools). */
+
+  /** Unified MCP tool resolver -- returns server URL for any MCP tool (database, plugin, etc.) */
+  resolveServer?: (agentId: string, toolName: string) => string | undefined;
+  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
+  mcpCallTool?: (url: string, tool: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+  /** Get server metadata (headers) for credential resolution */
+  getServerMeta?: (agentId: string, serverName: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Resolve credential placeholders in headers */
+  resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+
+  /** @deprecated Use resolveServer instead */
   resolvePluginServer?: (agentId: string, toolName: string) => string | undefined;
-  /** Execute a tool call on a plugin MCP server (by URL). */
+  /** @deprecated Use mcpCallTool instead */
   pluginMcpCallTool?: PluginMcpCallTool;
 }
 
@@ -109,7 +119,7 @@ export function createToolBatchHandlers(
       ctx: IPCContext,
     ) => {
       const provider = opts.getProvider(ctx);
-      if (!provider && !opts.pluginMcpCallTool) {
+      if (!provider && !opts.mcpCallTool && !opts.pluginMcpCallTool) {
         throw new Error('Tool batching not available for this session');
       }
 
@@ -121,7 +131,29 @@ export function createToolBatchHandlers(
         const resolvedArgs = resolveRefs(call.args, results) as Record<string, unknown>;
 
         try {
-          // Check if this tool belongs to a plugin MCP server
+          // ── Unified path: resolveServer covers ALL MCP tools ──
+          const unifiedUrl = opts.resolveServer?.(ctx.agentId, call.tool);
+          if (unifiedUrl && opts.mcpCallTool) {
+            // Resolve headers from server metadata if available
+            let headers: Record<string, string> | undefined;
+            if (opts.getServerMeta) {
+              const meta = opts.getServerMeta(ctx.agentId, call.tool);
+              if (meta?.headers) {
+                headers = opts.resolveHeaders
+                  ? await opts.resolveHeaders(meta.headers)
+                  : meta.headers;
+              }
+            }
+            const result = await opts.mcpCallTool(unifiedUrl, call.tool, resolvedArgs, headers ? { headers } : undefined);
+            if (result.isError) {
+              results.push({ ok: false, error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content) });
+            } else {
+              results.push(result.content);
+            }
+            continue;
+          }
+
+          // ── Legacy fallback: resolvePluginServer (deprecated) ──
           const pluginUrl = opts.resolvePluginServer?.(ctx.agentId, call.tool);
           if (pluginUrl && opts.pluginMcpCallTool) {
             const result = await opts.pluginMcpCallTool(pluginUrl, call.tool, resolvedArgs);

@@ -115,4 +115,80 @@ describe('McpConnectionManager', () => {
     // 'legal' plugin tools should remain
     expect(manager.getToolServerUrl('pi', 'box_upload')).toBe('https://mcp.box.com/mcp');
   });
+
+  // ── Source tags and headers ──
+
+  it('tracks source on registered servers', () => {
+    manager.addServer('pi', { name: 'github', type: 'http', url: 'https://mcp.github.com/mcp' }, {
+      source: 'db:org-tools',
+      pluginName: 'gh',
+    });
+    const meta = manager.getServerMeta('pi', 'github');
+    expect(meta).toBeDefined();
+    expect(meta!.source).toBe('db:org-tools');
+  });
+
+  it('stores headers for database-sourced servers', () => {
+    manager.addServer('pi', { name: 'stripe', type: 'http', url: 'https://mcp.stripe.com/mcp' }, {
+      source: 'db:billing',
+      headers: { Authorization: 'Bearer sk_live_xxx' },
+    });
+    const meta = manager.getServerMeta('pi', 'stripe');
+    expect(meta).toBeDefined();
+    expect(meta!.headers).toEqual({ Authorization: 'Bearer sk_live_xxx' });
+  });
+
+  it('removeServersBySource removes all servers from a source', () => {
+    manager.addServer('pi', { name: 'github', type: 'http', url: 'https://mcp.github.com/mcp' }, {
+      source: 'db:org-tools',
+    });
+    manager.addServer('pi', { name: 'jira', type: 'http', url: 'https://mcp.jira.com/mcp' }, {
+      source: 'db:org-tools',
+    });
+    manager.addServer('pi', { name: 'slack', type: 'http', url: 'https://mcp.slack.com/mcp' }, {
+      source: 'plugin:comms',
+    });
+
+    manager.registerTools('pi', 'https://mcp.github.com/mcp', ['gh_pr']);
+    manager.registerTools('pi', 'https://mcp.jira.com/mcp', ['jira_create']);
+    manager.registerTools('pi', 'https://mcp.slack.com/mcp', ['slack_send']);
+
+    expect(manager.removeServersBySource('pi', 'db:org-tools')).toBe(2);
+    expect(manager.listServers('pi')).toHaveLength(1);
+    expect(manager.listServers('pi')[0].name).toBe('slack');
+
+    // Tool mappings for removed source should be cleared
+    expect(manager.getToolServerUrl('pi', 'gh_pr')).toBeUndefined();
+    expect(manager.getToolServerUrl('pi', 'jira_create')).toBeUndefined();
+    // Other source tools remain
+    expect(manager.getToolServerUrl('pi', 'slack_send')).toBe('https://mcp.slack.com/mcp');
+  });
+
+  it('backward compat: string pluginName still works', () => {
+    manager.addServer('pi', { name: 'slack', type: 'http', url: 'https://mcp.slack.com/mcp' }, 'sales');
+    const meta = manager.getServerMeta('pi', 'slack');
+    expect(meta).toBeDefined();
+    // String pluginName should derive source as 'plugin:<name>'
+    expect(meta!.source).toBe('plugin:sales');
+  });
+
+  it('listServersWithMeta exposes source and headers', () => {
+    manager.addServer('pi', { name: 'stripe', type: 'http', url: 'https://mcp.stripe.com/mcp' }, {
+      source: 'db:billing',
+      headers: { Authorization: 'Bearer sk_live_xxx' },
+    });
+    const servers = manager.listServersWithMeta('pi');
+    expect(servers).toHaveLength(1);
+    expect(servers[0].source).toBe('db:billing');
+    expect(servers[0].headers).toEqual({ Authorization: 'Bearer sk_live_xxx' });
+    expect(servers[0].name).toBe('stripe');
+  });
+
+  it('listServersWithMeta returns empty for unknown agent', () => {
+    expect(manager.listServersWithMeta('unknown')).toEqual([]);
+  });
+
+  it('getServerMeta returns undefined for unknown server', () => {
+    expect(manager.getServerMeta('pi', 'nonexistent')).toBeUndefined();
+  });
 });

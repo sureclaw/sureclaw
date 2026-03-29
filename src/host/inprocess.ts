@@ -19,7 +19,7 @@ import { routeToolCall, FAST_PATH_LIMITS, type ToolRouterContext, type ToolResul
 import type { Logger } from '../logger.js';
 import { deserializeContent } from '../utils/content-serialization.js';
 import type { McpConnectionManager } from '../plugins/mcp-manager.js';
-import { listToolsFromServer, callToolOnServer } from '../plugins/mcp-client.js';
+import { callToolOnServer } from '../plugins/mcp-client.js';
 
 // ---------------------------------------------------------------------------
 // Per-turn context (AsyncLocalStorage for cross-session isolation)
@@ -207,30 +207,17 @@ export async function runFastPath(
     const skills = await loadSkillsFromDB(documents, request.agentId);
     const installedApps = skills.flatMap(s => s.mcpApps);
 
-    // 2. Discover MCP tools (skill-scoped, turn-filtered)
-    const mcpTools = await discoverTools(
-      request.agentId,
-      request.message,
-      providers.mcp,
-      installedApps,
-    );
-
-    // 2b. Per-agent plugin MCP servers — query each, register tool→URL mapping, merge tools
+    // 2. Discover MCP tools — unified path via manager, or legacy fallback
+    let mcpTools: McpToolSchema[] = [];
     if (deps.mcpManager) {
-      const pluginUrls = deps.mcpManager.getServerUrls(request.agentId);
-      for (const url of pluginUrls) {
-        try {
-          const serverTools = await listToolsFromServer(url);
-          if (serverTools.length > 0) {
-            deps.mcpManager.registerTools(
-              request.agentId,
-              url,
-              serverTools.map(t => t.name),
-            );
-            mcpTools.push(...serverTools);
-          }
-        } catch { /* plugin MCP failures are non-fatal */ }
-      }
+      mcpTools = await deps.mcpManager.discoverAllTools(request.agentId);
+    } else {
+      mcpTools = await discoverTools(
+        request.agentId,
+        request.message,
+        providers.mcp,
+        installedApps,
+      );
     }
 
     // 3. Build tool list
@@ -271,16 +258,19 @@ export async function runFastPath(
       agentId: request.agentId,
       userId: request.userId,
       sessionId: request.sessionId,
-      mcp: providers.mcp,
       eventBus: deps.eventBus,
       workspaceBasePath: deps.workspaceBasePath,
       totalBytes: 0,
       callCount: 0,
-      // Plugin MCP routing: resolve tool name → server URL, then call via HTTP
-      resolvePluginServer: deps.mcpManager
-        ? (toolName) => deps.mcpManager!.getToolServerUrl(request.agentId, toolName)
+      // Unified MCP routing: resolve tool name → server URL, then call via HTTP
+      resolveServer: deps.mcpManager
+        ? (agentId: string, toolName: string) => deps.mcpManager!.getToolServerUrl(agentId, toolName)
         : undefined,
-      pluginMcpCallTool: deps.mcpManager ? callToolOnServer : undefined,
+      mcpCallTool: deps.mcpManager ? callToolOnServer : undefined,
+      getServerMeta: deps.mcpManager
+        ? (agentId: string, name: string) => deps.mcpManager!.getServerMeta(agentId, name)
+        : undefined,
+      mcp: providers.mcp, // @deprecated — legacy fallback; remove when McpConnectionManager replaces all callers
     };
 
     // 8. LLM orchestration loop

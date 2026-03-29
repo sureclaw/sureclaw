@@ -107,7 +107,188 @@ describe('routeToolCall — MCP', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plugin MCP routing
+// Unified MCP routing (resolveServer + mcpCallTool)
+// ---------------------------------------------------------------------------
+
+describe('routeToolCall — unified MCP', () => {
+  it('routes to unified MCP server when resolveServer matches', async () => {
+    const mcpCallSpy = vi.fn(async () => ({
+      content: 'slack response',
+      isError: false,
+    }));
+
+    const ctx = makeCtx({
+      resolveServer: (_agentId, name) => name === 'slack_send_message' ? 'https://mcp.slack.com/mcp' : undefined,
+      mcpCallTool: mcpCallSpy,
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u1', name: 'slack_send_message', args: { channel: '#general', text: 'hello' } },
+      ctx,
+    );
+
+    expect(result.content).toBe('slack response');
+    expect(result.isError).toBe(false);
+    expect(result.taint?.source).toContain('mcp:');
+    expect(result.taint?.trust).toBe('external');
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://mcp.slack.com/mcp',
+      'slack_send_message',
+      { channel: '#general', text: 'hello' },
+      undefined,
+    );
+  });
+
+  it('falls through to legacy MCP when resolveServer returns undefined', async () => {
+    const mcp = mockMcp(async () => ({
+      content: 'default mcp response',
+      isError: false,
+      taint: { source: 'mcp:linear', trust: 'external' as const, timestamp: new Date() },
+    }));
+
+    const mcpCallSpy = vi.fn();
+
+    const ctx = makeCtx({
+      mcp,
+      resolveServer: () => undefined,
+      mcpCallTool: mcpCallSpy,
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u2', name: 'linear_get_issues', args: {} },
+      ctx,
+    );
+
+    expect(result.content).toBe('default mcp response');
+    expect(mcpCallSpy).not.toHaveBeenCalled();
+  });
+
+  it('handles unified MCP call errors', async () => {
+    const ctx = makeCtx({
+      resolveServer: () => 'https://mcp.slack.com/mcp',
+      mcpCallTool: async () => { throw new Error('connection refused'); },
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u3', name: 'slack_send_message', args: {} },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('MCP tool call failed');
+    expect(result.content).toContain('connection refused');
+  });
+
+  it('enforces size limits on unified MCP results', async () => {
+    const bigContent = 'x'.repeat(FAST_PATH_LIMITS.maxToolResultSizeBytes + 1);
+    const ctx = makeCtx({
+      resolveServer: () => 'https://mcp.slack.com/mcp',
+      mcpCallTool: async () => ({ content: bigContent }),
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u4', name: 'slack_send_message', args: {} },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('too large');
+  });
+
+  it('passes resolved headers from getServerMeta to mcpCallTool', async () => {
+    const mcpCallSpy = vi.fn(async () => ({
+      content: 'authed response',
+      isError: false,
+    }));
+
+    const ctx = makeCtx({
+      resolveServer: (_agentId, name) => name === 'db_query' ? 'https://db.internal/mcp' : undefined,
+      mcpCallTool: mcpCallSpy,
+      getServerMeta: (_agentId, _name) => ({
+        source: 'database',
+        headers: { Authorization: 'Bearer token123' },
+      }),
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u5', name: 'db_query', args: { sql: 'SELECT 1' } },
+      ctx,
+    );
+
+    expect(result.content).toBe('authed response');
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://db.internal/mcp',
+      'db_query',
+      { sql: 'SELECT 1' },
+      { headers: { Authorization: 'Bearer token123' } },
+    );
+  });
+
+  it('calls resolveHeaders when both getServerMeta and resolveHeaders are present', async () => {
+    const mcpCallSpy = vi.fn(async () => ({
+      content: 'resolved response',
+      isError: false,
+    }));
+
+    const resolveHeadersSpy = vi.fn(async (h: Record<string, string>) => ({
+      ...h,
+      Authorization: 'Bearer resolved-token',
+    }));
+
+    const ctx = makeCtx({
+      resolveServer: () => 'https://db.internal/mcp',
+      mcpCallTool: mcpCallSpy,
+      getServerMeta: () => ({
+        source: 'database',
+        headers: { Authorization: '{{DB_TOKEN}}' },
+      }),
+      resolveHeaders: resolveHeadersSpy,
+    });
+
+    await routeToolCall(
+      { id: 'tc-u6', name: 'db_query', args: {} },
+      ctx,
+    );
+
+    expect(resolveHeadersSpy).toHaveBeenCalledWith({ Authorization: '{{DB_TOKEN}}' });
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://db.internal/mcp',
+      'db_query',
+      {},
+      { headers: { Authorization: 'Bearer resolved-token' } },
+    );
+  });
+
+  it('unified path takes priority over deprecated plugin path', async () => {
+    const unifiedCallSpy = vi.fn(async () => ({
+      content: 'unified response',
+      isError: false,
+    }));
+    const pluginCallSpy = vi.fn(async () => ({
+      content: 'plugin response',
+      isError: false,
+    }));
+
+    const ctx = makeCtx({
+      resolveServer: () => 'https://unified.server/mcp',
+      mcpCallTool: unifiedCallSpy,
+      resolvePluginServer: () => 'https://plugin.server/mcp',
+      pluginMcpCallTool: pluginCallSpy,
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-u7', name: 'some_tool', args: {} },
+      ctx,
+    );
+
+    expect(result.content).toBe('unified response');
+    expect(unifiedCallSpy).toHaveBeenCalled();
+    expect(pluginCallSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin MCP routing (deprecated — backward compat)
 // ---------------------------------------------------------------------------
 
 describe('routeToolCall — plugin MCP', () => {
