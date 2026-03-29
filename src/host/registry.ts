@@ -107,7 +107,12 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     screenCommit: createCommitScreener(screener, audit),
   });
 
-  // Load MCP provider if configured (optional — fast path only)
+  // Load MCP provider if configured (optional — fast path only).
+  // NOTE: providers.mcp is deprecated. New MCP servers should be added via:
+  // 1. Database: `ax mcp add` / admin dashboard (loaded into McpConnectionManager at startup)
+  // 2. Cowork plugins: `ax plugin install` (loaded into McpConnectionManager on install)
+  // The database MCP provider remains as a legacy option until all callers
+  // migrate to the unified McpConnectionManager routing path.
   let mcp;
   if (config.providers.mcp === 'database') {
     if (!database) {

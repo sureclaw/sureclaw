@@ -2,7 +2,7 @@
  * Tests for tool batch IPC handler — __batchRef resolution, pipelining, errors.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   createToolBatchHandlers,
   evaluatePath,
@@ -152,5 +152,234 @@ describe('createToolBatchHandlers', () => {
     await expect(
       handlers.tool_batch({ calls: [] }, ctx),
     ).rejects.toThrow('not available');
+  });
+
+  // ── Unified MCP routing (resolveServer + mcpCallTool) ──
+
+  it('should route unified MCP calls to mcpCallTool', async () => {
+    const unifiedCalls: Array<{ url: string; tool: string; args: Record<string, unknown> }> = [];
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool(call: McpToolCall) {
+          return { content: `default:${call.tool}` };
+        },
+      }),
+      resolveServer: (_agentId, toolName) =>
+        toolName.startsWith('slack_') ? 'https://mcp.slack.com/mcp' : undefined,
+      mcpCallTool: async (url, tool, args) => {
+        unifiedCalls.push({ url, tool, args });
+        return { content: `unified:${tool}` };
+      },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'slack_send_message', args: { text: 'hi' } },
+        { tool: 'linear_get_issues', args: {} },
+      ],
+    }, ctx);
+
+    // First call goes to unified MCP
+    expect(result.results[0]).toBe('unified:slack_send_message');
+    expect(unifiedCalls).toHaveLength(1);
+    expect(unifiedCalls[0].url).toBe('https://mcp.slack.com/mcp');
+    // Second call goes to default provider
+    expect(result.results[1]).toBe('default:linear_get_issues');
+  });
+
+  it('should handle unified MCP call errors per-call', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool() { return { content: 'ok' }; },
+      }),
+      resolveServer: (_agentId, toolName) =>
+        toolName === 'failing_unified' ? 'https://bad.server/mcp' : undefined,
+      mcpCallTool: async () => { throw new Error('unified server down'); },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'failing_unified', args: {} },
+        { tool: 'default_tool', args: {} },
+      ],
+    }, ctx);
+
+    expect(result.results[0]).toEqual({ ok: false, error: 'unified server down' });
+    expect(result.results[1]).toBe('ok');
+  });
+
+  it('should pass headers from getServerMetaByUrl to mcpCallTool', async () => {
+    const mcpCallSpy = vi.fn(async () => ({
+      content: 'authed response',
+    }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: (_agentId, toolName) =>
+        toolName === 'db_query' ? 'https://db.internal/mcp' : undefined,
+      mcpCallTool: mcpCallSpy,
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
+        source: 'database',
+        headers: { Authorization: 'Bearer token123' },
+      }) : undefined,
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [{ tool: 'db_query', args: { sql: 'SELECT 1' } }],
+    }, ctx);
+
+    expect(result.results[0]).toBe('authed response');
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://db.internal/mcp',
+      'db_query',
+      { sql: 'SELECT 1' },
+      { headers: { Authorization: 'Bearer token123' } },
+    );
+  });
+
+  it('should call resolveHeaders before passing to mcpCallTool', async () => {
+    const mcpCallSpy = vi.fn(async () => ({
+      content: 'resolved response',
+    }));
+
+    const resolveHeadersSpy = vi.fn(async (h: Record<string, string>) => ({
+      ...h,
+      Authorization: 'Bearer resolved-token',
+    }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://db.internal/mcp',
+      mcpCallTool: mcpCallSpy,
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
+        source: 'database',
+        headers: { Authorization: '{{DB_TOKEN}}' },
+      }) : undefined,
+      resolveHeaders: resolveHeadersSpy,
+    });
+
+    await handlers.tool_batch({
+      calls: [{ tool: 'db_query', args: {} }],
+    }, ctx);
+
+    expect(resolveHeadersSpy).toHaveBeenCalledWith({ Authorization: '{{DB_TOKEN}}' });
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://db.internal/mcp',
+      'db_query',
+      {},
+      { headers: { Authorization: 'Bearer resolved-token' } },
+    );
+  });
+
+  it('unified path takes priority over deprecated plugin path', async () => {
+    const unifiedCallSpy = vi.fn(async () => ({
+      content: 'unified response',
+    }));
+    const pluginCallSpy = vi.fn(async () => ({
+      content: 'plugin response',
+    }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://unified.server/mcp',
+      mcpCallTool: unifiedCallSpy,
+      resolvePluginServer: () => 'https://plugin.server/mcp',
+      pluginMcpCallTool: pluginCallSpy,
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [{ tool: 'some_tool', args: {} }],
+    }, ctx);
+
+    expect(result.results[0]).toBe('unified response');
+    expect(unifiedCallSpy).toHaveBeenCalled();
+    expect(pluginCallSpy).not.toHaveBeenCalled();
+  });
+
+  it('should not throw when provider is null but mcpCallTool is available', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://server/mcp',
+      mcpCallTool: async () => ({ content: 'ok' }),
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [{ tool: 'some_tool', args: {} }],
+    }, ctx);
+
+    expect(result.results[0]).toBe('ok');
+  });
+
+  // ── Deprecated plugin MCP routing (backward compat) ──
+
+  it('should route plugin MCP calls to pluginMcpCallTool', async () => {
+    const pluginCalls: Array<{ url: string; tool: string; args: Record<string, unknown> }> = [];
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool(call: McpToolCall) {
+          return { content: `default:${call.tool}` };
+        },
+      }),
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName.startsWith('slack_') ? 'https://mcp.slack.com/mcp' : undefined,
+      pluginMcpCallTool: async (url, tool, args) => {
+        pluginCalls.push({ url, tool, args });
+        return { content: `plugin:${tool}` };
+      },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'slack_send_message', args: { text: 'hi' } },
+        { tool: 'linear_get_issues', args: {} },
+      ],
+    }, ctx);
+
+    // First call goes to plugin MCP
+    expect(result.results[0]).toBe('plugin:slack_send_message');
+    expect(pluginCalls).toHaveLength(1);
+    expect(pluginCalls[0].url).toBe('https://mcp.slack.com/mcp');
+    // Second call goes to default provider
+    expect(result.results[1]).toBe('default:linear_get_issues');
+  });
+
+  it('should handle plugin MCP call errors per-call', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool() { return { content: 'ok' }; },
+      }),
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName === 'failing_plugin' ? 'https://bad.server/mcp' : undefined,
+      pluginMcpCallTool: async () => { throw new Error('plugin server down'); },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'failing_plugin', args: {} },
+        { tool: 'default_tool', args: {} },
+      ],
+    }, ctx);
+
+    expect(result.results[0]).toEqual({ ok: false, error: 'plugin server down' });
+    expect(result.results[1]).toBe('ok');
+  });
+
+  it('should return error when no default provider for non-plugin tool', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName === 'slack_send' ? 'https://mcp.slack.com/mcp' : undefined,
+      pluginMcpCallTool: async (_url, tool) => ({ content: `plugin:${tool}` }),
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'slack_send', args: {} },
+        { tool: 'unknown_tool', args: {} },
+      ],
+    }, ctx);
+
+    expect(result.results[0]).toBe('plugin:slack_send');
+    expect(result.results[1]).toEqual({ ok: false, error: 'MCP gateway not configured for this tool' });
   });
 });

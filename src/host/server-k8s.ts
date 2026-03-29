@@ -71,7 +71,7 @@ async function main(): Promise<void> {
     completionDeps, sessionStore, router, taintBudget, fileStore,
     handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
     agentRegistry, agentName, agentDirVal, sessionCanaries,
-    domainList, defaultUserId, modelId,
+    domainList, defaultUserId, modelId, mcpManager,
   } = core;
 
   // ── Host-process-specific: shared credential registry for k8s MITM proxy ──
@@ -159,6 +159,7 @@ async function main(): Promise<void> {
     agentRegistry,
     startTime,
     domainList,
+    mcpManager,
   });
 
   // ── processCompletion wrapper with per-turn HTTP IPC ──

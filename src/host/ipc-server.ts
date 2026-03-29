@@ -18,9 +18,10 @@ import { createWorkspaceHandlers } from './ipc-handlers/workspace.js';
 import { createGovernanceHandlers } from './ipc-handlers/governance.js';
 import { createImageHandlers } from './ipc-handlers/image.js';
 import { createPluginHandlers } from './ipc-handlers/plugin.js';
+import { createCoworkPluginHandlers, type CoworkPluginHandlerOptions } from './ipc-handlers/cowork-plugins.js';
 import { createOrchestrationHandlers } from './ipc-handlers/orchestration.js';
 import { createSandboxToolHandlers } from './ipc-handlers/sandbox-tools.js';
-import { createToolBatchHandlers, type ToolBatchProvider } from './ipc-handlers/tool-batch.js';
+import { createToolBatchHandlers, type ToolBatchProvider, type ToolBatchOptions } from './ipc-handlers/tool-batch.js';
 import { type AgentRegistry, FileAgentRegistry } from './agent-registry.js';
 import type { Orchestrator } from './orchestration/orchestrator.js';
 
@@ -90,8 +91,11 @@ export interface IPCHandlerOptions {
   requestedCredentials?: Map<string, Set<string>>;
   /** Proxy domain allowlist — skill_install adds domains from skill manifests. */
   domainList?: import('../host/proxy-domain-list.js').ProxyDomainList;
-  /** Returns the MCP provider for tool batch execution (null = not configured). */
-  toolBatchProvider?: (ctx: IPCContext) => ToolBatchProvider | null;
+  /** Returns the MCP provider for tool batch execution (null = not configured).
+   *  Accepts either a simple callback or full ToolBatchOptions with plugin MCP routing. */
+  toolBatchProvider?: ((ctx: IPCContext) => ToolBatchProvider | null) | ToolBatchOptions;
+  /** Cowork plugin management: MCP connection manager + optional domain list. */
+  coworkPlugins?: CoworkPluginHandlerOptions;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -127,6 +131,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       registry: opts?.agentRegistry ?? new FileAgentRegistry(),
     }),
     ...createPluginHandlers(providers),
+    ...(opts?.coworkPlugins ? createCoworkPluginHandlers(providers, opts.coworkPlugins) : {}),
     ...(opts?.orchestrator ? createOrchestrationHandlers(opts.orchestrator) : {}),
     ...(opts?.workspaceMap ? createSandboxToolHandlers(providers, {
       workspaceMap: opts.workspaceMap,

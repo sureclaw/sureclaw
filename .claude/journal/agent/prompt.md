@@ -2,6 +2,19 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-03-29 11:50] — Add CommandsModule for plugin slash commands
+
+**Task:** Implement Task 10 of the Cowork plugin integration plan — create a commands prompt module to surface installed plugin slash commands.
+**What I did:**
+1. Added `commands` field to `PromptContext` interface in `types.ts`
+2. Created `CommandsModule` in `src/agent/prompt/modules/commands.ts` (priority 72, optional, renders markdown table of commands)
+3. Registered `CommandsModule` in `builder.ts` between skills (70) and delegation (75)
+4. Created comprehensive test file `tests/agent/prompt/modules/commands.test.ts` (6 tests)
+5. Verified integration test module count unaffected (commands field absent = shouldInclude returns false)
+**Files touched:** src/agent/prompt/types.ts, src/agent/prompt/modules/commands.ts (new), src/agent/prompt/builder.ts, tests/agent/prompt/modules/commands.test.ts (new)
+**Outcome:** Success — all 239 test files pass (2691 tests), including new commands tests.
+**Notes:** Module is optional and only activates when `ctx.commands` is non-empty, so existing tests pass unchanged.
+
 ## [2026-03-26 07:00] — Credential flow investigation and skill prompt fixes
 
 **Task:** Agent couldn't use Linear skill — made 10+ tool calls to find SKILL.md, then failed to use credentials

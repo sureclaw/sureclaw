@@ -165,6 +165,10 @@ const ConfigSchema = z.strictObject({
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
   url_rewrites: z.record(z.string(), z.string()).optional(),
+  plugins: z.array(z.strictObject({
+    source: z.string().min(1).max(1000),
+    agents: z.array(z.string().min(1).max(100)).min(1),
+  })).optional(),
 });
 
 /**

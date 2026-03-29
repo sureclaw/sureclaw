@@ -145,6 +145,7 @@ export interface AdminDeps {
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
   domainList?: ProxyDomainList;
+  mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
 
 // ── Factory ──
@@ -491,6 +492,12 @@ async function handleAdminAPI(
       if (!name || !url) { sendError(res, 400, 'Missing required fields: name, url'); return; }
       const { addMcpServer } = await import('../providers/mcp/database.js');
       const server = await addMcpServer(providers.database.db, id, name, url, headers);
+      if (deps.mcpManager) {
+        deps.mcpManager.addServer(id, { name, type: 'http', url }, {
+          source: 'database',
+          headers,
+        });
+      }
       sendJSON(res, server, 201);
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
@@ -507,6 +514,9 @@ async function handleAdminAPI(
     const { removeMcpServer } = await import('../providers/mcp/database.js');
     const removed = await removeMcpServer(providers.database.db, id, name);
     if (!removed) { sendError(res, 404, 'MCP server not found'); return; }
+    if (deps.mcpManager) {
+      deps.mcpManager.removeServer(id, name);
+    }
     sendJSON(res, { ok: true });
     return;
   }
@@ -538,6 +548,84 @@ async function handleAdminAPI(
     const { testMcpServer } = await import('../providers/mcp/database.js');
     const result = await testMcpServer(providers.database.db, id, name, providers.credentials);
     sendJSON(res, result);
+    return;
+  }
+
+  // ── Cowork Plugin Management ──
+
+  // GET /admin/api/agents/:id/plugins — list installed plugins
+  const pluginListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins$/);
+  if (pluginListMatch && method === 'GET') {
+    const id = decodeURIComponent(pluginListMatch[1]);
+    if (!providers.storage?.documents) { sendJSON(res, []); return; }
+    const { listPlugins } = await import('../plugins/store.js');
+    const plugins = await listPlugins(providers.storage.documents, id);
+    sendJSON(res, plugins.map(p => ({
+      name: p.pluginName,
+      version: p.version,
+      description: p.description,
+      source: p.source,
+      skills: p.skillCount,
+      commands: p.commandCount,
+      mcpServers: p.mcpServers.map(s => s.name),
+      installedAt: p.installedAt,
+    })));
+    return;
+  }
+
+  // POST /admin/api/agents/:id/plugins — install a plugin
+  if (pluginListMatch && method === 'POST') {
+    const id = decodeURIComponent(pluginListMatch[1]);
+    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { source } = body;
+      if (typeof source !== 'string' || !source) { sendError(res, 400, 'Missing required field: source'); return; }
+      if (!deps.mcpManager) {
+        logger.warn('admin_plugin_install_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not persist' });
+      }
+      const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
+      const mcpManager = deps.mcpManager ?? new McpConnectionManager();
+      const { installPlugin } = await import('../plugins/install.js');
+      const result = await installPlugin({
+        source,
+        agentId: id,
+        documents: providers.storage.documents,
+        mcpManager,
+        audit: providers.audit,
+        domainList: deps.domainList,
+        sessionId: 'admin',
+      });
+      sendJSON(res, result, result.installed ? 201 : 400);
+    } catch (err) {
+      sendError(res, 400, `Install failed: ${(err as Error).message}`);
+    }
+    return;
+  }
+
+  // DELETE /admin/api/agents/:id/plugins/:name — uninstall a plugin
+  const pluginDeleteMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins\/([^/]+)$/);
+  if (pluginDeleteMatch && method === 'DELETE') {
+    const id = decodeURIComponent(pluginDeleteMatch[1]);
+    const name = decodeURIComponent(pluginDeleteMatch[2]);
+    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
+    if (!deps.mcpManager) {
+      logger.warn('admin_plugin_uninstall_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not be cleaned up' });
+    }
+    const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
+    const mcpManager = deps.mcpManager ?? new McpConnectionManager();
+    const { uninstallPlugin } = await import('../plugins/install.js');
+    const result = await uninstallPlugin({
+      pluginName: name,
+      agentId: id,
+      documents: providers.storage.documents,
+      mcpManager,
+      audit: providers.audit,
+      domainList: deps.domainList,
+      sessionId: 'admin',
+    });
+    if (!result.ok) { sendError(res, 404, result.reason ?? 'Not found'); return; }
+    sendJSON(res, { ok: true });
     return;
   }
 

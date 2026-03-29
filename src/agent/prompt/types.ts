@@ -52,6 +52,9 @@ export interface PromptContext {
   userWorkspaceWritable?: boolean;
   /** Whether to show skill install instructions (detected from user message). */
   skillInstallEnabled?: boolean;
+
+  /** Plugin slash commands surfaced in the system prompt. */
+  commands?: Array<{ name: string; pluginName: string; content: string }>;
 }
 
 export interface IdentityFiles {

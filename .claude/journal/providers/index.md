@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-29 11:56 — Implement plugin startup module: reload MCP servers + auto-install from config [plugins.md](plugins.md)
 - 2026-03-20 18:10 — Split monolithic WebProvider into fetch/extract/search [web.md](web.md)
 
 - 2026-03-19 13:00 — Database-backed credential provider for k8s durability [credentials.md](credentials.md)

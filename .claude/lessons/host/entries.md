@@ -1,5 +1,23 @@
 # Host
 
+## Tool router header lookup must use server URL, not tool name
+**Date:** 2026-03-29
+**Context:** The tool router called `getServerMeta(agentId, call.name)` where `call.name` was the tool name (e.g. `linear__getIssues`), but `getServerMeta` expected a server name (e.g. `linear`). This silently failed to resolve headers for DB-configured MCP servers.
+**Lesson:** When routing through a URL-based lookup chain (resolveServer returns URL, then you need metadata), look up by URL not by tool name. Add `getServerMetaByUrl` to avoid the name mismatch. Always verify the parameter semantics of lookup functions match what the caller actually has.
+**Tags:** tool-router, mcp, header-resolution, naming-mismatch
+
+## Scope proxy domain keys by agentId to prevent cross-agent collisions
+**Date:** 2026-03-29
+**Context:** Plugin proxy domain allowlist used `plugin:${pluginName}` as the key, which meant two agents installing the same plugin would share/overwrite domain entries, and uninstalling from one agent would remove domains for the other.
+**Lesson:** Any per-agent resource key (proxy domains, command keys, etc.) must include agentId in the key to prevent cross-agent collisions. Use `plugin:${agentId}:${pluginName}` not `plugin:${pluginName}`.
+**Tags:** proxy, domains, scoping, agentId, collision
+
+## clearToolsForPlugin must run BEFORE removing servers from the map
+**Date:** 2026-03-29
+**Context:** When wiring plugin MCP tool-to-server URL cleanup into `removeServersByPlugin`, I called `clearToolsForPlugin` after the server deletion loop. But `clearToolsForPlugin` needs to read the server map to find which URLs belong to the plugin. By the time it ran, the servers were already gone, so no tool mappings were cleared.
+**Lesson:** When a cleanup function depends on state that another cleanup function removes, always run the dependent cleanup first. In Map-based registries with cross-references, order of operations during removal matters — resolve dependencies before deleting the primary records.
+**Tags:** ordering, cleanup, map, plugin, mcp, tool-router
+
 ### Proxy domain allowlist must also load from DB-stored skills on host startup
 **Date:** 2026-03-26
 **Context:** Skills installed via IPC are stored in the database `documents` table. On host restart, `server-init.ts` rebuilt the domain allowlist from filesystem and GCS skills only — not from the DB. This caused `api.linear.app` to be blocked with 403.

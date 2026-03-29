@@ -200,6 +200,7 @@ export async function createServer(
     startTime,
     localDevMode,
     domainList: core.domainList,
+    mcpManager: core.mcpManager,
   });
 
   let httpServer: HttpServer | null = null;

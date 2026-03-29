@@ -39,18 +39,40 @@ export interface ToolResult {
   taint?: TaintTag;
 }
 
+/** Callback for executing a tool call on a plugin MCP server. */
+export type PluginMcpCallTool = (
+  serverUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+
 export interface ToolRouterContext {
   requestId: string;
   agentId: string;
   userId: string;
   sessionId: string;
-  mcp?: McpProvider;
   eventBus?: EventBus;
   workspaceBasePath: string;
   /** Accumulated byte size of all tool results in the current turn. */
   totalBytes: number;
   /** Number of tool calls made so far in the current turn. */
   callCount: number;
+
+  /** Unified MCP tool resolver -- returns server URL for any MCP tool (database, plugin, etc.) */
+  resolveServer?: (agentId: string, toolName: string) => string | undefined;
+  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
+  mcpCallTool?: (serverUrl: string, toolName: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+  /** Get server metadata (headers) for credential resolution by server URL */
+  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Resolve credential placeholders in headers */
+  resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+
+  /** @deprecated Use resolveServer instead */
+  mcp?: McpProvider;
+  /** @deprecated Use resolveServer instead */
+  resolvePluginServer?: (toolName: string) => string | undefined;
+  /** @deprecated Use mcpCallTool instead */
+  pluginMcpCallTool?: PluginMcpCallTool;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +113,35 @@ async function handleMcpToolCall(
   call: ToolCall,
   ctx: ToolRouterContext,
 ): Promise<ToolResult> {
+  // ── Unified path: resolveServer covers ALL MCP tools (plugins, database, etc.) ──
+  if (ctx.resolveServer) {
+    const serverUrl = ctx.resolveServer(ctx.agentId, call.name);
+    if (serverUrl && ctx.mcpCallTool) {
+      // Resolve headers from server metadata if available
+      let headers: Record<string, string> | undefined;
+      try {
+        if (ctx.getServerMetaByUrl) {
+          const meta = ctx.getServerMetaByUrl(ctx.agentId, serverUrl);
+          if (meta?.headers) {
+            headers = ctx.resolveHeaders
+              ? await ctx.resolveHeaders(meta.headers)
+              : meta.headers;
+          }
+        }
+      } catch {
+        // Header resolution failure should not block the tool call
+      }
+      return handleUnifiedMcpCall(call, serverUrl, headers, ctx);
+    }
+  }
+
+  // ── Legacy fallback: resolvePluginServer (deprecated) ──
+  const pluginServerUrl = ctx.resolvePluginServer?.(call.name);
+  if (pluginServerUrl && ctx.pluginMcpCallTool) {
+    return handlePluginMcpToolCall(call, ctx, pluginServerUrl);
+  }
+
+  // ── Legacy fallback: providers.mcp (deprecated) ──
   if (!ctx.mcp) {
     return {
       toolUseId: call.id,
@@ -159,6 +210,107 @@ async function handleMcpToolCall(
     return {
       toolUseId: call.id,
       content: `Tool call failed: ${(err as Error).message}`,
+      isError: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Unified MCP call handler (resolveServer + mcpCallTool)
+// ---------------------------------------------------------------------------
+
+async function handleUnifiedMcpCall(
+  call: ToolCall,
+  serverUrl: string,
+  headers: Record<string, string> | undefined,
+  ctx: ToolRouterContext,
+): Promise<ToolResult> {
+  try {
+    const result = await ctx.mcpCallTool!(serverUrl, call.name, call.args, headers ? { headers } : undefined);
+
+    const content = typeof result.content === 'string'
+      ? result.content
+      : JSON.stringify(result.content);
+
+    // Enforce per-result size limit
+    if (Buffer.byteLength(content) > FAST_PATH_LIMITS.maxToolResultSizeBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Tool result too large (>${FAST_PATH_LIMITS.maxToolResultSizeBytes} bytes). Ask for a smaller response.`,
+        isError: true,
+      };
+    }
+
+    ctx.totalBytes += Buffer.byteLength(content);
+    if (ctx.totalBytes > FAST_PATH_LIMITS.maxTotalContextBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Total context size limit exceeded (>${FAST_PATH_LIMITS.maxTotalContextBytes} bytes). Reduce tool usage.`,
+        isError: true,
+      };
+    }
+
+    return {
+      toolUseId: call.id,
+      content,
+      isError: result.isError,
+      // Unified MCP results are always taint-tagged as external
+      taint: { source: `mcp:${serverUrl}`, trust: 'external' as const, timestamp: new Date() },
+    };
+  } catch (err) {
+    return {
+      toolUseId: call.id,
+      content: `MCP tool call failed: ${(err as Error).message}`,
+      isError: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin MCP tool calls (routed to remote servers via URL)
+// ---------------------------------------------------------------------------
+
+async function handlePluginMcpToolCall(
+  call: ToolCall,
+  ctx: ToolRouterContext,
+  serverUrl: string,
+): Promise<ToolResult> {
+  try {
+    const result = await ctx.pluginMcpCallTool!(serverUrl, call.name, call.args);
+
+    const content = typeof result.content === 'string'
+      ? result.content
+      : JSON.stringify(result.content);
+
+    // Enforce per-result size limit
+    if (Buffer.byteLength(content) > FAST_PATH_LIMITS.maxToolResultSizeBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Tool result too large (>${FAST_PATH_LIMITS.maxToolResultSizeBytes} bytes). Ask for a smaller response.`,
+        isError: true,
+      };
+    }
+
+    ctx.totalBytes += Buffer.byteLength(content);
+    if (ctx.totalBytes > FAST_PATH_LIMITS.maxTotalContextBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Total context size limit exceeded (>${FAST_PATH_LIMITS.maxTotalContextBytes} bytes). Reduce tool usage.`,
+        isError: true,
+      };
+    }
+
+    return {
+      toolUseId: call.id,
+      content,
+      isError: result.isError,
+      // Plugin MCP results are always taint-tagged as external
+      taint: { source: `plugin-mcp:${serverUrl}`, trust: 'external' as const, timestamp: new Date() },
+    };
+  } catch (err) {
+    return {
+      toolUseId: call.id,
+      content: `Plugin MCP tool call failed: ${(err as Error).message}`,
       isError: true,
     };
   }

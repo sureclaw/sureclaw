@@ -36,6 +36,7 @@ import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall
 import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
+import type { McpConnectionManager } from '../plugins/mcp-manager.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -85,6 +86,8 @@ export interface CompletionDeps {
   registerSessionPod?: (sessionId: string, pod: { podName: string; pid: number; kill: () => void }) => void;
   /** Remove a session pod mapping (called when pod exits unexpectedly). */
   removeSessionPod?: (sessionId: string) => void;
+  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  mcpManager?: McpConnectionManager;
 }
 
 export interface ExtractedFile {
@@ -414,6 +417,7 @@ export async function processCompletion(
           logger,
           eventBus,
           workspaceBasePath: config.workspace?.basePath ?? '~/.ax/workspaces',
+          mcpManager: deps.mcpManager,
         },
       );
 
@@ -879,7 +883,30 @@ export async function processCompletion(
 
     // ── Load or generate tool stubs (cached by schema hash) ──
     let toolStubsPayload: Array<{ path: string; content: string }> | undefined;
-    if (providers.mcp && providers.mcp.listTools) {
+    if (deps.mcpManager) {
+      try {
+        const resolveHeaders = providers.credentials
+          ? async (h: Record<string, string>) => {
+              const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
+              return rh(JSON.stringify(h), providers.credentials);
+            }
+          : undefined;
+        const mcpTools = await deps.mcpManager.discoverAllTools(agentName, { resolveHeaders });
+        if (mcpTools.length > 0) {
+          const { prepareToolStubs } = await import('./capnweb/generate-and-cache.js');
+          const stubs = await prepareToolStubs({
+            documents: providers.storage?.documents,
+            agentName,
+            tools: mcpTools,
+          });
+          if (stubs && stubs.length > 0) toolStubsPayload = stubs;
+        }
+      } catch (err) {
+        reqLogger.warn('mcp_tool_discovery_failed', { error: (err as Error).message });
+      }
+    } else if (providers.mcp && providers.mcp.listTools) {
+      // @deprecated Legacy fallback: no manager, use providers.mcp directly.
+      // Remove when McpConnectionManager fully replaces providers.mcp.
       try {
         const { prepareToolStubs } = await import('./capnweb/generate-and-cache.js');
         const mcpTools = await providers.mcp.listTools();

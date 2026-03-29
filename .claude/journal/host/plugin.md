@@ -2,6 +2,72 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-03-29 15:35] — Fix CodeRabbitAI + github-code-quality review comments on PR #135
+
+**Task:** Fix 14 review comments spanning tool-router, server-completions, inprocess, install, mcp-manager, store, cli/provider, commands, server-admin, and startup
+**What I did:** (1) Changed getServerMeta to getServerMetaByUrl so header lookup uses server URL not tool name; (2) Passed mcpManager to fast-path runFastPath; (3) Added resolveHeaders adapter in inprocess.ts discoverAllTools and tool router context; (4) Wrapped parsePluginSource in try/catch; (5) Added reinstall cleanup (old skills/commands/servers removed before new install); (6) Scoped proxy allowlist domain keys by agentId; (7) Added clearToolsForUrl to removeServer; (8) Clear stale tool mappings before re-registering in discoverAllTools; (9) Changed command key from agentId/name to agentId/pluginName/name; (10) Fixed unused loop variable in providerVerify; (11) Fixed heading level in lessons; (12) Added escapeTableCell for commands prompt; (13) Added logger.warn for fallback McpConnectionManager; (14) Wrapped JSON.parse(row.headers) in try/catch
+**Files touched:** src/host/tool-router.ts, src/host/ipc-handlers/tool-batch.ts, src/host/server-init.ts, src/host/inprocess.ts, src/host/server-completions.ts, src/host/server-admin.ts, src/plugins/install.ts, src/plugins/mcp-manager.ts, src/plugins/store.ts, src/plugins/startup.ts, src/cli/provider.ts, src/agent/prompt/modules/commands.ts, .claude/lessons/host/entries.md, tests/host/tool-router.test.ts, tests/host/ipc-handlers/tool-batch.test.ts, tests/plugins/install.test.ts
+**Outcome:** Success — all 2752 tests pass, tsc build clean
+**Notes:** The getServerMetaByUrl method scans server values by URL (O(n) per-agent servers) which is fine for typical server counts (<50). Command key format change is backward-compatible since listCommands reads from JSON body.
+
+## [2026-03-29 15:00] — Unified tool routing via resolveServer + mcpCallTool
+
+**Task:** Replace dual routing path (resolvePluginServer for plugins + providers.mcp.callTool for everything else) with a single unified path using resolveServer/mcpCallTool/getServerMeta/resolveHeaders
+**What I did:** Updated ToolRouterContext and ToolBatchOptions with new unified fields (resolveServer, mcpCallTool, getServerMeta, resolveHeaders), added handleUnifiedMcpCall handler, updated server-init.ts and inprocess.ts to wire through McpConnectionManager, kept deprecated fields for backward compat, added comprehensive tests for unified path + priority over deprecated path
+**Files touched:** src/host/tool-router.ts, src/host/ipc-handlers/tool-batch.ts, src/host/server-init.ts, src/host/inprocess.ts, tests/host/tool-router.test.ts, tests/host/ipc-handlers/tool-batch.test.ts
+**Outcome:** Success — all 2752 tests pass. Unified path takes priority, deprecated fields still work as fallback.
+**Notes:** The unified path resolves headers from getServerMeta and optionally runs them through resolveHeaders for credential placeholder resolution before passing to mcpCallTool.
+
+## [2026-03-29 14:30] — Admin API for Cowork plugins + DB-MCP sync
+
+**Task:** Add admin API endpoints for Cowork plugin management and sync DB MCP server changes to the McpConnectionManager.
+**What I did:**
+- Added `mcpManager` to `AdminDeps` interface in server-admin.ts
+- Added 3 Cowork plugin endpoints: GET/POST `/admin/api/agents/:id/plugins`, DELETE `/admin/api/agents/:id/plugins/:name`
+- Added mcpManager sync after DB MCP server add/remove operations in existing POST/DELETE handlers
+- Added `mcpManager` to `AdminSetupOpts` in server-webhook-admin.ts, passing it through to createAdminHandler
+- Added `mcpManager` to `HostCore` interface and return value in server-init.ts
+- Wired `mcpManager` through in both server-local.ts and server-k8s.ts
+**Files touched:** src/host/server-admin.ts, src/host/server-webhook-admin.ts, src/host/server-init.ts, src/host/server-local.ts, src/host/server-k8s.ts
+**Outcome:** Success — all 2739 tests pass across 243 test files
+**Notes:** Plugin endpoints use lazy dynamic imports for store/install modules. mcpManager fallback creates a new McpConnectionManager if not provided.
+
+## [2026-03-29 12:31] — Wire plugin MCP tool execution into host tool router
+
+**Task:** Route agent tool calls from plugin MCP servers to the correct remote server via URL.
+**What I did:**
+- Added tool-to-server URL mapping in `McpConnectionManager` (`registerTools`, `getToolServerUrl`, `clearToolsForPlugin`)
+- Updated `tool-router.ts` with `resolvePluginServer` + `pluginMcpCallTool` context fields; added `handlePluginMcpToolCall` for plugin MCP routing with size limits and taint tagging
+- Updated `tool-batch.ts` to accept `ToolBatchOptions` with plugin MCP routing alongside the default MCP provider
+- Updated `inprocess.ts` (fast path) to discover tools per-server (not bulk), register tool mappings, and wire plugin routing into ToolRouterContext
+- Updated `server-completions.ts` (sandbox path) to register tool mappings during per-server discovery
+- Updated `server-init.ts` to pass mcpManager into toolBatchProvider and coworkPlugins IPC handler options
+- Fixed ordering bug: `clearToolsForPlugin` must run before removing servers (needs server URLs to find tools)
+**Files touched:** `src/plugins/mcp-manager.ts`, `src/host/tool-router.ts`, `src/host/ipc-handlers/tool-batch.ts`, `src/host/inprocess.ts`, `src/host/server-completions.ts`, `src/host/server-init.ts`, `src/host/ipc-server.ts`, `tests/plugins/mcp-manager.test.ts`, `tests/host/tool-router.test.ts`, `tests/host/ipc-handlers/tool-batch.test.ts`
+**Outcome:** Success — all 2729 tests pass, 0 failures
+**Notes:** Tool discovery now happens per-server (not bulk via `listToolsFromServers`) so we can register which tools came from which URL. The `callToolOnServer` function from `mcp-client.ts` is used as the `pluginMcpCallTool` callback.
+
+## [2026-03-29 12:30] — Add IPC schemas and handlers for Cowork plugin management
+
+**Task:** Task 7 of Cowork plugin integration — Add IPC schemas and handlers for plugin_install_cowork, plugin_uninstall_cowork, plugin_list_cowork
+**What I did:**
+- Added 3 new IPC schemas in `src/ipc-schemas.ts` with `_cowork` suffix to avoid collision with existing `plugin_list`/`plugin_status`
+- Created `src/host/ipc-handlers/cowork-plugins.ts` with handler factory wrapping `installPlugin`, `uninstallPlugin`, `listPlugins` from `src/plugins/`
+- Registered handlers conditionally in `src/host/ipc-server.ts` via new `coworkPlugins` option on `IPCHandlerOptions`
+- Added new actions to `knownInternalActions` in tool-catalog-sync test and skip list in cross-component test
+- Created `tests/host/ipc-handlers/cowork-plugins.test.ts` with 6 tests covering list/install/uninstall
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/cowork-plugins.ts` (new), `src/host/ipc-server.ts`, `tests/host/ipc-handlers/cowork-plugins.test.ts` (new), `tests/agent/tool-catalog-sync.test.ts`, `tests/integration/cross-component.test.ts`
+**Outcome:** Success — all 2714 tests pass across 242 test files, no regressions
+**Notes:** Handlers are conditionally registered (like orchestration) so the McpConnectionManager must be passed via `opts.coworkPlugins`. Two sync tests needed updates: `knownInternalActions` set and cross-component handler completeness skip list.
+
+## [2026-03-29 12:00] — Wire McpConnectionManager into FastPathDeps and CompletionDeps
+
+**Task:** Task 11 — Wire per-agent plugin MCP servers into tool stub generation and fast-path tool discovery
+**What I did:** Added `McpConnectionManager` import and optional `mcpManager` field to both `FastPathDeps` (inprocess.ts) and `CompletionDeps` (server-completions.ts). Added placeholder comments in `runFastPath` (after MCP tool discovery) and `processCompletion` (after tool stubs generation) for future generic MCP HTTP client integration.
+**Files touched:** `src/host/inprocess.ts`, `src/host/server-completions.ts`
+**Outcome:** Success — all 2691 tests pass, no regressions
+**Notes:** Actual MCP protocol queries from plugin servers deferred until generic MCP HTTP client is implemented. The plumbing is now in place for both code paths.
+
 ## [2026-02-27 01:35] — Implement plugin framework (all 3 phases)
 
 **Task:** Implement the plugin framework design from docs/plans/2026-02-26-plugin-framework-design.md. Three-phase approach: Provider SDK, monorepo prep, and PluginHost infrastructure.

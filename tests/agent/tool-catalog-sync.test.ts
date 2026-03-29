@@ -204,6 +204,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'session_expiring',
       // Tool batch (scripted tool execution with __batchRef pipelining, not agent-facing tool)
       'tool_batch',
+      // Cowork plugin management (install/uninstall/list via IPC, not in tool catalog)
+      'plugin_install_cowork', 'plugin_uninstall_cowork', 'plugin_list_cowork',
     ]);
 
     for (const action of schemaActions) {

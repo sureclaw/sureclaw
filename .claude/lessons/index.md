@@ -126,6 +126,8 @@
 
 ### host
 
+- Tool router header lookup must use server URL, not tool name [host/entries.md](host/entries.md)
+- Scope proxy domain keys by agentId to prevent cross-agent collisions [host/entries.md](host/entries.md)
 - IPC defaultCtx.agentId is 'system', not the configured agent name [host/entries.md](host/entries.md)
 - Plugin providers use a runtime Map, not the static _PROVIDER_MAP [host/entries.md](host/entries.md)
 - Child process IPC for plugins: fork() + process.send(), not worker_threads [host/entries.md](host/entries.md)

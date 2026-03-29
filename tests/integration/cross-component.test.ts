@@ -425,6 +425,12 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
       'agent_orch_timeline',
     ]);
 
+    // Cowork plugin actions require opts.coworkPlugins (McpConnectionManager).
+    // This test doesn't configure one, so those handlers aren't registered.
+    const coworkPluginActions = new Set([
+      'plugin_install_cowork', 'plugin_uninstall_cowork', 'plugin_list_cowork',
+    ]);
+
     // Host→pod push notifications (no handler on host side)
     const hostPushActions = new Set([
       'session_expiring',
@@ -432,6 +438,7 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
 
     for (const action of VALID_ACTIONS) {
       if (orchestrationActions.has(action)) continue;
+      if (coworkPluginActions.has(action)) continue;
       if (hostPushActions.has(action)) continue;
       const result = JSON.parse(await handleIPC(JSON.stringify({
         action,

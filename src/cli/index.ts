@@ -14,6 +14,7 @@ export interface CommandHandlers {
   configure?: () => Promise<void>;
   bootstrap?: (args: string[]) => Promise<void>;
   plugin?: (args: string[]) => Promise<void>;
+  provider?: (args: string[]) => Promise<void>;
   k8s?: (args: string[]) => Promise<void>;
   mcp?: (args: string[]) => Promise<void>;
   help?: () => Promise<void>;
@@ -41,6 +42,9 @@ export async function routeCommand(
     case 'plugin':
       if (handlers.plugin) await handlers.plugin(args.slice(1));
       break;
+    case 'provider':
+      if (handlers.provider) await handlers.provider(args.slice(1));
+      break;
     case 'k8s':
       if (handlers.k8s) await handlers.k8s(args.slice(1));
       break;
@@ -62,7 +66,8 @@ Usage:
   ax send <message>      Send a single message
   ax configure           Run configuration wizard
   ax bootstrap [agent]   Reset agent identity and re-run bootstrap
-  ax plugin <command>    Manage third-party provider plugins
+  ax plugin <command>    Manage Cowork plugins (install/remove/list)
+  ax provider <command>  Manage third-party provider plugins (add/remove/list/verify)
   ax mcp <command>       Manage MCP server connections (add/remove/list/test)
   ax k8s init [options]  Generate Helm values and K8s secrets for deployment
 
@@ -116,7 +121,7 @@ export async function main(): Promise<void> {
     return;
   }
 
-  const knownCommands = new Set(['serve', 'send', 'configure', 'bootstrap', 'plugin', 'k8s', 'mcp', 'help']);
+  const knownCommands = new Set(['serve', 'send', 'configure', 'bootstrap', 'plugin', 'provider', 'k8s', 'mcp', 'help']);
   let command: string;
   let restArgs: string[];
 
@@ -148,6 +153,10 @@ export async function main(): Promise<void> {
     plugin: async (pluginArgs) => {
       const { runPlugin } = await import('./plugin.js');
       await runPlugin(pluginArgs);
+    },
+    provider: async (providerArgs) => {
+      const { runProvider } = await import('./provider.js');
+      await runProvider(providerArgs);
     },
     mcp: async (mcpArgs) => {
       const { runMcp } = await import('./mcp.js');
