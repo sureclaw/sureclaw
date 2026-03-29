@@ -25,12 +25,14 @@ The event bus provides real-time typed pub/sub for completion observability. Abs
 |-------------|-----------------|----------------|---------------------------------------------|
 | `inprocess` | `inprocess.ts`  | In-memory      | Wraps existing `createEventBus()`; no-op close() |
 | `nats`      | `nats.ts`       | NATS pub/sub   | Dual-subject routing; listener eviction at capacity |
+| `postgres`  | `postgres.ts`   | PostgreSQL `LISTEN/NOTIFY` | Persistent pub/sub via PostgreSQL; no NATS dependency |
 
 Provider map entries in `src/host/provider-map.ts`:
 ```
 eventbus: {
   inprocess: '../providers/eventbus/inprocess.js',
   nats:      '../providers/eventbus/nats.js',
+  postgres:  '../providers/eventbus/postgres.js',
 }
 ```
 
@@ -48,6 +50,14 @@ eventbus: {
 - `create()` is async (connects to NATS); in-process is sync — caller must handle both.
 - Connection failures throw hard (no graceful degradation).
 - In k8s deployments, the NATS event bus also participates in the IPC routing context — NATS carries not just events but also IPC request/reply and LLM proxy traffic. All these connections share the same `natsConnectOptions()` utility for server/auth configuration.
+
+## PostgreSQL Details
+
+- Uses PostgreSQL `LISTEN`/`NOTIFY` for event routing with dual-channel pattern: `events_global` + `events_{requestId}`.
+- Requires injected `DatabaseProvider` (PostgreSQL instance).
+- Events serialized as JSON in NOTIFY payload.
+- Suitable for k8s deployments that don't want a NATS dependency.
+- `create()` is async (connects to database).
 
 ## Common Tasks
 
@@ -71,5 +81,6 @@ eventbus: {
 - `src/providers/eventbus/types.ts` — Interface definitions
 - `src/providers/eventbus/inprocess.ts` — In-process implementation
 - `src/providers/eventbus/nats.ts` — NATS pub/sub implementation
+- `src/providers/eventbus/postgres.ts` — PostgreSQL LISTEN/NOTIFY implementation
 - `src/utils/nats.ts` — Shared `natsConnectOptions()` helper (server URL, auth, reconnect)
 - `tests/providers/eventbus/inprocess.test.ts`

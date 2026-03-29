@@ -9,6 +9,15 @@ The skills provider directory now contains only type definitions (`types.ts`). T
 
 This skill covers: `ParsedAgentSkill` format types, skill install IPC handler, ClawHub registry client, manifest generation, GCS workspace persistence, and agent-side skill loading.
 
+## Cowork Plugin Skills
+
+Cowork plugins can install skills with a `plugin:{name}:{skillId}` prefix in DocumentStore. Plugin skills are loaded alongside regular skills during prompt building and appear in the agent's available skills. The plugin store (`src/plugins/store.ts`) manages plugin CRUD including skills, commands, and MCP server references.
+
+Key files:
+- `src/plugins/store.ts` — Plugin CRUD (stores skills with plugin prefix)
+- `src/plugins/install.ts` — Plugin installation handles skill file extraction
+- `src/plugins/parser.ts` — Parses plugin bundles to extract skills/commands
+
 ## Skill Install Lifecycle (End-to-End)
 
 Understanding this lifecycle is critical to avoid regressions:
@@ -34,6 +43,7 @@ Next session starts -> workspace provision
          |
 Agent: buildSystemPrompt() -> loadSkillsMultiDir()
   |-- Reads SKILL.md from {agentWorkspace}/skills/ and {userWorkspace}/skills/
+  |-- Also loads Cowork plugin skills (stored in DocumentStore with plugin:{name}:{skillId} prefix)
   |-- Skills appear in prompt as "Available Skills (Already Installed)"
 ```
 

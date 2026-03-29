@@ -1,6 +1,6 @@
 ---
 name: ax-cli
-description: Use when modifying CLI commands — chat, send, bootstrap, plugin, or adding new CLI commands in src/cli/
+description: Use when modifying CLI commands — chat, send, bootstrap, plugin, mcp, provider, or adding new CLI commands in src/cli/
 ---
 
 ## Overview

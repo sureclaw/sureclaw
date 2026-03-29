@@ -12,7 +12,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | File | Responsibility |
 |---|---|
 | `src/host/server-local.ts` | HTTP server composition root (local mode): Unix socket + TCP lifecycle, channel connect/disconnect, legacy migration, file upload/download, OAuth callbacks, graceful drain. Delegates shared init to `server-init.ts` and shared handlers to `server-request-handlers.ts` |
-| `src/host/server-init.ts` | Shared initialization for both server-local.ts and server-k8s.ts: `initHostCore()` sets up storage, routing, taint budget, agent dirs, template seeding, skills seeding, admins, IPC, CompletionDeps, delegation, orchestrator, agent registry |
+| `src/host/server-init.ts` | Shared initialization for both server-local.ts and server-k8s.ts: `initHostCore()` sets up storage, routing, taint budget, agent dirs, template seeding, skills seeding, admins, IPC, CompletionDeps, delegation, orchestrator, agent registry. Also loads plugin MCP servers on startup via `reloadPluginMcpServers()`, loads database MCP servers via `loadDatabaseMcpServers()`, and creates `McpConnectionManager` |
 | `src/host/server-request-handlers.ts` | Shared HTTP handlers: `handleModels`, `handleCompletions` (body parsing + streaming + non-streaming via `runCompletion` callback), `handleEventsSSE` (EventBus-based SSE), `createSchedulerCallback` factory |
 | `src/host/server-admin-helpers.ts` | Pure admin functions: `isAgentBootstrapMode`, `isAdmin`, `addAdmin`, `claimBootstrapAdmin` (used by server-local.ts, server-completions.ts, IPC handlers) |
 | `src/host/server-webhook-admin.ts` | Shared webhook + admin handler factories: `setupWebhookHandler`, `setupAdminHandler` |
@@ -38,12 +38,17 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/ipc-handlers/skills.ts` | Skill read/list/propose/import/search IPC handlers + `credential_request` handler (backed by DocumentStore) |
 | `src/host/ipc-handlers/web.ts` | Web fetch/search IPC handlers |
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
-| `src/host/inprocess.ts` | In-process fast path — runs LLM orchestration loop directly in host process (no pods, no IPC, no proxy). Uses `FastPathDeps`, `FastPathRequest`, `FastPathResult`. AsyncLocalStorage for per-turn context isolation |
-| `src/host/tool-router.ts` | Tool router for in-process fast path — routes tool calls to MCP provider, lazy file I/O, or sandbox escalation. Per-turn limits (`FAST_PATH_LIMITS`). Exports `routeToolCall()`, `ToolRouterContext`, `ToolResult` |
+| `src/host/ipc-handlers/cowork-plugins.ts` | Cowork plugin install/uninstall/list IPC handlers (uses McpConnectionManager for plugin server registration) |
+| `src/host/ipc-handlers/tool-batch.ts` | Tool batch IPC handler with `__batchRef` pipelining for Cap'n Web |
+| `src/host/capnweb/codegen.ts` | TypeScript tool stub generation with Proxy-based batching |
+| `src/host/capnweb/generate-and-cache.ts` | DB caching for generated tool stubs with schema hash invalidation |
+| `src/plugins/mcp-manager.ts` | `McpConnectionManager` — unified MCP tool discovery and routing across all MCP sources |
+| `src/host/inprocess.ts` | In-process fast path — runs LLM orchestration loop directly in host process (no pods, no IPC, no proxy). Uses `FastPathDeps` (including `McpConnectionManager`), `FastPathRequest`, `FastPathResult`. AsyncLocalStorage for per-turn context isolation |
+| `src/host/tool-router.ts` | Tool router for in-process fast path — routes tool calls to MCP providers (unified via McpConnectionManager), lazy file I/O, or sandbox escalation. Unified MCP methods: `resolveServer()`, `mcpCallTool()`, `resolveHeaders()`. Per-turn limits (`FAST_PATH_LIMITS`). Exports `routeToolCall()`, `ToolRouterContext`, `ToolResult` |
 | `src/host/sandbox-manager.ts` | Sandbox session manager — tracks session-bound sandbox pods for cross-turn escalation from fast path. CRUD on DocumentStore with TTL (30min default, 1hr max) |
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
-| `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics) |
+| `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers` |
 | `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection (work dispatch only), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
 | `src/host/server-chat-api.ts` | Chat API handler — serves `/v1/chat/sessions` endpoints for chat UI thread list and history |
 | `src/host/server-chat-ui.ts` | Chat UI static file serving — serves built chat UI from `dist/chat-ui/` at root path |
@@ -52,7 +57,6 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/oauth-skills.ts` | OAuth PKCE flow for skill credentials — manages pending flows (start → callback → token exchange → store), handles token refresh |
 | `src/host/web-proxy-approvals.ts` | Web proxy approval coordination via event bus — replaces old in-memory promise map pattern. Works across stateless replicas (in-process for local, NATS for k8s) |
 | `src/host/workspace-release-screener.ts` | Release-time screening for skill files and binaries — inspects workspace changes before GCS commit |
-| `src/host/nats-session-protocol.ts` | NATS session protocol for k8s sandbox work dispatch coordination |
 | `src/host/delivery.ts` | Delivery resolution for cron/heartbeat responses (CronDelivery handling) |
 | `src/host/event-console.ts` | Real-time event display with color-coded output |
 | `src/host/history-summarizer.ts` | Recursive conversation summarization with LLM |
@@ -66,8 +70,8 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/proxy.ts` | Credential-injecting Anthropic forward proxy, OAuth 401 retry |
 | `src/host/web-proxy.ts` | HTTP forward proxy for agent outbound HTTP/HTTPS. HTTP forwarding + HTTPS CONNECT tunneling, private IP blocking (SSRF), canary token scanning on request bodies, audit logging. Listens on Unix socket (container sandboxes) or TCP port (subprocess/k8s). Opt-in via `config.web_proxy` |
 | `src/host/taint-budget.ts` | Per-session taint ratio tracking, action gating (SC-SEC-003) |
-| `src/host/provider-map.ts` | Static allowlist mapping config names to provider modules (SC-SEC-002), plugin registration runtime allowlist |
-| `src/host/registry.ts` | Loads and assembles ProviderRegistry from config; three loading patterns (simple, manual-import with deps, custom); plugin host integration |
+| `src/host/provider-map.ts` | Static allowlist mapping config names to provider modules (SC-SEC-002), plugin registration runtime allowlist. `mcp` category has `none` and `database` entries |
+| `src/host/registry.ts` | Loads and assembles ProviderRegistry from config; three loading patterns (simple, manual-import with deps, custom); plugin host integration. MCP provider requires `{ database, credentials }` deps |
 
 ## Request Lifecycle (server-local.ts + server-completions.ts)
 
@@ -140,7 +144,7 @@ The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration lo
 | `maxToolResultSizeBytes` | 1 MB |
 | `maxTotalContextBytes` | 10 MB |
 
-**MCP Provider** (`src/providers/mcp/types.ts`): Interface for external tool gateways. Methods: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`, `listApps()`. Implementations: `none` (no-op), `database` (per-agent HTTP/SSE MCP servers stored in DB, with per-server circuit breakers, credential placeholder resolution, and `server__tool` name prefixing). CRUD helpers: `addMcpServer()`, `removeMcpServer()`, `listMcpServers()`, `updateMcpServer()`, `testMcpServer()`.
+**MCP Provider** (`src/providers/mcp/types.ts`): Interface for external tool gateways. Methods: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`, `listApps()`. Implementations: `none` (no-op), `database` (per-agent HTTP/SSE MCP servers stored in DB with per-server circuit breakers, credential placeholder resolution, and `server__tool` name prefixing). CRUD helpers: `addMcpServer()`, `removeMcpServer()`, `listMcpServers()`, `updateMcpServer()`, `testMcpServer()`. Unified routing via `McpConnectionManager` (`src/plugins/mcp-manager.ts`) — tools discovered from plugins, database MCP servers, and default MCP provider in one pass.
 
 ## File Storage (server-files.ts)
 
@@ -182,6 +186,15 @@ The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration lo
 - **Credential Injection**: server-side resolver (plugin never sees credential store)
 - **Timeouts**: startup (10s), call (30s)
 - **Graceful Shutdown**: send plugin_shutdown, wait 5s, force-kill
+
+### Cowork Plugin System
+
+Per-agent plugin lifecycle managed via IPC:
+- **IPC handlers** (`src/host/ipc-handlers/cowork-plugins.ts`): `plugin_install_cowork`, `plugin_uninstall_cowork`, `plugin_list_cowork`
+- **McpConnectionManager** (`src/plugins/mcp-manager.ts`): Unified MCP tool discovery and routing — tools from plugins, database MCP servers, and default provider discoverable in one pass
+- **Plugin store** (`src/plugins/store.ts`): Plugin CRUD via DocumentStore (plugins, commands collections)
+- **Plugin startup** (`src/plugins/startup.ts`): Bootstrap plugin MCP servers from DB and config on host init
+- **CLI**: `ax plugin install|remove|list`, `ax mcp add|remove|list|test`
 
 ### Provider Map (provider-map.ts)
 - **Built-in Allowlist** (`_PROVIDER_MAP`): static mapping of (kind, name) -> relative/package paths
@@ -239,34 +252,24 @@ Key IPC actions: `agent_orch_status`, `agent_orch_list`, `agent_orch_tree`, `age
 
 ## K8s HTTP Subsystem (K8s Deployment)
 
-For Kubernetes deployments, k8s sandbox pods communicate with the host over HTTP (not NATS). NATS is used only for work dispatch (queue groups). The key HTTP routes on the host (`server-k8s.ts`):
+For Kubernetes deployments, k8s sandbox pods communicate with the host over HTTP (not NATS). NATS is used for event bus only in k8s; work dispatch uses HTTP via `SessionPodManager`. The key HTTP routes on the host (`server-k8s.ts`):
 
 - **`POST /internal/ipc`** — HTTP IPC route. Receives IPC requests from `HttpIPCClient` in k8s sandbox pods, routes through the same `handleIPC` pipeline as the Unix socket path. Authenticated via `Authorization: Bearer <ipcToken>`.
 - **`POST /internal/llm-proxy/*`** — LLM proxy route. Forwards LLM requests to Anthropic API with credential injection via `llm-proxy-core.ts`. Allows claude-code pods to make LLM calls without API keys.
-- **`nats-session-protocol.ts`** — NATS work dispatch coordination (queue groups for warm pod claiming).
 
-**Removed files**: `nats-ipc-handler.ts` and `nats-llm-proxy.ts` have been replaced by HTTP routes in `server-k8s.ts` using shared `llm-proxy-core.ts`.
+**Removed files**: `nats-ipc-handler.ts`, `nats-llm-proxy.ts`, and `nats-session-protocol.ts` have been replaced by HTTP routes in `server-k8s.ts` using shared `llm-proxy-core.ts` and `SessionPodManager` for session-long pod reuse.
 
-### Workspace Provision & Release (K8s)
+### Workspace Operations (K8s)
 
-In k8s mode, `server-k8s.ts` handles symmetric workspace file transfer between GCS and sandbox pods. The host is the single GCS credential holder — pods never access GCS directly.
-
-**Provision** (GCS → host → pod):
-1. **Provision endpoint** (`GET /internal/workspace/provision?scope=<agent|user|session>&id=<id>`): Reads scope files from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64-encoded file contents. Auth via `Authorization: Bearer <ipcToken>`.
-2. **Pod-side**: `provisionScope()` in `src/agent/workspace.ts` fetches from this endpoint when `AX_HOST_URL` is set, decompresses, and writes files to the canonical mount paths.
-
-**Release** (pod → host → GCS):
-1. **Staging endpoint** (`POST /internal/workspace-staging`): Accepts gzipped JSON POST from sandbox pods (via workspace-cli.ts). Stores in in-memory `stagingStore` (Map with 5-min TTL, 50MB max). Returns `{ staging_key: UUID }`.
-2. **workspace_release IPC interception**: When `wrappedHandleIPC` receives a `workspace_release` action (containing just a `staging_key`), it looks up staged data, decompresses with `gunzipSync`, decodes base64 content, and calls `providers.workspace.setRemoteChanges(sessionId, changes)`.
-3. **Commit**: `workspace.commit(sessionId)` picks up stored changes via `RemoteTransport.diff()` and persists approved changes to GCS.
+In k8s mode, workspace operations are handled by IPC handlers in `src/host/ipc-handlers/workspace.ts`. The host is the single GCS credential holder — pods never access GCS directly. Agent-side workspace files (`workspace-cli.ts`, `workspace-release.ts`, `workspace.ts`) have been deleted; all workspace operations now go through IPC.
 
 **GCS prefix resolution** (`server-completions.ts`): `resolveWorkspaceGcsPrefixes()` derives agent/user/session GCS prefixes from `config.workspace.prefix` (authoritative, same source as gcs.ts) with `AX_WORKSPACE_GCS_PREFIX` env var fallback. Both the write path (gcs.ts commit) and provision path must use the same prefix source.
 
-The `AX_HOST_URL` env var (`http://ax-host.{namespace}.svc`) is passed to sandbox pods via `extraSandboxEnv` so they can reach both endpoints. NetworkPolicy allows sandbox pods egress to host on port 8080.
+The `AX_HOST_URL` env var (`http://ax-host.{namespace}.svc`) is passed to sandbox pods via `extraSandboxEnv` so they can reach HTTP endpoints. NetworkPolicy allows sandbox pods egress to host on port 8080.
 
-### Warm Pool (K8s)
+### Session Pod Reuse (K8s)
 
-Warm pool claiming is handled at the NATS queue group level — the host's `publishWork()` uses `nc.request('sandbox.work')` to deliver work to warm pods via queue groups before falling back to cold-starting a pod. The separate `warm-pool-client.ts` has been removed.
+`SessionPodManager` handles session-long pod reuse via HTTP. Warm pool claiming no longer uses NATS queue groups. The separate `warm-pool-client.ts` and NATS-based work dispatch have been removed.
 
 ## Agent Registry
 
@@ -275,7 +278,7 @@ Warm pool claiming is handled at the NATS queue group level — the host's `publ
 
 ## Admin API (`server-admin.ts`)
 
-Admin endpoints for agent management and diagnostics. Protected by admin token (logged at startup for pod retrieval).
+Admin endpoints for agent management and diagnostics. Protected by admin token (logged at startup for pod retrieval). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers`.
 
 ## Common Tasks
 
@@ -317,18 +320,18 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **proxy.sock race**: Must await IPC server listen before spawning agent, otherwise agent connects before socket is ready.
 - **agent_response timeout**: Handle timeout gracefully without crashing the host process.
 - **Container three-phase orchestration**: Docker/Apple sandboxes use provision (network on) → run (network off) → cleanup (network on). Do not assume network is available during the run phase.
-- **K8s IPC is now HTTP-based**: `nats-ipc-handler.ts` and `nats-llm-proxy.ts` have been removed. K8s pods use `HttpIPCClient` → `POST /internal/ipc` HTTP route. NATS is only for work dispatch (queue groups).
-- **Deleted files**: `nats-sandbox-dispatch.ts`, `agent-runtime-process.ts`, `local-sandbox-dispatch.ts`, `nats-ipc-handler.ts`, `nats-llm-proxy.ts`, `server.ts`, `host-process.ts` are all removed.
+- **K8s IPC is now HTTP-based**: `nats-ipc-handler.ts`, `nats-llm-proxy.ts`, and `nats-session-protocol.ts` have been removed. K8s pods use `HttpIPCClient` → `POST /internal/ipc` HTTP route. NATS is for event bus only; work dispatch uses HTTP via `SessionPodManager`.
+- **Deleted files**: `nats-sandbox-dispatch.ts`, `agent-runtime-process.ts`, `local-sandbox-dispatch.ts`, `nats-ipc-handler.ts`, `nats-llm-proxy.ts`, `nats-session-protocol.ts`, `server.ts`, `host-process.ts` are all removed. Agent-side workspace files (`workspace-cli.ts`, `workspace-release.ts`, `workspace.ts`) have also been deleted — workspace operations now go through IPC handlers.
 - **Error redaction in streams**: Streaming responses must redact internal errors before sending to client.
 - **Web proxy per completion**: When `config.web_proxy` is enabled, a web proxy instance starts per completion (Unix socket for container sandboxes, TCP for subprocess). Cleanup happens in the completion finally block.
 - **K8s web proxy**: In k8s mode, web proxy runs as a TCP server (port 3128, bound to `0.0.0.0`) in the host process. Sandbox pods connect via k8s Service (`ax-web-proxy.{namespace}.svc:3128`), passed as `AX_WEB_PROXY_URL`. Requires: (1) `config.web_proxy: true` in config, (2) `webProxy.enabled: true` in Helm values, (3) host network policy allowing ingress on port 3128 from execution plane. The `web_proxy` field must be in the Zod schema in `config.ts`.
 - **K8s env var naming**: Never use env var names that K8s service discovery auto-generates. The `ax-web-proxy` Service generates `AX_WEB_PROXY_PORT=tcp://IP:PORT` in all pods. Our custom env var is `AX_PROXY_LISTEN_PORT` to avoid collision.
-- **Warm pool payload propagation**: Per-request env vars must be in both the pod spec (`sandboxConfig.extraEnv` for cold spawn) AND the NATS work payload (`stdinPayload` fields like `webProxyUrl` for warm pool). The runner's `parseStdinPayload()` must extract and `applyPayload()` must set them in `process.env`.
+- **Session pod payload propagation**: Per-request env vars must be in the pod spec (`sandboxConfig.extraEnv`). The runner's `parseStdinPayload()` must extract and `applyPayload()` must set them in `process.env`. `SessionPodManager` handles session-long pod reuse via HTTP.
 - **K8s workspace staging store**: In-memory Map with 5-min TTL and 50MB max per entry. Periodic cleanup runs every 60s. Staging key is consumed (deleted) on workspace_release IPC lookup.
 - **AX_HOST_URL env var**: Passed to sandbox pods for HTTP workspace provision and release. Points to `http://ax-host.{namespace}.svc`. NetworkPolicy must allow sandbox→host on port 8080.
 - **GCS prefix must come from same source for read and write**: The GCS backend commits files using `config.workspace.prefix`. The provision path must use the same source via `resolveWorkspaceGcsPrefixes()`. If only the env var `AX_WORKSPACE_GCS_PREFIX` is set (not `config.workspace.prefix`), provisioning may silently point to the wrong path.
 - **WorkspaceProvider.downloadScope()**: Optional method used by the provision endpoint. Only GCS provider implements it. The host calls `providers.workspace.downloadScope(scope, id)` and returns gzipped JSON to the pod.
 - **Status SSE events**: `server-completions.ts` emits `type: 'status'` events via EventBus with `{operation, phase, message}` data. `server-request-handlers.ts` validates all three fields are strings before forwarding as SSE named events. Invalid payloads are logged and dropped.
 - **MCP fast path runs in host process**: `inprocess.ts` has no sandbox isolation — tools execute directly. Only safe for trusted MCP providers. `FAST_PATH_LIMITS` enforces per-turn resource limits.
-- **MCP provider category**: `mcp` category in provider-map.ts with `none` (no-op) and `database` implementations. The `database` provider requires `{ database, credentials }` deps passed via registry.ts (not the generic `loadProvider` path). Admin API endpoints under `/admin/api/agents/:id/mcp-servers`.
+- **MCP provider category**: `mcp` category in provider-map.ts with `none` (no-op) and `database` implementations. The `database` provider requires `{ database, credentials }` deps passed via registry.ts (not the generic `loadProvider` path). Admin API endpoints under `/admin/api/agents/:id/mcp-servers`. Unified tool discovery via `McpConnectionManager` — tools from plugins, database MCP servers, and default provider resolved in one pass.
 - **`credential_request` handler in skills.ts**: The `credential_request` IPC handler lives in `src/host/ipc-handlers/skills.ts` (alongside `skill_install`), not in its own file.

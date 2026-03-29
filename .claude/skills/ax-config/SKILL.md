@@ -71,6 +71,7 @@ Validated by `ConfigSchema` (Zod `strictObject` -- rejects unknown keys).
 | `web_proxy` | boolean | false | Enable HTTP forward proxy for agent outbound HTTP/HTTPS (npm install, curl, etc.) |
 | `namespace` | string | `ax` | K8s namespace for web proxy service discovery (`ax-web-proxy.{namespace}.svc:3128`) |
 | `delegation` | object | optional | `max_concurrent` (1-10, default 3), `max_depth` (1-5, default 2) |
+| `plugins` | `PluginDeclaration[]` | optional | Plugin declarations -- each maps a source to agents that use it. Auto-installed on startup. `PluginDeclaration` has `source` (string) and `agents` (string[]) fields |
 
 ## Models Configuration
 

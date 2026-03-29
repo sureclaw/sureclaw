@@ -18,6 +18,7 @@ DatabaseProvider (SQLite or PostgreSQL)
         ├── ConversationStoreProvider — conversation history per session
         ├── SessionStoreProvider — session/channel tracking
         └── DocumentStore — identity files, skills, config (key-value)
+  └── McpServerStore — `mcp_servers` table for database-backed MCP provider
   └── Cortex MemoryProvider — knowledge items, embeddings, summaries
   └── AuditProvider — audit trail
   └── AgentRegistryDb — agent registry (PostgreSQL only)
@@ -49,6 +50,7 @@ Standalone stores (outside StorageProvider):
 | `src/migrations/dialect.ts` | Shared SQL dialect helpers (sqlNow, sqlEpoch) |
 | `src/file-store.ts` | File metadata store |
 | `src/job-store.ts` | Scheduler job persistence |
+| `src/providers/storage/tool-stubs.ts` | Tool stub cache (schema hash invalidation) |
 | `src/providers/workspace/types.ts` | WorkspaceProvider interface (scopes, mounts, commits) |
 | `src/providers/workspace/none.ts` | No-op workspace stub (default) |
 | `src/providers/workspace/local.ts` | Local filesystem workspace backend |
@@ -86,6 +88,7 @@ Standalone stores (outside StorageProvider):
   - Storage: `'storage_migration'`
   - Cortex: `'cortex_migration'`
   - Agent Registry: `'registry_migration'`
+- **`mcp_servers` table migration**: Added for the database-backed MCP provider, managed within the storage migrations.
 - **`src/migrations/dialect.ts`**: SQL dialect helpers for SQLite/PostgreSQL compatibility.
 
 ## Standalone Stores

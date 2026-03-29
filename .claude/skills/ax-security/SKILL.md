@@ -51,6 +51,10 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 - **Worker isolation**: Plugin workers spawned via fork() with restricted env vars (no credentials).
 - **Credential injection**: Plugins never see the credential store. Server resolves credentials and injects via IPC.
 
+### Cowork Plugin Security
+
+Cowork plugins (installed via `ax plugin install`) are stored in DocumentStore with per-agent isolation. Plugin MCP servers are registered in `McpConnectionManager` and routed through the unified tool router. Plugin skill domains are added to the web proxy allowlist. Plugin sources are validated during installation.
+
 ## Subagent Delegation Security
 
 - **Depth/concurrency limits**: `maxDepth` (default 2), `maxConcurrent` (default 3) prevent runaway delegation chains.
@@ -76,7 +80,7 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 
 ## Sandbox Isolation (SC-SEC-001)
 
-- **No network** -- Agent containers deny all TCP/IP. Unix sockets allowed only for IPC (local). NATS messaging for K8s pods.
+- **No network** -- Agent containers deny all TCP/IP. Unix sockets allowed only for IPC (local). HTTP-based IPC for K8s pods (no NATS).
 - **No credentials** -- API keys and OAuth tokens never enter the container.
 - **Three-phase orchestration** -- Containers use provision (network) -> run (no network) -> cleanup (network). Network is only available during provisioning and cleanup phases.
 - **4 canonical mounts**: `/workspace` (root/CWD), `/workspace/scratch` (rw), `/workspace/agent` (ro), `/workspace/user` (ro). Identity files and skills are sent via stdin payload from DocumentStore, not mounted as filesystem directories.
@@ -119,7 +123,7 @@ Opt-in (`config.web_proxy`, disabled by default) HTTP forward proxy (`src/host/w
 ## Invariants
 
 - Credentials never enter agent containers. Third-party API keys are injected as opaque placeholders; real values exist only in host memory and are substituted by the MITM proxy at request time.
-- No network access from agent processes (TCP/IP denied; Unix socket IPC only). Opt-in web proxy provides controlled outbound HTTP with SSRF blocking, canary scanning, and MITM credential injection.
+- No network access from agent processes (TCP/IP denied; Unix socket IPC (local) or HTTP IPC (k8s)). Opt-in web proxy provides controlled outbound HTTP with SSRF blocking, canary scanning, and MITM credential injection.
 - All external content is taint-tagged before reaching the agent.
 - Provider loading uses static allowlist only -- no dynamic path construction from config.
 - Every file path from untrusted input passes through `safePath()`.

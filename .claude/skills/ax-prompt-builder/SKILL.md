@@ -21,6 +21,7 @@ The prompt builder assembles the agent's system prompt from a pipeline of ordere
 | `src/agent/prompt/modules/tool-style.ts` | Tool invocation instructions | `ToolStyleModule` (priority 12) |
 | `src/agent/prompt/modules/memory-recall.ts` | Memory recall pattern instructions | `MemoryRecallModule` (priority 60) |
 | `src/agent/prompt/modules/skills.ts` | Skill markdown files | `SkillsModule` (priority 70) |
+| `src/agent/prompt/modules/commands.ts` | Plugin commands | `CommandsModule` (priority 72) |
 | `src/agent/prompt/modules/delegation.ts` | Agent delegation instructions + runner selection | `DelegationModule` (priority 75) |
 | `src/agent/prompt/modules/heartbeat.ts` | Heartbeat checklist and scheduler tools | `HeartbeatModule` (priority 80) |
 | `src/agent/prompt/modules/runtime.ts` | Agent type, sandbox, profile | `RuntimeModule` (priority 90) |
@@ -41,6 +42,7 @@ interface PromptContext {
   identityFiles: IdentityFiles;
   contextContent: string;     // CONTEXT.md content
   skills: string[];           // Loaded skill markdown strings
+  commands?: PluginCommand[]; // Plugin commands from installed Cowork plugins
   maxTokens: number;          // Context window size
   historyTokens: number;      // Tokens consumed by conversation history
 }
@@ -56,6 +58,7 @@ interface PromptContext {
 | 12 | tool-style | No | No | Skipped |
 | 60 | memory-recall | No | No | Included |
 | 70 | skills | Yes (if skills exist) | Yes | Included |
+| 72 | commands | Yes (if commands exist) | Yes | Included |
 | 75 | delegation | Yes (if not bootstrap) | Yes | Skipped |
 | 80 | heartbeat | Yes (if content exists) | Yes | Skipped |
 | 90 | runtime | No | Yes | Skipped |

@@ -75,7 +75,7 @@ storage: {
 ## Database Provider Details
 
 - Requires injected `DatabaseProvider` via `CreateOptions`; throws if missing.
-- Migrations in `migrations.ts` — applied during startup.
+- Migrations in `migrations.ts` — applied during startup. Includes `mcp_servers` table migration for the database MCP provider.
 - PostgreSQL `dequeue()` uses `FOR UPDATE SKIP LOCKED` for concurrent access; SQLite uses simple `LIMIT 1`.
 - Document store does `ON CONFLICT` upsert (syntax differs between SQLite and PostgreSQL via sql template).
 - `replaceTurnsWithSummary` is transactional (database) vs. manual multi-step (file) — atomicity guarantees differ.
@@ -113,6 +113,14 @@ Uses `src/utils/content-serialization.ts`:
 - **`serializeContent(content)`** — Strings stored as-is, ContentBlock[] JSON-stringified. Strips `image_data` blocks before persisting.
 - **`deserializeContent(raw)`** — Detects JSON arrays by checking if string starts with `[`.
 
+## Tool Stubs Cache (`tool-stubs.ts`)
+
+Caches generated TypeScript tool stubs for Cap'n Web batching:
+- **`computeSchemaHash(tools)`** — SHA-256 hash of canonical tool JSON
+- **`getCachedOrNull(documents, agentId, hash)`** — Retrieves cached stubs only if hash matches
+- **`putToolStubs(documents, agentId, hash, content)`** — Stores cache with schema hash and timestamp
+- Cache invalidated when tools discovered from MCP servers change (hash mismatch)
+
 ## Gotchas
 
 - **Database requires injected DatabaseProvider**: Don't create standalone DB connections — use the shared `DatabaseProvider` from `CreateOptions`.
@@ -129,6 +137,7 @@ Uses `src/utils/content-serialization.ts`:
 - `src/providers/storage/database.ts` — Database-backed implementation (SQLite + PostgreSQL via Kysely)
 - `src/providers/storage/migrations.ts` — Database schema migrations
 - `src/providers/storage/migrate-to-db.ts` — One-time filesystem-to-DocumentStore migration utility
+- `src/providers/storage/tool-stubs.ts` — Tool stub caching with schema hash invalidation
 - `src/utils/content-serialization.ts` — Content serialization/deserialization helpers
 - `src/utils/migrator.ts` — Shared DB-agnostic migration runner
 - `tests/providers/storage/database.test.ts`

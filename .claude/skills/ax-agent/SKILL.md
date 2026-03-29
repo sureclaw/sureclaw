@@ -11,17 +11,15 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 
 | File | Responsibility | Key Exports |
 |---|---|---|
-| `src/agent/runner.ts` | Entry point, stdin parse, agent dispatch, IPC transport selection | `run()`, `parseStdinPayload()`, `compactHistory()`, `historyToPiMessages()`, `AgentConfig`, `IIPCClient` |
+| `src/agent/runner.ts` | Entry point, stdin parse, agent dispatch, IPC transport selection. Skills are loaded as `{slug, files}` objects. | `run()`, `parseStdinPayload()`, `compactHistory()`, `historyToPiMessages()`, `AgentConfig`, `IIPCClient` |
 | `src/agent/ipc-client.ts` | Length-prefixed Unix socket IPC with heartbeat keep-alive | `IPCClient` (connect, call, disconnect, reconnect) |
 | `src/agent/http-ipc-client.ts` | HTTP-based IPC client for k8s pods (drop-in replacement for IPCClient) | `HttpIPCClient`, `HttpIPCClientOptions` |
 | `src/agent/skill-installer.ts` | Skill dependency installer — reads SKILL.md install specs, runs missing installs with package-manager prefix env vars | `installSkillDeps()` |
 | `src/agent/stream-utils.ts` | Shared pi-ai message conversion and stream event utilities | `convertPiMessages()`, `emitStreamEvents()` |
 | `src/agent/heartbeat-state.ts` | Heartbeat check state persistence (last-run timestamps) | `HeartbeatState` |
 | `src/agent/local-sandbox.ts` | Agent-side local sandbox executor; runs bash/file tools in-container with host audit gate | `createLocalSandbox()`, `LocalSandboxOptions` |
-| `src/agent/workspace.ts` | Workspace scope provisioning (HTTP from host or GCS SDK), scope diffing, hash snapshots | `provisionScope()`, `diffScope()`, `FileHashMap` |
-| `src/agent/workspace-cli.ts` | CLI for container provision/cleanup/release phases (GCS restore, scope diff, HTTP staging) | CLI entry point (`provision`, `cleanup`, `release` commands) |
-| `src/agent/workspace-release.ts` | Thin wrapper: spawns workspace-cli.ts release as subprocess, sends staging_key via IPC | `releaseWorkspaceScopes()` |
-| `src/agent/tool-catalog.ts` | Single source of truth for tool metadata and context-aware filtering | `TOOL_CATALOG`, `filterTools()`, `ToolFilterContext`, `normalizeOrigin()`, `normalizeIdentityFile()` |
+| `src/agent/tool-catalog.ts` | Single source of truth for tool metadata, context-aware filtering, plugin commands, and Cowork plugin tools | `TOOL_CATALOG`, `filterTools()`, `ToolFilterContext`, `normalizeOrigin()`, `normalizeIdentityFile()` |
+| `src/agent/prompt/modules/commands.ts` | Plugin commands prompt module (priority 72) — surfaces installed plugin slash commands | `CommandsModule` |
 | `src/agent/ipc-tools.ts` | Tools that proxy to host via IPC (pi-session runner) | `createIPCTools(client, opts)` |
 | `src/host/ipc-handlers/sandbox-tools.ts` | IPC handlers for bash/file ops (host-side, subprocess mode only) | `createSandboxToolHandlers()` |
 | `src/agent/identity-loader.ts` | Loads identity files from preloaded stdin payload (or filesystem fallback) | `loadIdentityFiles(opts)` |
@@ -47,7 +45,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 5. Dispatches to runner: `runPiSession()` or `runClaudeCode()`
 6. Runner uses pre-connected `config.ipcClient` if available, otherwise creates a new `IPCClient` and connects
 7. Loads identity files from stdin payload (preloaded from DocumentStore by host) via `loadIdentityFiles({ preloaded: config.identity })`
-8. Skills loaded from stdin payload (array of `{name, description, path}`)
+8. Skills loaded from stdin payload (array of `{slug, files}`). Plugin commands may also be loaded from installed plugins.
 9. `buildSystemPrompt()` builds both the system prompt AND a `ToolFilterContext` for context-aware tool filtering
 10. Creates IPC tools (catalog-based, filtered). Sandbox tools (bash, read_file, write_file, edit_file) route based on sandbox type:
     - **Container mode** (docker, apple, k8s): `local-sandbox.ts` executes locally with host audit gate (`sandbox_approve` -> execute -> `sandbox_result`)
@@ -87,6 +85,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 | ToolStyleModule | 12 | Tool invocation instructions | No |
 | MemoryRecallModule | 60 | Memory recall pattern instructions | No |
 | SkillsModule | 70 | Loaded skill definitions | Yes |
+| CommandsModule | 72 | Installed plugin slash commands | Yes |
 | DelegationModule | 75 | Agent delegation instructions + runner selection guide | Yes |
 | HeartbeatModule | 80 | HEARTBEAT.md periodic check schedule | Yes |
 | RuntimeModule | 90 | Agent type, sandbox type, tool list | No |
@@ -176,6 +175,4 @@ Uses `config.ipcClient` (pre-connected `IIPCClient`) when available. Supports in
 - **Warm pool env var propagation**: Per-request env vars (like `AX_WEB_PROXY_URL`) must be in BOTH the k8s pod spec (cold spawn) AND the NATS work payload (warm pool). The runner's `parseStdinPayload()` extracts `webProxyUrl` and `applyPayload()` sets `process.env.AX_WEB_PROXY_URL`.
 - **NATS IPC requires `setContext()` after work payload**: In NATS mode, the IPC client is connected before the work payload arrives. `applyPayload()` calls `ipcClient.setContext()` to set session/request/token fields needed for NATS subject scoping (`ipc.request.{requestId}.{token}`).
 - **K8s workspace provision via HTTP**: In k8s mode (`AX_HOST_URL` set, workspace provider is `gcs`), `provisionWorkspaceFromPayload()` provisions all scopes via HTTP from the host's `GET /internal/workspace/provision` endpoint — the host has GCS credentials, the pod doesn't. This doesn't require GCS prefix fields in the payload; the host resolves paths from its own config. The legacy direct-GCS path (non-k8s) remains as fallback.
-- **`provisionScope()` two modes**: HTTP mode (k8s, fetches gzipped JSON from host) and GCS SDK mode (non-k8s, uses `@google-cloud/storage` directly). The old `gsutil` shell-out is removed — agent pods don't have the Google Cloud SDK installed. Never shell out to gsutil in code that runs inside agent pods.
-- **K8s workspace release before agent_response**: In NATS mode, both runners call `releaseWorkspaceScopes()` from `workspace-release.ts` before sending `agent_response`. This spawns `workspace-cli.ts release` as subprocess, which diffs workspace scopes, gzips changes, and POSTs to host `/internal/workspace-staging` via HTTP. Only a small `staging_key` UUID travels over NATS IPC. Triggered by `AX_HOST_URL` env var. Non-fatal on failure.
 - **Sandbox tools routing depends on sandbox type**: Container sandboxes (docker, apple, k8s) use `local-sandbox.ts` (agent-local execution with `sandbox_approve`/`sandbox_result` IPC). Subprocess sandbox routes through IPC to host-side handlers. The `localSandbox` option in `IPCToolsOptions`/`MCPServerOptions` controls this.

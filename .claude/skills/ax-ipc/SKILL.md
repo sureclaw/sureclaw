@@ -96,6 +96,11 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Sandbox Audit | `sandbox_result`     | `operation` (bash/read/write/edit), `command?`, `path?`, `success?`, `output?`, `error?`, `exitCode?` | `ok` |
 | Plugin      | `plugin_list`          | (none)                                                    | `plugins`                     |
 | Plugin      | `plugin_status`        | `packageName`                                             | (status result)               |
+| Cowork Plugin | `plugin_install_cowork` | `source`                                                | (install result)              |
+| Cowork Plugin | `plugin_uninstall_cowork` | `name`                                                | `ok`                          |
+| Cowork Plugin | `plugin_list_cowork`   | (none)                                                    | `plugins`                     |
+| Tool Batch  | `tool_batch`           | `calls` (array with `__batchRef` pipelining)              | `results`                     |
+| Session     | `session_expiring`     | `sessionId`, `remainingSec`                               | `ok`                          |
 
 All responses are wrapped: `{ "ok": true, ...fields }` on success, `{ "ok": false, "error": "..." }` on failure.
 
@@ -136,12 +141,7 @@ Messages support multiple block types:
 
 ### Workspace operations
 
-Workspace file syncing in k8s uses symmetric HTTP endpoints on the host (pods have no GCS credentials):
-
-- **Provision** (start of turn): Pod GETs `GET /internal/workspace/provision?scope=<agent|user|session>&id=<id>` from the host. Host reads from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64-encoded file contents. `provisionScope()` in `src/agent/workspace.ts` handles this automatically when `AX_HOST_URL` is set.
-- **Release** (end of turn): Agent-side `workspace-cli.ts release` POSTs gzipped file data to the host's `/internal/workspace-staging` HTTP endpoint. The agent then sends a lightweight `workspace_release` IPC action with just the `staging_key` UUID. The host looks up the staged data, decompresses, and feeds it to the workspace provider's `setRemoteChanges()`.
-
-Both endpoints are authenticated via `Authorization: Bearer <ipcToken>`. The old `workspace_write`/`workspace_write_file` IPC actions have been removed — the workspace provider's mount/diff/commit pipeline is now the only write path.
+Workspace operations are handled via IPC handlers (`src/host/ipc-handlers/workspace.ts`). In k8s, workspace file syncing uses symmetric HTTP endpoints on the host (pods have no GCS credentials) authenticated via `Authorization: Bearer <ipcToken>`.
 
 ### Sandbox tool operations
 

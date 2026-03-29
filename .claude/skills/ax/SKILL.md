@@ -14,7 +14,7 @@ This is the parent skill group for all AX project-specific architecture and codi
 
 ## Architecture at a Glance
 
-AX uses a **provider contract pattern**. The trusted host process (`src/host/`) orchestrates sandboxed agent processes (`src/agent/`) via IPC. Every subsystem is a TypeScript interface with pluggable implementations, loaded from a static allowlist in `src/host/provider-map.ts` (SC-SEC-002).
+AX uses a **provider contract pattern**. The trusted host process (`src/host/`) orchestrates sandboxed agent processes (`src/agent/`) via IPC, with a plugin system (`src/plugins/`) for extensibility. Every subsystem is a TypeScript interface with pluggable implementations, loaded from a static allowlist in `src/host/provider-map.ts` (SC-SEC-002).
 
 ### Sandbox Model
 
@@ -37,18 +37,43 @@ In k8s mode, all communication uses HTTP:
 - **IPC**: `src/agent/http-ipc-client.ts` → `POST /internal/ipc` route on host (`src/host/server-k8s.ts`)
 - **LLM proxy**: `src/host/llm-proxy-core.ts` → `/internal/llm-proxy` HTTP route
 - **Work dispatch**: Host queues work via `SessionPodManager.queueWork()`; pods fetch via `GET /internal/work`
-- **Event bus**: `src/providers/eventbus/nats.ts` (NATS-backed pub/sub for events — only remaining NATS use)
+- **Event bus**: `src/providers/eventbus/nats.ts` OR `src/providers/eventbus/postgres.ts` (NATS or PostgreSQL-backed pub/sub for events)
 
 **HTTP for all payloads**: Workspace file data flows via HTTP POST to the host's `/internal/workspace-staging` endpoint. IPC requests use HTTP POST to `/internal/ipc`. Work dispatch uses `SessionPodManager` (in-process queue). NetworkPolicy allows sandbox pods egress to host on port 8080.
 
 ### Workspace Provider
 
-The workspace provider (`src/providers/workspace/`) manages persistent file workspaces for agent sessions across three scopes: agent, user, and session. Backends: `none` (no-op), `local` (filesystem), `gcs` (Google Cloud Storage). In k8s mode, workspace changes are synced back to GCS via the HTTP staging + workspace_release IPC flow (see ax-provider-sandbox skill for details). Loaded as part of the standard registry chain in `src/host/registry.ts`.
+The workspace provider (`src/providers/workspace/`) manages persistent file workspaces for agent sessions across three scopes: agent, user, and session. Backends: `none` (no-op), `local` (filesystem), `gcs` (Google Cloud Storage). In k8s mode, workspace changes are synced back to GCS via the HTTP staging endpoint. Workspace operations are IPC-only through host handlers — there are no agent-side workspace CLI or release files. Loaded as part of the standard registry chain in `src/host/registry.ts`.
 
 ### MCP Fast Path (In-Process Agent)
 
-The MCP fast path (`src/host/inprocess.ts`) runs the LLM orchestration loop directly in the host process — no pods, no IPC, no proxy, no GCS sync. Used for lightweight tool-calling tasks via MCP providers (e.g., Activepieces). Key files: `inprocess.ts` (LLM loop), `tool-router.ts` (tool routing with per-turn limits), `sandbox-manager.ts` (cross-turn sandbox escalation). See `src/providers/mcp/` for the MCP provider interface (`McpProvider`: `listTools`, `callTool`, `credentialStatus`, `storeCredential`, `listApps`).
+The MCP fast path (`src/host/inprocess.ts`) runs the LLM orchestration loop directly in the host process — no pods, no IPC, no proxy, no GCS sync. Used for lightweight tool-calling tasks via MCP providers (database-backed). Key files: `inprocess.ts` (LLM loop), `tool-router.ts` (tool routing with per-turn limits), `sandbox-manager.ts` (cross-turn sandbox escalation). See `src/providers/mcp/` for the `McpProvider` interface: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`. Implementations: `none` (no-op), `database` (per-agent HTTP/SSE MCP servers stored in DB with circuit breakers). Unified MCP routing via `McpConnectionManager` (`src/plugins/mcp-manager.ts`).
+
+### Cowork Plugin System
+
+The Cowork plugin system (`src/plugins/`) provides per-agent plugin lifecycle management with MCP server integration. Plugins are installed from GitHub, local directories, or URLs and can declare skills, commands, and MCP servers.
+
+Key files:
+- `src/plugins/types.ts` — Plugin manifest, skill, command, MCP server type definitions
+- `src/plugins/mcp-manager.ts` — `McpConnectionManager`: unified MCP tool discovery and routing across plugins, database, and default providers
+- `src/plugins/mcp-client.ts` — HTTP client for querying remote MCP servers
+- `src/plugins/store.ts` — Plugin CRUD via DocumentStore
+- `src/plugins/install.ts` — Plugin install/uninstall with MCP server registration
+- `src/plugins/startup.ts` — Bootstrap plugin MCP servers from DB and config on startup
+- `src/plugins/fetcher.ts` — Fetch plugin files from GitHub, local paths, or URLs
+- `src/plugins/parser.ts` — Parse plugin bundles (plugin.json, skills/, commands/, .mcp.json)
+
+Plugin IPC actions: `plugin_install_cowork`, `plugin_uninstall_cowork`, `plugin_list_cowork`. CLI: `ax plugin install|remove|list`.
+
+### Cap'n Web Tool Batching
+
+Zero-dependency TypeScript tool stub generation with Proxy-based batching (`src/host/capnweb/`). Generates per-agent TypeScript stubs cached in DocumentStore with schema hash invalidation.
+
+- `src/host/capnweb/codegen.ts` — TypeScript stub generation (JSON Schema to TypeScript via `json-schema-to-typescript`)
+- `src/host/capnweb/generate-and-cache.ts` — DB caching with schema hash for generated stubs
+- `src/host/ipc-handlers/tool-batch.ts` — IPC handler for `tool_batch` with `__batchRef` pipelining
+- `src/providers/storage/tool-stubs.ts` — Schema hash computation and cache storage
 
 ### Provider Categories
 
-There are 18 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, image, memory, scanner, channel, web_extract, web_search, browser, credentials, audit, sandbox, scheduler, screener, database, storage, eventbus, workspace, mcp.
+There are 18 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, image, memory, scanner, channel, web_extract, web_search, browser, credentials, audit, sandbox, scheduler, screener, database, storage, eventbus, workspace, mcp. The `mcp` category has `none` and `database` implementations.

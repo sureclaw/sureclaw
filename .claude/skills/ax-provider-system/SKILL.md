@@ -35,7 +35,7 @@ AX uses a **provider contract pattern**: every subsystem is a TypeScript interfa
 | storage       | `StorageProvider`      | `src/providers/storage/`       |
 | eventbus      | `EventBusProvider`     | `src/providers/eventbus/`      |
 | workspace     | `WorkspaceProvider`    | `src/providers/workspace/`     |
-| mcp           | `McpProvider`          | `src/providers/mcp/`           |
+| mcp           | `McpProvider`          | `src/providers/mcp/`           | (`none`, `database`) |
 
 ## Provider Map (SC-SEC-002)
 
@@ -60,7 +60,8 @@ AX uses a **provider contract pattern**: every subsystem is a TypeScript interfa
      - **storage** gets `{ database }`
      - **audit** gets `{ database }`
   3. **Custom**: `loadScheduler(config, database, eventbus)` — scheduler has its own `create(config, { database, eventbus })` shape.
-- **Loading order matters**: credentials → database → LLM → screener → skills → eventbus → memory → storage → audit → workspace → scanner → everything else
+- **mcp** gets `{ database, credentials }` (via manual import, not loadProvider)
+- **Loading order matters**: credentials → database → LLM → screener → skills → eventbus → memory → storage → audit → workspace → mcp → scanner → everything else
 - Channels load as an array (`config.providers.channels` is `string[]`)
 - **Image provider**: Loaded only when `config.models.image` is configured
 - **Tracing wrapper**: LLM provider wrapped with `TracedLLMProvider` when `OTEL_EXPORTER_OTLP_ENDPOINT` is set
@@ -93,7 +94,7 @@ New provider category for image generation:
 
 - **`src/providers/shared-types.ts`**: Re-export hub for types used across multiple provider categories. Prevents cross-provider directory imports.
 - **`src/providers/router-utils.ts`**: `parseCompoundId()` utility shared by LLM and image routers.
-- **Typed unions**: `provider-map.ts` exports typed name unions for each category: `LLMProviderName`, `ImageProviderName`, `MemoryProviderName`, `ScannerProviderName`, `ChannelProviderName`, `WebProviderName`, `BrowserProviderName`, `CredentialProviderName`, `SkillsProviderName`, `DatabaseProviderName`, `AuditProviderName`, `SandboxProviderName`, `SchedulerProviderName`, `ScreenerProviderName`, `StorageProviderName`, `EventBusProviderName`, `WorkspaceProviderName`. Used in `Config.providers` for type-safe config.
+- **Typed unions**: `provider-map.ts` exports typed name unions for each category: `LLMProviderName`, `ImageProviderName`, `MemoryProviderName`, `ScannerProviderName`, `ChannelProviderName`, `WebProviderName`, `BrowserProviderName`, `CredentialProviderName`, `SkillsProviderName`, `DatabaseProviderName`, `AuditProviderName`, `SandboxProviderName`, `SchedulerProviderName`, `ScreenerProviderName`, `StorageProviderName`, `EventBusProviderName`, `WorkspaceProviderName`, `McpProviderName`. Used in `Config.providers` for type-safe config.
 
 ## Common Tasks
 

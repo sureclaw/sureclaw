@@ -50,7 +50,7 @@ Implementations: `IPCClient` (Unix socket), `HttpIPCClient` (HTTP for k8s). A pr
 | **HTTP** | `AX_HOST_URL` set | `HttpIPCClient` | HTTP POST to `/internal/ipc` | Kubernetes pods |
 | **Listen** | `AX_IPC_LISTEN=1` | `IPCClient` (listen mode) | Unix socket (reverse -- agent listens) | Apple Container sandbox |
 
-In HTTP and Listen modes, the client is created and connected before stdin/work-payload is read, then passed via `AgentConfig.ipcClient`. NATS is only used for work dispatch (queue groups) in k8s mode, not for IPC.
+In HTTP and Listen modes, the client is created and connected before stdin/work-payload is read, then passed via `AgentConfig.ipcClient`.
 
 ## Runner Dispatch
 
@@ -99,7 +99,7 @@ Note: `pi-agent-core` was removed as a user-facing agent type.
 5. Call `query()` from Claude Agent SDK with:
    - `systemPrompt`: built prompt
    - `maxTurns: 20`
-   - `ANTHROPIC_BASE_URL`: `http://127.0.0.1:${bridge.port}` (TCP or NATS bridge)
+   - `ANTHROPIC_BASE_URL`: `http://127.0.0.1:${bridge.port}` (TCP bridge)
    - `disallowedTools`: `['WebFetch', 'WebSearch', 'Skill']` (use AX's IPC versions)
    - `mcpServers`: the IPC MCP server
    - `env`: includes `HTTP_PROXY`/`HTTPS_PROXY` if web proxy bridge is running
@@ -144,8 +144,8 @@ This avoids the round-trip of sending file contents/command output over IPC for 
 - **Dual tool registration is mandatory**: Tools MUST exist in BOTH `ipc-tools.ts` AND `mcp-server.ts`. Missing one means that runner variant has no access.
 - **TypeBox vs Zod**: pi-session tools use TypeBox (`@sinclair/typebox`), MCP server uses Zod v4. Don't mix them.
 - **IIPCClient not IPCClient**: Both runners accept `IIPCClient` (the interface), not the concrete `IPCClient`. Always type IPC clients as `IIPCClient` in runner code.
-- **Pre-connected client in listen/NATS modes**: In listen and NATS transport modes, the IPC client is created and connected in `runner.ts` main block BEFORE stdin is read. Runners should use `config.ipcClient` when available instead of creating a new `IPCClient`.
-- **Proxy vs IPC transport**: pi-session prefers proxy (lower latency). claude-code always uses TCP/NATS bridge -> proxy. IPC fallback adds serialization overhead.
+- **Pre-connected client in listen/HTTP modes**: In listen and HTTP transport modes, the IPC client is created and connected in `runner.ts` main block BEFORE stdin is read. Runners should use `config.ipcClient` when available instead of creating a new `IPCClient`.
+- **Proxy vs IPC transport**: pi-session prefers proxy (lower latency). claude-code always uses TCP bridge -> proxy. IPC fallback adds serialization overhead.
 - **IPC timeout**: Configurable via `AX_LLM_TIMEOUT_MS` env var, defaults to 10 minutes. Long-running agent loops can hit this.
 - **`createLazyAnthropicClient` uses `apiKey: 'ax-proxy'`**: Dummy value -- the host proxy injects the real key. Never pass real keys.
 - **`convertPiMessages` uses `'.'` for empty content**: Anthropic API rejects empty strings.
@@ -154,9 +154,8 @@ This avoids the round-trip of sending file contents/command output over IPC for 
 - **claude-code disallows WebFetch/WebSearch/Skill**: Replaced by AX's IPC-routed equivalents for taint tracking.
 - **Image blocks via `buildSDKPrompt()`**: Structured content blocks only generated when `image_data` blocks are present in user message.
 - **Context-aware filtering**: Both runners now use `ToolFilterContext` from `buildSystemPrompt()` to automatically exclude tools based on missing prompt modules.
-- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
-- **NATS removed from IPC**: The old `nats-bridge.ts` and `nats-ipc-client.ts` have been removed. K8s pods use `HttpIPCClient` for all IPC and TCP bridge for LLM proxy. NATS is only for work dispatch.
+- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. Skills are loaded as `{slug, files}` objects (not just `{name, description, path}`). The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
 - **Concurrent IPC fix**: Misrouted responses on shared Unix sockets have been fixed. Each `call()` is now correctly matched to its response.
 - **Web proxy bridge cleanup**: Both runners stop the web proxy bridge in their cleanup path (after agent loop completes). Failure to start the bridge is non-fatal (logged as warning, agent continues without outbound HTTP).
 - **Web proxy env var priority**: `AX_WEB_PROXY_SOCKET` (container, Unix socket bridge) > `AX_WEB_PROXY_URL` (k8s, direct URL) > `AX_WEB_PROXY_PORT` (subprocess, TCP). Only one is used.
-- **K8s workspace release**: Both runners call `releaseWorkspaceScopes()` from `workspace-release.ts` before sending `agent_response` in NATS mode. Triggered when `AX_HOST_URL` env var is set. Non-fatal — failures are logged as warnings but don't lose the agent response. The release spawns `workspace-cli.ts release` as a subprocess to diff, gzip, and HTTP-upload workspace changes to the host staging endpoint.
+- **K8s workspace release**: Workspace release is now handled by host IPC handlers, not agent-side code. The old `workspace-release.ts` has been deleted. `SessionPodManager` with HTTP work dispatch replaced NATS-based work dispatch in k8s.
