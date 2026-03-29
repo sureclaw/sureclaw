@@ -39,6 +39,13 @@ export interface ToolResult {
   taint?: TaintTag;
 }
 
+/** Callback for executing a tool call on a plugin MCP server. */
+export type PluginMcpCallTool = (
+  serverUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+
 export interface ToolRouterContext {
   requestId: string;
   agentId: string;
@@ -51,6 +58,13 @@ export interface ToolRouterContext {
   totalBytes: number;
   /** Number of tool calls made so far in the current turn. */
   callCount: number;
+  /**
+   * Resolve a tool name to a plugin MCP server URL.
+   * Returns undefined if the tool is not from a plugin server.
+   */
+  resolvePluginServer?: (toolName: string) => string | undefined;
+  /** Execute a tool call on a plugin MCP server (by URL). */
+  pluginMcpCallTool?: PluginMcpCallTool;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +105,12 @@ async function handleMcpToolCall(
   call: ToolCall,
   ctx: ToolRouterContext,
 ): Promise<ToolResult> {
+  // Check if this tool belongs to a plugin MCP server
+  const pluginServerUrl = ctx.resolvePluginServer?.(call.name);
+  if (pluginServerUrl && ctx.pluginMcpCallTool) {
+    return handlePluginMcpToolCall(call, ctx, pluginServerUrl);
+  }
+
   if (!ctx.mcp) {
     return {
       toolUseId: call.id,
@@ -159,6 +179,56 @@ async function handleMcpToolCall(
     return {
       toolUseId: call.id,
       content: `Tool call failed: ${(err as Error).message}`,
+      isError: true,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plugin MCP tool calls (routed to remote servers via URL)
+// ---------------------------------------------------------------------------
+
+async function handlePluginMcpToolCall(
+  call: ToolCall,
+  ctx: ToolRouterContext,
+  serverUrl: string,
+): Promise<ToolResult> {
+  try {
+    const result = await ctx.pluginMcpCallTool!(serverUrl, call.name, call.args);
+
+    const content = typeof result.content === 'string'
+      ? result.content
+      : JSON.stringify(result.content);
+
+    // Enforce per-result size limit
+    if (Buffer.byteLength(content) > FAST_PATH_LIMITS.maxToolResultSizeBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Tool result too large (>${FAST_PATH_LIMITS.maxToolResultSizeBytes} bytes). Ask for a smaller response.`,
+        isError: true,
+      };
+    }
+
+    ctx.totalBytes += Buffer.byteLength(content);
+    if (ctx.totalBytes > FAST_PATH_LIMITS.maxTotalContextBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Total context size limit exceeded (>${FAST_PATH_LIMITS.maxTotalContextBytes} bytes). Reduce tool usage.`,
+        isError: true,
+      };
+    }
+
+    return {
+      toolUseId: call.id,
+      content,
+      isError: result.isError,
+      // Plugin MCP results are always taint-tagged as external
+      taint: { source: `plugin-mcp:${serverUrl}`, trust: 'external' as const, timestamp: new Date() },
+    };
+  } catch (err) {
+    return {
+      toolUseId: call.id,
+      content: `Plugin MCP tool call failed: ${(err as Error).message}`,
       isError: true,
     };
   }

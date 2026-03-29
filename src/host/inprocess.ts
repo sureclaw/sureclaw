@@ -18,6 +18,8 @@ import type { EventBus } from './event-bus.js';
 import { routeToolCall, FAST_PATH_LIMITS, type ToolRouterContext, type ToolResult } from './tool-router.js';
 import type { Logger } from '../logger.js';
 import { deserializeContent } from '../utils/content-serialization.js';
+import type { McpConnectionManager } from '../plugins/mcp-manager.js';
+import { listToolsFromServer, callToolOnServer } from '../plugins/mcp-client.js';
 
 // ---------------------------------------------------------------------------
 // Per-turn context (AsyncLocalStorage for cross-session isolation)
@@ -48,6 +50,8 @@ export interface FastPathDeps {
   logger: Logger;
   eventBus?: EventBus;
   workspaceBasePath: string;
+  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  mcpManager?: McpConnectionManager;
 }
 
 export interface FastPathRequest {
@@ -211,6 +215,24 @@ export async function runFastPath(
       installedApps,
     );
 
+    // 2b. Per-agent plugin MCP servers — query each, register tool→URL mapping, merge tools
+    if (deps.mcpManager) {
+      const pluginUrls = deps.mcpManager.getServerUrls(request.agentId);
+      for (const url of pluginUrls) {
+        try {
+          const serverTools = await listToolsFromServer(url);
+          if (serverTools.length > 0) {
+            deps.mcpManager.registerTools(
+              request.agentId,
+              url,
+              serverTools.map(t => t.name),
+            );
+            mcpTools.push(...serverTools);
+          }
+        } catch { /* plugin MCP failures are non-fatal */ }
+      }
+    }
+
     // 3. Build tool list
     const tools: ToolDef[] = [
       ...mcpTools.map(mcpToolToToolDef),
@@ -254,6 +276,11 @@ export async function runFastPath(
       workspaceBasePath: deps.workspaceBasePath,
       totalBytes: 0,
       callCount: 0,
+      // Plugin MCP routing: resolve tool name → server URL, then call via HTTP
+      resolvePluginServer: deps.mcpManager
+        ? (toolName) => deps.mcpManager!.getToolServerUrl(request.agentId, toolName)
+        : undefined,
+      pluginMcpCallTool: deps.mcpManager ? callToolOnServer : undefined,
     };
 
     // 8. LLM orchestration loop

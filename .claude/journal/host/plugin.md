@@ -2,6 +2,42 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-03-29 12:31] — Wire plugin MCP tool execution into host tool router
+
+**Task:** Route agent tool calls from plugin MCP servers to the correct remote server via URL.
+**What I did:**
+- Added tool-to-server URL mapping in `McpConnectionManager` (`registerTools`, `getToolServerUrl`, `clearToolsForPlugin`)
+- Updated `tool-router.ts` with `resolvePluginServer` + `pluginMcpCallTool` context fields; added `handlePluginMcpToolCall` for plugin MCP routing with size limits and taint tagging
+- Updated `tool-batch.ts` to accept `ToolBatchOptions` with plugin MCP routing alongside the default MCP provider
+- Updated `inprocess.ts` (fast path) to discover tools per-server (not bulk), register tool mappings, and wire plugin routing into ToolRouterContext
+- Updated `server-completions.ts` (sandbox path) to register tool mappings during per-server discovery
+- Updated `server-init.ts` to pass mcpManager into toolBatchProvider and coworkPlugins IPC handler options
+- Fixed ordering bug: `clearToolsForPlugin` must run before removing servers (needs server URLs to find tools)
+**Files touched:** `src/plugins/mcp-manager.ts`, `src/host/tool-router.ts`, `src/host/ipc-handlers/tool-batch.ts`, `src/host/inprocess.ts`, `src/host/server-completions.ts`, `src/host/server-init.ts`, `src/host/ipc-server.ts`, `tests/plugins/mcp-manager.test.ts`, `tests/host/tool-router.test.ts`, `tests/host/ipc-handlers/tool-batch.test.ts`
+**Outcome:** Success — all 2729 tests pass, 0 failures
+**Notes:** Tool discovery now happens per-server (not bulk via `listToolsFromServers`) so we can register which tools came from which URL. The `callToolOnServer` function from `mcp-client.ts` is used as the `pluginMcpCallTool` callback.
+
+## [2026-03-29 12:30] — Add IPC schemas and handlers for Cowork plugin management
+
+**Task:** Task 7 of Cowork plugin integration — Add IPC schemas and handlers for plugin_install_cowork, plugin_uninstall_cowork, plugin_list_cowork
+**What I did:**
+- Added 3 new IPC schemas in `src/ipc-schemas.ts` with `_cowork` suffix to avoid collision with existing `plugin_list`/`plugin_status`
+- Created `src/host/ipc-handlers/cowork-plugins.ts` with handler factory wrapping `installPlugin`, `uninstallPlugin`, `listPlugins` from `src/plugins/`
+- Registered handlers conditionally in `src/host/ipc-server.ts` via new `coworkPlugins` option on `IPCHandlerOptions`
+- Added new actions to `knownInternalActions` in tool-catalog-sync test and skip list in cross-component test
+- Created `tests/host/ipc-handlers/cowork-plugins.test.ts` with 6 tests covering list/install/uninstall
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/cowork-plugins.ts` (new), `src/host/ipc-server.ts`, `tests/host/ipc-handlers/cowork-plugins.test.ts` (new), `tests/agent/tool-catalog-sync.test.ts`, `tests/integration/cross-component.test.ts`
+**Outcome:** Success — all 2714 tests pass across 242 test files, no regressions
+**Notes:** Handlers are conditionally registered (like orchestration) so the McpConnectionManager must be passed via `opts.coworkPlugins`. Two sync tests needed updates: `knownInternalActions` set and cross-component handler completeness skip list.
+
+## [2026-03-29 12:00] — Wire McpConnectionManager into FastPathDeps and CompletionDeps
+
+**Task:** Task 11 — Wire per-agent plugin MCP servers into tool stub generation and fast-path tool discovery
+**What I did:** Added `McpConnectionManager` import and optional `mcpManager` field to both `FastPathDeps` (inprocess.ts) and `CompletionDeps` (server-completions.ts). Added placeholder comments in `runFastPath` (after MCP tool discovery) and `processCompletion` (after tool stubs generation) for future generic MCP HTTP client integration.
+**Files touched:** `src/host/inprocess.ts`, `src/host/server-completions.ts`
+**Outcome:** Success — all 2691 tests pass, no regressions
+**Notes:** Actual MCP protocol queries from plugin servers deferred until generic MCP HTTP client is implemented. The plumbing is now in place for both code paths.
+
 ## [2026-02-27 01:35] — Implement plugin framework (all 3 phases)
 
 **Task:** Implement the plugin framework design from docs/plans/2026-02-26-plugin-framework-design.md. Three-phase approach: Provider SDK, monorepo prep, and PluginHost infrastructure.

@@ -36,6 +36,9 @@ import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall
 import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
+import type { McpConnectionManager } from '../plugins/mcp-manager.js';
+import { listToolsFromServer } from '../plugins/mcp-client.js';
+import type { McpToolSchema } from '../providers/mcp/types.js';
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -85,6 +88,8 @@ export interface CompletionDeps {
   registerSessionPod?: (sessionId: string, pod: { podName: string; pid: number; kill: () => void }) => void;
   /** Remove a session pod mapping (called when pod exits unexpectedly). */
   removeSessionPod?: (sessionId: string) => void;
+  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  mcpManager?: McpConnectionManager;
 }
 
 export interface ExtractedFile {
@@ -891,6 +896,42 @@ export async function processCompletion(
         if (stubs && stubs.length > 0) toolStubsPayload = stubs;
       } catch (err) {
         reqLogger.warn('tool_stubs_load_failed', { error: (err as Error).message });
+      }
+    }
+
+    // Per-agent plugin MCP servers — query each server's tools, register tool→URL mapping, merge into stubs
+    if (deps.mcpManager) {
+      const pluginServerUrls = deps.mcpManager.getServerUrls(agentName);
+      const allPluginTools: McpToolSchema[] = [];
+      for (const url of pluginServerUrls) {
+        try {
+          const serverTools = await listToolsFromServer(url);
+          if (serverTools.length > 0) {
+            deps.mcpManager.registerTools(agentName, url, serverTools.map(t => t.name));
+            allPluginTools.push(...serverTools);
+          }
+        } catch (err) {
+          reqLogger.warn('plugin_mcp_tools_failed', { url, error: (err as Error).message });
+        }
+      }
+      if (allPluginTools.length > 0) {
+        try {
+          const { prepareToolStubs } = await import('./capnweb/generate-and-cache.js');
+          const pluginStubs = await prepareToolStubs({
+            documents: providers.storage?.documents,
+            agentName,
+            tools: allPluginTools,
+          });
+          if (pluginStubs && pluginStubs.length > 0) {
+            if (toolStubsPayload) {
+              toolStubsPayload.push(...pluginStubs);
+            } else {
+              toolStubsPayload = pluginStubs;
+            }
+          }
+        } catch (err) {
+          reqLogger.warn('plugin_tool_stubs_failed', { error: (err as Error).message });
+        }
       }
     }
 

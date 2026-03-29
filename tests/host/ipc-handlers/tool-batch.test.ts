@@ -153,4 +153,75 @@ describe('createToolBatchHandlers', () => {
       handlers.tool_batch({ calls: [] }, ctx),
     ).rejects.toThrow('not available');
   });
+
+  it('should route plugin MCP calls to pluginMcpCallTool', async () => {
+    const pluginCalls: Array<{ url: string; tool: string; args: Record<string, unknown> }> = [];
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool(call: McpToolCall) {
+          return { content: `default:${call.tool}` };
+        },
+      }),
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName.startsWith('slack_') ? 'https://mcp.slack.com/mcp' : undefined,
+      pluginMcpCallTool: async (url, tool, args) => {
+        pluginCalls.push({ url, tool, args });
+        return { content: `plugin:${tool}` };
+      },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'slack_send_message', args: { text: 'hi' } },
+        { tool: 'linear_get_issues', args: {} },
+      ],
+    }, ctx);
+
+    // First call goes to plugin MCP
+    expect(result.results[0]).toBe('plugin:slack_send_message');
+    expect(pluginCalls).toHaveLength(1);
+    expect(pluginCalls[0].url).toBe('https://mcp.slack.com/mcp');
+    // Second call goes to default provider
+    expect(result.results[1]).toBe('default:linear_get_issues');
+  });
+
+  it('should handle plugin MCP call errors per-call', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => ({
+        async callTool() { return { content: 'ok' }; },
+      }),
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName === 'failing_plugin' ? 'https://bad.server/mcp' : undefined,
+      pluginMcpCallTool: async () => { throw new Error('plugin server down'); },
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'failing_plugin', args: {} },
+        { tool: 'default_tool', args: {} },
+      ],
+    }, ctx);
+
+    expect(result.results[0]).toEqual({ ok: false, error: 'plugin server down' });
+    expect(result.results[1]).toBe('ok');
+  });
+
+  it('should return error when no default provider for non-plugin tool', async () => {
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolvePluginServer: (_agentId, toolName) =>
+        toolName === 'slack_send' ? 'https://mcp.slack.com/mcp' : undefined,
+      pluginMcpCallTool: async (_url, tool) => ({ content: `plugin:${tool}` }),
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [
+        { tool: 'slack_send', args: {} },
+        { tool: 'unknown_tool', args: {} },
+      ],
+    }, ctx);
+
+    expect(result.results[0]).toBe('plugin:slack_send');
+    expect(result.results[1]).toEqual({ ok: false, error: 'MCP gateway not configured for this tool' });
+  });
 });

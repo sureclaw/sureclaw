@@ -74,6 +74,22 @@ export interface ToolBatchProvider {
   callTool(call: McpToolCall): Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
 }
 
+/** Callback for executing a tool call on a plugin MCP server (by URL). */
+export type PluginMcpCallTool = (
+  serverUrl: string,
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+
+export interface ToolBatchOptions {
+  /** Returns the MCP provider for executing tools in this session. Returns null if not configured. */
+  getProvider: (ctx: IPCContext) => ToolBatchProvider | null;
+  /** Resolve a tool name to a plugin MCP server URL (returns undefined for non-plugin tools). */
+  resolvePluginServer?: (agentId: string, toolName: string) => string | undefined;
+  /** Execute a tool call on a plugin MCP server (by URL). */
+  pluginMcpCallTool?: PluginMcpCallTool;
+}
+
 /**
  * Create tool_batch IPC handler.
  *
@@ -81,15 +97,19 @@ export interface ToolBatchProvider {
  *   Returns null if tool batching is not configured.
  */
 export function createToolBatchHandlers(
-  getProvider: (ctx: IPCContext) => ToolBatchProvider | null,
+  getProviderOrOpts: ((ctx: IPCContext) => ToolBatchProvider | null) | ToolBatchOptions,
 ) {
+  const opts: ToolBatchOptions = typeof getProviderOrOpts === 'function'
+    ? { getProvider: getProviderOrOpts }
+    : getProviderOrOpts;
+
   return {
     tool_batch: async (
       req: { calls: Array<{ tool: string; args: Record<string, unknown> }> },
       ctx: IPCContext,
     ) => {
-      const provider = getProvider(ctx);
-      if (!provider) {
+      const provider = opts.getProvider(ctx);
+      if (!provider && !opts.pluginMcpCallTool) {
         throw new Error('Tool batching not available for this session');
       }
 
@@ -101,6 +121,24 @@ export function createToolBatchHandlers(
         const resolvedArgs = resolveRefs(call.args, results) as Record<string, unknown>;
 
         try {
+          // Check if this tool belongs to a plugin MCP server
+          const pluginUrl = opts.resolvePluginServer?.(ctx.agentId, call.tool);
+          if (pluginUrl && opts.pluginMcpCallTool) {
+            const result = await opts.pluginMcpCallTool(pluginUrl, call.tool, resolvedArgs);
+            if (result.isError) {
+              results.push({ ok: false, error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content) });
+            } else {
+              results.push(result.content);
+            }
+            continue;
+          }
+
+          // Fall through to default MCP provider
+          if (!provider) {
+            results.push({ ok: false, error: 'MCP gateway not configured for this tool' });
+            continue;
+          }
+
           const result = await provider.callTool({
             tool: call.tool,
             arguments: resolvedArgs,

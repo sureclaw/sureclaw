@@ -5,7 +5,7 @@ description: Use when modifying CLI commands — chat, send, bootstrap, plugin, 
 
 ## Overview
 
-The CLI subsystem provides the user-facing command interface for AX. Entry point is `src/cli/index.ts` which routes commands via `routeCommand()`. Commands communicate with the AX server over a Unix socket using the OpenAI-compatible API. The chat command uses Ink (React-based terminal UI); send is a one-shot HTTP client. The plugin command manages third-party provider packages.
+The CLI subsystem provides the user-facing command interface for AX. Entry point is `src/cli/index.ts` which routes commands via `routeCommand()`. Commands communicate with the AX server over a Unix socket using the OpenAI-compatible API. The chat command uses Ink (React-based terminal UI); send is a one-shot HTTP client. The plugin command manages Cowork plugins (skills + commands + MCP servers). The provider command manages third-party npm provider packages.
 
 ## Key Files
 
@@ -14,7 +14,8 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `src/cli/index.ts` | Command router, `main()` entry point, `runServe()`, help text, --port flag, tracing init |
 | `src/cli/send.ts` | One-shot message sender, streaming + JSON output |
 | `src/cli/bootstrap.ts` | Agent identity reset (deletes SOUL.md/IDENTITY.md, copies templates) |
-| `src/cli/plugin.ts` | Plugin management: add, remove, list, verify |
+| `src/cli/plugin.ts` | Cowork plugin management: install, remove, list |
+| `src/cli/provider.ts` | Provider plugin management: add, remove, list, verify |
 | `src/cli/k8s-init.ts` | `ax k8s init` wizard — generates Helm values and K8s secrets for deployment |
 | `src/cli/mcp.ts` | MCP server management: add, remove, list, test |
 | `src/cli/setup-server.ts` | Server setup utilities (config loading, provider initialization) |
@@ -31,7 +32,8 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `ax send <msg>` | `runSend(args)` | One-shot message; ephemeral by default (no session persistence) |
 | `ax configure` | `runConfigure(axHome)` | First-time setup wizard (onboarding) |
 | `ax bootstrap [agent]` | `runBootstrap(args)` | Reset agent identity; prompts confirmation if SOUL.md exists |
-| `ax plugin <cmd>` | `runPlugin(args)` | Plugin management: add, remove, list, verify |
+| `ax plugin <cmd>` | `runPlugin(args)` | Cowork plugin management: install, remove, list |
+| `ax provider <cmd>` | `runProvider(args)` | Provider plugin management: add, remove, list, verify |
 | `ax k8s init` | `runK8sInit(args)` | Interactive wizard for Kubernetes deployment setup |
 | `ax mcp <cmd>` | `runMcp(args)` | MCP server management: add, remove, list, test |
 | `ax reload` | `runReload(args)` | Hot-reload config and skills |
@@ -57,12 +59,18 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 - **Output modes**: Streaming SSE (default), `--no-stream` (full response), `--json` (raw OpenAI JSON)
 - **SSE parsing**: Reads `data:` lines, extracts `choices[0].delta.content` until `[DONE]`
 
-## Plugin Command (`plugin.ts`)
+## Plugin Command (`plugin.ts`) — Cowork Plugins
 
-- **`ax plugin add <package>`** -- Install a provider plugin from npm, verify MANIFEST.json, prompt for review, write to plugins.lock
-- **`ax plugin remove <package>`** -- Uninstall a plugin and remove from plugins.lock
-- **`ax plugin list`** -- Show installed plugins with kind, version, and integrity status
-- **`ax plugin verify`** -- Re-verify all installed plugin integrity hashes
+- **`ax plugin install <source> [--agent <name>]`** -- Install a Cowork plugin (skills + commands + MCP servers) from GitHub or local directory
+- **`ax plugin remove <name> [--agent <name>]`** -- Remove an installed Cowork plugin
+- **`ax plugin list [--agent <name>]`** -- List installed Cowork plugins for an agent
+
+## Provider Command (`provider.ts`) — npm Provider Plugins
+
+- **`ax provider add <package>`** -- Install a provider plugin from npm, verify MANIFEST.json, prompt for review, write to plugins.lock
+- **`ax provider remove <package>`** -- Uninstall a provider plugin and remove from plugins.lock
+- **`ax provider list`** -- Show installed provider plugins with kind, version, and integrity status
+- **`ax provider verify`** -- Re-verify all installed provider plugin integrity hashes
 
 ## Session IDs
 

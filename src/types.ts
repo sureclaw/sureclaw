@@ -165,6 +165,13 @@ export interface Config {
   namespace?: string;
   /** Domain-to-URL rewrite map for web proxy (testing/mocking). */
   url_rewrites?: Record<string, string>;
+  /** Plugin declarations — each maps a source to the agents that use it. */
+  plugins?: PluginDeclaration[];
+}
+
+export interface PluginDeclaration {
+  source: string;
+  agents: string[];
 }
 
 export interface ProviderRegistry {

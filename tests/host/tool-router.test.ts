@@ -107,6 +107,95 @@ describe('routeToolCall — MCP', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Plugin MCP routing
+// ---------------------------------------------------------------------------
+
+describe('routeToolCall — plugin MCP', () => {
+  it('routes to plugin MCP server when resolver matches', async () => {
+    const pluginCallSpy = vi.fn(async () => ({
+      content: 'slack response',
+      isError: false,
+    }));
+
+    const ctx = makeCtx({
+      resolvePluginServer: (name) => name === 'slack_send_message' ? 'https://mcp.slack.com/mcp' : undefined,
+      pluginMcpCallTool: pluginCallSpy,
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-p1', name: 'slack_send_message', args: { channel: '#general', text: 'hello' } },
+      ctx,
+    );
+
+    expect(result.content).toBe('slack response');
+    expect(result.isError).toBe(false);
+    expect(result.taint?.source).toContain('plugin-mcp:');
+    expect(result.taint?.trust).toBe('external');
+    expect(pluginCallSpy).toHaveBeenCalledWith(
+      'https://mcp.slack.com/mcp',
+      'slack_send_message',
+      { channel: '#general', text: 'hello' },
+    );
+  });
+
+  it('falls through to default MCP when resolver returns undefined', async () => {
+    const mcp = mockMcp(async () => ({
+      content: 'default mcp response',
+      isError: false,
+      taint: { source: 'mcp:linear', trust: 'external' as const, timestamp: new Date() },
+    }));
+
+    const pluginCallSpy = vi.fn();
+
+    const ctx = makeCtx({
+      mcp,
+      resolvePluginServer: () => undefined,
+      pluginMcpCallTool: pluginCallSpy,
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-p2', name: 'linear_get_issues', args: {} },
+      ctx,
+    );
+
+    expect(result.content).toBe('default mcp response');
+    expect(pluginCallSpy).not.toHaveBeenCalled();
+  });
+
+  it('handles plugin MCP call errors', async () => {
+    const ctx = makeCtx({
+      resolvePluginServer: () => 'https://mcp.slack.com/mcp',
+      pluginMcpCallTool: async () => { throw new Error('connection refused'); },
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-p3', name: 'slack_send_message', args: {} },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Plugin MCP tool call failed');
+    expect(result.content).toContain('connection refused');
+  });
+
+  it('enforces size limits on plugin MCP results', async () => {
+    const bigContent = 'x'.repeat(FAST_PATH_LIMITS.maxToolResultSizeBytes + 1);
+    const ctx = makeCtx({
+      resolvePluginServer: () => 'https://mcp.slack.com/mcp',
+      pluginMcpCallTool: async () => ({ content: bigContent }),
+    });
+
+    const result = await routeToolCall(
+      { id: 'tc-p4', name: 'slack_send_message', args: {} },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('too large');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Resource limits
 // ---------------------------------------------------------------------------
 

@@ -1,5 +1,11 @@
 # Host
 
+### clearToolsForPlugin must run BEFORE removing servers from the map
+**Date:** 2026-03-29
+**Context:** When wiring plugin MCP tool-to-server URL cleanup into `removeServersByPlugin`, I called `clearToolsForPlugin` after the server deletion loop. But `clearToolsForPlugin` needs to read the server map to find which URLs belong to the plugin. By the time it ran, the servers were already gone, so no tool mappings were cleared.
+**Lesson:** When a cleanup function depends on state that another cleanup function removes, always run the dependent cleanup first. In Map-based registries with cross-references, order of operations during removal matters — resolve dependencies before deleting the primary records.
+**Tags:** ordering, cleanup, map, plugin, mcp, tool-router
+
 ### Proxy domain allowlist must also load from DB-stored skills on host startup
 **Date:** 2026-03-26
 **Context:** Skills installed via IPC are stored in the database `documents` table. On host restart, `server-init.ts` rebuilt the domain allowlist from filesystem and GCS skills only — not from the DB. This caused `api.linear.app` to be blocked with 403.

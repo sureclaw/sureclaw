@@ -23,6 +23,7 @@ import type { MessageQueueStore, ConversationStoreProvider } from '../providers/
 import { createAgentRegistry, type AgentRegistry } from './agent-registry.js';
 import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
+import { callToolOnServer } from '../plugins/mcp-client.js';
 
 const logger = getLogger();
 
@@ -31,6 +32,8 @@ export interface HostCoreOptions {
   providers: ProviderRegistry;
   eventBus: EventBus;
   verbose?: boolean;
+  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
 
 export interface HostCore {
@@ -67,7 +70,7 @@ export interface HostCore {
  * Sets up storage, routing, IPC, template seeding, delegation, orchestrator.
  */
 export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
-  const { config, providers, eventBus, verbose } = opts;
+  const { config, providers, eventBus, verbose, mcpManager } = opts;
 
   // ── Storage, routing, taint budget ──
   mkdirSync(dataDir(), { recursive: true });
@@ -277,9 +280,16 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     workspaceMap,
     requestedCredentials,
     domainList,
-    toolBatchProvider: providers.mcp
-      ? () => providers.mcp!
+    toolBatchProvider: (providers.mcp || mcpManager)
+      ? {
+          getProvider: providers.mcp ? () => providers.mcp! : () => null,
+          resolvePluginServer: mcpManager
+            ? (agentId: string, toolName: string) => mcpManager.getToolServerUrl(agentId, toolName)
+            : undefined,
+          pluginMcpCallTool: mcpManager ? callToolOnServer : undefined,
+        }
       : undefined,
+    coworkPlugins: mcpManager ? { mcpManager, domainList } : undefined,
   });
   completionDeps.ipcHandler = handleIPC;
 

@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 120 entries across 10 categories.
+Category-based organization of all journal entries. Total: 121 entries across 11 categories.
 
 ## Entries
 
+- 2026-03-29 11:49 — Implement plugin manifest parser (Task 2) [plugins/parser.md](plugins/parser.md)
 - 2026-03-27 06:25 — Fix bootstrap deadlock: taint gate, scheduler skip, and tool_calls_dropped [host/server.md](host/server.md)
 - 2026-03-26 07:45 — Fix proxy domain allowlist not loading DB-stored skill domains on startup [host/server.md](host/server.md)
 - 2026-03-24 12:55 — Fix CI: bump pi-ai to match pi-agent-core/pi-coding-agent [refactoring/cleanup.md](refactoring/cleanup.md)

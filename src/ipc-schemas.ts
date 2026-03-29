@@ -460,6 +460,18 @@ export const PluginStatusSchema = ipcAction('plugin_status', {
   packageName: safeString(214),
 });
 
+// ── Cowork Plugin Management ────────────────────────
+
+export const CoworkPluginInstallSchema = ipcAction('plugin_install_cowork', {
+  source: safeString(1000),
+});
+
+export const CoworkPluginUninstallSchema = ipcAction('plugin_uninstall_cowork', {
+  pluginName: safeString(200),
+});
+
+export const CoworkPluginListSchema = ipcAction('plugin_list_cowork', {});
+
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry
 // ═══════════════════════════════════════════════════════

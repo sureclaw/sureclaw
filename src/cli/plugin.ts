@@ -1,311 +1,141 @@
 /**
- * CLI commands for plugin management: ax plugin add/remove/list/verify
+ * CLI commands for Cowork plugin management: ax plugin install/remove/list
  *
- * Workflow:
- *   ax plugin add @community/provider-memory-postgres
- *     1. Installs the npm package to ~/.ax/plugins/
- *     2. Reads and validates the MANIFEST.json
- *     3. Prints the manifest for human review
- *     4. Prompts for confirmation
- *     5. Computes integrity hash and adds to plugins.lock
- *
- *   ax plugin remove @community/provider-memory-postgres
- *     1. Removes from plugins.lock
- *     2. Removes installed files
- *
- *   ax plugin list
- *     Lists all installed plugins from plugins.lock
- *
- *   ax plugin verify
- *     Checks integrity of all installed plugins
+ * Cowork plugins are file-based bundles (skills + commands + MCP servers)
+ * from Claude Cowork, scoped per-agent.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { execSync } from 'node:child_process';
-import { join } from 'node:path';
-import {
-  readPluginLock,
-  addPluginToLock,
-  removePluginFromLock,
-  computeIntegrity,
-  pluginDir,
-  verifyPluginIntegrity,
-} from '../host/plugin-lock.js';
-import {
-  validateManifest,
-  formatManifestForReview,
-  type PluginManifest,
-} from '../host/plugin-manifest.js';
-import { safePath } from '../utils/safe-path.js';
-
-// ═══════════════════════════════════════════════════════
-// Plugin CLI Router
-// ═══════════════════════════════════════════════════════
+import { loadConfig } from '../config.js';
+import { loadProviders } from '../host/registry.js';
+import { McpConnectionManager } from '../plugins/mcp-manager.js';
+import { installPlugin, uninstallPlugin } from '../plugins/install.js';
+import { listPlugins } from '../plugins/store.js';
 
 export async function runPlugin(args: string[]): Promise<void> {
   const subcommand = args[0];
-
   switch (subcommand) {
-    case 'add':
-      await pluginAdd(args.slice(1));
-      break;
-    case 'remove':
-      await pluginRemove(args.slice(1));
-      break;
-    case 'list':
-      pluginList();
-      break;
-    case 'verify':
-      pluginVerify();
-      break;
-    default:
-      showPluginHelp();
-      break;
+    case 'install': await pluginInstall(args.slice(1)); break;
+    case 'remove': await pluginRemove(args.slice(1)); break;
+    case 'list': await pluginList(args.slice(1)); break;
+    default: showPluginHelp(); break;
   }
 }
 
 function showPluginHelp(): void {
   console.log(`
-AX Plugin Manager
+AX Plugin Manager (Cowork Plugins)
 
 Usage:
-  ax plugin add <package>      Install a third-party provider plugin
-  ax plugin remove <package>   Remove an installed plugin
-  ax plugin list               List installed plugins
-  ax plugin verify             Verify integrity of installed plugins
+  ax plugin install <source> [--agent <name>]   Install a Cowork plugin
+  ax plugin remove <name> [--agent <name>]      Remove an installed plugin
+  ax plugin list [--agent <name>]               List installed plugins
+
+Sources:
+  anthropics/knowledge-work-plugins/sales       GitHub owner/repo/subdir
+  ./plugins/my-custom-plugin                    Local directory
+  https://github.com/org/repo                   GitHub URL
 
 Examples:
-  ax plugin add @community/provider-memory-postgres
-  ax plugin remove @community/provider-memory-postgres
-  ax plugin list
-  ax plugin verify
+  ax plugin install anthropics/knowledge-work-plugins/sales --agent pi
+  ax plugin install ./plugins/internal-legal --agent counsel
+  ax plugin list --agent pi
+  ax plugin remove sales --agent pi
 `);
 }
 
-// ═══════════════════════════════════════════════════════
-// Subcommands
-// ═══════════════════════════════════════════════════════
+function parseAgentFlag(args: string[]): { agentId: string; remaining: string[] } {
+  const idx = args.indexOf('--agent');
+  if (idx >= 0 && args[idx + 1]) {
+    const agentId = args[idx + 1];
+    const remaining = [...args.slice(0, idx), ...args.slice(idx + 2)];
+    return { agentId, remaining };
+  }
+  return { agentId: 'main', remaining: args };
+}
 
-async function pluginAdd(args: string[]): Promise<void> {
-  const packageName = args[0];
-  if (!packageName) {
-    console.error('Error: Package name required. Usage: ax plugin add <package>');
+async function loadDeps() {
+  const config = loadConfig();
+  const providers = await loadProviders(config);
+  if (!providers.storage.documents) {
+    console.error('Error: No storage provider configured. Run "ax configure" first.');
+    process.exit(1);
+  }
+  return { documents: providers.storage.documents, audit: providers.audit };
+}
+
+async function pluginInstall(args: string[]): Promise<void> {
+  const { agentId, remaining } = parseAgentFlag(args);
+  const source = remaining[0];
+  if (!source) {
+    console.error('Error: Source required. Usage: ax plugin install <source> [--agent <name>]');
     process.exit(1);
   }
 
-  // Validate package name format
-  if (!isValidPackageName(packageName)) {
-    console.error(`Error: Invalid package name: "${packageName}"`);
-    console.error('Package names must be valid npm package names (e.g., @community/provider-memory-postgres)');
+  console.log(`Installing plugin from ${source} for agent "${agentId}"...`);
+
+  const { documents, audit } = await loadDeps();
+  const mcpManager = new McpConnectionManager();
+
+  const result = await installPlugin({ source, agentId, documents, mcpManager, audit });
+
+  if (!result.installed) {
+    console.error(`Failed: ${result.reason}`);
     process.exit(1);
   }
 
-  const installBase = pluginDir();
-  mkdirSync(installBase, { recursive: true });
-
-  // Install to a subdirectory named after the package (slashes replaced)
-  const installDir = safePath(installBase, packageName.replace(/\//g, '__'));
-
-  console.log(`Installing ${packageName}...`);
-
-  try {
-    // Install the package using npm
-    mkdirSync(installDir, { recursive: true });
-    execSync(
-      `npm install --prefix "${installDir}" "${packageName}" --production --no-save`,
-      { stdio: 'pipe' },
-    );
-  } catch (err) {
-    console.error(`Failed to install ${packageName}: ${(err as Error).message}`);
-    process.exit(1);
-  }
-
-  // Find and read MANIFEST.json
-  const manifestPath = findManifest(installDir, packageName);
-  if (!manifestPath) {
-    console.error(`Error: ${packageName} does not contain a MANIFEST.json`);
-    console.error('This package is not an AX plugin. Cleaning up...');
-    rmSync(installDir, { recursive: true, force: true });
-    process.exit(1);
-  }
-
-  let manifestRaw: unknown;
-  try {
-    manifestRaw = JSON.parse(readFileSync(manifestPath, 'utf-8'));
-  } catch {
-    console.error(`Error: Failed to parse MANIFEST.json in ${packageName}`);
-    rmSync(installDir, { recursive: true, force: true });
-    process.exit(1);
-  }
-
-  // Validate manifest
-  const validation = validateManifest(manifestRaw);
-  if (!validation.valid) {
-    console.error(`Error: Invalid MANIFEST.json in ${packageName}:`);
-    for (const err of validation.errors!) {
-      console.error(`  - ${err}`);
-    }
-    rmSync(installDir, { recursive: true, force: true });
-    process.exit(1);
-  }
-
-  const manifest = validation.manifest!;
-
-  // Print manifest for human review
   console.log('');
-  console.log('=== Plugin Manifest ===');
-  console.log(formatManifestForReview(manifest));
-  console.log('=======================');
+  console.log(`Plugin "${result.pluginName}" v${result.version} installed for agent "${agentId}".`);
   console.log('');
-
-  // Prompt for confirmation
-  const confirmed = await promptConfirmation(
-    'Do you want to install this plugin? Review the capabilities above carefully.'
-  );
-  if (!confirmed) {
-    console.log('Installation cancelled. Cleaning up...');
-    rmSync(installDir, { recursive: true, force: true });
-    return;
+  console.log('  Components:');
+  if (result.skillCount) console.log(`    ${result.skillCount} skills`);
+  if (result.commandCount) console.log(`    ${result.commandCount} commands`);
+  if (result.mcpServerCount) {
+    console.log(`    ${result.mcpServerCount} MCP servers (${result.mcpServerNames!.join(', ')})`);
+    console.log('');
+    console.log('  MCP servers may need authentication.');
+    console.log('  Connect them in the dashboard: http://localhost:8080/admin/connectors');
   }
-
-  // Compute integrity hash of the entry point
-  const entryPath = safePath(installDir, manifest.main);
-  if (!existsSync(entryPath)) {
-    console.error(`Error: Plugin entry point not found: ${manifest.main}`);
-    rmSync(installDir, { recursive: true, force: true });
-    process.exit(1);
-  }
-
-  const content = readFileSync(entryPath);
-  const integrity = computeIntegrity(content);
-
-  // Add to plugins.lock
-  addPluginToLock(manifest, integrity);
-
-  console.log(`Plugin ${packageName} installed successfully.`);
-  console.log(`  Provider: ${manifest.ax_provider.kind}/${manifest.ax_provider.name}`);
-  console.log(`  Integrity: ${integrity.slice(0, 20)}...`);
   console.log('');
-  console.log('Restart AX to load the new plugin.');
-  console.log(`Use it in ax.yaml: providers.${manifest.ax_provider.kind}: ${manifest.ax_provider.name}`);
 }
 
 async function pluginRemove(args: string[]): Promise<void> {
-  const packageName = args[0];
-  if (!packageName) {
-    console.error('Error: Package name required. Usage: ax plugin remove <package>');
+  const { agentId, remaining } = parseAgentFlag(args);
+  const pluginName = remaining[0];
+  if (!pluginName) {
+    console.error('Error: Plugin name required. Usage: ax plugin remove <name> [--agent <name>]');
     process.exit(1);
   }
 
-  // Remove from lock file
-  const removed = removePluginFromLock(packageName);
-  if (!removed) {
-    console.error(`Error: Plugin "${packageName}" is not installed.`);
+  const { documents, audit } = await loadDeps();
+  const mcpManager = new McpConnectionManager();
+
+  const result = await uninstallPlugin({ pluginName, agentId, documents, mcpManager, audit });
+
+  if (!result.ok) {
+    console.error(`Failed: ${result.reason}`);
     process.exit(1);
   }
 
-  // Remove installed files
-  const installBase = pluginDir();
-  const installDir = safePath(installBase, packageName.replace(/\//g, '__'));
-
-  if (existsSync(installDir)) {
-    rmSync(installDir, { recursive: true, force: true });
-  }
-
-  console.log(`Plugin ${packageName} removed.`);
-  console.log('Restart AX for the change to take effect.');
+  console.log(`Plugin "${pluginName}" removed from agent "${agentId}".`);
 }
 
-function pluginList(): void {
-  const lock = readPluginLock();
+async function pluginList(args: string[]): Promise<void> {
+  const { agentId } = parseAgentFlag(args);
+  const { documents } = await loadDeps();
 
-  if (Object.keys(lock.plugins).length === 0) {
-    console.log('No plugins installed.');
+  const plugins = await listPlugins(documents, agentId);
+  if (plugins.length === 0) {
+    console.log(`No plugins installed for agent "${agentId}".`);
     return;
   }
 
-  console.log('Installed plugins:\n');
-
-  for (const [name, entry] of Object.entries(lock.plugins)) {
-    console.log(`  ${name}`);
-    console.log(`    Provider: ${entry.kind}/${entry.name}`);
-    console.log(`    Version:  ${entry.version}`);
-    console.log(`    Network:  ${entry.capabilities.network.length > 0 ? entry.capabilities.network.join(', ') : 'none'}`);
-    console.log(`    FS:       ${entry.capabilities.filesystem}`);
-    console.log(`    Creds:    ${entry.capabilities.credentials.length > 0 ? entry.capabilities.credentials.join(', ') : 'none'}`);
-    console.log(`    Installed: ${entry.installedAt}`);
+  console.log(`Plugins for agent "${agentId}":\n`);
+  for (const p of plugins) {
+    console.log(`  ${p.pluginName} v${p.version}`);
+    console.log(`    ${p.description}`);
+    const mcpNames = p.mcpServers.map(s => s.name).join(', ') || 'none';
+    console.log(`    Skills: ${p.skillCount}  Commands: ${p.commandCount}  MCP: ${mcpNames}`);
+    console.log(`    Source: ${p.source}`);
     console.log('');
   }
-}
-
-function pluginVerify(): void {
-  const lock = readPluginLock();
-  const installBase = pluginDir();
-
-  if (Object.keys(lock.plugins).length === 0) {
-    console.log('No plugins installed.');
-    return;
-  }
-
-  let allGood = true;
-
-  for (const [name, entry] of Object.entries(lock.plugins)) {
-    const installDir = safePath(installBase, name.replace(/\//g, '__'));
-
-    if (!existsSync(installDir)) {
-      console.log(`  MISSING  ${name} — not installed at ${installDir}`);
-      allGood = false;
-      continue;
-    }
-
-    const ok = verifyPluginIntegrity(name, installDir);
-    if (ok) {
-      console.log(`  OK       ${name}`);
-    } else {
-      console.log(`  FAILED   ${name} — integrity hash mismatch`);
-      allGood = false;
-    }
-  }
-
-  console.log('');
-  if (allGood) {
-    console.log('All plugins verified successfully.');
-  } else {
-    console.log('Some plugins failed verification. Run "ax plugin remove" and re-install.');
-    process.exit(1);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════
-
-function isValidPackageName(name: string): boolean {
-  // Allow scoped (@org/name) and unscoped (name) packages
-  return /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name);
-}
-
-function findManifest(installDir: string, packageName: string): string | null {
-  // Check common locations
-  const candidates = [
-    join(installDir, 'node_modules', packageName, 'MANIFEST.json'),
-    join(installDir, 'MANIFEST.json'),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-
-  return null;
-}
-
-async function promptConfirmation(message: string): Promise<boolean> {
-  // Non-interactive check (CI, piped stdin, --yes flag)
-  if (!process.stdin.isTTY) {
-    console.log('Non-interactive mode detected. Use --yes to auto-confirm.');
-    return false;
-  }
-
-  const { confirm } = await import('@inquirer/prompts');
-  return confirm({ message });
 }
