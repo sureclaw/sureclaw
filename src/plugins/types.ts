@@ -8,7 +8,7 @@ export interface PluginManifest {
   author?: string;
 }
 
-/** A single skill extracted from skills/*/SKILL.md. */
+/** A single skill extracted from skills/{name}/SKILL.md. */
 export interface PluginSkill {
   /** Directory name (e.g., 'call-prep'). */
   name: string;
