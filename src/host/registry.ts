@@ -110,6 +110,9 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   // Load MCP provider if configured (optional — fast path only)
   let mcp;
   if (config.providers.mcp === 'database') {
+    if (!database) {
+      throw new Error('providers.mcp=database requires providers.database to be configured');
+    }
     const mcpModPath = resolveProviderPath('mcp', 'database');
     const mcpMod = await import(mcpModPath);
     mcp = await mcpMod.create(config, 'database', { database, credentials });

@@ -347,6 +347,9 @@ export function createSchedulerCallback(opts: SchedulerCallbackOpts): (msg: Inbo
     // Skip scheduler sessions when agent hasn't completed bootstrap —
     // an unbootstrapped agent can't handle tasks, and scheduler sessions
     // use a system userId that fails the admin gate for identity writes.
+    // Intentionally dropped (not deferred): cron will fire again on its
+    // next interval once bootstrap completes, and heartbeat ticks carry
+    // no unique payload worth replaying.
     if (opts.isBootstrapMode?.()) {
       logger.info('scheduler_skip_bootstrap', { sender: msg.sender });
       return;

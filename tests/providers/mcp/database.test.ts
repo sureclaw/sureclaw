@@ -38,6 +38,21 @@ describe('database MCP provider', () => {
       expect(result).toEqual({ Authorization: 'Bearer {MISSING_KEY}' });
     });
 
+    it('handles credential values containing $ characters', async () => {
+      const { resolveHeaders } = await import('../../../src/providers/mcp/database.js');
+      const creds = {
+        get: async (key: string) => key === 'MY_TOKEN' ? 'pa$$word$&test' : null,
+        set: async () => {},
+        delete: async () => {},
+        list: async () => [],
+      };
+      const result = await resolveHeaders(
+        JSON.stringify({ Authorization: 'Bearer {MY_TOKEN}' }),
+        creds,
+      );
+      expect(result).toEqual({ Authorization: 'Bearer pa$$word$&test' });
+    });
+
     it('returns empty object for null/undefined headers', async () => {
       const { resolveHeaders } = await import('../../../src/providers/mcp/database.js');
       const creds = {

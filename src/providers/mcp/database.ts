@@ -88,7 +88,7 @@ async function replacePlaceholders(value: string, credentials: CredentialProvide
     const credName = match[1];
     const credValue = await credentials.get(credName);
     if (credValue !== null) {
-      result = result.replace(match[0], credValue);
+      result = result.split(match[0]).join(credValue);
     }
   }
   return result;
@@ -214,7 +214,7 @@ class DatabaseMcpProvider implements McpProvider {
     if (filter.query) {
       const q = filter.query.toLowerCase();
       return allTools.filter(t =>
-        t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)
+        t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)
       );
     }
 

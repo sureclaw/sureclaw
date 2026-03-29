@@ -51,6 +51,16 @@ resolveCredential(provider, envName, agentName):
 
 No user-level credential overrides. No `CredentialSessionContext`.
 
+**Migration:** Existing user-scoped credentials (`user:<agent>:<userId>`) will be
+migrated to agent scope (`agent:<agent>`) at startup. If an agent-scoped key already
+exists, the user-scoped key is skipped (agent scope wins). A deprecation warning is
+logged for each migrated key. The migration helper lives in `credential-scopes.ts`
+and runs once during registry init. Call sites that reference
+`CredentialSessionContext` (`server-completions.ts:setSessionCredentialContext`,
+`server-request-handlers.ts:getSessionCredentialContext`,
+`server-admin.ts:getSessionCredentialContext`) will be updated to remove `userId`
+and pass only `agentName`/`env`.
+
 ### Sandbox Filesystem
 
 Container layout:
@@ -81,6 +91,14 @@ export interface WorkspaceProvider {
 ```
 
 Accessed only via IPC workspace tools — not mounted into the sandbox.
+
+**Replacing removed methods:**
+- `downloadScope?` (previously used by the provision HTTP endpoint for sandbox pod
+  workspace file fetching) is replaced by repeated calls to `read()` — the provision
+  endpoint streams files individually by path instead of fetching a scope tarball.
+- `listScopeIds?` (previously used at startup to enumerate users for domain scanning)
+  is no longer needed — domain scanning will use the session store's existing user list
+  (`sessionStore.listUsers()`) rather than enumerating workspace directories.
 
 ## Files to Change
 

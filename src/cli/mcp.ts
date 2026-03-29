@@ -135,7 +135,7 @@ async function handleTest(args: string[]): Promise<void> {
   if (result.ok) {
     console.log(`Server "${name}" is reachable. Tools available:`);
     for (const tool of result.tools ?? []) {
-      console.log(`  ${tool.name.padEnd(30)} ${tool.description}`);
+      console.log(`  ${tool.name.padEnd(30)} ${tool.description ?? ''}`);
     }
   } else {
     console.error(`Server "${name}" test failed: ${result.error}`);

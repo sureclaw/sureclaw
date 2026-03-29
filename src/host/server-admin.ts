@@ -534,6 +534,7 @@ async function handleAdminAPI(
     const id = decodeURIComponent(mcpTestMatch[1]);
     const name = decodeURIComponent(mcpTestMatch[2]);
     if (!providers.database) { sendError(res, 500, 'Database not configured'); return; }
+    if (!providers.credentials) { sendError(res, 500, 'Credentials provider not configured'); return; }
     const { testMcpServer } = await import('../providers/mcp/database.js');
     const result = await testMcpServer(providers.database.db, id, name, providers.credentials);
     sendJSON(res, result);
