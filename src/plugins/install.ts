@@ -37,7 +37,12 @@ export async function installPlugin(input: InstallPluginInput): Promise<InstallP
   const { source, agentId, documents, mcpManager } = input;
 
   // 1. Fetch files
-  const parsedSource = parsePluginSource(source);
+  let parsedSource;
+  try {
+    parsedSource = parsePluginSource(source);
+  } catch (err) {
+    return { installed: false, reason: `Invalid plugin source: ${(err as Error).message}` };
+  }
   let files: Map<string, string>;
   try {
     files = await fetchPluginFiles(parsedSource);
@@ -55,6 +60,26 @@ export async function installPlugin(input: InstallPluginInput): Promise<InstallP
 
   const pluginName = bundle.manifest.name;
   logger.info('plugin_install_start', { pluginName, agentId, source });
+
+  // 2b. If plugin is already installed, uninstall old version first
+  const existing = await getPlugin(documents, agentId, pluginName);
+  if (existing) {
+    logger.info('plugin_reinstall_replacing_old', { pluginName, agentId });
+    // Remove old skills
+    const allSkillKeys = await documents.list('skills');
+    const skillPrefix = `${agentId}/plugin:${pluginName}:`;
+    for (const key of allSkillKeys) {
+      if (key.startsWith(skillPrefix)) {
+        await documents.delete('skills', key);
+      }
+    }
+    // Remove old commands
+    await deleteCommandsByPlugin(documents, agentId, pluginName);
+    // Remove old MCP servers
+    mcpManager.removeServersByPlugin(agentId, pluginName);
+    // Remove old plugin record
+    await deletePlugin(documents, agentId, pluginName);
+  }
 
   // 3. Store skills (reuse existing skill storage with plugin: prefix)
   for (const skill of bundle.skills) {
@@ -89,7 +114,7 @@ export async function installPlugin(input: InstallPluginInput): Promise<InstallP
     for (const server of bundle.mcpServers) {
       try {
         const url = new URL(server.url);
-        input.domainList.addSkillDomains(`plugin:${pluginName}`, [url.hostname]);
+        input.domainList.addSkillDomains(`plugin:${agentId}:${pluginName}`, [url.hostname]);
       } catch { /* invalid URL -- skip */ }
     }
   }
@@ -167,7 +192,7 @@ export async function uninstallPlugin(input: {
 
   // Remove proxy domains
   if (input.domainList) {
-    input.domainList.removeSkillDomains(`plugin:${pluginName}`);
+    input.domainList.removeSkillDomains(`plugin:${agentId}:${pluginName}`);
   }
 
   // Remove plugin record

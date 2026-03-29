@@ -208,7 +208,7 @@ describe('createToolBatchHandlers', () => {
     expect(result.results[1]).toBe('ok');
   });
 
-  it('should pass headers from getServerMeta to mcpCallTool', async () => {
+  it('should pass headers from getServerMetaByUrl to mcpCallTool', async () => {
     const mcpCallSpy = vi.fn(async () => ({
       content: 'authed response',
     }));
@@ -218,10 +218,10 @@ describe('createToolBatchHandlers', () => {
       resolveServer: (_agentId, toolName) =>
         toolName === 'db_query' ? 'https://db.internal/mcp' : undefined,
       mcpCallTool: mcpCallSpy,
-      getServerMeta: (_agentId, _name) => ({
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
         source: 'database',
         headers: { Authorization: 'Bearer token123' },
-      }),
+      }) : undefined,
     });
 
     const result = await handlers.tool_batch({
@@ -251,10 +251,10 @@ describe('createToolBatchHandlers', () => {
       getProvider: () => null,
       resolveServer: () => 'https://db.internal/mcp',
       mcpCallTool: mcpCallSpy,
-      getServerMeta: () => ({
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
         source: 'database',
         headers: { Authorization: '{{DB_TOKEN}}' },
-      }),
+      }) : undefined,
       resolveHeaders: resolveHeadersSpy,
     });
 

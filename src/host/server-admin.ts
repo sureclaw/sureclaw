@@ -581,6 +581,9 @@ async function handleAdminAPI(
       const body = JSON.parse(await readBody(req));
       const { source } = body;
       if (typeof source !== 'string' || !source) { sendError(res, 400, 'Missing required field: source'); return; }
+      if (!deps.mcpManager) {
+        logger.warn('admin_plugin_install_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not persist' });
+      }
       const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
       const mcpManager = deps.mcpManager ?? new McpConnectionManager();
       const { installPlugin } = await import('../plugins/install.js');
@@ -606,6 +609,9 @@ async function handleAdminAPI(
     const id = decodeURIComponent(pluginDeleteMatch[1]);
     const name = decodeURIComponent(pluginDeleteMatch[2]);
     if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
+    if (!deps.mcpManager) {
+      logger.warn('admin_plugin_uninstall_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not be cleaned up' });
+    }
     const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
     const mcpManager = deps.mcpManager ?? new McpConnectionManager();
     const { uninstallPlugin } = await import('../plugins/install.js');

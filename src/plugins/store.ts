@@ -104,8 +104,8 @@ export interface CommandRecord {
   installedAt: string;
 }
 
-function commandKey(agentId: string, commandName: string): string {
-  return `${agentId}/${commandName}`;
+function commandKey(agentId: string, pluginName: string, commandName: string): string {
+  return `${agentId}/${pluginName}/${commandName}`;
 }
 
 export async function upsertCommand(
@@ -118,7 +118,7 @@ export async function upsertCommand(
   };
   await documents.put(
     'commands',
-    commandKey(input.agentId, input.name),
+    commandKey(input.agentId, input.pluginName, input.name),
     JSON.stringify(record),
   );
 }
@@ -150,10 +150,11 @@ export async function deleteCommandsByPlugin(
   agentId: string,
   pluginName: string,
 ): Promise<void> {
-  const all = await listCommands(documents, agentId);
-  for (const cmd of all) {
-    if (cmd.pluginName === pluginName) {
-      await documents.delete('commands', commandKey(agentId, cmd.name));
+  const keys = await documents.list('commands');
+  const prefix = `${agentId}/${pluginName}/`;
+  for (const key of keys) {
+    if (key.startsWith(prefix)) {
+      await documents.delete('commands', key);
     }
   }
 }

@@ -249,7 +249,7 @@ function providerVerify(): void {
 
   let allGood = true;
 
-  for (const [name, entry] of Object.entries(lock.plugins)) {
+  for (const [name] of Object.entries(lock.plugins)) {
     const installDir = safePath(installBase, name.replace(/\//g, '__'));
 
     if (!existsSync(installDir)) {

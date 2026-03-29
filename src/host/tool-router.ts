@@ -62,8 +62,8 @@ export interface ToolRouterContext {
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
   /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
   mcpCallTool?: (serverUrl: string, toolName: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (headers) for credential resolution */
-  getServerMeta?: (agentId: string, serverName: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Get server metadata (headers) for credential resolution by server URL */
+  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { source?: string; headers?: Record<string, string> } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
 
@@ -119,14 +119,17 @@ async function handleMcpToolCall(
     if (serverUrl && ctx.mcpCallTool) {
       // Resolve headers from server metadata if available
       let headers: Record<string, string> | undefined;
-      if (ctx.getServerMeta) {
-        // Find the server name that owns this URL by checking all known servers
-        const meta = ctx.getServerMeta(ctx.agentId, call.name);
-        if (meta?.headers) {
-          headers = ctx.resolveHeaders
-            ? await ctx.resolveHeaders(meta.headers)
-            : meta.headers;
+      try {
+        if (ctx.getServerMetaByUrl) {
+          const meta = ctx.getServerMetaByUrl(ctx.agentId, serverUrl);
+          if (meta?.headers) {
+            headers = ctx.resolveHeaders
+              ? await ctx.resolveHeaders(meta.headers)
+              : meta.headers;
+          }
         }
+      } catch {
+        // Header resolution failure should not block the tool call
       }
       return handleUnifiedMcpCall(call, serverUrl, headers, ctx);
     }

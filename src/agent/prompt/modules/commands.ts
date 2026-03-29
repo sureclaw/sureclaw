@@ -1,6 +1,11 @@
 import { BasePromptModule } from '../base-module.js';
 import type { PromptContext } from '../types.js';
 
+/** Escape pipe characters and strip newlines for markdown table cells. */
+function escapeTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ').trim();
+}
+
 /**
  * Commands module: surfaces installed plugin slash commands.
  * Priority 72 — just after skills (70).
@@ -27,7 +32,7 @@ export class CommandsModule extends BasePromptModule {
 
     for (const cmd of ctx.commands ?? []) {
       const firstLine = cmd.content.split('\n').find(l => l.trim() && !l.startsWith('#'))?.trim() ?? '';
-      lines.push(`| /${cmd.name} | ${cmd.pluginName} | ${firstLine} |`);
+      lines.push(`| /${escapeTableCell(cmd.name)} | ${escapeTableCell(cmd.pluginName)} | ${escapeTableCell(firstLine)} |`);
     }
 
     return lines;

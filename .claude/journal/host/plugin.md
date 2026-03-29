@@ -2,6 +2,14 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-03-29 15:35] — Fix CodeRabbitAI + github-code-quality review comments on PR #135
+
+**Task:** Fix 14 review comments spanning tool-router, server-completions, inprocess, install, mcp-manager, store, cli/provider, commands, server-admin, and startup
+**What I did:** (1) Changed getServerMeta to getServerMetaByUrl so header lookup uses server URL not tool name; (2) Passed mcpManager to fast-path runFastPath; (3) Added resolveHeaders adapter in inprocess.ts discoverAllTools and tool router context; (4) Wrapped parsePluginSource in try/catch; (5) Added reinstall cleanup (old skills/commands/servers removed before new install); (6) Scoped proxy allowlist domain keys by agentId; (7) Added clearToolsForUrl to removeServer; (8) Clear stale tool mappings before re-registering in discoverAllTools; (9) Changed command key from agentId/name to agentId/pluginName/name; (10) Fixed unused loop variable in providerVerify; (11) Fixed heading level in lessons; (12) Added escapeTableCell for commands prompt; (13) Added logger.warn for fallback McpConnectionManager; (14) Wrapped JSON.parse(row.headers) in try/catch
+**Files touched:** src/host/tool-router.ts, src/host/ipc-handlers/tool-batch.ts, src/host/server-init.ts, src/host/inprocess.ts, src/host/server-completions.ts, src/host/server-admin.ts, src/plugins/install.ts, src/plugins/mcp-manager.ts, src/plugins/store.ts, src/plugins/startup.ts, src/cli/provider.ts, src/agent/prompt/modules/commands.ts, .claude/lessons/host/entries.md, tests/host/tool-router.test.ts, tests/host/ipc-handlers/tool-batch.test.ts, tests/plugins/install.test.ts
+**Outcome:** Success — all 2752 tests pass, tsc build clean
+**Notes:** The getServerMetaByUrl method scans server values by URL (O(n) per-agent servers) which is fine for typical server counts (<50). Command key format change is backward-compatible since listCommands reads from JSON body.
+
 ## [2026-03-29 15:00] — Unified tool routing via resolveServer + mcpCallTool
 
 **Task:** Replace dual routing path (resolvePluginServer for plugins + providers.mcp.callTool for everything else) with a single unified path using resolveServer/mcpCallTool/getServerMeta/resolveHeaders

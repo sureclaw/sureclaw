@@ -151,7 +151,7 @@ describe('installPlugin', () => {
     // Verify commands stored
     const commandKeys = await docs.list('commands');
     expect(commandKeys).toHaveLength(2);
-    const forecastRaw = await docs.get('commands', 'pi/forecast');
+    const forecastRaw = await docs.get('commands', 'pi/hubspot-crm/forecast');
     expect(forecastRaw).toBeTruthy();
     const forecast = JSON.parse(forecastRaw!);
     expect(forecast.pluginName).toBe('hubspot-crm');
@@ -352,7 +352,7 @@ describe('uninstallPlugin', () => {
       domainList,
     });
 
-    expect(removedSkills).toContain('plugin:hubspot-crm');
+    expect(removedSkills).toContain('plugin:pi:hubspot-crm');
   });
 
   it('does not affect other agents data', async () => {

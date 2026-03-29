@@ -195,7 +195,7 @@ describe('routeToolCall — unified MCP', () => {
     expect(result.content).toContain('too large');
   });
 
-  it('passes resolved headers from getServerMeta to mcpCallTool', async () => {
+  it('passes resolved headers from getServerMetaByUrl to mcpCallTool', async () => {
     const mcpCallSpy = vi.fn(async () => ({
       content: 'authed response',
       isError: false,
@@ -204,10 +204,10 @@ describe('routeToolCall — unified MCP', () => {
     const ctx = makeCtx({
       resolveServer: (_agentId, name) => name === 'db_query' ? 'https://db.internal/mcp' : undefined,
       mcpCallTool: mcpCallSpy,
-      getServerMeta: (_agentId, _name) => ({
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
         source: 'database',
         headers: { Authorization: 'Bearer token123' },
-      }),
+      }) : undefined,
     });
 
     const result = await routeToolCall(
@@ -224,7 +224,7 @@ describe('routeToolCall — unified MCP', () => {
     );
   });
 
-  it('calls resolveHeaders when both getServerMeta and resolveHeaders are present', async () => {
+  it('calls resolveHeaders when both getServerMetaByUrl and resolveHeaders are present', async () => {
     const mcpCallSpy = vi.fn(async () => ({
       content: 'resolved response',
       isError: false,
@@ -238,10 +238,10 @@ describe('routeToolCall — unified MCP', () => {
     const ctx = makeCtx({
       resolveServer: () => 'https://db.internal/mcp',
       mcpCallTool: mcpCallSpy,
-      getServerMeta: () => ({
+      getServerMetaByUrl: (_agentId, url) => url === 'https://db.internal/mcp' ? ({
         source: 'database',
         headers: { Authorization: '{{DB_TOKEN}}' },
-      }),
+      }) : undefined,
       resolveHeaders: resolveHeadersSpy,
     });
 

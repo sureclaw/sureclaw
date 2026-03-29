@@ -417,6 +417,7 @@ export async function processCompletion(
           logger,
           eventBus,
           workspaceBasePath: config.workspace?.basePath ?? '~/.ax/workspaces',
+          mcpManager: deps.mcpManager,
         },
       );
 

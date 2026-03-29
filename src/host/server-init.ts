@@ -293,8 +293,14 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
             ? (agentId: string, toolName: string) => mcpManager.getToolServerUrl(agentId, toolName)
             : undefined,
           mcpCallTool: mcpManager ? callToolOnServer : undefined,
-          getServerMeta: mcpManager
-            ? (agentId: string, serverName: string) => mcpManager.getServerMeta(agentId, serverName)
+          getServerMetaByUrl: mcpManager
+            ? (agentId: string, serverUrl: string) => mcpManager.getServerMetaByUrl(agentId, serverUrl)
+            : undefined,
+          resolveHeaders: providers.credentials
+            ? async (h: Record<string, string>) => {
+                const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
+                return rh(JSON.stringify(h), providers.credentials);
+              }
             : undefined,
         }
       : undefined,

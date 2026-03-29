@@ -210,7 +210,13 @@ export async function runFastPath(
     // 2. Discover MCP tools — unified path via manager, or legacy fallback
     let mcpTools: McpToolSchema[] = [];
     if (deps.mcpManager) {
-      mcpTools = await deps.mcpManager.discoverAllTools(request.agentId);
+      const resolveHeaders = providers.credentials
+        ? async (h: Record<string, string>) => {
+            const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
+            return rh(JSON.stringify(h), providers.credentials);
+          }
+        : undefined;
+      mcpTools = await deps.mcpManager.discoverAllTools(request.agentId, { resolveHeaders });
     } else {
       mcpTools = await discoverTools(
         request.agentId,
@@ -267,8 +273,14 @@ export async function runFastPath(
         ? (agentId: string, toolName: string) => deps.mcpManager!.getToolServerUrl(agentId, toolName)
         : undefined,
       mcpCallTool: deps.mcpManager ? callToolOnServer : undefined,
-      getServerMeta: deps.mcpManager
-        ? (agentId: string, name: string) => deps.mcpManager!.getServerMeta(agentId, name)
+      getServerMetaByUrl: deps.mcpManager
+        ? (agentId: string, url: string) => deps.mcpManager!.getServerMetaByUrl(agentId, url)
+        : undefined,
+      resolveHeaders: providers.credentials
+        ? async (h: Record<string, string>) => {
+            const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
+            return rh(JSON.stringify(h), providers.credentials);
+          }
         : undefined,
       mcp: providers.mcp, // @deprecated — legacy fallback; remove when McpConnectionManager replaces all callers
     };

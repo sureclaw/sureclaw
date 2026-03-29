@@ -89,8 +89,8 @@ export interface ToolBatchOptions {
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
   /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
   mcpCallTool?: (url: string, tool: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (headers) for credential resolution */
-  getServerMeta?: (agentId: string, serverName: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Get server metadata (headers) for credential resolution by server URL */
+  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { source?: string; headers?: Record<string, string> } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
 
@@ -136,13 +136,17 @@ export function createToolBatchHandlers(
           if (unifiedUrl && opts.mcpCallTool) {
             // Resolve headers from server metadata if available
             let headers: Record<string, string> | undefined;
-            if (opts.getServerMeta) {
-              const meta = opts.getServerMeta(ctx.agentId, call.tool);
-              if (meta?.headers) {
-                headers = opts.resolveHeaders
-                  ? await opts.resolveHeaders(meta.headers)
-                  : meta.headers;
+            try {
+              if (opts.getServerMetaByUrl) {
+                const meta = opts.getServerMetaByUrl(ctx.agentId, unifiedUrl);
+                if (meta?.headers) {
+                  headers = opts.resolveHeaders
+                    ? await opts.resolveHeaders(meta.headers)
+                    : meta.headers;
+                }
               }
+            } catch {
+              // Header resolution failure should not block the tool call
             }
             const result = await opts.mcpCallTool(unifiedUrl, call.tool, resolvedArgs, headers ? { headers } : undefined);
             if (result.isError) {

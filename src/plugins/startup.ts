@@ -99,13 +99,21 @@ export async function loadDatabaseMcpServers(
 
     let count = 0;
     for (const row of rows) {
+      let headers: Record<string, string> | undefined;
+      if (row.headers) {
+        try {
+          headers = JSON.parse(row.headers);
+        } catch {
+          logger.warn('database_mcp_server_malformed_headers', { name: row.name, agentId: row.agent_id });
+        }
+      }
       mcpManager.addServer(row.agent_id, {
         name: row.name,
         type: 'http',
         url: row.url,
       }, {
         source: 'database',
-        headers: row.headers ? JSON.parse(row.headers) : undefined,
+        headers,
       });
       count++;
     }

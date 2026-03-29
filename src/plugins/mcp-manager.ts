@@ -59,6 +59,11 @@ export class McpConnectionManager {
   removeServer(agentId: string, serverName: string): boolean {
     const agentServers = this.servers.get(agentId);
     if (!agentServers) return false;
+    const server = agentServers.get(serverName);
+    if (server) {
+      // Clear tool mappings for this server's URL before removing
+      this.clearToolsForUrl(agentId, server.url);
+    }
     return agentServers.delete(serverName);
   }
 
@@ -89,6 +94,21 @@ export class McpConnectionManager {
     const server = this.servers.get(agentId)?.get(name);
     if (!server) return undefined;
     return { source: server.source, headers: server.headers };
+  }
+
+  /**
+   * Get metadata (source, headers) for a server identified by its URL.
+   * Used by the tool router which knows the server URL but not the server name.
+   */
+  getServerMetaByUrl(agentId: string, url: string): { source?: string; headers?: Record<string, string> } | undefined {
+    const agentServers = this.servers.get(agentId);
+    if (!agentServers) return undefined;
+    for (const server of agentServers.values()) {
+      if (server.url === url) {
+        return { source: server.source, headers: server.headers };
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -155,6 +175,17 @@ export class McpConnectionManager {
   }
 
   /**
+   * Clear tool mappings for a specific server URL.
+   */
+  private clearToolsForUrl(agentId: string, url: string): void {
+    const agentTools = this.toolServerMap.get(agentId);
+    if (!agentTools) return;
+    for (const [toolName, toolUrl] of agentTools) {
+      if (toolUrl === url) agentTools.delete(toolName);
+    }
+  }
+
+  /**
    * Clear tool mappings for all servers matching a given source tag.
    */
   private clearToolsForSource(agentId: string, source: string): void {
@@ -198,6 +229,8 @@ export class McpConnectionManager {
           : server.headers;
 
         const tools = await listToolsFromServer(server.url, resolvedHeaders ? { headers: resolvedHeaders } : undefined);
+        // Clear stale tool mappings for this server URL before registering new ones
+        this.clearToolsForUrl(agentId, server.url);
         if (tools.length > 0) {
           this.registerTools(agentId, server.url, tools.map(t => t.name));
           allTools.push(...tools);
