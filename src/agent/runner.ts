@@ -292,9 +292,6 @@ export interface StdinPayload {
   /** Pre-loaded user-scoped skills from DB (created by user via skill_create).
    *  Written to userWorkspace/skills/ so users can test/debug before promoting to agent scope. */
   userSkills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
-  /** Pre-generated tool stubs for scripted MCP tool execution.
-   *  Cached in DocumentStore by schema hash, written to agentWorkspace/tools/. */
-  toolStubs?: Array<{ path: string; content: string }>;
   /** MCP CLI executables — one file per server, written to agentWorkspace/bin/. */
   mcpCLIs?: Array<{ path: string; content: string }>;
 }
@@ -351,7 +348,6 @@ export function parseStdinPayload(data: string): StdinPayload {
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
         userSkills: Array.isArray(parsed.userSkills) ? parsed.userSkills : undefined,
-        toolStubs: Array.isArray(parsed.toolStubs) ? parsed.toolStubs : undefined,
         mcpCLIs: Array.isArray(parsed.mcpCLIs) ? parsed.mcpCLIs : undefined,
       };
     }
@@ -537,26 +533,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       }
     }
     logger.info('skills_written', { count: payload.userSkills.length, dir: userSkillsBase, scope: 'user' });
-  }
-
-  // ── Write tool stubs to agentWorkspace/tools/ ──
-  // Treat an explicit empty array as "clear generated stubs for this turn".
-  if (Array.isArray(payload.toolStubs) && config.agentWorkspace) {
-    const toolsBase = resolve(config.agentWorkspace, 'tools');
-    if (existsSync(toolsBase)) {
-      rmSync(toolsBase, { recursive: true, force: true });
-    }
-    for (const file of payload.toolStubs) {
-      const filePath = resolve(toolsBase, file.path);
-      // SC-SEC-004: Constrain tool stub writes to the tools root
-      if (!filePath.startsWith(toolsBase + sep) && filePath !== toolsBase) {
-        logger.warn('tool_stub_path_traversal_blocked', { path: file.path });
-        continue;
-      }
-      mkdirSync(dirname(filePath), { recursive: true });
-      writeFileSync(filePath, file.content, 'utf-8');
-    }
-    logger.info('tool_stubs_written', { count: payload.toolStubs.length, dir: toolsBase });
   }
 
   // ── Write MCP CLI executables to agentWorkspace/bin/ ──

@@ -20,7 +20,7 @@ export interface AddServerOpts {
  *
  * Tracks MCP server endpoints globally (shared across all agents). This is a
  * registry, not a connection pool. The actual MCP protocol connections happen
- * when prepareToolStubs() queries each server's tools at sandbox spin-up time.
+ * when prepareMcpCLIs() queries each server's tools at sandbox spin-up time.
  *
  * Server registry is global — all agents see the same set of MCP servers.
  * Tool name → server URL mappings remain per-agent since each agent session

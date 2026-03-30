@@ -50,10 +50,6 @@ export interface PromptContext {
   hasUserWorkspace?: boolean;
   /** Whether the user workspace is writable (workspace provider is active). */
   userWorkspaceWritable?: boolean;
-  /** Whether tool stubs are present in ./agent/tools/ (generated from MCP connectors). */
-  hasToolStubs?: boolean;
-  /** Tool stub server directories with their tool names (from index.ts barrel). */
-  toolStubServers?: Array<{ server: string; tools: string[] }>;
   /** MCP CLI tool names available in PATH (e.g. ['linear', 'github']). */
   mcpCLIs?: string[];
   /** Whether to show skill install instructions (detected from user message). */

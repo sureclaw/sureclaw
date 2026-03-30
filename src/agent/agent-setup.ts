@@ -10,33 +10,13 @@ import { loadIdentityFiles } from './identity-loader.js';
 import { loadSkillsMultiDir } from './stream-utils.js';
 import { detectSkillInstallIntent } from './prompt/modules/skills.js';
 import { join, resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import type { AgentConfig } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 
 const logger = getLogger().child({ component: 'agent-setup' });
 
 const DEFAULT_CONTEXT_WINDOW = 200000;
-
-/** Scan ./agent/tools/ for server directories and parse barrel exports. */
-function scanToolStubServers(agentWorkspace?: string): Array<{ server: string; tools: string[] }> | undefined {
-  if (!agentWorkspace) return undefined;
-  const toolsDir = resolve(agentWorkspace, 'tools');
-  if (!existsSync(toolsDir)) return undefined;
-  const servers: Array<{ server: string; tools: string[] }> = [];
-  try {
-    for (const entry of readdirSync(toolsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const barrel = join(toolsDir, entry.name, 'index.ts');
-      if (!existsSync(barrel)) continue;
-      // Extract exported function names from barrel: export { funcName } from './funcName.ts';
-      const content = readFileSync(barrel, 'utf-8');
-      const tools = [...content.matchAll(/export\s*\{\s*(\w+)\s*\}/g)].map(m => m[1]);
-      if (tools.length > 0) servers.push({ server: entry.name, tools });
-    }
-  } catch { /* ignore */ }
-  return servers.length > 0 ? servers : undefined;
-}
 
 /** Scan agentWorkspace/bin/ for MCP CLI executables. */
 function scanMcpCLIs(agentWorkspace?: string): string[] | undefined {
@@ -119,8 +99,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasUserWorkspace: !!config.userWorkspace,
     userWorkspaceWritable: hasWorkspaceScopes && !!config.userWorkspace,
     mcpCLIs,
-    hasToolStubs: !mcpCLIs && !!(config.agentWorkspace && existsSync(resolve(config.agentWorkspace, 'tools'))),
-    toolStubServers: !mcpCLIs ? scanToolStubServers(config.agentWorkspace) : undefined,
     skillInstallEnabled,
   });
 

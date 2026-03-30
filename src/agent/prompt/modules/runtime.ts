@@ -63,13 +63,6 @@ export class RuntimeModule extends BasePromptModule {
         ...(ctx.mcpCLIs?.length ? [
           `  - ./agent/bin/ — MCP tool CLIs (in PATH)`,
           `    Run \`<tool> --help\` for usage. Available: ${ctx.mcpCLIs.join(', ')}`,
-        ] : ctx.hasToolStubs ? [
-          `  - ./agent/tools/ — MCP tool stubs, callable via bash [read-only]`,
-          `    Call: \`node --experimental-strip-types ./agent/tools/<server>/<tool>.ts '{"param":"value"}'\``,
-          `    For multi-step queries, write a short .ts script in scratch/ that imports and calls multiple tools, then run it with \`node --experimental-strip-types scratch/script.ts\`.`,
-          ...(ctx.toolStubServers?.map(s =>
-            `    **${s.server}**: ${s.tools.join(', ')}`
-          ) ?? []),
         ] : []),
       ] : []),
       ...(ctx.hasUserWorkspace ? [
