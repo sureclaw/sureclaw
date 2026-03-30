@@ -62,8 +62,8 @@ export class RuntimeModule extends BasePromptModule {
         `  - ./agent/skills/ — shared agent skills [read-only]`,
         ...(ctx.hasToolStubs ? [
           `  - ./agent/tools/ — MCP tool stubs, callable via bash [read-only]`,
-          `    Run any tool directly: \`node --experimental-strip-types ./agent/tools/<server>/<tool>.ts '{"param":"value"}'\``,
-          `    Read <tool>.ts to see available parameters.`,
+          `    Call: \`node --experimental-strip-types ./agent/tools/<server>/<tool>.ts '{"param":"value"}'\``,
+          `    Read <tool>.ts for available parameters. Chain calls sequentially — read JSON output from one call, extract values, pass to next call. Do NOT write scripts.`,
           ...(ctx.toolStubServers?.map(s =>
             `    **${s.server}**: ${s.tools.join(', ')}`
           ) ?? []),

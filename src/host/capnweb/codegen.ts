@@ -294,12 +294,13 @@ async function generateToolStub(
 // ---------------------------------------------------------------------------
 
 function generateBarrel(
-  tools: Array<{ fileName: string; methodName: string }>,
+  tools: Array<{ fileName: string; methodName: string; description?: string; paramKeys?: string[] }>,
 ): string {
-  return tools.map(
-    ({ fileName, methodName }) =>
-      `export { ${methodName} } from './${fileName}.ts';`,
-  ).join('\n') + '\n';
+  return tools.map(({ fileName, methodName, description, paramKeys }) => {
+    const desc = description ? ` // ${description}` : '';
+    const params = paramKeys?.length ? ` — params: ${paramKeys.join(', ')}` : '';
+    return `export { ${methodName} } from './${fileName}.ts';${desc}${params}`;
+  }).join('\n') + '\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +326,7 @@ export async function generateToolStubs(opts: CodegenOptions): Promise<Generated
     const serverDir = safePath(outputDir, group.server);
     mkdirSync(serverDir, { recursive: true });
 
-    const barrelEntries: Array<{ fileName: string; methodName: string }> = [];
+    const barrelEntries: Array<{ fileName: string; methodName: string; description?: string; paramKeys?: string[] }> = [];
     const seenNames = new Map<string, string>();
 
     for (const tool of group.tools) {
@@ -340,7 +341,15 @@ export async function generateToolStubs(opts: CodegenOptions): Promise<Generated
       const filePath = join(serverDir, `${methodName}.ts`);
       writeFileSync(filePath, await generateToolStub(group.server, tool, methodName), 'utf8');
       files.push(filePath);
-      barrelEntries.push({ fileName: methodName, methodName });
+      const paramKeys = tool.inputSchema?.properties
+        ? Object.keys(tool.inputSchema.properties as Record<string, unknown>)
+        : undefined;
+      barrelEntries.push({
+        fileName: methodName,
+        methodName,
+        description: tool.description?.split('\n')[0]?.slice(0, 80),
+        paramKeys,
+      });
       toolCount++;
     }
 
