@@ -61,12 +61,12 @@ export class RuntimeModule extends BasePromptModule {
         `  - ./agent/identity/ — agent identity files (SOUL.md, IDENTITY.md, etc.) [read-only]`,
         `  - ./agent/skills/ — shared agent skills [read-only]`,
         ...(ctx.hasToolStubs ? [
-          `  - ./agent/tools/ — typed tool stubs for MCP connectors [read-only]`,
-          `    Each subdirectory is an MCP server (e.g. ./agent/tools/linear/).`,
-          `    Read the index.ts barrel to discover available functions, then write`,
-          `    a short script that imports and calls them. Execute with:`,
-          `    \`node --experimental-strip-types script.ts\``,
-          `    Example: \`import { listIssues } from './agent/tools/linear/listIssues.ts'; const r = await listIssues({...}); console.log(JSON.stringify(r));\``,
+          `  - ./agent/tools/ — MCP tool stubs, callable via bash [read-only]`,
+          `    Run any tool directly: \`node --experimental-strip-types ./agent/tools/<server>/<tool>.ts '{"param":"value"}'\``,
+          `    Read <tool>.ts to see available parameters.`,
+          ...(ctx.toolStubServers?.map(s =>
+            `    **${s.server}**: ${s.tools.join(', ')}`
+          ) ?? []),
         ] : []),
       ] : []),
       ...(ctx.hasUserWorkspace ? [

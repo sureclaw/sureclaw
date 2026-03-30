@@ -52,6 +52,8 @@ export interface PromptContext {
   userWorkspaceWritable?: boolean;
   /** Whether tool stubs are present in ./agent/tools/ (generated from MCP connectors). */
   hasToolStubs?: boolean;
+  /** Tool stub server directories with their tool names (from index.ts barrel). */
+  toolStubServers?: Array<{ server: string; tools: string[] }>;
   /** Whether to show skill install instructions (detected from user message). */
   skillInstallEnabled?: boolean;
 
