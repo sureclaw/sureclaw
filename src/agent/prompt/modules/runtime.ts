@@ -63,7 +63,7 @@ export class RuntimeModule extends BasePromptModule {
         ...(ctx.hasToolStubs ? [
           `  - ./agent/tools/ — MCP tool stubs, callable via bash [read-only]`,
           `    Call: \`node --experimental-strip-types ./agent/tools/<server>/<tool>.ts '{"param":"value"}'\``,
-          `    Read <tool>.ts for available parameters. Chain calls sequentially — read JSON output from one call, extract values, pass to next call. Do NOT write scripts.`,
+          `    For multi-step queries, write a short .ts script in scratch/ that imports and calls multiple tools, then run it with \`node --experimental-strip-types scratch/script.ts\`.`,
           ...(ctx.toolStubServers?.map(s =>
             `    **${s.server}**: ${s.tools.join(', ')}`
           ) ?? []),
