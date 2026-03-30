@@ -89,10 +89,12 @@ export interface ToolBatchOptions {
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
   /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
   mcpCallTool?: (url: string, tool: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (headers) for credential resolution by server URL */
-  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Get server metadata (name, headers) for credential resolution by server URL */
+  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { name?: string; source?: string; headers?: Record<string, string> } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+  /** Provide auth headers for servers without explicit headers (credential auto-discovery). */
+  authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
 
   /** @deprecated Use resolveServer instead */
   resolvePluginServer?: (agentId: string, toolName: string) => string | undefined;
@@ -136,14 +138,20 @@ export function createToolBatchHandlers(
           if (unifiedUrl && opts.mcpCallTool) {
             // Resolve headers from server metadata if available
             let headers: Record<string, string> | undefined;
+            let serverName: string | undefined;
             try {
               if (opts.getServerMetaByUrl) {
                 const meta = opts.getServerMetaByUrl(ctx.agentId, unifiedUrl);
+                serverName = meta?.name;
                 if (meta?.headers) {
                   headers = opts.resolveHeaders
                     ? await opts.resolveHeaders(meta.headers)
                     : meta.headers;
                 }
+              }
+              // For servers without explicit headers, try credential auto-discovery
+              if (!headers && opts.authForServer && serverName) {
+                headers = await opts.authForServer({ name: serverName, url: unifiedUrl });
               }
             } catch {
               // Header resolution failure should not block the tool call

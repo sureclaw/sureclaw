@@ -4,6 +4,9 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-03-29 14:00 — Restructure Agents page and add Plugins section [website.md](website.md)
+- 2026-03-29 13:00 — Create ConnectorsPage for admin dashboard [website.md](website.md)
+- 2026-03-29 12:00 — Add MCP server and plugin types and API methods to admin dashboard [website.md](website.md)
 - 2026-03-22 12:00 — Update ax-debug skill with agent_response timer and scanner timeout learnings [plans.md](plans.md)
 - 2026-03-21 14:00 — Add Tier 0 Chat UI Dev Loop to ax-debug skill [plans.md](plans.md)
 - 2026-03-19 05:46 — Plan authenticated MITM HTTPS proxy for long-tail CLI tools [plans.md](plans.md)

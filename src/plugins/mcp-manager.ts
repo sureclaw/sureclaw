@@ -88,10 +88,10 @@ export class McpConnectionManager {
    * Get metadata (source, headers) for a server identified by its URL.
    * Used by the tool router which knows the server URL but not the server name.
    */
-  getServerMetaByUrl(_agentId: string, url: string): { source?: string; headers?: Record<string, string> } | undefined {
+  getServerMetaByUrl(_agentId: string, url: string): { name?: string; source?: string; headers?: Record<string, string> } | undefined {
     for (const server of this.servers.values()) {
       if (server.url === url) {
-        return { source: server.source, headers: server.headers };
+        return { name: server.name, source: server.source, headers: server.headers };
       }
     }
     return undefined;
@@ -200,28 +200,39 @@ export class McpConnectionManager {
   /**
    * Discover tools from ALL registered global MCP servers.
    * Resolves credential placeholders in headers if a resolver is provided.
+   * For servers without explicit headers, calls `authForServer` to attempt
+   * credential-based auth from the credential store.
    * Registers tool->server URL mappings for the given agent.
    */
   async discoverAllTools(
     agentId: string,
     opts?: {
       resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+      /** Provide auth headers for servers that have no explicit headers configured.
+       *  Called with the server name and URL; should return headers or undefined. */
+      authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
     },
   ): Promise<McpToolSchema[]> {
     const allTools: McpToolSchema[] = [];
 
     for (const [, server] of this.servers) {
       try {
-        const resolvedHeaders = server.headers && opts?.resolveHeaders
-          ? await opts.resolveHeaders(server.headers)
-          : server.headers;
+        let resolvedHeaders: Record<string, string> | undefined;
+        if (server.headers && opts?.resolveHeaders) {
+          resolvedHeaders = await opts.resolveHeaders(server.headers);
+        } else if (!server.headers && opts?.authForServer) {
+          resolvedHeaders = await opts.authForServer({ name: server.name, url: server.url });
+        } else {
+          resolvedHeaders = server.headers;
+        }
 
         const tools = await listToolsFromServer(server.url, resolvedHeaders ? { headers: resolvedHeaders } : undefined);
         // Clear stale tool mappings for this server URL before registering new ones
         this.clearToolsForUrl(agentId, server.url);
         if (tools.length > 0) {
           this.registerTools(agentId, server.url, tools.map(t => t.name));
-          allTools.push(...tools);
+          // Tag each tool with its source server name for codegen grouping
+          allTools.push(...tools.map(t => ({ ...t, server: server.name })));
         }
       } catch {
         // One server failing doesn't affect others

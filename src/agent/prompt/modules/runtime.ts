@@ -60,6 +60,12 @@ export class RuntimeModule extends BasePromptModule {
         `**Agent Workspace**: ./agent (shared persistent files for this agent)`,
         `  - ./agent/identity/ — agent identity files (SOUL.md, IDENTITY.md, etc.) [read-only]`,
         `  - ./agent/skills/ — shared agent skills [read-only]`,
+        ...(ctx.hasToolStubs ? [
+          `  - ./agent/tools/ — typed tool stubs for MCP connectors [read-only]`,
+          `    Each subdirectory is an MCP server (e.g. ./agent/tools/linear/).`,
+          `    Read the index.ts barrel to discover available functions.`,
+          `    Import and call them — they batch over IPC automatically.`,
+        ] : []),
       ] : []),
       ...(ctx.hasUserWorkspace ? [
         `**User Workspace**: ./user (persistent files for the current user)`,

@@ -61,9 +61,9 @@ export const LlmCallSchema = ipcAction('llm_call', {
   })).min(1).max(200),
   tools: z.array(z.strictObject({
     name: safeString(100),
-    description: safeString(2000),
+    description: safeString(10000),
     parameters: z.any(),
-  })).max(50).optional(),
+  })).max(200).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(1).max(200_000).optional(),
 });
@@ -162,6 +162,11 @@ export const SkillInstallSchema = ipcAction('skill_install', {
 export const SkillUpdateSchema = ipcAction('skill_update', {
   slug: safeString(200),
   path: safeString(1024),
+  content: safeString(500_000),
+});
+
+export const SkillCreateSchema = ipcAction('skill_create', {
+  slug: safeString(200),
   content: safeString(500_000),
 });
 

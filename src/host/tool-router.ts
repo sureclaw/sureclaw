@@ -62,10 +62,12 @@ export interface ToolRouterContext {
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
   /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
   mcpCallTool?: (serverUrl: string, toolName: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (headers) for credential resolution by server URL */
-  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { source?: string; headers?: Record<string, string> } | undefined;
+  /** Get server metadata (name, headers) for credential resolution by server URL */
+  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { name?: string; source?: string; headers?: Record<string, string> } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
+  /** Provide auth headers for servers without explicit headers (credential auto-discovery). */
+  authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
 
   /** @deprecated Use resolveServer instead */
   mcp?: McpProvider;
@@ -119,14 +121,20 @@ async function handleMcpToolCall(
     if (serverUrl && ctx.mcpCallTool) {
       // Resolve headers from server metadata if available
       let headers: Record<string, string> | undefined;
+      let serverName: string | undefined;
       try {
         if (ctx.getServerMetaByUrl) {
           const meta = ctx.getServerMetaByUrl(ctx.agentId, serverUrl);
+          serverName = meta?.name;
           if (meta?.headers) {
             headers = ctx.resolveHeaders
               ? await ctx.resolveHeaders(meta.headers)
               : meta.headers;
           }
+        }
+        // For servers without explicit headers, try credential auto-discovery
+        if (!headers && ctx.authForServer && serverName) {
+          headers = await ctx.authForServer({ name: serverName, url: serverUrl });
         }
       } catch {
         // Header resolution failure should not block the tool call

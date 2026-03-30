@@ -72,7 +72,11 @@ export interface HostCore {
  * Sets up storage, routing, IPC, template seeding, delegation, orchestrator.
  */
 export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
-  const { config, providers, eventBus, verbose, mcpManager } = opts;
+  const { config, providers, eventBus, verbose } = opts;
+  // Create McpConnectionManager if not provided — needed for plugin/database
+  // MCP server discovery and tool stub generation.
+  const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
+  const mcpManager = opts.mcpManager ?? new McpConnectionManager();
 
   // ── Storage, routing, taint budget ──
   mkdirSync(dataDir(), { recursive: true });
@@ -227,6 +231,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     workspaceMap,
     requestedCredentials,
     domainList,
+    mcpManager,
   };
 
   // ── Delegation ──
@@ -300,6 +305,20 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
             ? async (h: Record<string, string>) => {
                 const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
                 return rh(JSON.stringify(h), providers.credentials);
+              }
+            : undefined,
+          authForServer: providers.credentials
+            ? async (server: { name: string; url: string }) => {
+                const prefix = server.name.toUpperCase().replace(/-/g, '_');
+                const candidates = [
+                  `${prefix}_API_KEY`, `${prefix}_ACCESS_TOKEN`,
+                  `${prefix}_OAUTH_TOKEN`, `${prefix}_TOKEN`,
+                ];
+                for (const envName of candidates) {
+                  const value = await providers.credentials.get(envName);
+                  if (value) return { Authorization: `Bearer ${value}` };
+                }
+                return undefined;
               }
             : undefined,
         }

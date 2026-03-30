@@ -2,6 +2,29 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-03-30 02:15] — Fix tool stub server grouping: namespace by MCP server name
+
+**Task:** Tool stubs were generating flat directories (create/, delete/, get/, etc.) instead of namespaced under the server name (linear/)
+**What I did:** `groupToolsByServer()` was inferring server name from tool name by splitting on `_`. Tool `create_attachment` → server `create`, tool `attachment`. Fixed by: (1) added `server?: string` to `McpToolSchema`, (2) `discoverAllTools` now tags each tool with its source server name, (3) `groupToolsByServer` uses the `server` field when available instead of parsing tool names. Also included `server` in `computeSchemaHash` so tools from different servers with the same name produce different hashes.
+**Files touched:** src/providers/mcp/types.ts, src/plugins/mcp-manager.ts, src/host/capnweb/codegen.ts, src/providers/storage/tool-stubs.ts
+**Outcome:** Success — tools now appear under `tools/linear/` with correct names (createAttachment.ts, getIssue.ts, etc.)
+
+## [2026-03-29 22:35] — Fix MCP Streamable HTTP client: missing Accept header and 406 handling
+
+**Task:** Admin "Test & Save" for MCP servers fails with HTTP 406 "Client must accept both application/json and text/event-stream", then HTTP 400 "Mcp-Session-Id header is required"
+**What I did:** Two fixes: (1) `jsonRpcCall()` in database.ts was missing the MCP-required `Accept: application/json, text/event-stream` header on POST requests. Added it. Also added SSE response parsing since servers may respond with either JSON or SSE stream. (2) The MCP SDK's `StreamableHTTPClientTransport` sends `Accept: text/event-stream` on the initial GET SSE request. Some servers return 406 but the SDK only handles 405 gracefully. Added a custom `fetch` wrapper in mcp-client.ts that converts 406→405 on GET, letting the SDK skip SSE and proceed to POST-based initialize.
+**Files touched:** src/providers/mcp/database.ts, src/plugins/mcp-client.ts
+**Outcome:** Success — both the admin dashboard test flow (jsonRpcCall) and the SDK-based tool discovery (listToolsFromServer) now handle MCP Streamable HTTP correctly.
+**Notes:** The MCP Streamable HTTP spec requires `Accept: application/json, text/event-stream` on POST. Some server implementations (Slack, HubSpot) are strict about this. The SSE response parsing uses a simple line-by-line approach since the response is small.
+
+## [2026-03-29 22:25] — Fix MCP tool stub provisioning: McpConnectionManager + credential auto-discovery
+
+**Task:** Debug why /workspace/agent/tools directory is missing in k8s cluster despite having 10 MCP connectors activated
+**What I did:** Found three issues: (1) `initHostCore` never created `McpConnectionManager` — both server-k8s.ts and server-local.ts call it without one, so mcpManager was always undefined. (2) `completionDeps` didn't include mcpManager. (3) MCP servers registered by plugins have NULL headers, so tool discovery can't authenticate. Fixed all three: created default McpConnectionManager in initHostCore, added mcpManager to completionDeps, and added `authForServer` callback that auto-discovers credentials by server name convention (e.g., server "linear" → tries LINEAR_API_KEY, LINEAR_ACCESS_TOKEN, etc.). Also added fallback to last cached stubs when discovery returns empty.
+**Files touched:** src/host/server-init.ts, src/host/server-completions.ts, src/plugins/mcp-manager.ts, src/host/tool-router.ts, src/host/ipc-handlers/tool-batch.ts, src/host/inprocess.ts
+**Outcome:** Success — 43 Linear tools discovered, 52 tool stub files generated and written to /workspace/agent/tools/. Other 9 OAuth servers still fail (no stored credentials).
+**Notes:** The `authForServer` pattern tries `{SERVER_NAME}_{API_KEY|ACCESS_TOKEN|OAUTH_TOKEN|TOKEN}` from the credential store. Servers needing OAuth that don't have stored tokens will still fail, but they'll automatically work once the user stores credentials with the right naming convention. Cache fallback means stubs persist across restarts even if auth temporarily breaks.
+
 ## [2026-03-29 15:35] — Fix CodeRabbitAI + github-code-quality review comments on PR #135
 
 **Task:** Fix 14 review comments spanning tool-router, server-completions, inprocess, install, mcp-manager, store, cli/provider, commands, server-admin, and startup

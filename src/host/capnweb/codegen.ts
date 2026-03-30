@@ -322,20 +322,28 @@ export async function generateToolStubs(opts: CodegenOptions): Promise<Generated
 /**
  * Group flat MCP tool schemas by server name.
  *
- * Expects tool names in 'serverName_toolName' or 'serverName/toolName' form.
- * Tools without a separator go in a 'default' group.
+ * Uses the `server` field on each tool when available (set by discoverAllTools).
+ * Falls back to inferring from tool names in 'serverName_toolName' or
+ * 'serverName/toolName' form. Tools without a server go in a 'default' group.
  */
 export function groupToolsByServer(tools: McpToolSchema[]): ToolStubGroup[] {
   const map = new Map<string, McpToolSchema[]>();
 
   for (const tool of tools) {
-    const indices = [tool.name.indexOf('_'), tool.name.indexOf('/')]
-      .filter(i => i > 0);
-    const sepIdx = indices.length > 0 ? Math.min(...indices) : -1;
-    const server = sepIdx > 0 ? tool.name.slice(0, sepIdx) : 'default';
-    const localName = sepIdx > 0 ? tool.name.slice(sepIdx + 1) : tool.name;
-    if (!map.has(server)) map.set(server, []);
-    map.get(server)!.push({ ...tool, name: localName });
+    if (tool.server) {
+      // Server is known — use the tool name as-is (no stripping)
+      if (!map.has(tool.server)) map.set(tool.server, []);
+      map.get(tool.server)!.push({ ...tool, server: undefined });
+    } else {
+      // Legacy fallback: infer server from tool name prefix
+      const indices = [tool.name.indexOf('_'), tool.name.indexOf('/')]
+        .filter(i => i > 0);
+      const sepIdx = indices.length > 0 ? Math.min(...indices) : -1;
+      const server = sepIdx > 0 ? tool.name.slice(0, sepIdx) : 'default';
+      const localName = sepIdx > 0 ? tool.name.slice(sepIdx + 1) : tool.name;
+      if (!map.has(server)) map.set(server, []);
+      map.get(server)!.push({ ...tool, name: localName, server: undefined });
+    }
   }
 
   return [...map.entries()].map(([server, serverTools]) => ({

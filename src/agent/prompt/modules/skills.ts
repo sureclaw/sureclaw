@@ -87,8 +87,10 @@ export class SkillsModule extends BasePromptModule {
         '',
         '### Creating Skills',
         '',
-        'To create a custom skill, write a SKILL.md file to `./user/skills/my-skill/SKILL.md`.',
-        'The skill will be available in your list on the next session.',
+        'Use the `skill` tool with `type: "create"` to author a new skill.',
+        'Non-admin users get a personal skill in `./user/skills/` for testing.',
+        'Admins get an agent-wide skill in `./agent/skills/`.',
+        'Personal skills can be promoted to agent scope by an admin later.',
       );
     }
 

@@ -73,6 +73,8 @@ export interface AgentConfig {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
+  /** MCP tool schemas — registered as first-class LLM tools by pi-session runner. */
+  mcpToolSchemas?: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; server?: string }>;
   /** Pre-loaded skills from host (via stdin payload from DB).
    *  Written to workspace skills/ directory before runner starts. */
   skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
@@ -284,14 +286,20 @@ export interface StdinPayload {
   credentialEnv?: Record<string, string>;
   /** MITM CA cert PEM — written to disk so sandbox processes trust the proxy. */
   caCert?: string;
-  /** Pre-loaded skills from DB (loaded from DocumentStore on host).
+  /** Pre-loaded agent-level skills from DB (installed via plugins/admin dashboard).
    *  Each skill includes its full file contents so the runner can write
-   *  them to the workspace skills/ directory for installSkillDeps() and
+   *  them to agentWorkspace/skills/ for installSkillDeps() and
    *  buildSystemPrompt() to read. */
   skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
+  /** Pre-loaded user-scoped skills from DB (created by user via skill_create).
+   *  Written to userWorkspace/skills/ so users can test/debug before promoting to agent scope. */
+  userSkills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
   /** Pre-generated tool stubs for scripted MCP tool execution.
-   *  Cached in DocumentStore by schema hash, written to /tools/ in workspace. */
+   *  Cached in DocumentStore by schema hash, written to agentWorkspace/tools/. */
   toolStubs?: Array<{ path: string; content: string }>;
+  /** MCP tool schemas — registered as first-class LLM tools so the agent
+   *  can call them directly instead of exploring TypeScript stubs via bash. */
+  mcpToolSchemas?: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; server?: string }>;
 }
 
 /**
@@ -345,7 +353,9 @@ export function parseStdinPayload(data: string): StdinPayload {
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
+        userSkills: Array.isArray(parsed.userSkills) ? parsed.userSkills : undefined,
         toolStubs: Array.isArray(parsed.toolStubs) ? parsed.toolStubs : undefined,
+        mcpToolSchemas: Array.isArray(parsed.mcpToolSchemas) ? parsed.mcpToolSchemas : undefined,
       };
     }
   } catch {
@@ -476,10 +486,11 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
   config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
   config.workspaceProvider = payload.workspaceProvider;
-  // Write skills from DB payload to workspace skills/ directory so
-  // installSkillDeps() and buildSystemPrompt()'s loadSkillsMultiDir() find them.
-  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.userWorkspace) {
-    const skillsBase = resolve(config.userWorkspace, 'skills');
+  // Write agent-level skills (installed via plugins/admin dashboard) to
+  // agentWorkspace/skills/ so installSkillDeps() and loadSkillsMultiDir() find them.
+  // User-created skills live in userWorkspace/skills/ (written by the user, not here).
+  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.agentWorkspace) {
+    const skillsBase = resolve(config.agentWorkspace, 'skills');
     // Prune stale skills from previous turns so deleted skills don't linger on disk
     if (existsSync(skillsBase)) {
       rmSync(skillsBase, { recursive: true, force: true });
@@ -502,13 +513,39 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
         writeFileSync(filePath, file.content, 'utf-8');
       }
     }
-    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
+    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase, scope: 'agent' });
   }
 
-  // ── Write tool stubs to /tools/ ──
+  // Write user-scoped skills (created via skill_create by non-admin users)
+  // to userWorkspace/skills/ so users can test and debug before promoting to agent scope.
+  if (Array.isArray(payload.userSkills) && payload.userSkills.length > 0 && config.userWorkspace) {
+    const userSkillsBase = resolve(config.userWorkspace, 'skills');
+    if (existsSync(userSkillsBase)) {
+      rmSync(userSkillsBase, { recursive: true, force: true });
+    }
+    for (const skill of payload.userSkills) {
+      const skillDir = resolve(userSkillsBase, skill.slug.replace(/[/\\]/g, '_').replace(/\.\./g, '_'));
+      if (!skillDir.startsWith(userSkillsBase + sep)) {
+        logger.warn('skill_path_traversal_blocked', { slug: skill.slug, scope: 'user' });
+        continue;
+      }
+      for (const file of skill.files) {
+        const filePath = resolve(skillDir, file.path);
+        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
+          logger.warn('skill_file_path_traversal_blocked', { slug: skill.slug, path: file.path, scope: 'user' });
+          continue;
+        }
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, file.content, 'utf-8');
+      }
+    }
+    logger.info('skills_written', { count: payload.userSkills.length, dir: userSkillsBase, scope: 'user' });
+  }
+
+  // ── Write tool stubs to agentWorkspace/tools/ ──
   // Treat an explicit empty array as "clear generated stubs for this turn".
-  if (Array.isArray(payload.toolStubs)) {
-    const toolsBase = resolve(process.env.AX_WORKSPACE ?? process.cwd(), 'tools');
+  if (Array.isArray(payload.toolStubs) && config.agentWorkspace) {
+    const toolsBase = resolve(config.agentWorkspace, 'tools');
     if (existsSync(toolsBase)) {
       rmSync(toolsBase, { recursive: true, force: true });
     }
@@ -523,6 +560,11 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       writeFileSync(filePath, file.content, 'utf-8');
     }
     logger.info('tool_stubs_written', { count: payload.toolStubs.length, dir: toolsBase });
+  }
+
+  // Pass MCP tool schemas to config so pi-session can register them as LLM tools
+  if (Array.isArray(payload.mcpToolSchemas) && payload.mcpToolSchemas.length > 0) {
+    config.mcpToolSchemas = payload.mcpToolSchemas;
   }
 
   if (payload.identity) {

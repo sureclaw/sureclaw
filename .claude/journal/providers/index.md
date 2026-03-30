@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-03-29 14:00 — Add global MCP server CRUD + admin API endpoints (Tasks 1 & 2) [plugins.md](plugins.md)
 - 2026-03-29 11:56 — Implement plugin startup module: reload MCP servers + auto-install from config [plugins.md](plugins.md)
 - 2026-03-20 18:10 — Split monolithic WebProvider into fetch/extract/search [web.md](web.md)
 

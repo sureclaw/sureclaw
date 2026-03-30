@@ -2,8 +2,9 @@
  * Skill CRUD operations for database-stored skills (fast-path model).
  *
  * Skills stored via DocumentStore in the 'skills' collection.
- * Key format: '{agentId}/{skillSlug}'
- * Value: JSON { instructions, mcpApps, mcpTools, authType, version, installedAt }
+ * Agent-scoped key format: '{agentId}/{skillSlug}'
+ * User-scoped key format:  '{agentId}/users/{userId}/{skillSlug}'
+ * Value: JSON { instructions, mcpApps, mcpTools, authType, version, installedAt, scope?, userId? }
  */
 
 import type { DocumentStore } from './types.js';
@@ -23,6 +24,10 @@ export interface SkillRecord {
   mcpTools: string[] | null;
   authType: 'oauth' | 'api_key' | null;
   installedAt: string;
+  /** 'agent' = shared (plugins/admin), 'user' = personal sandbox skill. */
+  scope?: 'agent' | 'user';
+  /** Set when scope is 'user'. */
+  userId?: string;
 }
 
 export interface SkillUpsertInput {
@@ -34,10 +39,16 @@ export interface SkillUpsertInput {
   mcpApps: string[];
   mcpTools?: string[] | null;
   authType?: 'oauth' | 'api_key' | null;
+  scope?: 'agent' | 'user';
+  userId?: string;
 }
 
 function skillKey(agentId: string, skillId: string): string {
   return `${agentId}/${skillId}`;
+}
+
+function userSkillKey(agentId: string, userId: string, skillId: string): string {
+  return `${agentId}/users/${userId}/${skillId}`;
 }
 
 export async function upsertSkill(
@@ -54,15 +65,28 @@ export async function upsertSkill(
     mcpTools: input.mcpTools ?? null,
     authType: input.authType ?? null,
     installedAt: new Date().toISOString(),
+    scope: input.scope ?? 'agent',
+    userId: input.userId,
   };
-  await documents.put('skills', skillKey(input.agentId, input.id), JSON.stringify(record));
+  const key = input.scope === 'user' && input.userId
+    ? userSkillKey(input.agentId, input.userId, input.id)
+    : skillKey(input.agentId, input.id);
+  await documents.put('skills', key, JSON.stringify(record));
 }
 
 export async function getSkill(
   documents: DocumentStore,
   agentId: string,
   skillId: string,
+  userId?: string,
 ): Promise<SkillRecord | null> {
+  // Try user-scoped first if userId provided, then fall back to agent-scoped
+  if (userId) {
+    const userRaw = await documents.get('skills', userSkillKey(agentId, userId, skillId));
+    if (userRaw) {
+      try { return JSON.parse(userRaw) as SkillRecord; } catch { /* fall through */ }
+    }
+  }
   const raw = await documents.get('skills', skillKey(agentId, skillId));
   if (!raw) return null;
   try {
@@ -72,14 +96,41 @@ export async function getSkill(
   }
 }
 
-/** List all skills for an agent. N+1 fetch pattern — acceptable for typical
- *  skill counts (<100). If DocumentStore grows a batch-get API, use it here. */
+/** List agent-scoped skills (excludes user-scoped). N+1 fetch pattern —
+ *  acceptable for typical skill counts (<100). */
 export async function listSkills(
   documents: DocumentStore,
   agentId: string,
 ): Promise<SkillRecord[]> {
   const keys = await documents.list('skills');
   const prefix = `${agentId}/`;
+  const userPrefix = `${agentId}/users/`;
+  const skills: SkillRecord[] = [];
+
+  for (const key of keys) {
+    if (!key.startsWith(prefix)) continue;
+    // Skip user-scoped skills — those are returned by listUserSkills()
+    if (key.startsWith(userPrefix)) continue;
+    const raw = await documents.get('skills', key);
+    if (!raw) continue;
+    try {
+      skills.push(JSON.parse(raw) as SkillRecord);
+    } catch {
+      // Malformed — skip
+    }
+  }
+
+  return skills;
+}
+
+/** List user-scoped skills for a specific user. */
+export async function listUserSkills(
+  documents: DocumentStore,
+  agentId: string,
+  userId: string,
+): Promise<SkillRecord[]> {
+  const keys = await documents.list('skills');
+  const prefix = `${agentId}/users/${userId}/`;
   const skills: SkillRecord[] = [];
 
   for (const key of keys) {
@@ -100,7 +151,13 @@ export async function deleteSkill(
   documents: DocumentStore,
   agentId: string,
   skillId: string,
+  userId?: string,
 ): Promise<boolean> {
+  // Try user-scoped first if userId provided
+  if (userId) {
+    const deleted = await documents.delete('skills', userSkillKey(agentId, userId, skillId));
+    if (deleted) return true;
+  }
   return documents.delete('skills', skillKey(agentId, skillId));
 }
 

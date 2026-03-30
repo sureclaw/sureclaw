@@ -4,6 +4,14 @@ Plugin system: install, store, MCP manager, startup.
 
 ## Entries
 
+## [2026-03-29 14:00] — Add global MCP server CRUD + admin API endpoints (Tasks 1 & 2)
+
+**Task:** Add agent-independent (global) MCP server management using `agent_id = '__global__'` sentinel value. Create CRUD functions in database.ts and REST endpoints in server-admin.ts.
+**What I did:** Added 5 exported functions to src/providers/mcp/database.ts: listAllMcpServers, addGlobalMcpServer, removeGlobalMcpServer, updateGlobalMcpServer, testGlobalMcpServer. Added 6 route handlers in src/host/server-admin.ts for GET/POST /admin/api/mcp-servers, PUT/DELETE /admin/api/mcp-servers/:name, and POST /admin/api/mcp-servers/:name/test. Global routes placed before per-agent routes to avoid regex conflicts.
+**Files touched:** src/providers/mcp/database.ts (edited), src/host/server-admin.ts (edited)
+**Outcome:** Success — TypeScript build compiles clean.
+**Notes:** The globalMcpMatch regex `^\/admin\/api\/mcp-servers\/([^/]+)$` correctly excludes agent-scoped URLs that have `/agents/` in the path. The globalMcpTestMatch regex has an additional `/test$` suffix.
+
 ## [2026-03-29 12:25] — Generic MCP HTTP client + wiring (Task 13)
 
 **Task:** Create a generic MCP HTTP client using @modelcontextprotocol/sdk that connects to arbitrary MCP servers and lists/calls tools. Wire it into server-completions.ts (sandbox spin-up tool stubs) and inprocess.ts (fast-path tool discovery).

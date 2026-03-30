@@ -1,9 +1,13 @@
 /**
- * IPC handlers: skill install (ClawHub), audit, and credential requests.
+ * IPC handlers: skill install (ClawHub), create, audit, and credential requests.
  *
  * skill_install replaces the old skill_search + skill_download pair.
  * The host now downloads, screens, generates a manifest, writes files,
  * and adds domains to the proxy allowlist — all on the trusted side.
+ *
+ * skill_create lets agents author new skills. Non-admin users in DM/web
+ * sessions get user-scoped skills (/workspace/user/skills/); admins get
+ * agent-scoped skills (/workspace/agent/skills/).
  */
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
@@ -13,6 +17,8 @@ import * as clawhub from '../../clawhub/registry-client.js';
 import { parseAgentSkill } from '../../utils/skill-format-parser.js';
 import { generateManifest } from '../../utils/manifest-generator.js';
 import { resolveCredential } from '../credential-scopes.js';
+import { isAdmin } from '../server-admin-helpers.js';
+import { agentDir as agentDirPath } from '../../paths.js';
 import { getLogger } from '../../logger.js';
 import { upsertSkill, getSkill, deleteSkill, inferMcpApps } from '../../providers/storage/skills.js';
 
@@ -104,10 +110,67 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       };
     },
 
+    skill_create: async (req: any, ctx: IPCContext) => {
+      if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
+      const agentName = ctx.agentId ?? 'main';
+
+      // Determine scope: non-admin users in DM or web sessions get user-scoped skills.
+      const topDir = agentDirPath(agentName);
+      const userIsAdmin = ctx.userId ? isAdmin(topDir, ctx.userId) : false;
+      const isUserScope = !userIsAdmin && (ctx.sessionScope === 'dm' || !ctx.sessionScope);
+      const scope = isUserScope ? 'user' as const : 'agent' as const;
+
+      if (isUserScope && !ctx.userId) {
+        return { ok: false, error: 'User ID required for user-scoped skills' };
+      }
+
+      const parsed = parseAgentSkill(req.content);
+      const mcpApps = inferMcpApps(req.content);
+
+      await upsertSkill(providers.storage.documents, {
+        id: req.slug,
+        agentId: agentName,
+        version: '1.0.0',
+        instructions: req.content,
+        files: [{ path: 'SKILL.md', content: req.content }],
+        mcpApps,
+        scope,
+        userId: isUserScope ? ctx.userId : undefined,
+      });
+
+      // Add domains to proxy allowlist
+      const manifest = generateManifest(parsed);
+      if (opts?.domainList && manifest.capabilities.domains.length > 0) {
+        opts.domainList.addSkillDomains(req.slug, manifest.capabilities.domains);
+      }
+
+      await providers.audit.log({
+        action: 'skill_create',
+        sessionId: ctx.sessionId,
+        args: { slug: req.slug, scope, userId: isUserScope ? ctx.userId : undefined },
+        result: 'success',
+      });
+
+      logger.info('skill_create_complete', {
+        slug: req.slug,
+        scope,
+        userId: isUserScope ? ctx.userId : undefined,
+        sessionId: ctx.sessionId,
+      });
+
+      return {
+        ok: true,
+        slug: req.slug,
+        name: parsed.name || req.slug,
+        scope,
+        domains: manifest.capabilities.domains,
+      };
+    },
+
     skill_update: async (req: any, ctx: IPCContext) => {
       if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
       const agentName = ctx.agentId ?? 'main';
-      const existing = await getSkill(providers.storage.documents, agentName, req.slug);
+      const existing = await getSkill(providers.storage.documents, agentName, req.slug, ctx.userId);
       if (!existing) return { ok: false, error: 'Skill not found' };
 
       const files = existing.files ?? [{ path: 'SKILL.md', content: existing.instructions }];
@@ -156,7 +219,7 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
     skill_delete: async (req: any, ctx: IPCContext) => {
       if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
       const agentName = ctx.agentId ?? 'main';
-      const deleted = await deleteSkill(providers.storage.documents, agentName, req.slug);
+      const deleted = await deleteSkill(providers.storage.documents, agentName, req.slug, ctx.userId);
 
       // Remove skill's domains from proxy allowlist
       if (deleted && opts?.domainList) {

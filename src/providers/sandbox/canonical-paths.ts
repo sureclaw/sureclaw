@@ -16,7 +16,9 @@
  * scope, so its content survives across pod restarts within the same conversation.
  *
  * Identity files are sent via stdin payload (loaded from DocumentStore).
- * Skills are stored as filesystem files in agent/skills/ and user/skills/.
+ * Agent-level skills (from plugins/admin) are in agent/skills/.
+ * User-created skills are in user/skills/.
+ * Tool stubs are in agent/tools/.
  *
  * Providers that support filesystem remapping (Docker, bwrap, nsjail) mount
  * directly to canonical paths. Providers that don't (seatbelt, subprocess)

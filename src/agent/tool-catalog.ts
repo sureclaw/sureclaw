@@ -206,11 +206,17 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     name: 'skill',
     label: 'Skill',
     description:
-      'Install, update, and delete skills.\n\nUse `type` to select:\n' +
+      'Create, install, update, and delete skills.\n\nUse `type` to select:\n' +
+      '- create: Create a new skill from SKILL.md content. Non-admin users in DM/web get a personal skill; admins get an agent-wide skill.\n' +
       '- install: Install a skill from ClawHub by slug or search query\n' +
       '- update: Update a specific file in a skill\n' +
       '- delete: Uninstall a skill by slug',
     parameters: Type.Union([
+      Type.Object({
+        type: Type.Literal('create'),
+        slug: Type.String({ description: 'Skill slug (short name, e.g. "my-helper")' }),
+        content: Type.String({ description: 'Full SKILL.md content' }),
+      }),
       Type.Object({
         type: Type.Literal('install'),
         slug: Type.Optional(Type.String({ description: 'ClawHub skill slug' })),
@@ -229,6 +235,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ]),
     category: 'skill',
     actionMap: {
+      create: 'skill_create',
       install: 'skill_install',
       update: 'skill_update',
       delete: 'skill_delete',

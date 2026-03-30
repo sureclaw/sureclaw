@@ -5,6 +5,8 @@ export interface McpToolSchema {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** MCP server name that provides this tool (set by discoverAllTools). */
+  server?: string;
 }
 
 export interface McpToolCall {

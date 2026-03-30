@@ -50,6 +50,8 @@ export interface PromptContext {
   hasUserWorkspace?: boolean;
   /** Whether the user workspace is writable (workspace provider is active). */
   userWorkspaceWritable?: boolean;
+  /** Whether tool stubs are present in ./agent/tools/ (generated from MCP connectors). */
+  hasToolStubs?: boolean;
   /** Whether to show skill install instructions (detected from user message). */
   skillInstallEnabled?: boolean;
 

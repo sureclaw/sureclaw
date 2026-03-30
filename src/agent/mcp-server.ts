@@ -165,18 +165,21 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     // ── Skill ──
     tool('skill', getToolDescription('skill'),
       {
-        type: z.enum(['install', 'update', 'delete']),
-        slug: z.string().optional().describe('ClawHub skill slug'),
+        type: z.enum(['create', 'install', 'update', 'delete']),
+        slug: z.string().optional().describe('Skill slug'),
         query: z.string().optional().describe('Search query'),
         path: z.string().optional().describe('File path within the skill (e.g. "SKILL.md")'),
-        content: z.string().optional().describe('New file content'),
+        content: z.string().optional().describe('SKILL.md content (for create) or file content (for update)'),
       },
       async (args) => {
         const SKILL_ACTIONS: Record<string, string> = {
-          install: 'skill_install', update: 'skill_update', delete: 'skill_delete',
+          create: 'skill_create', install: 'skill_install', update: 'skill_update', delete: 'skill_delete',
         };
         const { type, ...rest } = args;
         // Validate required params per operation type
+        if (type === 'create' && (!rest.slug || !rest.content)) {
+          return errorResult(new Error('create requires slug and content'));
+        }
         if (type === 'update' && (!rest.slug || !rest.path || !rest.content)) {
           return errorResult(new Error('update requires slug, path, and content'));
         }

@@ -6,7 +6,7 @@
  * caches, and returns.
  *
  * The returned files are sent via stdin payload (same as skills) and written
- * to /tools/ in the agent workspace by applyPayload().
+ * to agentWorkspace/tools/ by applyPayload().
  */
 
 import { tmpdir } from 'node:os';

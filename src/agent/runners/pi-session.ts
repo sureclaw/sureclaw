@@ -453,10 +453,59 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     ...(useLocalSandbox ? { localSandbox: { client, workspace: config.workspace } } : {}),
   });
 
+  // Register MCP tools as first-class LLM tools (Linear, GitHub, etc.).
+  // Routes calls through IPC tool_batch → host MCP resolver → remote MCP server.
+  const mcpToolDefs: ToolDefinition[] = [];
+  if (config.mcpToolSchemas && config.mcpToolSchemas.length > 0) {
+    let mcpToolCallCount = 0;
+    for (const schema of config.mcpToolSchemas) {
+      mcpToolDefs.push({
+        name: schema.name,
+        label: schema.name,
+        description: schema.description || schema.name,
+        parameters: schema.inputSchema as any,
+        async execute(_id: string, params: unknown) {
+          mcpToolCallCount++;
+          if (mcpToolCallCount > MAX_TOOL_CALLS) {
+            return text('Error: Maximum MCP tool call limit reached. Please provide your final response.');
+          }
+          process.stderr.write(`[diag] mcp_tool_execute name=${schema.name} server=${schema.server ?? 'unknown'}\n`);
+          logger.debug('mcp_tool_execute', { name: schema.name, server: schema.server });
+          try {
+            const result = await client.call({
+              action: 'tool_batch',
+              calls: [{ tool: schema.name, args: params as Record<string, unknown> }],
+            });
+            const results = (result as any).results;
+            if (Array.isArray(results) && results.length > 0) {
+              const r = results[0];
+              if (r && typeof r === 'object' && 'ok' in r && !r.ok) {
+                return text(`Error: ${(r as any).error ?? 'MCP tool call failed'}`);
+              }
+              return text(typeof r === 'string' ? r : JSON.stringify(r));
+            }
+            return text(JSON.stringify(result));
+          } catch (err) {
+            logger.debug('mcp_tool_error', { name: schema.name, error: (err as Error).message });
+            return text(`Error: ${(err as Error).message}`);
+          }
+        },
+      } as ToolDefinition);
+    }
+    logger.info('mcp_tools_registered', {
+      count: mcpToolDefs.length,
+      names: mcpToolDefs.map(t => t.name),
+    });
+  }
+
+  const allToolDefs = [...ipcToolDefs, ...mcpToolDefs];
+
   logger.debug('session_config', {
     systemPromptLength: systemPrompt.length,
     ipcToolCount: ipcToolDefs.length,
     ipcToolNames: ipcToolDefs.map(t => t.name),
+    mcpToolCount: mcpToolDefs.length,
+    mcpToolNames: mcpToolDefs.map(t => t.name),
   });
 
   // Create auth storage with a dummy key for the 'ax' IPC provider.
@@ -471,7 +520,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   const { session } = await createAgentSession({
     model: activeModel,
     tools: [],
-    customTools: ipcToolDefs,
+    customTools: allToolDefs,
     cwd: config.workspace,
     authStorage,
     sessionManager: SessionManager.inMemory(config.workspace),

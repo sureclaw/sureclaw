@@ -2,6 +2,30 @@
 
 README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment, skill syncs.
 
+## [2026-03-29 14:00] — Restructure Agents page and add Plugins section
+
+**Task:** Tasks 5+6: Replace the agents list+detail panel with horizontal tabs with a new layout using agent selector dropdown, vertical sub-nav, and full content area. Add a PluginsSection component for installing/uninstalling/viewing plugins.
+**What I did:** Rewrote `agents-page.tsx` completely. Removed old `AgentDetail`, table layout, and horizontal tab bar. Added: `AgentSelector` dropdown with status dots, type badges, and inline kill buttons; `SubNav` vertical navigation with 3 groups (AGENT/TOOLS/DATA) and 6 sections including new Plugins; `ContentArea` wrapper rendering active section in a card; `PluginsSection` with install form (inline toggle, spinner, error), plugin cards grid (name, version, description, stat badges, source, relative time, confirm-on-uninstall), and empty state; `timeAgo` helper. Kept all existing section components (InfoTab, IdentityTab, SkillsTab, WorkspaceTab, MemoryTab, TabSkeleton, TabError, TabEmpty) intact.
+**Files touched:** `ui/admin/src/components/pages/agents-page.tsx`
+**Outcome:** Success — `npx tsc --noEmit` passes with no errors.
+**Notes:** Tasks 5+6 of multi-task plan for MCP/plugin management UI. New `SectionId` type replaces old `TabId`. Auto-selects first agent on load.
+
+## [2026-03-29 13:00] — Create ConnectorsPage for admin dashboard
+
+**Task:** Build a complete "Connectors" page component for managing global MCP servers, with add/edit form, server list table, test/save workflow, and wire it into App.tsx navigation.
+**What I did:** Created `connectors-page.tsx` with: page header, inline add/edit form with key-value header editing, test-and-save workflow (test on save, show results, auto-close on success, "Save Anyway" on failure), table listing with status badges (Untested/Connected/Failed), per-server test button with inline spinner, edit/remove actions with confirm-on-delete pattern, empty state, loading skeleton, and error state. Modified `App.tsx` to add Globe icon import, 'connectors' page type, nav item after agents, ConnectorsPage import and rendering.
+**Files touched:** `ui/admin/src/components/pages/connectors-page.tsx` (created), `ui/admin/src/App.tsx` (modified)
+**Outcome:** Success — `npx tsc --noEmit` passes with no errors.
+**Notes:** Task 4 of multi-task plan for MCP/plugin management UI. Follows existing design patterns from agents-page.tsx.
+
+## [2026-03-29 12:00] — Add MCP server and plugin types and API methods to admin dashboard
+
+**Task:** Add TypeScript types (McpServer, InstalledPlugin, McpTestResult) and API client methods for MCP server CRUD/test and agent plugin install/uninstall to the admin dashboard.
+**What I did:** Added three new interfaces to `ui/admin/src/lib/types.ts`. Updated imports and added 8 new API methods to `ui/admin/src/lib/api.ts`: mcpServers, addMcpServer, updateMcpServer, removeMcpServer, testMcpServer, agentPlugins, installPlugin, uninstallPlugin.
+**Files touched:** `ui/admin/src/lib/types.ts`, `ui/admin/src/lib/api.ts`
+**Outcome:** Success — `npx tsc --noEmit` passes with no errors.
+**Notes:** Task 3 of multi-task plan for MCP/plugin management UI.
+
 ## [2026-03-16 18:00] — Rewrite ax-provider-sandbox skill for unified container model
 
 **Task:** Update the ax-provider-sandbox skill to reflect major architecture changes: removed seatbelt/nsjail/bwrap providers, removed sandbox-worker and nats-sandbox-dispatch, new unified container model with three-phase orchestration, NATS IPC for k8s, warm pool, local sandbox execution, workspace CLI.

@@ -9,7 +9,8 @@ import { PromptBuilder } from './prompt/builder.js';
 import { loadIdentityFiles } from './identity-loader.js';
 import { loadSkillsMultiDir } from './stream-utils.js';
 import { detectSkillInstallIntent } from './prompt/modules/skills.js';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import type { AgentConfig } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 
@@ -82,6 +83,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasAgentWorkspace: !!config.agentWorkspace,
     hasUserWorkspace: !!config.userWorkspace,
     userWorkspaceWritable: hasWorkspaceScopes && !!config.userWorkspace,
+    hasToolStubs: !!(config.agentWorkspace && existsSync(resolve(config.agentWorkspace, 'tools'))),
     skillInstallEnabled,
   });
 

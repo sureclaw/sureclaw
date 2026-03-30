@@ -37,9 +37,12 @@ export interface ToolStubCache {
  * Used to detect when stubs need regeneration.
  */
 export function computeSchemaHash(tools: McpToolSchema[]): string {
-  // Sort by name for determinism, then hash the canonical JSON
-  const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
+  // Sort by server+name for determinism, then hash the canonical JSON
+  const sorted = [...tools].sort((a, b) =>
+    (`${a.server ?? ''}:${a.name}`).localeCompare(`${b.server ?? ''}:${b.name}`)
+  );
   const canonical = JSON.stringify(sorted.map(t => ({
+    server: t.server,
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,

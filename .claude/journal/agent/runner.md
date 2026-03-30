@@ -2,6 +2,27 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-29 21:30] — Add skill_create with user-scoped skills
+
+**Task:** Allow users to create, test, and debug personal skills (/workspace/user/skills/) before an admin promotes them to agent scope. The skill_create tool auto-detects scope: non-admin users in DM/web get user-scoped, admins get agent-scoped.
+**What I did:** Added user-scoped skill support across the full stack:
+- DB: Added `scope`/`userId` fields to SkillRecord, user-scoped key format `{agentId}/users/{userId}/{slug}`, `listUserSkills()` function
+- IPC: Added `skill_create` schema and handler with admin/scope auto-detection
+- Tool catalog + MCP server: Added `create` action type
+- Host payload: Loads user skills separately, sends as `userSkills` field
+- Agent runner: Writes `userSkills` to userWorkspace/skills/
+- Prompt: Updated skill creation guidance to reference the tool
+**Files touched:** `src/providers/storage/skills.ts`, `src/ipc-schemas.ts`, `src/host/ipc-handlers/skills.ts`, `src/agent/tool-catalog.ts`, `src/agent/mcp-server.ts`, `src/host/server-completions.ts`, `src/agent/runner.ts`, `src/agent/prompt/modules/skills.ts`
+**Outcome:** Success — build passes, all existing tests pass (265/265 storage+IPC)
+
+## [2026-03-29 21:00] — Fix skills and tools sandbox paths
+
+**Task:** Skills and tools were being written to wrong locations in the sandbox. Skills went to userWorkspace/skills/ but should go to agentWorkspace/skills/ (agent-level, installed via plugins/admin). Tools went to AX_WORKSPACE/tools/ (read-only root in k8s) instead of agentWorkspace/tools/.
+**What I did:** Updated applyPayload() in runner.ts to write DB-loaded skills to config.agentWorkspace/skills/ and tool stubs to config.agentWorkspace/tools/. Updated doc comments in runner.ts, generate-and-cache.ts, and canonical-paths.ts.
+**Files touched:** `src/agent/runner.ts`, `src/host/capnweb/generate-and-cache.ts`, `src/providers/sandbox/canonical-paths.ts`
+**Outcome:** Success — build passes, sandbox layout now: agent skills at /workspace/agent/skills/, user skills at /workspace/user/skills/, tools at /workspace/agent/tools/
+**Notes:** In k8s (emptyDir), /workspace/agent is writable. In Docker, agentWorkspace mount is ro by default — may need follow-up to ensure agent can write skills/tools at bootstrap.
+
 ## [2026-03-25 21:00] — Fix session pod work-fetch token rotation bug
 
 **Task:** Chat UI gets stuck on "Thinking..." after 3 turns against kind-ax cluster
