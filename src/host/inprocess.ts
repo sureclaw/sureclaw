@@ -226,7 +226,16 @@ export async function runFastPath(
             return undefined;
           }
         : undefined;
-      mcpTools = await deps.mcpManager.discoverAllTools(request.agentId, { resolveHeaders, authForServer });
+      // Only discover tools from servers assigned to this agent
+      let serverFilter: Set<string> | undefined;
+      if (providers.database) {
+        try {
+          const { listAgentServerNames } = await import('../providers/mcp/database.js');
+          const assigned = await listAgentServerNames(providers.database.db, request.agentId);
+          if (assigned.length > 0) serverFilter = new Set(assigned);
+        } catch { /* table may not exist */ }
+      }
+      mcpTools = await deps.mcpManager.discoverAllTools(request.agentId, { resolveHeaders, authForServer, serverFilter });
     } else {
       mcpTools = await discoverTools(
         request.agentId,

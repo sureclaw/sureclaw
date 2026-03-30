@@ -725,3 +725,96 @@ describe('proxy domain management endpoints', () => {
     expect(res.status).toBe(500);
   });
 });
+
+describe('MCP server admin syncs to McpConnectionManager', () => {
+  let server: Server;
+  let port: number;
+
+  afterEach(() => { server?.close(); });
+
+  it('POST /admin/api/mcp-servers syncs new server to manager', async () => {
+    const deps = await mockDeps();
+    deps.localDevMode = true;
+
+    // Mock database provider with in-memory mcp_servers
+    const mcpRows: Array<{ id: string; name: string; url: string; headers: string | null; enabled: number; created_at: string; updated_at: string }> = [];
+    deps.providers = {
+      ...deps.providers,
+      database: {
+        type: 'sqlite',
+        db: {
+          insertInto: () => ({
+            values: (vals: Record<string, unknown>) => ({
+              execute: async () => { mcpRows.push(vals as any); },
+            }),
+          }),
+        },
+        close: vi.fn(),
+      },
+    } as any;
+
+    // Create a real McpConnectionManager
+    const { McpConnectionManager } = await import('../../src/plugins/mcp-manager.js');
+    const mcpManager = new McpConnectionManager();
+    deps.mcpManager = mcpManager;
+
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/mcp-servers', {
+      method: 'POST',
+      body: { name: 'linear', url: 'https://mcp.linear.app/mcp', headers: { Authorization: 'Bearer tok_123' } },
+    });
+    expect(res.status).toBe(201);
+
+    // Verify manager has the server with correct headers
+    const servers = mcpManager.listServersWithMeta('_');
+    const linear = servers.find(s => s.name === 'linear');
+    expect(linear).toBeDefined();
+    expect(linear!.url).toBe('https://mcp.linear.app/mcp');
+    expect(linear!.headers).toEqual({ Authorization: 'Bearer tok_123' });
+  });
+
+  it('DELETE /admin/api/mcp-servers/:name removes server from manager', async () => {
+    const deps = await mockDeps();
+    deps.localDevMode = true;
+
+    deps.providers = {
+      ...deps.providers,
+      database: {
+        type: 'sqlite',
+        db: {
+          deleteFrom: () => ({
+            where: () => ({
+              execute: async () => {},
+              executeTakeFirst: async () => ({ numDeletedRows: 1n }),
+            }),
+          }),
+        },
+        close: vi.fn(),
+      },
+    } as any;
+
+    const { McpConnectionManager } = await import('../../src/plugins/mcp-manager.js');
+    const mcpManager = new McpConnectionManager();
+    mcpManager.addServer('_', { name: 'linear', type: 'http', url: 'https://mcp.linear.app/mcp' }, { source: 'database' });
+    deps.mcpManager = mcpManager;
+
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    expect(mcpManager.listServers('_')).toHaveLength(1);
+
+    const res = await fetchAdmin(port, '/admin/api/mcp-servers/linear', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+
+    // Verify manager no longer has the server
+    expect(mcpManager.listServers('_')).toHaveLength(0);
+  });
+});

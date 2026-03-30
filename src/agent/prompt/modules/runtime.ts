@@ -63,6 +63,7 @@ export class RuntimeModule extends BasePromptModule {
         ...(ctx.mcpCLIs?.length ? [
           `  - ./agent/bin/ — MCP tool CLIs (in PATH)`,
           `    Run \`<tool> --help\` for usage. Available: ${ctx.mcpCLIs.join(', ')}`,
+          `    These are Node.js CLIs. When writing multi-step scripts, use sandbox_write_file to write a .js file to ./scratch/, then run it with \`node scratch/script.js\`. Do not use heredocs or cat.`,
         ] : []),
       ] : []),
       ...(ctx.hasUserWorkspace ? [

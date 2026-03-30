@@ -1,5 +1,13 @@
 # MCP CLI Tools
 
+## [2026-03-30 17:40] — Fix admin API not syncing MCP server changes to McpConnectionManager
+
+**Task:** Fix bug where MCP CLI tools aren't generated for connectors configured via the admin dashboard because the in-memory McpConnectionManager isn't updated when connectors are added/updated/deleted through the admin API.
+**What I did:** Added manager sync calls in the POST, PUT, and DELETE handlers for `/admin/api/mcp-servers` in `server-admin.ts`. POST calls `addServer`, PUT calls `removeServer` + re-reads from DB + `addServer`, DELETE calls `removeServer`. Added 2 tests verifying POST and DELETE sync to the manager.
+**Files touched:** `src/host/server-admin.ts` (modified), `tests/host/server-admin.test.ts` (modified)
+**Outcome:** Success. Connector changes via admin dashboard now take effect immediately without pod restart.
+**Notes:** Root cause: `loadDatabaseMcpServers()` only runs at startup. Admin CRUD only wrote to DB. So connectors added/modified after startup had stale (or missing) entries in the manager, causing `discoverAllTools()` to use wrong/missing headers → auth failures → no CLI generated.
+
 ## [2026-03-30 15:55] — Replace TypeScript stubs with CLI executables
 
 **Task:** Replace fragile TypeScript MCP tool stubs (proxy-based, needs --experimental-strip-types) with simple CLI executables (one per MCP server, plain JS, #!/usr/bin/env node).

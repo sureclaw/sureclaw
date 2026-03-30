@@ -922,7 +922,17 @@ export async function processCompletion(
               return undefined;
             }
           : undefined;
-        const mcpTools = await deps.mcpManager.discoverAllTools(agentName, { resolveHeaders, authForServer });
+        // Only discover tools from servers assigned to this agent (agent_mcp_servers).
+        // If no assignments exist, discover from all servers (backward compat).
+        let serverFilter: Set<string> | undefined;
+        if (providers.database) {
+          try {
+            const { listAgentServerNames } = await import('../providers/mcp/database.js');
+            const assigned = await listAgentServerNames(providers.database.db, agentName);
+            if (assigned.length > 0) serverFilter = new Set(assigned);
+          } catch { /* table may not exist yet */ }
+        }
+        const mcpTools = await deps.mcpManager.discoverAllTools(agentName, { resolveHeaders, authForServer, serverFilter });
         if (mcpTools.length > 0) {
           const { prepareMcpCLIs } = await import('./capnweb/generate-and-cache.js');
           const clis = await prepareMcpCLIs({ agentName, tools: mcpTools });

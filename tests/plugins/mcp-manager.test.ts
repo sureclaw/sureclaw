@@ -191,4 +191,31 @@ describe('McpConnectionManager', () => {
   it('getServerMeta returns undefined for unknown server', () => {
     expect(manager.getServerMeta('pi', 'nonexistent')).toBeUndefined();
   });
+
+  it('discoverAllTools respects serverFilter', async () => {
+    // Register multiple servers
+    manager.addServer('_', { name: 'linear', type: 'http', url: 'https://mcp.linear.app/mcp' }, { source: 'database' });
+    manager.addServer('_', { name: 'slack', type: 'http', url: 'https://mcp.slack.com/mcp' }, { source: 'database' });
+    manager.addServer('_', { name: 'github', type: 'http', url: 'https://api.github.com/mcp' }, { source: 'database' });
+
+    // Mock listToolsFromServer to track which URLs were called
+    const calledUrls: string[] = [];
+    const { vi } = await import('vitest');
+    const mcpClient = await import('../../src/plugins/mcp-client.js');
+    const spy = vi.spyOn(mcpClient, 'listToolsFromServer').mockImplementation(async (url) => {
+      calledUrls.push(url);
+      return [{ name: 'test_tool', description: 'test', inputSchema: {} }];
+    });
+
+    // With filter: only linear
+    await manager.discoverAllTools('pi', { serverFilter: new Set(['linear']) });
+    expect(calledUrls).toEqual(['https://mcp.linear.app/mcp']);
+
+    // Without filter: all servers
+    calledUrls.length = 0;
+    await manager.discoverAllTools('pi', {});
+    expect(calledUrls).toHaveLength(3);
+
+    spy.mockRestore();
+  });
 });

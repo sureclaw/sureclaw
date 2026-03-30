@@ -1,3 +1,9 @@
+### Admin API must sync MCP server changes to McpConnectionManager
+**Date:** 2026-03-30
+**Context:** Linear connector was configured via admin dashboard with correct auth headers, but CLI tool wasn't generated because `discoverAllTools()` sent requests without auth. Root cause: admin CRUD only wrote to DB; the in-memory McpConnectionManager was only populated at startup via `loadDatabaseMcpServers()`.
+**Lesson:** Any admin API endpoint that modifies persistent state consumed by an in-memory registry must ALSO update the registry. For MCP servers: POST must call `mcpManager.addServer()`, PUT must `removeServer()` + re-read from DB + `addServer()`, DELETE must `removeServer()`. This pattern applies to any DB-backed registry with in-memory caching.
+**Tags:** admin-api, mcp, mcpManager, live-sync, server-admin
+
 ### MCP tool stubs must support HTTP IPC for k8s mode
 **Date:** 2026-03-30
 **Context:** "get all linear issues in this cycle" prompt triggered 40+ bash/read_file calls. The generated `_runtime.ts` in `./agent/tools/` only supported Unix socket IPC (`AX_IPC_SOCKET`), which is empty in k8s HTTP IPC mode. The stubs are intentional — they save tokens by keeping MCP tool schemas out of every LLM turn. Do NOT register MCP tools as first-class LLM tools.

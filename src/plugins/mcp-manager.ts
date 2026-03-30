@@ -211,11 +211,15 @@ export class McpConnectionManager {
       /** Provide auth headers for servers that have no explicit headers configured.
        *  Called with the server name and URL; should return headers or undefined. */
       authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
+      /** When set, only discover tools from servers whose name is in this set.
+       *  Used to respect per-agent connector assignments (agent_mcp_servers). */
+      serverFilter?: Set<string>;
     },
   ): Promise<McpToolSchema[]> {
     const allTools: McpToolSchema[] = [];
 
     for (const [, server] of this.servers) {
+      if (opts?.serverFilter && !opts.serverFilter.has(server.name)) continue;
       try {
         let resolvedHeaders: Record<string, string> | undefined;
         if (server.headers && opts?.resolveHeaders) {

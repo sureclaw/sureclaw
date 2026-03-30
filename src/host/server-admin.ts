@@ -560,6 +560,10 @@ async function handleAdminAPI(
       if (!name || !url) { sendError(res, 400, 'Missing required fields: name, url'); return; }
       const { addGlobalMcpServer } = await import('../providers/mcp/database.js');
       const server = await addGlobalMcpServer(providers.database.db, name, url, headers);
+      // Sync to in-memory manager so tool discovery picks it up without restart
+      if (deps.mcpManager) {
+        deps.mcpManager.addServer('_', { name, type: 'http', url }, { source: 'database', headers });
+      }
       sendJSON(res, server, 201);
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
@@ -574,9 +578,20 @@ async function handleAdminAPI(
     if (!providers.database) { sendError(res, 500, 'Database not configured'); return; }
     try {
       const body = JSON.parse(await readBody(req));
-      const { updateGlobalMcpServer } = await import('../providers/mcp/database.js');
+      const { updateGlobalMcpServer, listAllMcpServers } = await import('../providers/mcp/database.js');
       const updated = await updateGlobalMcpServer(providers.database.db, name, body);
       if (!updated) { sendError(res, 404, 'MCP server not found'); return; }
+      // Sync to in-memory manager so tool discovery picks up changes without restart
+      if (deps.mcpManager) {
+        deps.mcpManager.removeServer('_', name);
+        const rows = await listAllMcpServers(providers.database.db);
+        const row = rows.find(r => r.name === name);
+        if (row && row.enabled) {
+          let headers: Record<string, string> | undefined;
+          if (row.headers) { try { headers = JSON.parse(row.headers); } catch { /* malformed */ } }
+          deps.mcpManager.addServer('_', { name, type: 'http', url: row.url }, { source: 'database', headers });
+        }
+      }
       sendJSON(res, { ok: true });
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
@@ -591,6 +606,8 @@ async function handleAdminAPI(
     const { removeGlobalMcpServer } = await import('../providers/mcp/database.js');
     const removed = await removeGlobalMcpServer(providers.database.db, name);
     if (!removed) { sendError(res, 404, 'MCP server not found'); return; }
+    // Sync to in-memory manager
+    if (deps.mcpManager) { deps.mcpManager.removeServer('_', name); }
     sendJSON(res, { ok: true });
     return;
   }
