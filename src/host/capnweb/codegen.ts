@@ -96,13 +96,35 @@ function generateRuntime(): string {
  *   const issues = getIssues({ teamId: teams[0].id });
  *   const [t, i] = await Promise.all([teams, issues]); // one round trip
  *
- * Zero external dependencies.
+ * Zero external dependencies. Supports both Unix socket and HTTP IPC.
  */
+
+// ── Minimal IPC client (auto-detects transport) ──
+
+const hostUrl = process.env.AX_HOST_URL;
+const useHttp = !!hostUrl;
+
+// ── HTTP IPC (k8s mode) ──
+
+async function httpIpcCall(action: string, params: Record<string, unknown>): Promise<any> {
+  const token = process.env.AX_IPC_TOKEN;
+  const res = await fetch(\`\${hostUrl}/internal/ipc\`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': \`Bearer \${token}\` } : {}),
+    },
+    body: JSON.stringify({ action, ...params }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(\`IPC HTTP \${res.status}: \${await res.text()}\`);
+  return res.json();
+}
+
+// ── Socket IPC (local/subprocess mode) ──
+
 import { connect } from 'node:net';
-
-// ── Minimal IPC client ──
-
-const socketPath = process.env.AX_IPC_SOCKET!;
+const socketPath = process.env.AX_IPC_SOCKET ?? '';
 let msgId = 0;
 let ipcSocket: import('node:net').Socket;
 let ipcBuffer = Buffer.alloc(0);
@@ -128,7 +150,7 @@ function ensureConnected(): Promise<void> {
   });
 }
 
-async function ipcCall(action: string, params: Record<string, unknown>): Promise<any> {
+async function socketIpcCall(action: string, params: Record<string, unknown>): Promise<any> {
   await ensureConnected();
   const id = String(++msgId);
   const payload = Buffer.from(JSON.stringify({ action, ...params, _msgId: id }), 'utf8');
@@ -139,6 +161,10 @@ async function ipcCall(action: string, params: Record<string, unknown>): Promise
     pending.set(id, { resolve, reject });
     setTimeout(() => { pending.delete(id); reject(new Error('IPC timeout')); }, 60_000);
   });
+}
+
+async function ipcCall(action: string, params: Record<string, unknown>): Promise<any> {
+  return useHttp ? httpIpcCall(action, params) : socketIpcCall(action, params);
 }
 
 // ── Proxy-based call graph ──
@@ -220,7 +246,7 @@ export function callTool(tool: string, args: Record<string, unknown>): any {
 }
 
 // Cleanup
-process.on('exit', () => { ipcSocket?.destroy(); });
+process.on('exit', () => { if (!useHttp && ipcSocket) ipcSocket.destroy(); });
 `;
 }
 
@@ -245,7 +271,7 @@ async function generateToolStub(
     ` * MCP server: ${server}`,
     ` * MCP tool:   ${tool.name}`,
     ` */`,
-    `import { callTool } from '../_runtime.js';`,
+    `import { callTool } from '../_runtime.ts';`,
     ``,
     `export function ${methodName}(params: ${paramsType}) {`,
     `  return callTool(${JSON.stringify(rpcMethod)}, params);`,
@@ -264,7 +290,7 @@ function generateBarrel(
 ): string {
   return tools.map(
     ({ fileName, methodName }) =>
-      `export { ${methodName} } from './${fileName}.js';`,
+      `export { ${methodName} } from './${fileName}.ts';`,
   ).join('\n') + '\n';
 }
 

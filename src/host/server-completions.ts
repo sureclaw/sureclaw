@@ -896,7 +896,6 @@ export async function processCompletion(
 
     // ── Load or generate tool stubs (cached by schema hash) ──
     let toolStubsPayload: Array<{ path: string; content: string }> | undefined;
-    let mcpToolSchemasPayload: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; server?: string }> | undefined;
     if (deps.mcpManager) {
       try {
         const resolveHeaders = providers.credentials
@@ -925,12 +924,6 @@ export async function processCompletion(
           : undefined;
         const mcpTools = await deps.mcpManager.discoverAllTools(agentName, { resolveHeaders, authForServer });
         if (mcpTools.length > 0) {
-          mcpToolSchemasPayload = mcpTools.map(t => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-            server: t.server,
-          }));
           const { prepareToolStubs } = await import('./capnweb/generate-and-cache.js');
           const stubs = await prepareToolStubs({
             documents: providers.storage?.documents,
@@ -999,7 +992,6 @@ export async function processCompletion(
       skills: skillsPayload.length > 0 ? skillsPayload : undefined,
       userSkills: userSkillsPayload.length > 0 ? userSkillsPayload : undefined,
       toolStubs: toolStubsPayload,
-      mcpToolSchemas: mcpToolSchemasPayload,
       agentReadOnly: !agentWorkspaceWritable,
       // Credential placeholders — warm pool pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.

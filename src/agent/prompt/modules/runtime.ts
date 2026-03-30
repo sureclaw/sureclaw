@@ -63,8 +63,10 @@ export class RuntimeModule extends BasePromptModule {
         ...(ctx.hasToolStubs ? [
           `  - ./agent/tools/ — typed tool stubs for MCP connectors [read-only]`,
           `    Each subdirectory is an MCP server (e.g. ./agent/tools/linear/).`,
-          `    Read the index.ts barrel to discover available functions.`,
-          `    Import and call them — they batch over IPC automatically.`,
+          `    Read the index.ts barrel to discover available functions, then write`,
+          `    a short script that imports and calls them. Execute with:`,
+          `    \`node --experimental-strip-types script.ts\``,
+          `    Example: \`import { listIssues } from './agent/tools/linear/listIssues.ts'; const r = await listIssues({...}); console.log(JSON.stringify(r));\``,
         ] : []),
       ] : []),
       ...(ctx.hasUserWorkspace ? [

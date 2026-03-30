@@ -2,6 +2,18 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-03-30 13:45] — Fix MCP tool stubs for HTTP IPC (k8s mode)
+
+**Task:** Fix "get all linear issues in this cycle" prompt making 40+ tool calls. Tool stubs in `./agent/tools/` couldn't execute because they only supported Unix socket IPC, but k8s uses HTTP IPC.
+**What I did:** Three-part fix:
+1. `codegen.ts` — Updated `_runtime.ts` template to auto-detect transport: uses `AX_HOST_URL` → HTTP fetch to `/internal/ipc`, or falls back to Unix socket IPC. Both paths use the `tool_batch` action.
+2. `codegen.ts` — Changed import extensions from `.js` to `.ts` so `node --experimental-strip-types` can resolve them.
+3. `runtime.ts` (prompt) — Added explicit instructions: use `node --experimental-strip-types script.ts` to execute, with example import path.
+4. `ipc-schemas.ts` — Increased `tools` array max 50→200 and description limit 2000→10000.
+**Files touched:** src/host/capnweb/codegen.ts, src/agent/prompt/modules/runtime.ts, src/ipc-schemas.ts
+**Outcome:** Success — LLM now discovers stubs, writes a script, executes it via bash. Queries return real Linear data. Tool call count varies (6-17 depending on LLM iteration) vs 40+ before (all failing).
+**Notes:** Must clear `tool-stubs` cache in DB after changing runtime template (schema hash doesn't include template changes). First attempt (registering MCP tools as first-class LLM tools) was wrong — stubs exist to save tokens by keeping 43 tool schemas out of every LLM turn.
+
 ## [2026-03-29 21:30] — Add skill_create with user-scoped skills
 
 **Task:** Allow users to create, test, and debug personal skills (/workspace/user/skills/) before an admin promotes them to agent scope. The skill_create tool auto-detects scope: non-admin users in DM/web get user-scoped, admins get agent-scoped.

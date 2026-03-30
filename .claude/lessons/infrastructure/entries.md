@@ -1,3 +1,9 @@
+### MCP tool stubs must support HTTP IPC for k8s mode
+**Date:** 2026-03-30
+**Context:** "get all linear issues in this cycle" prompt triggered 40+ bash/read_file calls. The generated `_runtime.ts` in `./agent/tools/` only supported Unix socket IPC (`AX_IPC_SOCKET`), which is empty in k8s HTTP IPC mode. The stubs are intentional — they save tokens by keeping MCP tool schemas out of every LLM turn. Do NOT register MCP tools as first-class LLM tools.
+**Lesson:** The `_runtime.ts` template must auto-detect transport: check `AX_HOST_URL` for HTTP mode (POST to `/internal/ipc` with Bearer token from `AX_IPC_TOKEN`), fall back to Unix socket. Import paths must use `.ts` extensions (not `.js`) for `node --experimental-strip-types` compatibility. The system prompt must give explicit execution instructions. After changing the runtime template, clear the `tool-stubs` cache in DB (`DELETE FROM documents WHERE collection = 'tool-stubs'`) because the schema hash doesn't cover template changes.
+**Tags:** mcp, tool-stubs, codegen, runtime, http-ipc, k8s, experimental-strip-types
+
 ### initHostCore must create McpConnectionManager by default
 **Date:** 2026-03-29
 **Context:** Debugging why /workspace/agent/tools directory was missing in k8s despite 10 MCP connectors being activated. Traced through server-completions.ts → deps.mcpManager was always undefined because neither server-k8s.ts nor server-local.ts passed it to initHostCore, and initHostCore just destructured `undefined` from opts.

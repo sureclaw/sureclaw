@@ -73,8 +73,6 @@ export interface AgentConfig {
   workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
-  /** MCP tool schemas — registered as first-class LLM tools by pi-session runner. */
-  mcpToolSchemas?: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; server?: string }>;
   /** Pre-loaded skills from host (via stdin payload from DB).
    *  Written to workspace skills/ directory before runner starts. */
   skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
@@ -297,9 +295,6 @@ export interface StdinPayload {
   /** Pre-generated tool stubs for scripted MCP tool execution.
    *  Cached in DocumentStore by schema hash, written to agentWorkspace/tools/. */
   toolStubs?: Array<{ path: string; content: string }>;
-  /** MCP tool schemas — registered as first-class LLM tools so the agent
-   *  can call them directly instead of exploring TypeScript stubs via bash. */
-  mcpToolSchemas?: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; server?: string }>;
 }
 
 /**
@@ -355,7 +350,6 @@ export function parseStdinPayload(data: string): StdinPayload {
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
         userSkills: Array.isArray(parsed.userSkills) ? parsed.userSkills : undefined,
         toolStubs: Array.isArray(parsed.toolStubs) ? parsed.toolStubs : undefined,
-        mcpToolSchemas: Array.isArray(parsed.mcpToolSchemas) ? parsed.mcpToolSchemas : undefined,
       };
     }
   } catch {
@@ -560,11 +554,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       writeFileSync(filePath, file.content, 'utf-8');
     }
     logger.info('tool_stubs_written', { count: payload.toolStubs.length, dir: toolsBase });
-  }
-
-  // Pass MCP tool schemas to config so pi-session can register them as LLM tools
-  if (Array.isArray(payload.mcpToolSchemas) && payload.mcpToolSchemas.length > 0) {
-    config.mcpToolSchemas = payload.mcpToolSchemas;
   }
 
   if (payload.identity) {
