@@ -54,6 +54,8 @@ export interface PromptContext {
   hasToolStubs?: boolean;
   /** Tool stub server directories with their tool names (from index.ts barrel). */
   toolStubServers?: Array<{ server: string; tools: string[] }>;
+  /** MCP CLI tool names available in PATH (e.g. ['linear', 'github']). */
+  mcpCLIs?: string[];
   /** Whether to show skill install instructions (detected from user message). */
   skillInstallEnabled?: boolean;
 
