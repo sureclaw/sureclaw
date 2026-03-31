@@ -8,6 +8,9 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TextContent, ToolCall, AssistantMessage } from '@mariozechner/pi-ai';
 
+/** Cap tool result content to avoid blowing up the LLM context window. */
+const MAX_TOOL_RESULT_CHARS = 200_000;
+
 // ── Message types ────────────────────────────────────────────────────
 
 /** Converted message in IPC/Anthropic API format. */
@@ -58,10 +61,13 @@ export function convertPiMessages(messages: readonly any[]): ConvertedMessage[] 
       return { role: 'assistant', content: blocks };
     }
     if (m.role === 'toolResult') {
-      const text = m.content
+      let text = m.content
         .filter((c: any): c is TextContent => c.type === 'text')
         .map((c: any) => c.text)
         .join('');
+      if (text.length > MAX_TOOL_RESULT_CHARS) {
+        text = text.slice(0, MAX_TOOL_RESULT_CHARS) + `\n\n[truncated — ${text.length} chars total]`;
+      }
       return {
         role: 'user',
         content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text || '[no output]' }],

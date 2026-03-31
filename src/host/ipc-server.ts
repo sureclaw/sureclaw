@@ -222,7 +222,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     const schema = IPC_SCHEMAS[actionName];
     const validated = schema.safeParse(parsed);
     if (!validated.success) {
-      logger.debug('validation_failed', { action: actionName, errors: validated.error?.message });
+      const errorSummary = validated.error?.issues?.slice(0, 3).map(i => `${i.path.join('.')}: ${i.message}`).join('; ') ?? validated.error?.message;
+      logger.warn('validation_failed', { action: actionName, errors: errorSummary });
       await providers.audit.log({
         action: 'ipc_validation_failure',
         sessionId: effectiveCtx.sessionId,
@@ -231,7 +232,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       });
       return respond({
         ok: false,
-        error: `Validation failed for action "${actionName}"`,
+        error: `Validation failed for action "${actionName}": ${errorSummary}`,
       });
     }
 
