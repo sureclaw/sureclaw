@@ -42,13 +42,19 @@ function* walkDir(dir: string): Generator<string> {
   }
 }
 
+/** Compile a user-supplied regex with length guard and error handling. */
+function safeRegExp(pattern: string, maxLen = 10_000): RegExp {
+  if (pattern.length > maxLen) throw new Error(`Pattern too long (${pattern.length} > ${maxLen})`);
+  return new RegExp(pattern);
+}
+
 /** Pure Node.js grep fallback. */
 function nodeGrep(
   searchPath: string,
   pattern: string,
   opts: { maxResults: number; lineNumbers: boolean; glob?: string },
 ): { matches: string; truncated: boolean; count: number } {
-  const re = new RegExp(pattern);
+  const re = safeRegExp(pattern);
   let output = '';
   let count = 0;
   let truncated = false;

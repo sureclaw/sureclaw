@@ -10,7 +10,7 @@
  *
  * Every file operation uses safePath() for path containment (SC-SEC-004).
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { minimatch } from 'minimatch';
@@ -47,13 +47,19 @@ function* walkDir(dir: string): Generator<string> {
   }
 }
 
+/** Compile a user-supplied regex with length guard and error handling. */
+function safeRegExp(pattern: string, maxLen = 10_000): RegExp {
+  if (pattern.length > maxLen) throw new Error(`Pattern too long (${pattern.length} > ${maxLen})`);
+  return new RegExp(pattern);
+}
+
 /** Pure Node.js grep fallback — regex match on files. */
 function nodeGrep(
   searchPath: string,
   pattern: string,
   opts: { maxResults: number; lineNumbers: boolean; glob?: string },
 ): { matches: string; truncated: boolean; count: number } {
-  const re = new RegExp(pattern);
+  const re = safeRegExp(pattern);
   let output = '';
   let count = 0;
   let truncated = false;
