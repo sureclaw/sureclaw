@@ -5,14 +5,17 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
+  FileIcon,
   LoaderIcon,
   PaperclipIcon,
   PencilIcon,
   RefreshCwIcon,
   Square,
+  XIcon,
 } from 'lucide-react';
 import {
   ActionBarPrimitive,
+  AttachmentPrimitive,
   AuiIf,
   ChainOfThoughtPrimitive,
   ComposerPrimitive,
@@ -59,6 +62,18 @@ const ThreadWelcome: FC = () => (
   </div>
 );
 
+const ComposerAttachment: FC = () => (
+  <AttachmentPrimitive.Root className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/80 px-3 py-1.5 text-[13px]">
+    <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    <span className="truncate text-foreground"><AttachmentPrimitive.Name /></span>
+    <AttachmentPrimitive.Remove asChild>
+      <button className="ml-1 shrink-0 p-0.5 text-muted-foreground hover:text-foreground transition-colors duration-150">
+        <XIcon className="size-3" />
+      </button>
+    </AttachmentPrimitive.Remove>
+  </AttachmentPrimitive.Root>
+);
+
 const Composer: FC = () => (
   <div className="sticky bottom-0 mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col gap-4 rounded-t-3xl bg-background pb-4 md:pb-6">
     <ThreadPrimitive.ScrollToBottom asChild>
@@ -68,6 +83,9 @@ const Composer: FC = () => (
     </ThreadPrimitive.ScrollToBottom>
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
       <div className="flex w-full flex-col rounded-2xl border border-border/50 bg-card/80 px-1 pt-2 shadow-xs backdrop-blur-sm transition-all duration-150 has-[textarea:focus-visible]:border-amber/30 has-[textarea:focus-visible]:ring-[3px] has-[textarea:focus-visible]:ring-amber/10">
+        <ComposerPrimitive.Attachments
+          components={{ Attachment: ComposerAttachment }}
+        />
         <ComposerPrimitive.Input
           placeholder="Send a message..."
           className="mb-1 max-h-32 min-h-16 w-full resize-none bg-transparent px-3.5 pt-1.5 pb-3 text-[14px] outline-none placeholder:text-muted-foreground"
