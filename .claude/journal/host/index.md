@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-03-31 01:30 — Fix chat UI markdown rendering (tables, code, headings) and transport text-appending bug [chat-ui.md](chat-ui.md)
 - 2026-03-29 22:35 — Fix MCP Streamable HTTP client: missing Accept header and 406 handling [plugin.md](plugin.md)
 - 2026-03-29 22:25 — Fix MCP tool stub provisioning: McpConnectionManager + credential auto-discovery [plugin.md](plugin.md)
 - 2026-03-29 15:35 — Fix CodeRabbitAI + github-code-quality review comments on PR #135 [plugin.md](plugin.md)

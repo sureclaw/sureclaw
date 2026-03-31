@@ -68,6 +68,8 @@
 
 ### architecture
 
+- Chat UI prose classes require @tailwindcss/typography plugin — silently no-ops without it [architecture/entries.md](architecture/entries.md)
+- Transport text part IDs must be unique across tool-call boundaries [architecture/entries.md](architecture/entries.md)
 - Chat UI requires custom ChatTransport for OpenAI SSE — DefaultChatTransport uses AI SDK data stream format [architecture/entries.md](architecture/entries.md)
 - NATS eventbus provider implements full EventBus interface — no separate NATS SSE needed [architecture/entries.md](architecture/entries.md)
 - In-memory promise maps create hidden session affinity requirements [architecture/entries.md](architecture/entries.md)

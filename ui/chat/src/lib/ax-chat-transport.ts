@@ -83,7 +83,8 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
     stream: ReadableStream<Uint8Array>,
   ): ReadableStream<UIMessageChunk> {
     this.onRunStart?.();
-    const textPartId = 'text-0';
+    let textPartCounter = 0;
+    let textPartId = 'text-0';
     let started = false;
     // Track named SSE events (event: line precedes data: line)
     let pendingEventName: string | null = null;
@@ -206,8 +207,16 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
                       : finishReason === 'content_filter'
                         ? 'content-filter'
                         : 'stop';
-                controller.enqueue({ type: 'finish', finishReason: reason });
-                finished = true;
+                if (reason === 'tool-calls') {
+                  // Reset for next text segment after tool execution
+                  started = false;
+                  toolsStarted = false;
+                  textPartCounter++;
+                  textPartId = `text-${textPartCounter}`;
+                } else {
+                  controller.enqueue({ type: 'finish', finishReason: reason });
+                  finished = true;
+                }
               }
             }
           },

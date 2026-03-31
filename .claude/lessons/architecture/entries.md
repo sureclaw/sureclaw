@@ -1,5 +1,17 @@
 # Architecture
 
+## Chat UI prose classes require @tailwindcss/typography plugin
+**Date:** 2026-03-31
+**Context:** Chat UI markdown-text.tsx used Tailwind `prose` classes but `@tailwindcss/typography` was not installed. All prose-* utility classes were silently no-ops — headings, lists, code blocks, and tables rendered as unstyled elements.
+**Lesson:** When using Tailwind v4 with `prose` classes, you MUST: 1) install `@tailwindcss/typography`, 2) add `@plugin "@tailwindcss/typography"` in the CSS file. Without it, prose classes silently do nothing. Also, `react-markdown` does NOT parse GFM tables by default — you need `remark-gfm` as a remarkPlugin.
+**Tags:** tailwind, typography, prose, react-markdown, remark-gfm, chat-ui
+
+## Transport text part IDs must be unique across tool-call boundaries
+**Date:** 2026-03-31
+**Context:** Chat UI transport used a single `textPartId = 'text-0'` for the entire SSE stream. After `finish_reason: 'tool_calls'`, subsequent text deltas reused the same ID, causing assistant-ui to append new text to the previous text part without whitespace.
+**Lesson:** In `processResponseStream`, after a `tool-calls` finish, reset `started = false` and increment the text part ID counter so the next text segment creates a fresh text part. Don't emit a `finish` chunk for tool-calls — only emit finish for the final `stop`.
+**Tags:** transport, assistant-ui, text-part, tool-calls, streaming, chat-ui
+
 ## Cap'n Web RpcTarget only exposes prototype methods — use dynamic class construction
 **Date:** 2026-03-28
 **Context:** Building Cap'n Web RPC server that dynamically creates methods from MCP tool schemas.

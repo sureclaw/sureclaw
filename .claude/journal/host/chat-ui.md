@@ -2,6 +2,23 @@
 
 Journal entries for the chat UI implementation.
 
+## [2026-03-31 01:30] — Fix chat UI markdown rendering and styling
+
+**Task:** Fix broken markdown rendering in chat UI — tables not parsed, headings/lists/code blocks unstyled, text appending without whitespace after tool calls
+**What I did:**
+- Installed `remark-gfm` for GFM table parsing and `@tailwindcss/typography` for prose styles
+- Added `@plugin "@tailwindcss/typography"` to index.css
+- Updated `MarkdownText` component to pass `remarkGfm` plugin and refined prose classes
+- Added custom CSS overrides for headings, inline code, code blocks, and tables in both light/dark mode
+- Fixed transport text-appending bug: after `finish(tool-calls)`, reset text part state and increment part ID so subsequent text creates a new segment
+**Files touched:**
+- `ui/chat/package.json` — added remark-gfm, @tailwindcss/typography
+- `ui/chat/src/index.css` — added typography plugin, markdown prose overrides
+- `ui/chat/src/components/markdown-text.tsx` — added remarkGfm plugin, refined className
+- `ui/chat/src/lib/ax-chat-transport.ts` — fixed text part ID cycling after tool-calls finish
+**Outcome:** Success — tables, headings, lists, code blocks, inline code all render properly in both light and dark mode. Verified via Playwright against kind cluster.
+**Notes:** Old conversations that already stored text without whitespace (baked into history) still show the concatenation. Only new streamed responses benefit from the transport fix.
+
 ## [2026-03-21 16:30] — Add --k8s mode to chat-dev.sh
 
 **Task:** Enable the chat UI dev loop to point at a kind k8s cluster instead of a local AX server
