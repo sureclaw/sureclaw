@@ -215,6 +215,99 @@ describe('Sandbox tool IPC handlers', () => {
     });
   });
 
+  // ── sandbox_grep ──
+
+  describe('sandbox_grep', () => {
+    test('finds matching lines in files', async () => {
+      writeFileSync(join(workspace, 'test.ts'), 'const foo = 1;\nconst bar = 2;\nconst foobar = 3;\n');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_grep({ pattern: 'foo' }, ctx);
+      expect(result.matches).toContain('foo');
+      expect(result.count).toBeGreaterThanOrEqual(2);
+    });
+
+    test('respects max_results limit', async () => {
+      const lines = Array.from({ length: 50 }, (_, i) => `line ${i} match`).join('\n');
+      writeFileSync(join(workspace, 'big.txt'), lines);
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_grep({ pattern: 'match', max_results: 5 }, ctx);
+      expect(result.count).toBe(5);
+      expect(result.truncated).toBe(true);
+    });
+
+    test('returns empty for no matches', async () => {
+      writeFileSync(join(workspace, 'empty.txt'), 'nothing here');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_grep({ pattern: 'zzz_no_match' }, ctx);
+      expect(result.count).toBe(0);
+    });
+
+    test('filters by glob pattern', async () => {
+      writeFileSync(join(workspace, 'code.ts'), 'const x = 1;');
+      writeFileSync(join(workspace, 'readme.md'), 'const y = 2;');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_grep({ pattern: 'const', glob: '*.ts' }, ctx);
+      expect(result.matches).toContain('code.ts');
+      expect(result.matches).not.toContain('readme.md');
+    });
+
+    test('audits the grep operation', async () => {
+      writeFileSync(join(workspace, 'a.txt'), 'hello');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      await handlers.sandbox_grep({ pattern: 'hello' }, ctx);
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'sandbox_grep',
+          sessionId: 'test-session',
+          result: 'success',
+        }),
+      );
+    });
+  });
+
+  // ── sandbox_glob ──
+
+  describe('sandbox_glob', () => {
+    test('finds files matching pattern', async () => {
+      writeFileSync(join(workspace, 'app.ts'), '');
+      writeFileSync(join(workspace, 'app.test.ts'), '');
+      mkdirSync(join(workspace, 'src'), { recursive: true });
+      writeFileSync(join(workspace, 'src', 'index.ts'), '');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_glob({ pattern: '*.ts' }, ctx);
+      expect(result.files.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('respects max_results limit', async () => {
+      for (let i = 0; i < 20; i++) {
+        writeFileSync(join(workspace, `file${i}.txt`), '');
+      }
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_glob({ pattern: '*.txt', max_results: 5 }, ctx);
+      expect(result.files.length).toBe(5);
+      expect(result.truncated).toBe(true);
+    });
+
+    test('returns empty for no matches', async () => {
+      writeFileSync(join(workspace, 'file.txt'), '');
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      const result = await handlers.sandbox_glob({ pattern: '*.xyz' }, ctx);
+      expect(result.files.length).toBe(0);
+    });
+
+    test('audits the glob operation', async () => {
+      const handlers = createSandboxToolHandlers(providers, { workspaceMap });
+      await handlers.sandbox_glob({ pattern: '*.ts' }, ctx);
+      expect(providers.audit.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'sandbox_glob',
+          sessionId: 'test-session',
+          result: 'success',
+        }),
+      );
+    });
+  });
+
   // ── workspace tier access via symlink mountRoot ──
 
   describe('workspace tier access via mountRoot symlinks', () => {

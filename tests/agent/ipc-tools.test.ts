@@ -151,10 +151,10 @@ describe('ipc-tools', () => {
     expect(tool!.description).toContain('cron');
   });
 
-  test('total tool count is 18 without filter', () => {
+  test('total tool count is 20 without filter', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(18);
+    expect(tools.length).toBe(20);
   });
 
   test('filter excludes scheduler tool when hasHeartbeat is false', () => {
@@ -210,7 +210,7 @@ describe('ipc-tools', () => {
       filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + sandbox(4) = 11 tools
+    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + sandbox(6) = 14 tools
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
@@ -223,6 +223,8 @@ describe('ipc-tools', () => {
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
-    expect(tools.length).toBe(12);
+    expect(names).toContain('grep');
+    expect(names).toContain('glob');
+    expect(tools.length).toBe(14);
   });
 });

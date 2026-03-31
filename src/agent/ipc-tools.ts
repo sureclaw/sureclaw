@@ -68,6 +68,25 @@ export function createIPCTools(client: IIPCClient, opts?: IPCToolsOptions): Agen
             return text(JSON.stringify(await sandbox.writeFile(callParams.path as string, callParams.content as string)));
           case 'sandbox_edit_file':
             return text(JSON.stringify(await sandbox.editFile(callParams.path as string, callParams.old_string as string, callParams.new_string as string)));
+          case 'sandbox_grep':
+            return text(JSON.stringify(await sandbox.grep(
+              callParams.pattern as string,
+              {
+                path: callParams.path as string | undefined,
+                glob: callParams.glob as string | undefined,
+                max_results: callParams.max_results as number | undefined,
+                include_line_numbers: callParams.include_line_numbers as boolean | undefined,
+                context_lines: callParams.context_lines as number | undefined,
+              },
+            )));
+          case 'sandbox_glob':
+            return text(JSON.stringify(await sandbox.glob(
+              callParams.pattern as string,
+              {
+                path: callParams.path as string | undefined,
+                max_results: callParams.max_results as number | undefined,
+              },
+            )));
         }
       }
 

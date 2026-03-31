@@ -33,13 +33,17 @@ export class ToolStyleModule extends BasePromptModule {
       '',
       '**Errors**: If a tool call fails, try a reasonable alternative before asking',
       'the user for help. Report persistent failures with the error details.',
+      '',
+      '**Search**: Prefer `grep` over `bash` + `rg`/`grep` for content search, and',
+      '`glob` over `bash` + `find`/`ls` for file discovery. These tools limit output',
+      'to avoid flooding your context window.',
     ];
   }
 
   renderMinimal(_ctx: PromptContext): string[] {
     return [
       '## Tools',
-      'Don\'t narrate routine tool calls. Batch independent calls. Try alternatives on failure.',
+      'Don\'t narrate routine tool calls. Batch independent calls. Try alternatives on failure. Use grep/glob instead of bash for search.',
     ];
   }
 }

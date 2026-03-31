@@ -186,6 +186,139 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
       }
     },
 
+    sandbox_grep: async (req: any, ctx: IPCContext) => {
+      const workspace = resolveWorkspace(opts, ctx);
+      const maxResults = req.max_results ?? 100;
+      const includeLineNumbers = req.include_line_numbers !== false;
+      const contextLines = req.context_lines ?? 0;
+
+      // Build rg command
+      const args: string[] = ['--no-heading', '--color', 'never'];
+      if (includeLineNumbers) args.push('-n');
+      if (contextLines > 0) args.push('-C', String(contextLines));
+      if (req.glob) args.push('--glob', req.glob);
+      args.push('--', req.pattern);
+
+      // Resolve search path within workspace
+      const searchPath = req.path
+        ? safeWorkspacePath(workspace, req.path)
+        : workspace;
+      args.push(searchPath);
+
+      return new Promise<{ matches: string; truncated: boolean; count: number }>((resolve) => {
+        const child = spawn('rg', args, {
+          cwd: workspace,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let output = '';
+        let lineCount = 0;
+        let truncated = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (truncated) return;
+          const text = chunk.toString('utf-8');
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (lineCount >= maxResults) {
+              truncated = true;
+              return;
+            }
+            if (line || lineCount > 0) {
+              output += (output ? '\n' : '') + line;
+              if (line) lineCount++;
+            }
+          }
+        });
+
+        child.on('close', async (code) => {
+          await providers.audit.log({
+            action: 'sandbox_grep',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern.slice(0, 200), path: req.path },
+            result: code === 0 || code === 1 ? 'success' : 'error',
+          });
+          // rg exits 1 for "no matches" — that's not an error
+          resolve({ matches: output, truncated, count: lineCount });
+        });
+
+        child.on('error', async (err) => {
+          await providers.audit.log({
+            action: 'sandbox_grep',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern.slice(0, 200) },
+            result: 'error',
+          });
+          resolve({ matches: `Error: ${err.message}`, truncated: false, count: 0 });
+        });
+      });
+    },
+
+    sandbox_glob: async (req: any, ctx: IPCContext) => {
+      const workspace = resolveWorkspace(opts, ctx);
+      const maxResults = req.max_results ?? 100;
+
+      // Resolve base path within workspace
+      const basePath = req.path
+        ? safeWorkspacePath(workspace, req.path)
+        : workspace;
+
+      // Use rg --files with glob pattern for fast file listing
+      const args: string[] = ['--files', '--glob', req.pattern, '--color', 'never'];
+      args.push(basePath);
+
+      return new Promise<{ files: string[]; truncated: boolean; count: number }>((resolve) => {
+        const child = spawn('rg', args, {
+          cwd: workspace,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        const files: string[] = [];
+        let buffer = '';
+        let truncated = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (truncated) return;
+          buffer += chunk.toString('utf-8');
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line) continue;
+            if (files.length >= maxResults) {
+              truncated = true;
+              return;
+            }
+            // Return relative paths from workspace root
+            files.push(line.startsWith(workspace) ? line.slice(workspace.length + 1) : line);
+          }
+        });
+
+        child.on('close', async (code) => {
+          // Process any remaining buffer content
+          if (buffer && !truncated && files.length < maxResults) {
+            files.push(buffer.startsWith(workspace) ? buffer.slice(workspace.length + 1) : buffer);
+          }
+          await providers.audit.log({
+            action: 'sandbox_glob',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern, path: req.path },
+            result: code === 0 || code === 1 ? 'success' : 'error',
+          });
+          resolve({ files, truncated, count: files.length });
+        });
+
+        child.on('error', async (err) => {
+          await providers.audit.log({
+            action: 'sandbox_glob',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern },
+            result: 'error',
+          });
+          resolve({ files: [], truncated: false, count: 0 });
+        });
+      });
+    },
+
     // ── Sandbox Audit Gate (container-local execution) ──────────
 
     sandbox_approve: async (req: any, ctx: IPCContext) => {

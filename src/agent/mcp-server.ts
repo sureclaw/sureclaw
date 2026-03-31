@@ -337,6 +337,48 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         ? async (args) => textResult(await sandbox.editFile(args.path, args.old_string, args.new_string))
         : (args) => ipcCall('sandbox_edit_file', args),
     ),
+
+    // ── Grep (search file contents) ──
+    tool('grep', getToolDescription('grep'),
+      {
+        pattern: z.string().describe('Regex pattern to search for'),
+        path: z.string().optional().describe('Directory to search in, relative to workspace (default: ".")'),
+        glob: z.string().optional().describe('File filter pattern, e.g. "*.ts", "*.{js,jsx}"'),
+        max_results: z.number().optional().describe('Maximum matching lines to return (default: 100)'),
+        include_line_numbers: z.boolean().optional().describe('Show line numbers (default: true)'),
+        context_lines: z.number().optional().describe('Lines of context around each match (default: 0)'),
+      },
+      sandbox
+        ? async (args) => textResult(await sandbox.grep(args.pattern, {
+            path: args.path,
+            glob: args.glob,
+            max_results: args.max_results,
+            include_line_numbers: args.include_line_numbers,
+            context_lines: args.context_lines,
+          }))
+        : (args) => {
+            const params = Object.fromEntries(Object.entries(args).filter(([_, v]) => v !== undefined));
+            return ipcCall('sandbox_grep', params);
+          },
+    ),
+
+    // ── Glob (find files by pattern) ──
+    tool('glob', getToolDescription('glob'),
+      {
+        pattern: z.string().describe('Glob pattern, e.g. "**/*.ts", "src/**/*.test.*"'),
+        path: z.string().optional().describe('Base directory, relative to workspace (default: ".")'),
+        max_results: z.number().optional().describe('Maximum files to return (default: 100)'),
+      },
+      sandbox
+        ? async (args) => textResult(await sandbox.glob(args.pattern, {
+            path: args.path,
+            max_results: args.max_results,
+          }))
+        : (args) => {
+            const params = Object.fromEntries(Object.entries(args).filter(([_, v]) => v !== undefined));
+            return ipcCall('sandbox_glob', params);
+          },
+    ),
   ];
 
   // Filter tools if context was provided

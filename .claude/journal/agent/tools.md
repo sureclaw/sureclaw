@@ -2,6 +2,22 @@
 
 Tool catalog consolidation, MCP server tools, tool definition generation, prompt module updates.
 
+## [2026-03-31 10:00] — Add dedicated grep and glob tools to agent
+
+**Task:** Add structured `grep` and `glob` tools to pi-coding-agent, replacing raw bash `rg`/`find` usage with context-window-safe alternatives
+**What I did:** Full-stack implementation across 10 files:
+- IPC schemas: `SandboxGrepSchema` and `SandboxGlobSchema` in ipc-schemas.ts, updated SandboxApprove/Result enums
+- Tool catalog: two new singleton tools in `sandbox` category (tool-catalog.ts)
+- Host handlers: `sandbox_grep` (spawns `rg` with streaming truncation) and `sandbox_glob` (spawns `rg --files --glob`) in sandbox-tools.ts
+- Local sandbox: `grep()` and `glob()` methods with audit gate pattern in local-sandbox.ts
+- IPC routing: two new switch cases in ipc-tools.ts
+- MCP server: two new `tool()` definitions for claude-code runner in mcp-server.ts
+- Prompt: tool-style.ts updated to guide agent to prefer grep/glob over bash
+- Tests: 9 new handler tests (5 grep, 4 glob), updated tool counts in 4 test files (18→20)
+**Files touched:** Modified: src/ipc-schemas.ts, src/agent/tool-catalog.ts, src/host/ipc-handlers/sandbox-tools.ts, src/agent/local-sandbox.ts, src/agent/ipc-tools.ts, src/agent/mcp-server.ts, src/agent/prompt/modules/tool-style.ts, tests/host/ipc-handlers/sandbox-tools.test.ts, tests/agent/ipc-tools.test.ts, tests/agent/tool-catalog.test.ts, tests/agent/mcp-server.test.ts, tests/sandbox-isolation.test.ts
+**Outcome:** Success — all 2762 tests passing
+**Notes:** Both tools use ripgrep (`rg`) as backend. Key feature is `max_results` (default 100) with `truncated` flag to protect context window. Tool counts went from 18 to 20 in 5 separate test files — lesson reinforced: tool count is hardcoded in many places.
+
 ## [2026-03-15 15:30] — Implement local sandbox execution (Tasks 1-11)
 
 **Task:** Implement unified agent container architecture — agents execute tools locally with host audit gate

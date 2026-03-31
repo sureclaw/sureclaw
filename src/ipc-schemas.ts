@@ -426,10 +426,25 @@ export const SandboxEditFileSchema = ipcAction('sandbox_edit_file', {
   new_string: safeString(500_000),
 });
 
+export const SandboxGrepSchema = ipcAction('sandbox_grep', {
+  pattern: safeString(10_000),
+  path: safeString(1024).optional(),
+  glob: safeString(1024).optional(),
+  max_results: z.number().int().min(1).max(10_000).optional(),
+  include_line_numbers: z.boolean().optional(),
+  context_lines: z.number().int().min(0).max(20).optional(),
+});
+
+export const SandboxGlobSchema = ipcAction('sandbox_glob', {
+  pattern: safeString(1024),
+  path: safeString(1024).optional(),
+  max_results: z.number().int().min(1).max(10_000).optional(),
+});
+
 // ── Sandbox Audit Gate (container-local execution) ─────────
 
 export const SandboxApproveSchema = ipcAction('sandbox_approve', {
-  operation: z.enum(['bash', 'read', 'write', 'edit']),
+  operation: z.enum(['bash', 'read', 'write', 'edit', 'grep', 'glob']),
   command: safeString(100_000).optional(),
   path: safeString(1024).optional(),
   content: safeString(500_000).optional(),
@@ -438,7 +453,7 @@ export const SandboxApproveSchema = ipcAction('sandbox_approve', {
 });
 
 export const SandboxResultSchema = ipcAction('sandbox_result', {
-  operation: z.enum(['bash', 'read', 'write', 'edit']),
+  operation: z.enum(['bash', 'read', 'write', 'edit', 'grep', 'glob']),
   command: safeString(100_000).optional(),
   path: safeString(1024).optional(),
   output: safeString(500_000).optional(),

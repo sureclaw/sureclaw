@@ -2,6 +2,14 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-03-31 12:00] — Add search tool guidance to ToolStyleModule
+
+**Task:** Update ToolStyleModule to advise the agent to prefer grep/glob over bash for search and file discovery.
+**What I did:** Added a new "Search" paragraph to `render()` after the "Errors" paragraph, instructing agents to prefer `grep` over `bash` + `rg`/`grep` for content search and `glob` over `bash` + `find`/`ls` for file discovery. Updated `renderMinimal()` to append "Use grep/glob instead of bash for search." to the compact guidance line.
+**Files touched:** src/agent/prompt/modules/tool-style.ts
+**Outcome:** Success — both render methods updated as specified.
+**Notes:** Part of Task 7 (Tool Style Prompt Update). The guidance helps agents avoid flooding their context window with unbounded bash output.
+
 ## [2026-03-29 11:50] — Add CommandsModule for plugin slash commands
 
 **Task:** Implement Task 10 of the Cowork plugin integration plan — create a commands prompt module to surface installed plugin slash commands.
