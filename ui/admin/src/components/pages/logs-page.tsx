@@ -250,7 +250,7 @@ export default function LogsPage() {
                     </td>
                     <td className="px-6 py-3">
                       <span className="font-mono text-[11px] text-muted-foreground/50">
-                        {entry.sessionId.slice(0, 12)}...
+                        {entry.sessionId?.slice(0, 12) ?? '—'}...
                       </span>
                     </td>
                     <td className="px-6 py-3">

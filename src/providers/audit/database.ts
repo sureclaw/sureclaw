@@ -13,7 +13,7 @@ import type { Kysely } from 'kysely';
 function rowToEntry(row: Record<string, unknown>): AuditEntry {
   return {
     timestamp: new Date(row.timestamp as string),
-    sessionId: row.session_id as string,
+    sessionId: (row.session_id as string) ?? undefined,
     action: row.action as string,
     args: row.args ? JSON.parse(row.args as string) : {},
     result: row.result as 'success' | 'blocked' | 'error',

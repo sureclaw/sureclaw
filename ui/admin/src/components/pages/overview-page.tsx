@@ -381,7 +381,7 @@ export default function OverviewPage() {
                           {entry.action}
                         </p>
                         <p className="text-[10px] font-mono text-muted-foreground/40">
-                          {entry.sessionId.slice(0, 8)}...
+                          {entry.sessionId?.slice(0, 8) ?? '—'}...
                         </p>
                       </div>
                     </div>

@@ -97,7 +97,7 @@ function ThreatEntry({ entry }: { entry: AuditEntry }) {
         </div>
         <div className="mt-1 flex items-center gap-2">
           <span className="text-[10px] font-mono text-muted-foreground/40">
-            {entry.sessionId.slice(0, 12)}...
+            {entry.sessionId?.slice(0, 12) ?? '—'}...
           </span>
         </div>
         {entry.args && Object.keys(entry.args).length > 0 && (
@@ -346,7 +346,7 @@ export default function SecurityPage() {
                         </span>
                         <div className="mt-1 flex items-center gap-2">
                           <span className="text-[10px] font-mono text-muted-foreground/40">
-                            {entry.sessionId.slice(0, 8)}...
+                            {entry.sessionId?.slice(0, 8) ?? '—'}...
                           </span>
                           <span className="text-[10px] text-muted-foreground/20">|</span>
                           <span className="text-[10px] text-muted-foreground/40">

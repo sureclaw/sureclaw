@@ -3,7 +3,7 @@ import type { TaintTag } from '../../types.js';
 
 export interface AuditEntry {
   timestamp: Date;
-  sessionId: string;
+  sessionId?: string;
   action: string;
   args: Record<string, unknown>;
   result: 'success' | 'blocked' | 'error';
