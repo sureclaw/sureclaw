@@ -10,13 +10,96 @@
  *
  * Every file operation uses safePath() for path containment (SC-SEC-004).
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { dirname, join, relative } from 'node:path';
+import { minimatch } from 'minimatch';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
+
+/** Check once whether rg is available on this system. */
+let _rgAvailable: boolean | undefined;
+function isRgAvailable(): boolean {
+  if (_rgAvailable === undefined) {
+    try {
+      const r = spawnSync('rg', ['--version'], { timeout: 5000 });
+      _rgAvailable = r.status === 0;
+    } catch {
+      _rgAvailable = false;
+    }
+  }
+  return _rgAvailable;
+}
+
+/** Recursively walk a directory, yielding file paths. */
+function* walkDir(dir: string): Generator<string> {
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* walkDir(full);
+    } else if (entry.isFile()) {
+      yield full;
+    }
+  }
+}
+
+/** Compile a user-supplied regex with length guard and error handling. */
+function safeRegExp(pattern: string, maxLen = 10_000): RegExp {
+  if (pattern.length > maxLen) throw new Error(`Pattern too long (${pattern.length} > ${maxLen})`);
+  return new RegExp(pattern);
+}
+
+/** Pure Node.js grep fallback — regex match on files. */
+function nodeGrep(
+  searchPath: string,
+  pattern: string,
+  opts: { maxResults: number; lineNumbers: boolean; glob?: string },
+): { matches: string; truncated: boolean; count: number } {
+  const re = safeRegExp(pattern);
+  let output = '';
+  let count = 0;
+  let truncated = false;
+
+  for (const filePath of walkDir(searchPath)) {
+    if (truncated) break;
+    const relPath = relative(searchPath, filePath);
+    if (opts.glob && !minimatch(relPath, opts.glob)) continue;
+    let content: string;
+    try { content = readFileSync(filePath, 'utf-8'); } catch { continue; }
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (re.test(lines[i])) {
+        if (count >= opts.maxResults) { truncated = true; break; }
+        const prefix = opts.lineNumbers ? `${relPath}:${i + 1}:` : `${relPath}:`;
+        output += (output ? '\n' : '') + prefix + lines[i];
+        count++;
+      }
+    }
+  }
+  return { matches: output, truncated, count };
+}
+
+/** Pure Node.js glob fallback — pattern match on file names. */
+function nodeGlob(
+  basePath: string,
+  pattern: string,
+  maxResults: number,
+): { files: string[]; truncated: boolean; count: number } {
+  const files: string[] = [];
+  let truncated = false;
+  for (const filePath of walkDir(basePath)) {
+    const relPath = relative(basePath, filePath);
+    if (minimatch(relPath, pattern, { matchBase: true })) {
+      if (files.length >= maxResults) { truncated = true; break; }
+      files.push(relPath);
+    }
+  }
+  return { files, truncated, count: files.length };
+}
 
 const logger = getLogger().child({ component: 'sandbox-tools' });
 
@@ -184,6 +267,167 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         });
         return { error: `Error editing file: ${(err as Error).message}` };
       }
+    },
+
+    sandbox_grep: async (req: any, ctx: IPCContext) => {
+      const workspace = resolveWorkspace(opts, ctx);
+      const maxResults = req.max_results ?? 100;
+      const includeLineNumbers = req.include_line_numbers !== false;
+      const contextLines = req.context_lines ?? 0;
+
+      // Resolve search path within workspace
+      const searchPath = req.path
+        ? safeWorkspacePath(workspace, req.path)
+        : workspace;
+
+      // Fall back to pure Node.js grep if rg is not installed
+      if (!isRgAvailable()) {
+        const result = nodeGrep(searchPath, req.pattern, {
+          maxResults,
+          lineNumbers: includeLineNumbers,
+          glob: req.glob,
+        });
+        await providers.audit.log({
+          action: 'sandbox_grep',
+          sessionId: ctx.sessionId,
+          args: { pattern: req.pattern.slice(0, 200), path: req.path },
+          result: 'success',
+        });
+        return result;
+      }
+
+      // Build rg command
+      const args: string[] = ['--no-heading', '--color', 'never'];
+      if (includeLineNumbers) args.push('-n');
+      if (contextLines > 0) args.push('-C', String(contextLines));
+      if (req.glob) args.push('--glob', req.glob);
+      args.push('--', req.pattern);
+      args.push(searchPath);
+
+      return new Promise<{ matches: string; truncated: boolean; count: number }>((resolve) => {
+        const child = spawn('rg', args, {
+          cwd: workspace,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        let output = '';
+        let lineCount = 0;
+        let truncated = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (truncated) return;
+          const text = chunk.toString('utf-8');
+          const lines = text.split('\n');
+          for (const line of lines) {
+            if (lineCount >= maxResults) {
+              truncated = true;
+              return;
+            }
+            if (line || lineCount > 0) {
+              output += (output ? '\n' : '') + line;
+              if (line) lineCount++;
+            }
+          }
+        });
+
+        child.on('close', async (code) => {
+          await providers.audit.log({
+            action: 'sandbox_grep',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern.slice(0, 200), path: req.path },
+            result: code === 0 || code === 1 ? 'success' : 'error',
+          });
+          // rg exits 1 for "no matches" — that's not an error
+          resolve({ matches: output, truncated, count: lineCount });
+        });
+
+        child.on('error', async (err) => {
+          await providers.audit.log({
+            action: 'sandbox_grep',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern.slice(0, 200) },
+            result: 'error',
+          });
+          resolve({ matches: `Error: ${err.message}`, truncated: false, count: 0 });
+        });
+      });
+    },
+
+    sandbox_glob: async (req: any, ctx: IPCContext) => {
+      const workspace = resolveWorkspace(opts, ctx);
+      const maxResults = req.max_results ?? 100;
+
+      // Resolve base path within workspace
+      const basePath = req.path
+        ? safeWorkspacePath(workspace, req.path)
+        : workspace;
+
+      // Fall back to pure Node.js glob if rg is not installed
+      if (!isRgAvailable()) {
+        const result = nodeGlob(basePath, req.pattern, maxResults);
+        await providers.audit.log({
+          action: 'sandbox_glob',
+          sessionId: ctx.sessionId,
+          args: { pattern: req.pattern, path: req.path },
+          result: 'success',
+        });
+        return result;
+      }
+
+      // Use rg --files with glob pattern for fast file listing
+      const args: string[] = ['--files', '--glob', req.pattern, '--color', 'never'];
+      args.push(basePath);
+
+      return new Promise<{ files: string[]; truncated: boolean; count: number }>((resolve) => {
+        const child = spawn('rg', args, {
+          cwd: workspace,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+
+        const files: string[] = [];
+        let buffer = '';
+        let truncated = false;
+
+        child.stdout.on('data', (chunk: Buffer) => {
+          if (truncated) return;
+          buffer += chunk.toString('utf-8');
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line) continue;
+            if (files.length >= maxResults) {
+              truncated = true;
+              return;
+            }
+            // Return relative paths from workspace root
+            files.push(line.startsWith(workspace) ? line.slice(workspace.length + 1) : line);
+          }
+        });
+
+        child.on('close', async (code) => {
+          // Process any remaining buffer content
+          if (buffer && !truncated && files.length < maxResults) {
+            files.push(buffer.startsWith(workspace) ? buffer.slice(workspace.length + 1) : buffer);
+          }
+          await providers.audit.log({
+            action: 'sandbox_glob',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern, path: req.path },
+            result: code === 0 || code === 1 ? 'success' : 'error',
+          });
+          resolve({ files, truncated, count: files.length });
+        });
+
+        child.on('error', async (err) => {
+          await providers.audit.log({
+            action: 'sandbox_glob',
+            sessionId: ctx.sessionId,
+            args: { pattern: req.pattern },
+            result: 'error',
+          });
+          resolve({ files: [], truncated: false, count: 0 });
+        });
+      });
     },
 
     // ── Sandbox Audit Gate (container-local execution) ──────────

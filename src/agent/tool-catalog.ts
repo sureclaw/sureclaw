@@ -465,6 +465,48 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     category: 'sandbox',
     singletonAction: 'sandbox_edit_file',
   },
+  {
+    name: 'grep',
+    label: 'Search File Contents',
+    description:
+      'Search file contents using regex patterns. Returns matching lines with context.\n\n' +
+      'Use this instead of running grep/rg via bash — it limits output to protect your context window.\n\n' +
+      'Parameters:\n' +
+      '- pattern: Regex pattern to search for (required)\n' +
+      '- path: Directory to search in, relative to workspace (default: ".")\n' +
+      '- glob: File filter pattern, e.g. "*.ts", "*.{js,jsx}" (optional)\n' +
+      '- max_results: Maximum matching lines to return (default: 100)\n' +
+      '- include_line_numbers: Show line numbers (default: true)\n' +
+      '- context_lines: Lines of context around each match (default: 0)',
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'Regex pattern to search for' }),
+      path: Type.Optional(Type.String({ description: 'Directory to search in, relative to workspace (default: ".")' })),
+      glob: Type.Optional(Type.String({ description: 'File filter pattern, e.g. "*.ts", "*.{js,jsx}"' })),
+      max_results: Type.Optional(Type.Number({ description: 'Maximum matching lines to return (default: 100)' })),
+      include_line_numbers: Type.Optional(Type.Boolean({ description: 'Show line numbers (default: true)' })),
+      context_lines: Type.Optional(Type.Number({ description: 'Lines of context around each match (default: 0)' })),
+    }),
+    category: 'sandbox',
+    singletonAction: 'sandbox_grep',
+  },
+  {
+    name: 'glob',
+    label: 'Find Files',
+    description:
+      'Find files by name or path pattern. Returns matching file paths.\n\n' +
+      'Use this instead of running find/ls via bash — it limits output to protect your context window.\n\n' +
+      'Parameters:\n' +
+      '- pattern: Glob pattern, e.g. "**/*.ts", "src/**/*.test.*" (required)\n' +
+      '- path: Base directory, relative to workspace (default: ".")\n' +
+      '- max_results: Maximum files to return (default: 100)',
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'Glob pattern, e.g. "**/*.ts", "src/**/*.test.*"' }),
+      path: Type.Optional(Type.String({ description: 'Base directory, relative to workspace (default: ".")' })),
+      max_results: Type.Optional(Type.Number({ description: 'Maximum files to return (default: 100)' })),
+    }),
+    category: 'sandbox',
+    singletonAction: 'sandbox_glob',
+  },
 ] as const;
 
 /** All tool names, derived from the catalog. */
