@@ -485,7 +485,7 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
 
       // Upload to GCS in container mode when writing to artifacts/
       let fileId: string | undefined;
-      const isArtifact = req.operation === 'write_file' && req.content
+      const isArtifact = req.operation === 'write' && req.content
         && (req.path ?? '').split(/[/\\]/).filter(Boolean)[0] === 'artifacts';
       if (isArtifact && opts.gcsFileStorage) {
         const ext = (req.path ?? '').split('.').pop() ?? '';
