@@ -34,7 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.86",
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "^0.81.0",
     "@google-cloud/storage": "^7.19.0",
     "@inquirer/prompts": "^8.3.2",
     "@kubernetes/client-node": "^1.4.0",
