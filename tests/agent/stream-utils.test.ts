@@ -293,6 +293,32 @@ describe('injectFileBlocks', () => {
     expect(messages[0].content).toBe('hi');
   });
 
+  test('appends image_data blocks to last user message', () => {
+    const messages = [{ role: 'user', content: 'describe this image' }];
+    const imageBlocks = [
+      { type: 'image_data', data: 'iVBOR...', mimeType: 'image/png' },
+    ];
+    injectFileBlocks(messages as any, imageBlocks);
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: 'describe this image' },
+      { type: 'image_data', data: 'iVBOR...', mimeType: 'image/png' },
+    ]);
+  });
+
+  test('appends mixed image_data and file_data blocks', () => {
+    const messages = [{ role: 'user', content: 'analyze these' }];
+    const mediaBlocks = [
+      { type: 'image_data', data: 'imgdata', mimeType: 'image/jpeg' },
+      { type: 'file_data', data: 'pdfdata', mimeType: 'application/pdf', filename: 'doc.pdf' },
+    ];
+    injectFileBlocks(messages as any, mediaBlocks);
+    expect(messages[0].content).toEqual([
+      { type: 'text', text: 'analyze these' },
+      { type: 'image_data', data: 'imgdata', mimeType: 'image/jpeg' },
+      { type: 'file_data', data: 'pdfdata', mimeType: 'application/pdf', filename: 'doc.pdf' },
+    ]);
+  });
+
   test('handles Anthropic document blocks (proxy path)', () => {
     const messages = [{ role: 'user', content: 'read this pdf' }];
     const docBlocks = [

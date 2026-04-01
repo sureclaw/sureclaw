@@ -6,6 +6,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sendError, readBody } from './server-http.js';
 import type { StorageProvider } from '../providers/storage/types.js';
+import { deserializeContent } from '../utils/content-serialization.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'chat-api' });
@@ -76,7 +77,7 @@ export function createChatApiHandler(storage: StorageProvider) {
         const turns = await storage.conversations.load(sessionId);
         const messages = turns.map(t => ({
           role: t.role,
-          content: t.content,
+          content: deserializeContent(t.content),
           created_at: t.created_at,
         }));
         sendJSON(res, { messages });

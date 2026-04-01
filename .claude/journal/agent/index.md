@@ -4,6 +4,8 @@ Agent process: runner, tools, prompt builder, MCP server, tool catalog.
 
 ## Entries
 
+- 2026-04-01 01:20 — Fix multipart message display in chat history [runner.md](runner.md)
+- 2026-04-01 01:10 — Fix image attachments dropped by pi-session runner and proxy-stream [runner.md](runner.md)
 - 2026-03-31 18:31 — Fix PDF file attachments not reaching LLM in pi-session/claude-code runners [runner.md](runner.md)
 - 2026-03-26 05:55 — Fix skill reading and credential request prompt guidance [prompt.md](prompt.md)
 - 2026-03-22 07:18 — Conditionally show skill install instructions based on user message intent [prompt.md](prompt.md)

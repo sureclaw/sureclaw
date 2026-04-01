@@ -29,11 +29,18 @@ const DOCUMENT_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ]);
 
-/** Convert internal file_data blocks to Anthropic document content blocks. */
+/** Convert internal file_data and image_data blocks to Anthropic content blocks. */
 function fileBlocksToAnthropicDocs(blocks: ContentBlock[]): Array<{ type: string; [k: string]: unknown }> {
   return blocks
-    .filter(b => b.type === 'file_data')
+    .filter(b => b.type === 'file_data' || b.type === 'image_data')
     .map(b => {
+      if (b.type === 'image_data') {
+        const ib = b as { type: 'image_data'; data: string; mimeType: string };
+        return {
+          type: 'image',
+          source: { type: 'base64', media_type: ib.mimeType, data: ib.data },
+        };
+      }
       const fb = b as { type: 'file_data'; data: string; mimeType: string; filename: string };
       if (DOCUMENT_MIME_TYPES.has(fb.mimeType)) {
         return {

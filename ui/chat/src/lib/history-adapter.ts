@@ -1,9 +1,39 @@
 import type { ThreadHistoryAdapter } from '@assistant-ui/react';
 
+/** A content block as returned by the AX history endpoint. */
+interface ContentBlock {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  filename?: string;
+  [key: string]: unknown;
+}
+
 interface HistoryMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ContentBlock[];
   created_at?: number;
+}
+
+/** Convert AX content blocks to assistant-ui message parts. */
+function contentToParts(content: string | ContentBlock[]): Array<Record<string, unknown>> {
+  if (typeof content === 'string') {
+    return [{ type: 'text' as const, text: content }];
+  }
+  return content.map(block => {
+    if (block.type === 'text') {
+      return { type: 'text' as const, text: block.text ?? '' };
+    }
+    if (block.type === 'image_data') {
+      return { type: 'image' as const, image: `data:${block.mimeType};base64,${block.data}` };
+    }
+    if (block.type === 'file_data') {
+      return { type: 'file' as const, data: `data:${block.mimeType};base64,${block.data}`, mimeType: block.mimeType };
+    }
+    // tool_use, tool_result, etc. — pass through as text fallback
+    return { type: 'text' as const, text: JSON.stringify(block) };
+  });
 }
 
 /**
@@ -51,7 +81,7 @@ export const createAxHistoryAdapter = (
             format: formatAdapter.format,
             content: {
               role: m.role,
-              parts: [{ type: 'text' as const, text: m.content }],
+              parts: contentToParts(m.content),
               createdAt: m.created_at ? new Date(m.created_at * 1000) : new Date(),
             } as any,
           });

@@ -5,7 +5,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
-  FileIcon,
+  FileTextIcon,
   LoaderIcon,
   PaperclipIcon,
   PencilIcon,
@@ -21,9 +21,10 @@ import {
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAui,
   useAuiState,
 } from '@assistant-ui/react';
-import { createContext, useContext, type FC } from 'react';
+import { createContext, useContext, useEffect, useState, type FC } from 'react';
 import { MarkdownText } from './markdown-text';
 
 const StatusMessageContext = createContext<string | null>(null);
@@ -62,17 +63,64 @@ const ThreadWelcome: FC = () => (
   </div>
 );
 
-const ComposerAttachment: FC = () => (
-  <AttachmentPrimitive.Root className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/80 px-3 py-1.5 text-[13px]">
-    <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-    <span className="truncate text-foreground"><AttachmentPrimitive.Name /></span>
-    <AttachmentPrimitive.Remove asChild>
-      <button className="ml-1 shrink-0 p-0.5 text-muted-foreground hover:text-foreground transition-colors duration-150">
-        <XIcon className="size-3" />
-      </button>
-    </AttachmentPrimitive.Remove>
-  </AttachmentPrimitive.Root>
-);
+/** Hook to create an object URL for a File and revoke it on cleanup. */
+const useFileSrc = (file: File | undefined): string | undefined => {
+  const [src, setSrc] = useState<string | undefined>();
+  useEffect(() => {
+    if (!file) { setSrc(undefined); return; }
+    const url = URL.createObjectURL(file);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return src;
+};
+
+/** Resolve the preview image URL for the current attachment. */
+const useAttachmentSrc = (): string | undefined => {
+  const file = useAuiState(
+    (s: Record<string, unknown>) => {
+      const a = s.attachment as { type: string; file?: File };
+      return a.type === 'image' ? a.file : undefined;
+    },
+  ) as File | undefined;
+  const contentSrc = useAuiState(
+    (s: Record<string, unknown>) => {
+      const a = s.attachment as { type: string; file?: File; content?: { type: string; image?: string }[] };
+      if (a.type !== 'image' || a.file) return undefined;
+      return a.content?.find(c => c.type === 'image')?.image;
+    },
+  ) as string | undefined;
+  return useFileSrc(file) ?? contentSrc;
+};
+
+const AttachmentThumb: FC = () => {
+  const src = useAttachmentSrc();
+  if (src) {
+    return <img src={src} alt="" className="size-full object-cover" />;
+  }
+  return (
+    <div className="flex size-full items-center justify-center bg-muted">
+      <FileTextIcon className="size-6 text-muted-foreground" />
+    </div>
+  );
+};
+
+const ComposerAttachment: FC = () => {
+  const isImage = useAuiState((s: Record<string, unknown>) => (s.attachment as { type: string }).type === 'image');
+  const name = useAuiState((s: Record<string, unknown>) => (s.attachment as { name: string }).name) as string;
+  return (
+    <AttachmentPrimitive.Root className="group relative" title={name}>
+      <div className={`overflow-hidden rounded-lg border border-border/50 bg-muted transition-opacity hover:opacity-80 ${isImage ? 'size-20' : 'size-14'}`}>
+        <AttachmentThumb />
+      </div>
+      <AttachmentPrimitive.Remove asChild>
+        <button className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground/80 text-background shadow-sm hover:bg-foreground transition-colors duration-150">
+          <XIcon className="size-3" />
+        </button>
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
+  );
+};
 
 const Composer: FC = () => (
   <div className="sticky bottom-0 mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col gap-4 rounded-t-3xl bg-background pb-4 md:pb-6">
@@ -83,9 +131,11 @@ const Composer: FC = () => (
     </ThreadPrimitive.ScrollToBottom>
     <ComposerPrimitive.Root className="relative flex w-full flex-col">
       <div className="flex w-full flex-col rounded-2xl border border-border/50 bg-card/80 px-1 pt-2 shadow-xs backdrop-blur-sm transition-all duration-150 has-[textarea:focus-visible]:border-amber/30 has-[textarea:focus-visible]:ring-[3px] has-[textarea:focus-visible]:ring-amber/10">
-        <ComposerPrimitive.Attachments
-          components={{ Attachment: ComposerAttachment }}
-        />
+        <div className="flex w-full flex-row items-end gap-2 overflow-x-auto px-2.5 pt-1 empty:hidden">
+          <ComposerPrimitive.Attachments
+            components={{ Attachment: ComposerAttachment }}
+          />
+        </div>
         <ComposerPrimitive.Input
           placeholder="Send a message..."
           className="mb-1 max-h-32 min-h-16 w-full resize-none bg-transparent px-3.5 pt-1.5 pb-3 text-[14px] outline-none placeholder:text-muted-foreground"
@@ -269,12 +319,36 @@ const AssistantMessage: FC<{ statusMessage?: string | null }> = ({ statusMessage
   </MessagePrimitive.Root>
 );
 
+const UserImagePart: FC<{ image: string }> = ({ image }) => (
+  <img src={image} alt="" className="max-w-xs max-h-48 rounded-lg my-1" />
+);
+
+const MessageAttachment: FC = () => (
+  <AttachmentPrimitive.Root className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/60 px-3 py-1.5 text-[13px]">
+    <FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    <span className="truncate text-foreground"><AttachmentPrimitive.Name /></span>
+  </AttachmentPrimitive.Root>
+);
+
+const UserMessageAttachments: FC = () => (
+  <div className="col-span-full col-start-1 row-start-1 flex w-full flex-row justify-end gap-2 empty:hidden">
+    <MessagePrimitive.Attachments
+      components={{
+        Image: MessageAttachment,
+        Document: MessageAttachment,
+        File: MessageAttachment,
+      }}
+    />
+  </div>
+);
+
 const UserMessage: FC = () => (
   <MessagePrimitive.Root asChild>
     <div className="mx-auto grid w-full max-w-[var(--thread-max-width)] auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 px-2 py-4 [&>*]:col-start-2" data-role="user">
+      <UserMessageAttachments />
       <div className="relative col-start-2 min-w-0">
         <div className="rounded-2xl bg-card border border-border/40 px-5 py-2.5 break-words text-foreground backdrop-blur-sm">
-          <MessagePrimitive.Parts />
+          <MessagePrimitive.Parts components={{ Image: UserImagePart }} />
         </div>
         <div className="absolute top-1/2 left-0 -translate-x-full -translate-y-1/2 pr-2">
           <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="flex flex-col items-end">

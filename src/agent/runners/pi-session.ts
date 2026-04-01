@@ -109,7 +109,7 @@ function createIPCStreamFunction(client: IIPCClient, fileBlocks: ContentBlock[] 
     });
 
     const messages = convertPiMessages(context.messages);
-    // Inject file_data blocks (PDFs, etc.) into the user message on the first LLM call
+    // Inject media blocks (images, PDFs, etc.) into the user message on the first LLM call
     if (!fileBlocksInjected && fileBlocks.length > 0) {
       injectFileBlocks(messages, fileBlocks);
       fileBlocksInjected = true;
@@ -401,9 +401,9 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     return;
   }
 
-  // Extract inline file_data blocks (PDFs, etc.) for forwarding to the LLM
+  // Extract inline media blocks (images, PDFs, etc.) for forwarding to the LLM
   const fileBlocks = Array.isArray(rawMsg)
-    ? rawMsg.filter(b => b.type === 'file_data')
+    ? rawMsg.filter(b => b.type === 'file_data' || b.type === 'image_data')
     : [];
 
   // Start web proxy bridge for outbound HTTP/HTTPS access if available

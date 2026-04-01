@@ -2,6 +2,31 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-04-01 01:20] — Fix multipart message display in chat history
+
+**Task:** User messages with file/image attachments displayed as raw JSON in chat history (e.g., `[{"type":"text","text":"Describe..."}]`) instead of clean text.
+**What I did:**
+- Root-caused to three layers: (1) history API returned raw serialized content strings, (2) history adapter wrapped all content as a single text part, (3) UserMessage component had no Image part renderer
+- Fixed `server-chat-api.ts` to use `deserializeContent()` when returning history, so `ContentBlock[]` arrays are returned as structured JSON instead of stringified JSON
+- Fixed `history-adapter.ts` to handle both string and array content, mapping AX block types (`image_data` → `image`, `file_data` → `file`) to assistant-ui part types
+- Added `UserImagePart` component and `Image` slot to `UserMessage`'s `MessagePrimitive.Parts`
+**Files touched:** src/host/server-chat-api.ts, ui/chat/src/lib/history-adapter.ts, ui/chat/src/components/thread.tsx
+**Outcome:** Success — user messages with attachments now render as clean text in history, all 2792 tests pass
+**Notes:** `image_data`/`file_data` blocks are intentionally stripped by `serializeContent()` before storage (to avoid storing large base64 data in DB), so only text parts survive in history. The Image part renderer is for future cases where images might be stored (e.g., via URLs).
+
+## [2026-04-01 01:10] — Fix image attachments dropped by pi-session runner and proxy-stream
+
+**Task:** Image attachments (PNG, JPEG) uploaded via chat UI were silently dropped by the agent. The agent responded "I cannot see the image" despite the host correctly resolving the image to `image_data` content blocks.
+**What I did:**
+- Root-caused to pi-session.ts only extracting `file_data` blocks (for PDFs) but not `image_data` blocks (for images) from `rawMsg` — the same pattern as the PDF fix but for images
+- Fixed pi-session.ts to filter `b.type === 'file_data' || b.type === 'image_data'` when extracting media blocks
+- Fixed proxy-stream.ts `fileBlocksToAnthropicDocs()` to also handle `image_data` → Anthropic `image` blocks with `base64` source
+- Added 2 tests for image_data injection in stream-utils tests
+- Rebuilt Docker image, loaded into kind, verified via Playwright
+**Files touched:** src/agent/runners/pi-session.ts, src/agent/proxy-stream.ts, tests/agent/stream-utils.test.ts
+**Outcome:** Success — agent correctly described screenshot content, all 2792 tests pass
+**Notes:** claude-code runner already handled both `image_data` and `file_data` (line 108) — this was only missing in pi-session runner and proxy-stream. Same pattern as the PDF fix: each runner/path must handle ALL ContentBlock media types.
+
 ## [2026-04-01 00:54] — Fix PDF file attachments dropped by OpenAI-compat LLM provider
 
 **Task:** PDF file attachments were still not being summarized by the agent despite runner-side fixes. Debugging via k8s cluster + Playwright showed the agent received `file_data` blocks and injected them into IPC messages, but the LLM responded as if no PDF was attached.
