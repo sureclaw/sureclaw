@@ -23,6 +23,9 @@ const logger = getLogger().child({ component: 'agent-registry' });
 
 export type AgentStatus = 'active' | 'suspended' | 'archived';
 
+/** Whether this agent is personal (one user) or shared (team/company). */
+export type AgentKind = 'personal' | 'shared';
+
 export interface AgentRegistryEntry {
   /** Unique agent identifier (alphanumeric, dash, underscore). */
   id: string;
@@ -46,23 +49,32 @@ export interface AgentRegistryEntry {
   createdBy: string;
   /** UserIds who can administer this agent. Creator is always first admin. */
   admins: string[];
+  /** Display name shown in Slack responses (defaults to name). */
+  displayName: string;
+  /** Whether this is a personal or shared agent. Defaults to 'personal'. */
+  agentKind: AgentKind;
 }
 
 // ═══════════════════════════════════════════════════════
 // Interface
 // ═══════════════════════════════════════════════════════
 
-/** Input type for agent registration. admins defaults to [] if not provided. */
-export type AgentRegisterInput = Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt' | 'admins'> & { admins?: string[] };
+/** Input type for agent registration. admins defaults to []. displayName defaults to name. agentKind defaults to 'personal'. */
+export type AgentRegisterInput = Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt' | 'admins' | 'displayName' | 'agentKind'> & {
+  admins?: string[];
+  displayName?: string;
+  agentKind?: AgentKind;
+};
 
 export interface AgentRegistry {
   list(status?: AgentStatus): Promise<AgentRegistryEntry[]>;
   get(agentId: string): Promise<AgentRegistryEntry | null>;
   register(entry: AgentRegisterInput): Promise<AgentRegistryEntry>;
-  update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities'>>): Promise<AgentRegistryEntry>;
+  update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities' | 'displayName'>>): Promise<AgentRegistryEntry>;
   remove(agentId: string): Promise<boolean>;
   findByCapability(capability: string): Promise<AgentRegistryEntry[]>;
   findByAdmin(userId: string): Promise<AgentRegistryEntry[]>;
+  findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]>;
   children(parentId: string): Promise<AgentRegistryEntry[]>;
   ensureDefault(): Promise<AgentRegistryEntry>;
 }
@@ -124,14 +136,21 @@ export class FileAgentRegistry implements AgentRegistry {
       throw new Error(`Agent "${entry.id}" already exists in registry`);
     }
     const now = new Date().toISOString();
-    const full: AgentRegistryEntry = { ...entry, admins: entry.admins ?? [], createdAt: now, updatedAt: now };
+    const full: AgentRegistryEntry = {
+      ...entry,
+      admins: entry.admins ?? [],
+      displayName: entry.displayName ?? entry.name,
+      agentKind: entry.agentKind ?? 'personal',
+      createdAt: now,
+      updatedAt: now,
+    };
     data.agents.push(full);
     this.save(data);
     logger.info('agent_registered', { agentId: entry.id, agentType: entry.agentType });
     return full;
   }
 
-  async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities'>>): Promise<AgentRegistryEntry> {
+  async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities' | 'displayName'>>): Promise<AgentRegistryEntry> {
     const data = this.load();
     const idx = data.agents.findIndex(a => a.id === agentId);
     if (idx === -1) throw new Error(`Agent "${agentId}" not found in registry`);
@@ -160,6 +179,11 @@ export class FileAgentRegistry implements AgentRegistry {
   async findByAdmin(userId: string): Promise<AgentRegistryEntry[]> {
     const data = this.load();
     return data.agents.filter(a => a.status === 'active' && a.admins?.includes(userId));
+  }
+
+  async findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]> {
+    const data = this.load();
+    return data.agents.filter(a => a.status === 'active' && a.agentKind === kind);
   }
 
   async children(parentId: string): Promise<AgentRegistryEntry[]> {

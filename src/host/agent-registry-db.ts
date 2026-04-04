@@ -7,7 +7,7 @@
 
 import { sql, type Kysely } from 'kysely';
 import type { DatabaseProvider } from '../providers/database/types.js';
-import type { AgentRegistry, AgentRegistryEntry, AgentRegisterInput, AgentStatus } from './agent-registry.js';
+import type { AgentRegistry, AgentRegistryEntry, AgentRegisterInput, AgentStatus, AgentKind } from './agent-registry.js';
 import { runMigrations } from '../utils/migrator.js';
 import { getLogger } from '../logger.js';
 
@@ -64,6 +64,26 @@ function registryMigrations() {
           .execute();
       },
     },
+    registry_003_display_name_agent_kind: {
+      async up(db: Kysely<any>) {
+        await db.schema.alterTable('agent_registry')
+          .addColumn('display_name', 'text')
+          .execute();
+        await db.schema.alterTable('agent_registry')
+          .addColumn('agent_kind', 'text', col => col.notNull().defaultTo('personal'))
+          .execute();
+        // Backfill display_name from name for existing rows
+        await sql`UPDATE agent_registry SET display_name = name WHERE display_name IS NULL`.execute(db);
+      },
+      async down(db: Kysely<any>) {
+        await db.schema.alterTable('agent_registry')
+          .dropColumn('display_name')
+          .execute();
+        await db.schema.alterTable('agent_registry')
+          .dropColumn('agent_kind')
+          .execute();
+      },
+    },
   };
 }
 
@@ -81,6 +101,8 @@ interface AgentRow {
   updated_at: string;
   created_by: string;
   admins: string;
+  display_name: string | null;
+  agent_kind: string;
 }
 
 function rowToEntry(row: AgentRow): AgentRegistryEntry {
@@ -96,6 +118,8 @@ function rowToEntry(row: AgentRow): AgentRegistryEntry {
     updatedAt: typeof row.updated_at === 'object' ? (row.updated_at as Date).toISOString() : row.updated_at,
     createdBy: row.created_by,
     admins: row.admins ? JSON.parse(row.admins) as string[] : [],
+    displayName: row.display_name ?? row.name,
+    agentKind: (row.agent_kind as AgentKind) ?? 'personal',
   };
 }
 
@@ -134,6 +158,8 @@ export class DatabaseAgentRegistry implements AgentRegistry {
     if (existing) throw new Error(`Agent "${entry.id}" already exists in registry`);
 
     const admins = entry.admins ?? [];
+    const displayName = entry.displayName ?? entry.name;
+    const agentKind = entry.agentKind ?? 'personal';
     const now = new Date().toISOString();
     await this.db.insertInto('agent_registry').values({
       id: entry.id,
@@ -147,19 +173,22 @@ export class DatabaseAgentRegistry implements AgentRegistry {
       updated_at: now,
       created_by: entry.createdBy,
       admins: JSON.stringify(admins),
+      display_name: displayName,
+      agent_kind: agentKind,
     }).execute();
 
     logger.info('agent_registered', { agentId: entry.id, agentType: entry.agentType });
-    return { ...entry, admins, createdAt: now, updatedAt: now };
+    return { ...entry, admins, displayName, agentKind, createdAt: now, updatedAt: now };
   }
 
-  async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities'>>): Promise<AgentRegistryEntry> {
+  async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities' | 'displayName'>>): Promise<AgentRegistryEntry> {
     const now = new Date().toISOString();
     const values: Record<string, unknown> = { updated_at: now };
     if (updates.name !== undefined) values.name = updates.name;
     if (updates.description !== undefined) values.description = updates.description;
     if (updates.status !== undefined) values.status = updates.status;
     if (updates.capabilities !== undefined) values.capabilities = JSON.stringify(updates.capabilities);
+    if (updates.displayName !== undefined) values.display_name = updates.displayName;
 
     const result = await this.db.updateTable('agent_registry')
       .set(values)
@@ -199,6 +228,15 @@ export class DatabaseAgentRegistry implements AgentRegistry {
       .selectAll()
       .where('status', '=', 'active')
       .where('admins', 'like', `%"${userId}"%`)
+      .execute() as AgentRow[];
+    return rows.map(rowToEntry);
+  }
+
+  async findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]> {
+    const rows = await this.db.selectFrom('agent_registry')
+      .selectAll()
+      .where('status', '=', 'active')
+      .where('agent_kind', '=', kind)
       .execute() as AgentRow[];
     return rows.map(rowToEntry);
   }
