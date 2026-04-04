@@ -1,3 +1,25 @@
+# Multi-Agent
+
+## [2026-04-04 10:10] — Multi-agent Slack UX layer implementation
+
+**Task:** Implement multi-agent Slack UX plan: shared agents, per-message routing, thread ownership, response prefixes, agent-scoped webhooks
+**What I did:** Implemented all 11 tasks:
+1. Added `displayName` and `agentKind` ('personal'/'shared') to AgentRegistryEntry + DB migration 003
+2. Added `shared_agents` config section (SharedAgentConfig) to Config + Zod validation
+3. Refactored Slack provider with `createWithTokens()` for injected token support
+4. Implemented `resolveAgentForMessage()` for per-message agent routing (thread owner > bound > provisioner > fallback)
+5. Created `ThreadOwnershipMap` for thread-to-agent binding
+6. Added `maybeAddResponsePrefix()` — `[DisplayName]` prefix for personal agents in channels/threads
+7. Wired shared agent startup in server-local.ts (registry, Slack provider, channel handler)
+8. Added agent-scoped webhook routing `/webhooks/{agentId}/{name}` with x-ax-agent-id header injection
+9. Updated ax-host, ax-provider-channel, ax-config skills
+**Files touched:**
+- Modified: `src/host/agent-registry.ts`, `src/host/agent-registry-db.ts`, `src/types.ts`, `src/config.ts`, `src/providers/channel/slack.ts`, `src/host/server-channels.ts`, `src/host/server-local.ts`, `src/host/server-request-handlers.ts`, `src/host/server-webhooks.ts`
+- Tests: `tests/host/agent-registry.test.ts`, `tests/config.test.ts`, `tests/host/server-channels.test.ts`, `tests/host/server-webhooks.test.ts`
+- Skills: `.claude/skills/ax-host/SKILL.md`, `.claude/skills/ax-provider-channel/SKILL.md`, `.claude/skills/ax-config/SKILL.md`
+**Outcome:** Success — all tests pass
+**Notes:** The Slack UX layer builds on existing multi-agent infrastructure (AgentProvisioner, AgentRegistry, credential scopes). Thread ownership is in-memory (not persisted) — acceptable for single-pod deployments; k8s would need a shared store.
+
 # Multi-Agent Personal Agents
 
 ## [2026-04-04 09:55] — Multi-agent personal agents: all 11 tasks implemented
