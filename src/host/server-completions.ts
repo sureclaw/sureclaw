@@ -90,6 +90,8 @@ export interface CompletionDeps {
   removeSessionPod?: (sessionId: string) => void;
   /** Per-agent plugin MCP server registry (Cowork plugins). */
   mcpManager?: McpConnectionManager;
+  /** Dynamic agent provisioner for multi-agent resolution. */
+  provisioner?: import('./agent-provisioner.js').AgentProvisioner;
 }
 
 export interface ExtractedFile {

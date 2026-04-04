@@ -21,6 +21,7 @@ import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkills
 import type { EventBus } from './event-bus.js';
 import type { MessageQueueStore, ConversationStoreProvider } from '../providers/storage/types.js';
 import { createAgentRegistry, type AgentRegistry } from './agent-registry.js';
+import { AgentProvisioner } from './agent-provisioner.js';
 import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
@@ -56,6 +57,7 @@ export interface HostCore {
   orchestrator: Orchestrator;
   disableAutoState: () => void;
   agentRegistry: AgentRegistry;
+  provisioner: AgentProvisioner;
   agentName: string;
   agentDirVal: string;
   identityFilesDir: string;
@@ -252,6 +254,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     requestedCredentials,
     domainList,
     mcpManager,
+    // provisioner is set after agent registry creation below
   };
 
   // ── Delegation ──
@@ -288,6 +291,8 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const disableAutoState = orchestrator.enableAutoState();
   const agentRegistry = await createAgentRegistry(providers.database);
   await agentRegistry.ensureDefault();
+  const provisioner = new AgentProvisioner(agentRegistry, providers.storage?.documents);
+  completionDeps.provisioner = provisioner;
 
   // ── IPC handler ──
   const handleIPC = createIPCHandler(providers, {
@@ -385,6 +390,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     orchestrator,
     disableAutoState,
     agentRegistry,
+    provisioner,
     agentName,
     agentDirVal,
     identityFilesDir,
