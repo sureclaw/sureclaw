@@ -51,17 +51,21 @@ export async function resolveCredential(
   agentName: string,
   userId?: string,
 ): Promise<string | null> {
-  // Try user scope first
+  // 1. User scope (per-user within agent)
   if (userId) {
     const userVal = await provider.get(envName, credentialScope(agentName, userId));
     if (userVal !== null) return userVal;
   }
 
-  // Fall back to agent scope
+  // 2. Agent scope
   const agentVal = await provider.get(envName, credentialScope(agentName));
   if (agentVal !== null) return agentVal;
 
-  // Fall back to global (unscoped) — catches credentials stored when session
+  // 3. Company scope — shared default OAuth apps / API keys
+  const companyVal = await provider.get(envName, 'company');
+  if (companyVal !== null) return companyVal;
+
+  // 4. Global (unscoped) fallback — catches credentials stored when session
   // context was unavailable (e.g. host restarted before user entered credential).
   const globalVal = await provider.get(envName);
   if (globalVal !== null) return globalVal;
