@@ -236,6 +236,37 @@ export const UserWriteSchema = ipcAction('user_write', {
   origin: z.enum(IDENTITY_ORIGINS),
 });
 
+// ── Catalog ───────────────────────────────────────────
+
+export const CatalogPublishSchema = ipcAction('catalog_publish', {
+  slug: safeString(200),
+  type: z.enum(['skill', 'connector']),
+  name: safeString(200),
+  description: safeString(2000),
+  tags: z.array(safeString(100)).max(20).optional(),
+  version: safeString(50),
+  content: safeString(500_000),
+});
+
+export const CatalogGetSchema = ipcAction('catalog_get', {
+  slug: safeString(200),
+});
+
+export const CatalogListSchema = ipcAction('catalog_list', {
+  type: z.enum(['skill', 'connector']).optional(),
+  tags: z.array(safeString(100)).max(20).optional(),
+  query: safeString(500).optional(),
+});
+
+export const CatalogUnpublishSchema = ipcAction('catalog_unpublish', {
+  slug: safeString(200),
+});
+
+export const CatalogSetRequiredSchema = ipcAction('catalog_set_required', {
+  slug: safeString(200),
+  required: z.boolean(),
+});
+
 // ── Company Identity ──────────────────────────────────
 
 export const COMPANY_IDENTITY_FILES = ['AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'HEARTBEAT.md'] as const;
