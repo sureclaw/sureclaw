@@ -22,7 +22,7 @@ import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
 // Extracted modules
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { cleanStaleWorkspaces } from './server-lifecycle.js';
-import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry } from './server-channels.js';
+import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry, ThreadOwnershipMap } from './server-channels.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 
 // Shared extraction modules
@@ -350,7 +350,10 @@ export async function createServer(
     });
     await providers.scheduler.start(schedulerCallback);
 
-    // Connect channel providers (Slack, Discord, etc.)
+    // ── Shared thread ownership tracker (all channels share this) ──
+    const threadOwners = new ThreadOwnershipMap();
+
+    // Connect channel providers (Slack, Discord, etc.) — default channels
     for (const channel of providers.channels) {
       registerChannelHandler(channel, {
         completionDeps,
@@ -365,8 +368,87 @@ export async function createServer(
         isAgentBootstrapMode: (name: string) => isAgentBootstrapMode(name),
         isAdmin,
         claimBootstrapAdmin,
+        provisioner: core.provisioner,
+        agentRegistry: core.agentRegistry,
+        threadOwners,
       });
       await connectChannelWithRetry(channel, logger);
+    }
+
+    // ── Shared agent startup ──
+    // Each shared_agents entry in config gets its own Slack provider with
+    // separate bot/app tokens. They register in the agent registry as 'shared'
+    // agents and get their own channel handler with boundAgentId.
+    if (config.shared_agents?.length) {
+      for (const sa of config.shared_agents) {
+        try {
+          // Resolve tokens from env vars
+          const botTokenEnv = sa.slack_bot_token_env ?? `${sa.id.toUpperCase().replace(/-/g, '_')}_SLACK_BOT_TOKEN`;
+          const appTokenEnv = sa.slack_app_token_env ?? `${sa.id.toUpperCase().replace(/-/g, '_')}_SLACK_APP_TOKEN`;
+          const botToken = process.env[botTokenEnv];
+          const appToken = process.env[appTokenEnv];
+
+          if (!botToken || !appToken) {
+            logger.warn('shared_agent_skip_no_tokens', {
+              agentId: sa.id,
+              botTokenEnv,
+              appTokenEnv,
+              reason: 'Missing Slack tokens — skipping shared agent',
+            });
+            continue;
+          }
+
+          // Register (or update) shared agent in registry
+          let entry = await core.agentRegistry.get(sa.id);
+          if (!entry) {
+            entry = await core.agentRegistry.register({
+              id: sa.id,
+              name: sa.display_name,
+              description: sa.description,
+              status: 'active',
+              parentId: null,
+              agentType: sa.agent ?? config.agent ?? 'pi-coding-agent',
+              capabilities: sa.capabilities ?? [],
+              createdBy: 'system',
+              admins: sa.admins ?? [],
+              displayName: sa.display_name,
+              agentKind: 'shared',
+            });
+          }
+
+          // Create Slack provider with injected tokens
+          const { createWithTokens } = await import('../providers/channel/slack.js');
+          const slackChannel = await createWithTokens(config, { botToken, appToken }, `slack:${sa.id}`);
+
+          // Register channel handler bound to this shared agent
+          registerChannelHandler(slackChannel, {
+            completionDeps,
+            conversationStore,
+            sessionStore,
+            sessionCanaries,
+            router,
+            agentName: sa.id,
+            agentDir: agentDirVal,
+            deduplicator,
+            logger,
+            isAgentBootstrapMode: (name: string) => isAgentBootstrapMode(name),
+            isAdmin,
+            claimBootstrapAdmin,
+            provisioner: core.provisioner,
+            agentRegistry: core.agentRegistry,
+            threadOwners,
+            boundAgentId: sa.id,
+          });
+
+          await connectChannelWithRetry(slackChannel, logger);
+          logger.info('shared_agent_started', { agentId: sa.id, displayName: sa.display_name });
+        } catch (err) {
+          logger.error('shared_agent_startup_failed', {
+            agentId: sa.id,
+            error: (err as Error).message,
+          });
+        }
+      }
     }
   }
 
