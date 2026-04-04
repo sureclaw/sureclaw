@@ -236,6 +236,20 @@ export const UserWriteSchema = ipcAction('user_write', {
   origin: z.enum(IDENTITY_ORIGINS),
 });
 
+// ── Company Identity ──────────────────────────────────
+
+export const COMPANY_IDENTITY_FILES = ['AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'HEARTBEAT.md'] as const;
+
+export const CompanyIdentityReadSchema = ipcAction('company_identity_read', {
+  file: z.enum(COMPANY_IDENTITY_FILES),
+});
+
+export const CompanyIdentityWriteSchema = ipcAction('company_identity_write', {
+  file: z.enum(COMPANY_IDENTITY_FILES),
+  content: safeString(32_768),
+  reason: safeString(512),
+});
+
 // ── Scheduler ──────────────────────────────────────────
 
 export const SchedulerAddCronSchema = ipcAction('scheduler_add_cron', {
