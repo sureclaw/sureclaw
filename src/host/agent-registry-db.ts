@@ -7,7 +7,7 @@
 
 import { sql, type Kysely } from 'kysely';
 import type { DatabaseProvider } from '../providers/database/types.js';
-import type { AgentRegistry, AgentRegistryEntry, AgentStatus } from './agent-registry.js';
+import type { AgentRegistry, AgentRegistryEntry, AgentRegisterInput, AgentStatus } from './agent-registry.js';
 import { runMigrations } from '../utils/migrator.js';
 import { getLogger } from '../logger.js';
 
@@ -52,6 +52,18 @@ function registryMigrations() {
         await db.schema.dropTable('agent_registry').ifExists().execute();
       },
     },
+    registry_002_agent_admins: {
+      async up(db: Kysely<any>) {
+        await db.schema.alterTable('agent_registry')
+          .addColumn('admins', 'text', col => col.notNull().defaultTo('[]'))
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema.alterTable('agent_registry')
+          .dropColumn('admins')
+          .execute();
+      },
+    },
   };
 }
 
@@ -68,6 +80,7 @@ interface AgentRow {
   created_at: string;
   updated_at: string;
   created_by: string;
+  admins: string;
 }
 
 function rowToEntry(row: AgentRow): AgentRegistryEntry {
@@ -82,6 +95,7 @@ function rowToEntry(row: AgentRow): AgentRegistryEntry {
     createdAt: typeof row.created_at === 'object' ? (row.created_at as Date).toISOString() : row.created_at,
     updatedAt: typeof row.updated_at === 'object' ? (row.updated_at as Date).toISOString() : row.updated_at,
     createdBy: row.created_by,
+    admins: row.admins ? JSON.parse(row.admins) as string[] : [],
   };
 }
 
@@ -115,10 +129,11 @@ export class DatabaseAgentRegistry implements AgentRegistry {
     return row ? rowToEntry(row) : null;
   }
 
-  async register(entry: Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt'>): Promise<AgentRegistryEntry> {
+  async register(entry: AgentRegisterInput): Promise<AgentRegistryEntry> {
     const existing = await this.get(entry.id);
     if (existing) throw new Error(`Agent "${entry.id}" already exists in registry`);
 
+    const admins = entry.admins ?? [];
     const now = new Date().toISOString();
     await this.db.insertInto('agent_registry').values({
       id: entry.id,
@@ -131,10 +146,11 @@ export class DatabaseAgentRegistry implements AgentRegistry {
       created_at: now,
       updated_at: now,
       created_by: entry.createdBy,
+      admins: JSON.stringify(admins),
     }).execute();
 
     logger.info('agent_registered', { agentId: entry.id, agentType: entry.agentType });
-    return { ...entry, createdAt: now, updatedAt: now };
+    return { ...entry, admins, createdAt: now, updatedAt: now };
   }
 
   async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities'>>): Promise<AgentRegistryEntry> {
@@ -174,6 +190,15 @@ export class DatabaseAgentRegistry implements AgentRegistry {
       .selectAll()
       .where('status', '=', 'active')
       .where('capabilities', 'like', `%"${capability}"%`)
+      .execute() as AgentRow[];
+    return rows.map(rowToEntry);
+  }
+
+  async findByAdmin(userId: string): Promise<AgentRegistryEntry[]> {
+    const rows = await this.db.selectFrom('agent_registry')
+      .selectAll()
+      .where('status', '=', 'active')
+      .where('admins', 'like', `%"${userId}"%`)
       .execute() as AgentRow[];
     return rows.map(rowToEntry);
   }

@@ -200,6 +200,73 @@ describe('AgentRegistry', () => {
     expect(first.createdAt).toBe(second.createdAt);
   });
 
+  describe('admins field', () => {
+    test('register stores admins', async () => {
+      const entry = await registry.register({
+        id: 'test-agent',
+        name: 'Test Agent',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'alice',
+        admins: ['alice'],
+      });
+      expect(entry.admins).toEqual(['alice']);
+    });
+
+    test('findByAdmin returns agents where userId is an admin', async () => {
+      await registry.register({
+        id: 'a1', name: 'A1', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+      await registry.register({
+        id: 'a2', name: 'A2', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'bob',
+        admins: ['bob', 'alice'],
+      });
+      await registry.register({
+        id: 'a3', name: 'A3', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'carol',
+        admins: ['carol'],
+      });
+
+      const aliceAgents = await registry.findByAdmin('alice');
+      expect(aliceAgents.map(a => a.id).sort()).toEqual(['a1', 'a2']);
+    });
+
+    test('findByAdmin only returns active agents', async () => {
+      await registry.register({
+        id: 'active-agent', name: 'Active', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+      await registry.register({
+        id: 'suspended-agent', name: 'Suspended', status: 'suspended', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+
+      const agents = await registry.findByAdmin('alice');
+      expect(agents).toHaveLength(1);
+      expect(agents[0].id).toBe('active-agent');
+    });
+
+    test('register defaults admins to empty array when not provided', async () => {
+      const entry = await registry.register({
+        id: 'no-admins',
+        name: 'No Admins',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'test',
+      });
+      expect(entry.admins).toEqual([]);
+    });
+  });
+
   test('persists across registry instances', async () => {
     const path = join(tmpDir, 'persist.json');
     const r1 = new FileAgentRegistry(path);

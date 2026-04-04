@@ -44,19 +44,25 @@ export interface AgentRegistryEntry {
   updatedAt: string;
   /** Who created this agent (user ID or 'system'). */
   createdBy: string;
+  /** UserIds who can administer this agent. Creator is always first admin. */
+  admins: string[];
 }
 
 // ═══════════════════════════════════════════════════════
 // Interface
 // ═══════════════════════════════════════════════════════
 
+/** Input type for agent registration. admins defaults to [] if not provided. */
+export type AgentRegisterInput = Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt' | 'admins'> & { admins?: string[] };
+
 export interface AgentRegistry {
   list(status?: AgentStatus): Promise<AgentRegistryEntry[]>;
   get(agentId: string): Promise<AgentRegistryEntry | null>;
-  register(entry: Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt'>): Promise<AgentRegistryEntry>;
+  register(entry: AgentRegisterInput): Promise<AgentRegistryEntry>;
   update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities'>>): Promise<AgentRegistryEntry>;
   remove(agentId: string): Promise<boolean>;
   findByCapability(capability: string): Promise<AgentRegistryEntry[]>;
+  findByAdmin(userId: string): Promise<AgentRegistryEntry[]>;
   children(parentId: string): Promise<AgentRegistryEntry[]>;
   ensureDefault(): Promise<AgentRegistryEntry>;
 }
@@ -112,13 +118,13 @@ export class FileAgentRegistry implements AgentRegistry {
     return data.agents.find(a => a.id === agentId) ?? null;
   }
 
-  async register(entry: Omit<AgentRegistryEntry, 'createdAt' | 'updatedAt'>): Promise<AgentRegistryEntry> {
+  async register(entry: AgentRegisterInput): Promise<AgentRegistryEntry> {
     const data = this.load();
     if (data.agents.some(a => a.id === entry.id)) {
       throw new Error(`Agent "${entry.id}" already exists in registry`);
     }
     const now = new Date().toISOString();
-    const full: AgentRegistryEntry = { ...entry, createdAt: now, updatedAt: now };
+    const full: AgentRegistryEntry = { ...entry, admins: entry.admins ?? [], createdAt: now, updatedAt: now };
     data.agents.push(full);
     this.save(data);
     logger.info('agent_registered', { agentId: entry.id, agentType: entry.agentType });
@@ -149,6 +155,11 @@ export class FileAgentRegistry implements AgentRegistry {
   async findByCapability(capability: string): Promise<AgentRegistryEntry[]> {
     const data = this.load();
     return data.agents.filter(a => a.status === 'active' && a.capabilities.includes(capability));
+  }
+
+  async findByAdmin(userId: string): Promise<AgentRegistryEntry[]> {
+    const data = this.load();
+    return data.agents.filter(a => a.status === 'active' && a.admins?.includes(userId));
   }
 
   async children(parentId: string): Promise<AgentRegistryEntry[]> {
