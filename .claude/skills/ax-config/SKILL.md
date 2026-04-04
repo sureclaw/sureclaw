@@ -72,6 +72,7 @@ Validated by `ConfigSchema` (Zod `strictObject` -- rejects unknown keys).
 | `namespace` | string | `ax` | K8s namespace for web proxy service discovery (`ax-web-proxy.{namespace}.svc:3128`) |
 | `delegation` | object | optional | `max_concurrent` (1-10, default 3), `max_depth` (1-5, default 2) |
 | `plugins` | `PluginDeclaration[]` | optional | Plugin declarations -- each maps a source to agents that use it. Auto-installed on startup. `PluginDeclaration` has `source` (string) and `agents` (string[]) fields |
+| `shared_agents` | `SharedAgentConfig[]` | optional | Shared agents started alongside default. Each has `id`, `display_name`, optional `agent`, `models`, `slack_bot_token_env`, `slack_app_token_env`, `admins[]`, `capabilities[]`, `description`. See `src/types.ts` `SharedAgentConfig` |
 
 ## Models Configuration
 

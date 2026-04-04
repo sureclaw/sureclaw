@@ -17,7 +17,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/server-admin-helpers.ts` | Pure admin functions: `isAgentBootstrapMode`, `isAdmin`, `addAdmin`, `claimBootstrapAdmin` (used by server-local.ts, server-completions.ts, IPC handlers) |
 | `src/host/server-webhook-admin.ts` | Shared webhook + admin handler factories: `setupWebhookHandler`, `setupAdminHandler` |
 | `src/host/server-completions.ts` | Completion processing, workspace setup, history loading, image extraction, agent spawning, response parsing. Container sandboxes (Docker/Apple) use three-phase orchestration: provision (network) → run (no network) → cleanup (network) |
-| `src/host/server-channels.ts` | Channel ingestion, message deduplication, thread gating/backfill, emoji reactions, attachment handling |
+| `src/host/server-channels.ts` | Channel ingestion, message deduplication, thread gating/backfill, emoji reactions, attachment handling, per-message agent routing (`resolveAgentForMessage`), thread ownership tracking (`ThreadOwnershipMap`), response prefix for personal agents in shared channels (`maybeAddResponsePrefix`) |
 | `src/host/server-files.ts` | File upload/download API, workspace file storage, MIME type handling |
 | `src/host/server-http.ts` | HTTP utilities, SSE chunking, body reading, error responses |
 | `src/host/server-lifecycle.ts` | Workspace cleanup, graceful shutdown, stale session cleanup |
@@ -46,8 +46,8 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/inprocess.ts` | In-process fast path — runs LLM orchestration loop directly in host process (no pods, no IPC, no proxy). Uses `FastPathDeps` (including `McpConnectionManager`), `FastPathRequest`, `FastPathResult`. AsyncLocalStorage for per-turn context isolation |
 | `src/host/tool-router.ts` | Tool router for in-process fast path — routes tool calls to MCP providers (unified via McpConnectionManager), lazy file I/O, or sandbox escalation. Unified MCP methods: `resolveServer()`, `mcpCallTool()`, `resolveHeaders()`. Per-turn limits (`FAST_PATH_LIMITS`). Exports `routeToolCall()`, `ToolRouterContext`, `ToolResult` |
 | `src/host/sandbox-manager.ts` | Sandbox session manager — tracks session-bound sandbox pods for cross-turn escalation from fast path. CRUD on DocumentStore with TTL (30min default, 1hr max) |
-| `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management |
-| `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration) |
+| `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management. `AgentRegistryEntry` has `displayName`, `agentKind` ('personal'/'shared'), `admins[]`. `findByKind()` filters by agent kind |
+| `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration). Migration 003 adds `display_name` and `agent_kind` columns |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers` |
 | `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection (work dispatch only), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
 | `src/host/server-chat-api.ts` | Chat API handler — serves `/v1/chat/sessions` endpoints for chat UI thread list and history |

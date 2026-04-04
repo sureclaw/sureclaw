@@ -38,6 +38,7 @@ Channel providers handle message ingress/egress between external platforms and t
 - Strips `<@BOT_ID>` from text. Chunks long messages at newlines (4000 char limit).
 - **Socket disconnect crash fix:** Disables library auto-reconnect (has unhandled promise rejection bug). Runs own health-check loop with exponential backoff (30s interval, 5s-5m backoff).
 - **Image pipeline:** Uses `files.uploadV2()` for binary attachments. Sends text as `initial_comment` on first upload to combine text + image as single message. Downloads lazy attachments with bearer token auth via `downloadAttachment()`.
+- **Multi-agent Slack UX:** `createWithTokens(config, { botToken, appToken }, providerName?)` creates a Slack provider with injected tokens (used by shared agents). Each shared agent gets its own Slack bot identity. The `providerName` parameter defaults to 'slack' but shared agents use `slack:{agentId}` for distinct logging.
 
 ## Session Addressing
 
