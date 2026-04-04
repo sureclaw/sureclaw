@@ -425,8 +425,11 @@ export async function processCompletion(
       reqLogger.warn('fast_path_skip_no_documents');
       // Fall through to sandbox path below
     } else {
-    const agentName = config.agent_name ?? 'main';
     const currentUserId = userId ?? process.env.USER ?? 'default';
+    const resolvedAgent = deps.provisioner
+      ? await deps.provisioner.resolveAgent(currentUserId)
+      : undefined;
+    const agentName = resolvedAgent?.id ?? config.agent_name ?? 'main';
     try {
       const fastResult = await runFastPath(
         {
@@ -495,8 +498,11 @@ export async function processCompletion(
   let proxyCleanup: (() => void) | undefined;
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
-  const agentName = config.agent_name ?? 'main';
   const currentUserId = userId ?? process.env.USER ?? 'default';
+  const sandboxResolvedAgent = deps.provisioner
+    ? await deps.provisioner.resolveAgent(currentUserId)
+    : undefined;
+  const agentName = sandboxResolvedAgent?.id ?? config.agent_name ?? 'main';
 
   // Register session context so the credential provide endpoint can resolve
   // agentName/userId from just a sessionId (client doesn't send these).
