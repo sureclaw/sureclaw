@@ -67,6 +67,7 @@ const ConfigSchema = z.strictObject({
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
     workspace: providerEnum('workspace').optional().default('none'),
     mcp: providerEnum('mcp').optional(),
+    auth: z.array(providerEnum('auth')).optional(),
     screener: z.string().optional(),
   }),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
@@ -162,6 +163,15 @@ const ConfigSchema = z.strictObject({
     port: z.number().int().min(1).max(65535).default(8080),
     disable_auth: z.boolean().optional(),
   }).default({ enabled: true, port: 8080 }),
+  auth: z.strictObject({
+    better_auth: z.strictObject({
+      google: z.strictObject({
+        client_id: z.string().min(1),
+        client_secret: z.string().min(1),
+      }).optional(),
+      allowed_domains: z.array(z.string().min(1)).optional(),
+    }).optional(),
+  }).optional(),
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
   url_rewrites: z.record(z.string(), z.string()).optional(),
