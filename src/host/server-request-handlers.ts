@@ -15,6 +15,7 @@ import type { EventBus, StreamEvent } from './event-bus.js';
 import type { Router } from './router.js';
 import type { Config, ProviderRegistry, ContentBlock } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
+import type { AuthProvider, AuthResult } from '../providers/auth/types.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import type { FileStore } from '../file-store.js';
 import type { GcsFileStorage } from './gcs-file-storage.js';
@@ -26,6 +27,19 @@ const logger = getLogger();
 
 /** SSE keepalive interval. */
 const SSE_KEEPALIVE_MS = 15_000;
+
+// ── Auth middleware ──
+
+export async function authenticateRequest(
+  req: IncomingMessage,
+  providers: AuthProvider[],
+): Promise<AuthResult> {
+  for (const provider of providers) {
+    const result = await provider.authenticate(req);
+    if (result !== null) return result;
+  }
+  return { authenticated: false };
+}
 
 // ── Models ──
 
