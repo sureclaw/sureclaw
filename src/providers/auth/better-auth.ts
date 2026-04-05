@@ -1,5 +1,6 @@
 // src/providers/auth/better-auth.ts — BetterAuth provider with Google OAuth
 import { betterAuth } from 'better-auth';
+import { getMigrations } from 'better-auth/db/migration';
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
@@ -38,7 +39,7 @@ export async function create(config: Config): Promise<AuthProvider> {
     database = new Database(dbPath);
   }
 
-  const auth = betterAuth({
+  const authOptions = {
     database,
     basePath: '/api/auth',
     socialProviders,
@@ -57,7 +58,8 @@ export async function create(config: Config): Promise<AuthProvider> {
     databaseHooks: {
       user: {
         create: {
-          async after(user, ctx) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          async after(user: any, ctx: any) {
             // First-user admin bootstrap: promote the very first user to admin
             if (!ctx) return;
             try {
@@ -72,13 +74,16 @@ export async function create(config: Config): Promise<AuthProvider> {
         },
       },
     },
-  });
+  };
 
+  const auth = betterAuth(authOptions);
   const nodeHandler = toNodeHandler(auth);
 
   return {
     async init() {
-      // BetterAuth handles migrations automatically
+      // Run BetterAuth migrations to create/update tables (user, session, account, verification)
+      const { runMigrations } = await getMigrations(authOptions);
+      await runMigrations();
     },
 
     async authenticate(req: IncomingMessage): Promise<AuthResult | null> {
