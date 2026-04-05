@@ -1,5 +1,13 @@
 # Auth Provider Journal
 
+## [2026-04-05 17:00] — First-user admin bootstrap on signup
+
+**Task:** Add auto-promotion of the first user to admin role for zero-config bootstrap (Task 8 of 13)
+**What I did:** Added `databaseHooks.user.create.after` hook to the BetterAuth config that counts total users after creation and promotes user #1 to admin. Added 2 new tests: a source-level check that databaseHooks/countTotalUsers are configured, and a full integration test using in-memory SQLite that creates two users via `auth.api.signUpEmail` and verifies the first gets admin role while the second stays as user.
+**Files touched:** `src/providers/auth/better-auth.ts` (modified), `tests/providers/auth/better-auth.test.ts` (modified)
+**Outcome:** Success — 5 tests pass in the auth test file, full suite passes (2885 tests)
+**Notes:** Used `databaseHooks.user.create.after` with `ctx.context.internalAdapter.countTotalUsers()` and `updateUser()`. The `after` hook approach requires a separate update call but avoids the complexity of the `before` hook needing to access the database. The hook is wrapped in try/catch so it's non-fatal if counting fails.
+
 ## [2026-04-05 16:45] — Add BetterAuth provider with Google OAuth
 
 **Task:** Implement the BetterAuth auth provider (Task 7 of 13) with Google OAuth support

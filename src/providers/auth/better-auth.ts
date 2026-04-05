@@ -54,6 +54,24 @@ export async function create(config: Config): Promise<AuthProvider> {
     account: {
       accountLinking: { enabled: true },
     },
+    databaseHooks: {
+      user: {
+        create: {
+          async after(user, ctx) {
+            // First-user admin bootstrap: promote the very first user to admin
+            if (!ctx) return;
+            try {
+              const total = await ctx.context.internalAdapter.countTotalUsers();
+              if (total === 1) {
+                await ctx.context.internalAdapter.updateUser(user.id, { role: 'admin' });
+              }
+            } catch {
+              // Non-fatal — if counting fails, the user still gets created with 'user' role
+            }
+          },
+        },
+      },
+    },
   });
 
   const nodeHandler = toNodeHandler(auth);
