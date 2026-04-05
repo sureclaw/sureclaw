@@ -1,5 +1,13 @@
 # Auth Provider Journal
 
+## [2026-04-05 19:00] — Chat UI auth gating with BetterAuth sessions
+
+**Task:** Gate the chat UI behind BetterAuth session authentication (Task 11 of 13)
+**What I did:** Created `ui/chat/src/lib/auth.ts` with plain fetch utilities for BetterAuth REST API (getSession, signInWithGoogle, signOut). Updated `App.tsx` with auth state machine: loading -> checks /api/auth/get-session -> if 404, allows unauthenticated access (backward compat) -> if no session, shows login page -> if session, sets user and shows chat. Added user parameter passthrough: App passes user.id to useAxChatRuntime, which passes it to AxChatTransport as the user option. Added sign-out button in sidebar when user is authenticated.
+**Files touched:** `ui/chat/src/lib/auth.ts` (created), `ui/chat/src/App.tsx` (rewritten), `ui/chat/src/lib/useAxChatRuntime.tsx` (modified)
+**Outcome:** Success — Vite build passes cleanly
+**Notes:** Key backward compatibility: when /api/auth/get-session returns 404 (BetterAuth not configured), the chat works exactly as before with no login required. Uses plain fetch, NOT @better-auth/react dependency.
+
 ## [2026-04-05 18:00] — Admin UI session-based auth flow
 
 **Task:** Update admin UI to support BetterAuth session cookies alongside existing bearer token auth (Task 10 of 13)
