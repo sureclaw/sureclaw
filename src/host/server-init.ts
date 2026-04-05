@@ -290,7 +290,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const orchestrator = createOrchestrator(eventBus, providers.audit);
   const disableAutoState = orchestrator.enableAutoState();
   const agentRegistry = await createAgentRegistry(providers.database);
-  await agentRegistry.ensureDefault();
   const provisioner = new AgentProvisioner(agentRegistry, providers.storage?.documents);
   completionDeps.provisioner = provisioner;
 

@@ -59,7 +59,7 @@ async function mockDeps(configOverrides: Partial<Config['admin']> = {}): Promise
   const tmpDir = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
   const config = makeConfig(configOverrides);
   const registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
-  await registry.ensureDefault();
+  await registry.register({ id: 'main', name: 'Main Agent', description: 'Test agent', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'test' });
 
   return {
     config,
@@ -505,7 +505,7 @@ describe('tab endpoints handle provider errors gracefully', () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
     const config = makeConfig();
     const registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
-    await registry.ensureDefault();
+    await registry.register({ id: 'main', name: 'Main Agent', description: 'Test agent', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'test' });
 
     const deps: AdminDeps = {
       config,

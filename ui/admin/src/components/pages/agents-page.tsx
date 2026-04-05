@@ -310,12 +310,14 @@ function InfoTab({
   killing,
   killError,
   onKill,
+  onArchive,
 }: {
   agent: Agent;
   killed: boolean;
   killing: boolean;
   killError: string;
   onKill: () => void;
+  onArchive: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -447,6 +449,21 @@ function InfoTab({
           </p>
         </div>
       )}
+
+      {/* Delete (archive) */}
+      <div className="pt-2 border-t border-border/30">
+        <button
+          onClick={() => {
+            if (confirm(`Delete agent "${agent.name}"? The agent will be archived and hidden from the list.`)) {
+              onArchive();
+            }
+          }}
+          className="flex items-center gap-2 text-[13px] text-muted-foreground/60 hover:text-rose transition-colors"
+        >
+          <Trash2 size={14} />
+          Delete agent
+        </button>
+      </div>
     </div>
   );
 }
@@ -1080,9 +1097,11 @@ function ConnectorsSection({ agentId }: { agentId: string }) {
 function ContentArea({
   agent,
   activeSection,
+  onArchive,
 }: {
   agent: Agent;
   activeSection: SectionId;
+  onArchive: (id: string) => void;
 }) {
   const [killing, setKilling] = useState(false);
   const [killError, setKillError] = useState('');
@@ -1112,6 +1131,7 @@ function ContentArea({
               killing={killing}
               killError={killError}
               onKill={handleKill}
+              onArchive={() => onArchive(agent.id)}
             />
           )}
           {activeSection === 'identity' && <IdentityTab agentId={agent.id} />}
@@ -1153,6 +1173,16 @@ export default function AgentsPage() {
       });
     },
     [refresh]
+  );
+
+  const handleArchive = useCallback(
+    (id: string) => {
+      api.archiveAgent(id).then(() => {
+        if (selectedId === id) setSelectedId(null);
+        refresh();
+      });
+    },
+    [refresh, selectedId]
   );
 
   const selectedAgent = agents?.find((a) => a.id === selectedId);
@@ -1230,7 +1260,7 @@ export default function AgentsPage() {
             onKill={handleKill}
           />
           {selectedAgent ? (
-            <ContentArea agent={selectedAgent} activeSection={activeSection} />
+            <ContentArea agent={selectedAgent} activeSection={activeSection} onArchive={handleArchive} />
           ) : (
             <div className="flex-1 min-w-0 pl-6">
               <div className="bg-card/80 border border-border/40 rounded-xl backdrop-blur-sm shadow-sm">

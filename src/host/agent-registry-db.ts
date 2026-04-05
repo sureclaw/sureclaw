@@ -249,18 +249,4 @@ export class DatabaseAgentRegistry implements AgentRegistry {
     return rows.map(rowToEntry);
   }
 
-  async ensureDefault(): Promise<AgentRegistryEntry> {
-    const existing = await this.get('main');
-    if (existing) return existing;
-    return this.register({
-      id: 'main',
-      name: 'Main Agent',
-      description: 'Default primary agent',
-      status: 'active',
-      parentId: null,
-      agentType: 'pi-coding-agent',
-      capabilities: ['general', 'memory', 'web', 'scheduling'],
-      createdBy: 'system',
-    });
-  }
 }

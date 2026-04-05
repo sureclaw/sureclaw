@@ -187,19 +187,6 @@ describe('AgentRegistry', () => {
     expect(kids.map(k => k.id).sort()).toEqual(['child1', 'child2']);
   });
 
-  test('ensureDefault creates main agent on first call', async () => {
-    const main = await registry.ensureDefault();
-    expect(main.id).toBe('main');
-    expect(main.status).toBe('active');
-    expect(main.createdBy).toBe('system');
-  });
-
-  test('ensureDefault returns existing main agent on subsequent calls', async () => {
-    const first = await registry.ensureDefault();
-    const second = await registry.ensureDefault();
-    expect(first.createdAt).toBe(second.createdAt);
-  });
-
   describe('admins field', () => {
     test('register stores admins', async () => {
       const entry = await registry.register({

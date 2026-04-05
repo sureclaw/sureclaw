@@ -103,6 +103,14 @@ export const api = {
     );
   },
 
+  /** Archive (soft-delete) an agent. */
+  archiveAgent(id: string): Promise<{ ok: boolean }> {
+    return apiFetch<{ ok: boolean }>(
+      `/agents/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    );
+  },
+
   /** Query audit log entries. */
   audit(params?: AuditParams): Promise<AuditEntry[]> {
     const qs = new URLSearchParams();

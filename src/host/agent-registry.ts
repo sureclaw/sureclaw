@@ -76,7 +76,6 @@ export interface AgentRegistry {
   findByAdmin(userId: string): Promise<AgentRegistryEntry[]>;
   findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]>;
   children(parentId: string): Promise<AgentRegistryEntry[]>;
-  ensureDefault(): Promise<AgentRegistryEntry>;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -191,20 +190,6 @@ export class FileAgentRegistry implements AgentRegistry {
     return data.agents.filter(a => a.parentId === parentId);
   }
 
-  async ensureDefault(): Promise<AgentRegistryEntry> {
-    const existing = await this.get('main');
-    if (existing) return existing;
-    return this.register({
-      id: 'main',
-      name: 'Main Agent',
-      description: 'Default primary agent',
-      status: 'active',
-      parentId: null,
-      agentType: 'pi-coding-agent',
-      capabilities: ['general', 'memory', 'web', 'scheduling'],
-      createdBy: 'system',
-    });
-  }
 }
 
 // ═══════════════════════════════════════════════════════

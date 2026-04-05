@@ -235,7 +235,11 @@ async function handleAdminAPI(
   // GET /admin/api/agents
   if (pathname === '/admin/api/agents' && method === 'GET') {
     const agents = await agentRegistry.list();
-    sendJSON(res, agents);
+    // Exclude archived agents unless ?include_archived=true
+    const reqUrl = new URL(req.url ?? '/', 'http://localhost');
+    const includeArchived = reqUrl.searchParams.get('include_archived') === 'true';
+    const filtered = includeArchived ? agents : agents.filter(a => a.status !== 'archived');
+    sendJSON(res, filtered);
     return;
   }
 
@@ -247,6 +251,17 @@ async function handleAdminAPI(
     if (!agent) { sendError(res, 404, 'Agent not found'); return; }
     const children = await agentRegistry.children(id);
     sendJSON(res, { ...agent, children });
+    return;
+  }
+
+  // DELETE /admin/api/agents/:id — archive an agent (soft delete)
+  if (agentMatch && method === 'DELETE') {
+    const id = decodeURIComponent(agentMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    await agentRegistry.update(id, { status: 'archived' });
+    logger.info('agent_archived', { agentId: id });
+    sendJSON(res, { ok: true, agentId: id });
     return;
   }
 

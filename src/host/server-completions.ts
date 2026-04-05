@@ -437,9 +437,9 @@ export async function processCompletion(
       reqLogger.warn('fast_path_skip_no_documents');
       // Fall through to sandbox path below
     } else {
-    const currentUserId = userId ?? process.env.USER ?? 'default';
-    const resolvedAgent = deps.provisioner
-      ? await deps.provisioner.resolveAgent(currentUserId)
+    const currentUserId = userId ?? 'anonymous';
+    const resolvedAgent = userId && deps.provisioner
+      ? await deps.provisioner.resolveAgent(userId)
       : undefined;
     const agentName = resolvedAgent?.id ?? config.agent_name ?? 'main';
     try {
@@ -510,9 +510,9 @@ export async function processCompletion(
   let proxyCleanup: (() => void) | undefined;
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
-  const currentUserId = userId ?? process.env.USER ?? 'default';
-  const sandboxResolvedAgent = deps.provisioner
-    ? await deps.provisioner.resolveAgent(currentUserId)
+  const currentUserId = userId ?? 'anonymous';
+  const sandboxResolvedAgent = userId && deps.provisioner
+    ? await deps.provisioner.resolveAgent(userId)
     : undefined;
   const agentName = sandboxResolvedAgent?.id ?? config.agent_name ?? 'main';
 
