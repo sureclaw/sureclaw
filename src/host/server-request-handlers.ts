@@ -735,7 +735,7 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
 
     // Chat UI (SPA fallback for non-API, non-admin routes)
     // Don't serve /v1/* or /admin* or /health as SPA — those are API routes
-    if (chatUIHandler && !url.startsWith('/v1/') && !url.startsWith('/admin') && url !== '/health') {
+    if (chatUIHandler && !url.startsWith('/v1/') && !url.startsWith('/admin') && !url.startsWith('/api/auth/') && url !== '/health') {
       chatUIHandler(req, res, url);
       return;
     }
