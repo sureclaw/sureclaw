@@ -488,6 +488,9 @@ export interface RequestHandlerOpts {
   // Mode-specific routes — called BEFORE the 404 fallback.
   // Return true if the route was handled, false to fall through.
   extraRoutes?: (req: IncomingMessage, res: ServerResponse, url: string) => Promise<boolean>;
+
+  /** Auth providers — checked in order for admin/chat routes. */
+  authProviders?: AuthProvider[];
 }
 
 export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -495,6 +498,7 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
     modelId, eventBus, providers, fileStore, gcsFileStorage,
     completionOpts, webhookPrefix, webhookHandler, adminHandler,
     isDraining, trackRequestStart, trackRequestEnd, extraRoutes,
+    authProviders,
   } = opts;
 
   // Create chat API handler if storage is available
@@ -545,6 +549,13 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
 
     // Completions
     if (url === '/v1/chat/completions' && req.method === 'POST') {
+      if (authProviders?.length) {
+        const authResult = await authenticateRequest(req, authProviders);
+        if (!authResult.authenticated) {
+          sendError(res, 401, 'Unauthorized');
+          return;
+        }
+      }
       trackRequestStart?.();
       try {
         await handleCompletions(req, res, completionOpts);
@@ -692,6 +703,16 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
       if (chatApiHandler) {
         const handled = await chatApiHandler(req, res, url);
         if (handled) return;
+      }
+    }
+
+    // Auth routes — delegate to auth provider handleRequest
+    if (url.startsWith('/api/auth/') && authProviders?.length) {
+      for (const ap of authProviders) {
+        if (ap.handleRequest) {
+          const handled = await ap.handleRequest(req, res);
+          if (handled) return;
+        }
       }
     }
 

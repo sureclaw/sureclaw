@@ -144,6 +144,8 @@ export interface AdminDeps {
   startTime: number;
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
+  /** When true, auth is handled externally (by auth middleware). Skip inline token check. */
+  externalAuth?: boolean;
   domainList?: ProxyDomainList;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
@@ -179,7 +181,7 @@ export function createAdminHandler(deps: AdminDeps) {
     // API routes require auth (unless local dev mode + localhost connection)
     if (pathname.startsWith('/admin/api/')) {
       const clientIp = req.socket?.remoteAddress ?? 'unknown';
-      const skipAuth = authDisabled || (deps.localDevMode && isLoopback(clientIp));
+      const skipAuth = authDisabled || deps.externalAuth || (deps.localDevMode && isLoopback(clientIp));
 
       if (!skipAuth) {
         if (isRateLimited(clientIp)) {
