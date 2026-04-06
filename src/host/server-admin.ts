@@ -916,7 +916,8 @@ async function handleSetupAPI(
     sendJSON(res, {
       configured: configExists,
       profile: deps.config?.profile,
-      auth_disabled: deps.config.admin.disable_auth === true,
+      auth_disabled: deps.config.admin.disable_auth === true && !deps.externalAuth,
+      external_auth: !!deps.externalAuth,
     });
     return;
   }

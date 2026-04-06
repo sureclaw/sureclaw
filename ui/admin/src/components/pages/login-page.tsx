@@ -39,7 +39,7 @@ export default function LoginPage({ onLogin: _onLogin, sessionAuth }: LoginPageP
             <div className="p-6 space-y-4">
               <button
                 onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-foreground text-background text-[13px] font-medium hover:bg-foreground/90 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-foreground text-background text-[13px] font-medium hover:bg-foreground/90 transition-colors cursor-pointer"
               >
                 Sign in with Google
               </button>

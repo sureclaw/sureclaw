@@ -84,10 +84,15 @@ export default function App() {
           return;
         }
 
-        // If server has auth disabled, auto-authenticate
+        // If server has auth disabled (and no external auth), auto-authenticate
         if (setupResult.auth_disabled) {
           setAuthState('authenticated');
           return;
+        }
+
+        // If external auth (BetterAuth) is configured, skip token check and go straight to session check
+        if (setupResult.external_auth) {
+          setSessionAuth(true);
         }
       } catch {
         // If setup check fails, continue with auth checks
