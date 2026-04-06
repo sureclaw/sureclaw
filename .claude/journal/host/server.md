@@ -2,6 +2,22 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-04-05 17:00] — Load auth providers from config in registry
+
+**Task:** Task 6 of auth provider series: wire auth provider loading into registry.ts and pass them through server-local.ts
+**What I did:** Added auth provider loading loop in `loadProviders()` after credentials are loaded, added `auth` field to the returned ProviderRegistry, passed `authProviders` to `createRequestHandler()` in server-local.ts, and passed `externalAuth` flag to `setupAdminHandler()`.
+**Files touched:** `src/host/registry.ts`, `src/host/server-local.ts`, `src/host/server-webhook-admin.ts`
+**Outcome:** Success. Clean compilation, all 2880 tests pass. Auth providers are loaded from config, initialized, and wired into request handling.
+**Notes:** server-k8s.ts also has setupAdminHandler call but was not in scope for this task.
+
+## [2026-04-05 16:50] — Wire auth providers into request dispatch
+
+**Task:** Integrate auth providers into HTTP request handlers (Task 5 of auth provider series)
+**What I did:** Added `authProviders` to `RequestHandlerOpts`, wired `/api/auth/*` route delegation, added auth gating on `/v1/chat/completions`, and added `externalAuth` flag to `AdminDeps` to skip inline token auth when external auth providers handle it.
+**Files touched:** `src/host/server-request-handlers.ts`, `src/host/server-admin.ts`
+**Outcome:** Success. All 2880 tests pass. Changes are backward compatible — when no auth providers configured, behavior is unchanged.
+**Notes:** Auth is optional. The `externalAuth` flag on `AdminDeps` is designed to be threaded through from registry in Task 6.
+
 ## [2026-03-27 06:25] — Fix bootstrap deadlock: taint gate, scheduler skip, and tool_calls_dropped
 
 **Task:** Debug why agent keeps re-bootstrapping in kind cluster — bootstrap never completes

@@ -22,6 +22,9 @@ import { createCoworkPluginHandlers, type CoworkPluginHandlerOptions } from './i
 import { createOrchestrationHandlers } from './ipc-handlers/orchestration.js';
 import { createSandboxToolHandlers } from './ipc-handlers/sandbox-tools.js';
 import { createToolBatchHandlers, type ToolBatchProvider, type ToolBatchOptions } from './ipc-handlers/tool-batch.js';
+import { createCompanyHandlers } from './ipc-handlers/company.js';
+import { createCatalogHandlers } from './ipc-handlers/catalog.js';
+import { CatalogStore } from './catalog-store.js';
 import { type AgentRegistry, FileAgentRegistry } from './agent-registry.js';
 import type { Orchestrator } from './orchestration/orchestrator.js';
 
@@ -137,6 +140,8 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       registry: opts?.agentRegistry ?? new FileAgentRegistry(),
     }),
     ...createPluginHandlers(providers),
+    ...(providers.storage?.documents ? createCompanyHandlers(providers.storage.documents, providers.audit) : {}),
+    ...(providers.storage?.documents ? createCatalogHandlers(new CatalogStore(providers.storage.documents), providers.storage.documents, providers.audit) : {}),
     ...(opts?.coworkPlugins ? createCoworkPluginHandlers(providers, opts.coworkPlugins) : {}),
     ...(opts?.orchestrator ? createOrchestrationHandlers(opts.orchestrator) : {}),
     ...(opts?.workspaceMap ? createSandboxToolHandlers(providers, {

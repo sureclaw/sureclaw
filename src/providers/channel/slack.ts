@@ -65,6 +65,20 @@ function chunkText(text: string, limit: number = SLACK_MAX_TEXT): string[] {
   return chunks;
 }
 
+/** Injected Slack tokens — used by shared agents to avoid hard env var dependency. */
+export interface SlackTokens {
+  botToken: string;
+  appToken: string;
+}
+
+/**
+ * Create a Slack channel provider with explicitly injected tokens.
+ * Used for shared agents that read tokens from per-agent env vars.
+ */
+export async function createWithTokens(config: Config, tokens: SlackTokens, providerName?: string): Promise<ChannelProvider> {
+  return createSlackProvider(config, tokens, providerName);
+}
+
 export async function create(config: Config): Promise<ChannelProvider> {
   const botToken = process.env.SLACK_BOT_TOKEN;
   const appToken = process.env.SLACK_APP_TOKEN;
@@ -75,6 +89,13 @@ export async function create(config: Config): Promise<ChannelProvider> {
       'Enable Socket Mode in your Slack app settings and generate an app-level token.',
     );
   }
+
+  return createSlackProvider(config, { botToken, appToken });
+}
+
+async function createSlackProvider(config: Config, tokens: SlackTokens, providerName?: string): Promise<ChannelProvider> {
+  const { botToken, appToken } = tokens;
+  const slackName = providerName ?? 'slack';
 
   // Read access config from ax.yaml channel_config.slack (supports both camelCase and snake_case)
   const rawConfig: Record<string, any> = (config.channel_config?.slack ?? {}) as Record<string, any>;
@@ -96,7 +117,7 @@ export async function create(config: Config): Promise<ChannelProvider> {
   const SocketModeReceiver = boltMod.SocketModeReceiver ?? cjs?.SocketModeReceiver;
   const LogLevel = boltMod.LogLevel ?? cjs?.LogLevel;
 
-  const slackLogger = getLogger().child({ component: 'slack' });
+  const slackLogger = getLogger().child({ component: slackName });
 
   // Bridge Bolt's internal logger to our pino logger so its messages match
   // our pretty console format instead of printing raw "[WARN]  bolt-app ..." lines.
@@ -307,7 +328,7 @@ export async function create(config: Config): Promise<ChannelProvider> {
   });
 
   return {
-    name: 'slack',
+    name: slackName,
 
     async connect(): Promise<void> {
       intentionalDisconnect = false;

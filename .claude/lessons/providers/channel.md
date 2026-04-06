@@ -29,3 +29,15 @@
 **Context:** Passing `att.content` (a Buffer) as `body` to `fetch()` in the Slack provider caused TS2769 — `Buffer` is not assignable to `BodyInit`.
 **Lesson:** Wrap Buffer with `new Uint8Array(buffer)` when passing to `fetch()` body. Uint8Array is accepted by BodyInit; Buffer (which extends Uint8Array) is not in strict mode because of extra properties.
 **Tags:** typescript, fetch, buffer, slack
+
+### Multi-agent Slack: thread ownership is in-memory — not suitable for multi-pod
+**Date:** 2026-04-04
+**Context:** Implementing ThreadOwnershipMap for per-message agent routing in multi-agent Slack UX
+**Lesson:** ThreadOwnershipMap stores thread-to-agent bindings in a plain Map (in-memory). This works for single-pod local deployments but would lose ownership tracking across pod restarts or in multi-pod k8s. If needed for k8s, move to a shared store (Redis, DB table, or NATS KV).
+**Tags:** slack, multi-agent, thread-ownership, scalability, k8s
+
+### Shared agents need separate Slack app registrations
+**Date:** 2026-04-04
+**Context:** Designing shared agent startup with per-agent Slack tokens
+**Lesson:** Each shared agent requires its own Slack app registration with separate bot/app tokens. The env var convention is `{AGENT_ID_UPPERCASE}_SLACK_BOT_TOKEN` and `{AGENT_ID_UPPERCASE}_SLACK_APP_TOKEN`. If tokens are missing, the shared agent is silently skipped with a warning log. This matches the existing pattern of optional channel providers.
+**Tags:** slack, multi-agent, shared-agents, tokens, configuration

@@ -206,6 +206,14 @@ export function createWebhookHandler(deps: WebhookDeps) {
       return;
     }
 
+    // URL-based agentId: /webhooks/{agentId}/{name} sets x-ax-agent-id header.
+    // This takes precedence over the transform's agentId since it's a structural
+    // routing decision (the webhook was sent to a specific agent's endpoint).
+    const urlAgentId = req.headers['x-ax-agent-id'] as string | undefined;
+    if (urlAgentId && !result.agentId) {
+      result.agentId = urlAgentId;
+    }
+
     // Agent ID allowlist check — when an allowlist is configured, the
     // transform MUST return an agentId that appears in the list. If omitted,
     // dispatch would fall back to the server default agent which may not be

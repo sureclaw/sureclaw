@@ -207,6 +207,10 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'tool_batch',
       // Cowork plugin management (install/uninstall/list via IPC, not in tool catalog)
       'plugin_install_cowork', 'plugin_uninstall_cowork', 'plugin_list_cowork',
+      // Company identity management (read/write via IPC, admin-only writes)
+      'company_identity_read', 'company_identity_write',
+      // Catalog management (publish/get/list/unpublish/set_required via IPC)
+      'catalog_publish', 'catalog_get', 'catalog_list', 'catalog_unpublish', 'catalog_set_required',
     ]);
 
     for (const action of schemaActions) {

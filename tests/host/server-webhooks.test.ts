@@ -299,6 +299,45 @@ describe('webhook allowlist enforcement', () => {
   });
 });
 
+describe('URL-based agent routing', () => {
+  test('x-ax-agent-id header is used as agentId when transform omits it', async () => {
+    const { handler, dispatched, freshRes } = setup({
+      token: 'secret',
+      transformResult: { message: 'from github' }, // no agentId from transform
+    });
+    const req = createMockReq({
+      body: '{"event":"push"}',
+      headers: {
+        authorization: 'Bearer secret', //gitleaks:allow
+        'x-ax-agent-id': 'backend-bot',
+      },
+    });
+    const res = freshRes();
+    await handler(req, res, 'github');
+    expect(res.statusCode).toBe(202);
+    expect(dispatched.length).toBe(1);
+    expect(dispatched[0].result.agentId).toBe('backend-bot');
+  });
+
+  test('transform agentId takes precedence over URL agentId', async () => {
+    const { handler, dispatched, freshRes } = setup({
+      token: 'secret',
+      transformResult: { message: 'from github', agentId: 'transform-agent' },
+    });
+    const req = createMockReq({
+      body: '{"event":"push"}',
+      headers: {
+        authorization: 'Bearer secret', //gitleaks:allow
+        'x-ax-agent-id': 'url-agent',
+      },
+    });
+    const res = freshRes();
+    await handler(req, res, 'github');
+    expect(res.statusCode).toBe(202);
+    expect(dispatched[0].result.agentId).toBe('transform-agent');
+  });
+});
+
 describe('webhook body size limit', () => {
   test('rejects payload exceeding configured max_body_bytes', async () => {
     const { handler, mockRes } = setup({

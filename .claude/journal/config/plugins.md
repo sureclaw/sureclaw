@@ -1,6 +1,14 @@
 # Config: Plugins
 
-Plugin declarations in ax.yaml configuration.
+Plugin declarations and auth config in ax.yaml configuration.
+
+## [2026-04-05] — Add auth config defaults to ConfigSchema
+
+**Task:** Add Zod schema fields for auth providers and auth config block so strict mode doesn't reject them
+**What I did:** Added `providers.auth` as `z.array(providerEnum('auth')).optional()` and top-level `auth` as optional strictObject with `better_auth` sub-config (google OAuth + allowed_domains)
+**Files touched:** `src/config.ts`
+**Outcome:** Success — tsc compiles clean, all 2885 tests pass
+**Notes:** Auth is opt-in: both fields default to undefined. No behavior change for existing configs without auth fields.
 
 ## [2026-03-29 11:50] — Add per-agent plugins config field to ax.yaml
 

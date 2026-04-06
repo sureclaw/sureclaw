@@ -448,6 +448,100 @@ scheduler:
     }
   });
 
+  test('accepts config with shared_agents section', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-shared-agents.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: cortex
+  scanner: patterns
+  channels: []
+  web:
+    extract: none
+    search: none
+  browser: none
+  credentials: env
+  skills: database
+  audit: database
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+shared_agents:
+  - id: backend-bot
+    display_name: "Backend Team Bot"
+    slack_bot_token_env: BACKEND_SLACK_BOT_TOKEN
+    slack_app_token_env: BACKEND_SLACK_APP_TOKEN
+    admins: ["U001", "U002"]
+    capabilities: ["coding", "backend"]
+    description: "Handles backend engineering tasks"
+  - id: devops-bot
+    display_name: "DevOps Bot"
+    agent: claude-code
+    models:
+      default:
+        - anthropic/claude-sonnet-4-20250514
+`);
+    try {
+      const config = loadConfig(tmpPath);
+      expect(config.shared_agents).toHaveLength(2);
+      expect(config.shared_agents![0].id).toBe('backend-bot');
+      expect(config.shared_agents![0].display_name).toBe('Backend Team Bot');
+      expect(config.shared_agents![0].admins).toEqual(['U001', 'U002']);
+      expect(config.shared_agents![1].id).toBe('devops-bot');
+      expect(config.shared_agents![1].agent).toBe('claude-code');
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
+  test('config without shared_agents parses fine', () => {
+    const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
+    expect(config.shared_agents).toBeUndefined();
+  });
+
+  test('rejects shared_agents with invalid id characters', async () => {
+    const { writeFileSync, rmSync } = await import('node:fs');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-bad-shared-agent.yaml');
+    writeFileSync(tmpPath, `
+profile: balanced
+providers:
+  memory: cortex
+  scanner: patterns
+  channels: []
+  web:
+    extract: none
+    search: none
+  browser: none
+  credentials: env
+  skills: database
+  audit: database
+  sandbox: subprocess
+  scheduler: none
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+scheduler:
+  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
+  max_token_budget: 4096
+  heartbeat_interval_min: 30
+shared_agents:
+  - id: "bad id with spaces"
+    display_name: "Bad Bot"
+`);
+    try {
+      expect(() => loadConfig(tmpPath)).toThrow();
+    } finally {
+      rmSync(tmpPath);
+    }
+  });
+
   test('accepts config with optional screener', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');

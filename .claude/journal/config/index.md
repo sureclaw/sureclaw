@@ -4,6 +4,7 @@ Configuration, paths, environment, onboarding wizard, model routing.
 
 ## Entries
 
+- 2026-04-05 — Add auth config defaults to ConfigSchema [plugins.md](plugins.md)
 - 2026-03-29 11:50 — Add per-agent plugins config field to ax.yaml [plugins.md](plugins.md)
 - 2026-03-06 22:10 — Refactor k8s init: replace --llm-provider/--embeddings-provider with --model/--embeddings-model [onboarding.md](onboarding.md)
 - 2026-03-04 03:30 — Fix npm ci failure: override unpublished sqlite-vec-linux-arm64 [dependencies.md](dependencies.md)

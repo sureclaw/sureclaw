@@ -1,6 +1,7 @@
 /**
  * Channel ingestion — message deduplication, thread gating, thread
- * backfill, bootstrap gate, emoji reactions, and reconnection.
+ * backfill, bootstrap gate, emoji reactions, reconnection, and
+ * per-message agent routing for multi-agent Slack UX.
  */
 
 import { readFileSync } from 'node:fs';
@@ -19,6 +20,8 @@ import type { Logger } from '../logger.js';
 import type { CompletionDeps, CompletionResult, ExtractedFile } from './server-completions.js';
 import { processCompletion } from './server-completions.js';
 import { withRetry } from '../utils/retry.js';
+import type { AgentProvisioner } from './agent-provisioner.js';
+import type { AgentRegistry, AgentRegistryEntry } from './agent-registry.js';
 
 // ── Channel reconnection constants ──
 const CHANNEL_RECONNECT_MAX_RETRIES = 5;
@@ -145,6 +148,138 @@ export class ChannelDeduplicator {
 }
 
 // =====================================================
+// Thread ownership tracking
+// =====================================================
+
+/**
+ * In-memory thread-to-agent mapping. Tracks which agent "owns" a thread.
+ * When a bot responds in a thread, the thread is bound to that agent's ID.
+ * This ensures that follow-up messages in the same thread go to the same agent.
+ */
+export class ThreadOwnershipMap {
+  private readonly owners = new Map<string, string>();
+
+  /** Record that agentId owns this thread (keyed by "channel:threadTs"). */
+  set(channel: string, threadTs: string, agentId: string): void {
+    this.owners.set(`${channel}:${threadTs}`, agentId);
+  }
+
+  /** Get the agent that owns a thread, if any. */
+  get(channel: string, threadTs: string): string | undefined {
+    return this.owners.get(`${channel}:${threadTs}`);
+  }
+}
+
+// =====================================================
+// Agent routing
+// =====================================================
+
+export interface AgentRoutingResult {
+  agentId: string;
+  displayName: string;
+  agentKind: 'personal' | 'shared';
+}
+
+/**
+ * Resolve which agent handles this message.
+ *
+ * Routing rules:
+ * 1. Thread messages → thread owner (if tracked)
+ * 2. DM/group → sender's personal agent (via provisioner)
+ * 3. Channel @mention → boundAgentId if channel is owned by a shared agent,
+ *    else sender's personal agent
+ */
+export async function resolveAgentForMessage(
+  msg: InboundMessage,
+  opts: {
+    provisioner?: AgentProvisioner;
+    agentRegistry?: AgentRegistry;
+    threadOwners?: ThreadOwnershipMap;
+    boundAgentId?: string;
+    fallbackAgentName: string;
+  },
+): Promise<AgentRoutingResult> {
+  const { provisioner, agentRegistry, threadOwners, boundAgentId, fallbackAgentName } = opts;
+
+  // 1. Thread ownership: if we've already responded in this thread, keep the same agent
+  if (msg.session.scope === 'thread' && threadOwners) {
+    const channel = msg.session.identifiers.channel;
+    const threadTs = msg.session.identifiers.thread;
+    if (channel && threadTs) {
+      const ownerId = threadOwners.get(channel, threadTs);
+      if (ownerId && agentRegistry) {
+        const owner = await agentRegistry.get(ownerId);
+        if (owner) {
+          return {
+            agentId: owner.id,
+            displayName: owner.displayName,
+            agentKind: owner.agentKind,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. If channel is bound to a shared agent, use that agent
+  if (boundAgentId && agentRegistry) {
+    const bound = await agentRegistry.get(boundAgentId);
+    if (bound) {
+      return {
+        agentId: bound.id,
+        displayName: bound.displayName,
+        agentKind: bound.agentKind,
+      };
+    }
+  }
+
+  // 3. Use provisioner to get/create personal agent for the sender
+  if (provisioner) {
+    try {
+      const agent = await provisioner.resolveAgent(msg.sender);
+      return {
+        agentId: agent.id,
+        displayName: agent.displayName,
+        agentKind: agent.agentKind,
+      };
+    } catch (err) {
+      // Fall through to default
+    }
+  }
+
+  // 4. Fallback: use the default agentName
+  return {
+    agentId: fallbackAgentName,
+    displayName: fallbackAgentName,
+    agentKind: 'personal',
+  };
+}
+
+// =====================================================
+// Response prefix
+// =====================================================
+
+/**
+ * Prepend a display-name prefix for personal agents responding in shared channels/threads.
+ * Shared agents don't need a prefix because they have their own Slack bot identity.
+ * DMs also don't need a prefix since the conversation is 1:1.
+ */
+export function maybeAddResponsePrefix(
+  content: string,
+  routing: AgentRoutingResult,
+  sessionScope: string | undefined,
+): string {
+  // No prefix needed for shared agents (they have their own bot identity)
+  if (routing.agentKind === 'shared') return content;
+  // No prefix needed in DMs (1:1 conversation)
+  if (sessionScope === 'dm') return content;
+  // Add prefix in channels and threads for personal agents
+  if (sessionScope === 'channel' || sessionScope === 'thread') {
+    return `[${routing.displayName}] ${content}`;
+  }
+  return content;
+}
+
+// =====================================================
 // Channel handler registration
 // =====================================================
 
@@ -161,12 +296,20 @@ export interface ChannelHandlerDeps {
   isAgentBootstrapMode: (agentName: string) => boolean;
   isAdmin: (agentDir: string, userId: string) => boolean;
   claimBootstrapAdmin: (agentDir: string, userId: string) => boolean;
+  /** Dynamic agent provisioner for per-message routing. */
+  provisioner?: AgentProvisioner;
+  /** Agent registry for looking up agent metadata. */
+  agentRegistry?: AgentRegistry;
+  /** Thread ownership tracker — shared across all channel handlers. */
+  threadOwners?: ThreadOwnershipMap;
+  /** If set, this channel is bound to a specific shared agent. */
+  boundAgentId?: string;
 }
 
 /**
  * Wire up a single channel provider — registers onMessage handler with
  * dedup, thread gating, backfill, bootstrap gate, eyes emoji, and
- * completion processing.
+ * completion processing. Supports per-message agent routing.
  */
 export function registerChannelHandler(
   channel: ChannelProvider,
@@ -177,6 +320,7 @@ export function registerChannelHandler(
     router, agentName, agentDir, deduplicator, logger,
     isAgentBootstrapMode: isBootstrap, isAdmin: isAdminFn,
     claimBootstrapAdmin: claimBootstrapAdminFn,
+    provisioner, agentRegistry, threadOwners, boundAgentId,
   } = deps;
 
   channel.onMessage(async (msg: InboundMessage) => {
@@ -244,6 +388,22 @@ export function registerChannelHandler(
     }
 
     try {
+      // ── Per-message agent routing ──
+      const routing = await resolveAgentForMessage(msg, {
+        provisioner,
+        agentRegistry,
+        threadOwners,
+        boundAgentId,
+        fallbackAgentName: agentName,
+      });
+      logger.debug('channel_agent_routed', {
+        provider: channel.name,
+        sender: msg.sender,
+        agentId: routing.agentId,
+        agentKind: routing.agentKind,
+        scope: msg.session.scope,
+      });
+
       const result = await router.processInbound(msg);
       if (!result.queued) {
         await channel.send(msg.session, {
@@ -267,13 +427,38 @@ export function registerChannelHandler(
       // Determine if reply is optional (LLM can choose not to respond)
       const replyOptional = !msg.isMention;
 
+      // Override agent_name in completion deps for per-message routing
+      const routedConfig = routing.agentId !== agentName
+        ? { ...completionDeps.config, agent_name: routing.agentId }
+        : completionDeps.config;
+      const routedDeps = routing.agentId !== agentName
+        ? { ...completionDeps, config: routedConfig }
+        : completionDeps;
+
       const { responseContent, contentBlocks, extractedFiles, agentName: resultAgent, userId: resultUser } = await processCompletion(
-        completionDeps, messageContent, `ch-${randomUUID().slice(0, 8)}`, [], sessionId,
+        routedDeps, messageContent, `ch-${randomUUID().slice(0, 8)}`, [], sessionId,
         { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
         msg.sender,
         replyOptional,
         msg.session.scope,
       );
+
+      // Track thread ownership after successful response
+      if (threadOwners && msg.session.scope === 'thread') {
+        const threadChannel = msg.session.identifiers.channel;
+        const threadTs = msg.session.identifiers.thread;
+        if (threadChannel && threadTs) {
+          threadOwners.set(threadChannel, threadTs, routing.agentId);
+        }
+      }
+      // Also track ownership for new threads started from channel @mentions
+      if (threadOwners && msg.session.scope === 'thread' && msg.isMention) {
+        const threadChannel = msg.session.identifiers.channel;
+        const threadTs = msg.session.identifiers.thread;
+        if (threadChannel && threadTs) {
+          threadOwners.set(threadChannel, threadTs, routing.agentId);
+        }
+      }
 
       // If LLM chose not to reply, skip sending
       if (responseContent.trim()) {
@@ -339,6 +524,10 @@ export function registerChannelHandler(
           // Clean up leftover blank lines from stripped references
           finalContent = finalContent.replace(/\n{3,}/g, '\n\n').trim();
         }
+
+        // Add display name prefix for personal agents in shared contexts
+        finalContent = maybeAddResponsePrefix(finalContent, routing, msg.session.scope);
+
         await channel.send(msg.session, {
           content: finalContent,
           ...(outboundAttachments.length > 0 ? { attachments: outboundAttachments } : {}),
@@ -346,7 +535,7 @@ export function registerChannelHandler(
       }
 
       // Track last channel session for "last" delivery target resolution
-      await sessionStore.trackSession(agentName, msg.session);
+      await sessionStore.trackSession(routing.agentId, msg.session);
     } catch (err) {
       logger.error('channel_response_failed', {
         provider: channel.name,

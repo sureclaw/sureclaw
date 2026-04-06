@@ -71,26 +71,30 @@ describe('memory IPC handlers — userId injection', () => {
     expect(writeCalls[0].userId).toBe('alice');
   });
 
-  it('DM context injects userId into query', async () => {
+  it('DM context injects userId into query (default pool=both makes 2 calls)', async () => {
     const { memory, queryCalls } = createSpyMemory();
     const handlers = createMemoryHandlers(stubProviders(memory));
 
     const ctx: IPCContext = { sessionId: 's1', agentId: 'main', userId: 'alice', sessionScope: 'dm' };
     await handlers.memory_query({ scope: 'default', query: 'TypeScript' }, ctx);
 
-    expect(queryCalls).toHaveLength(1);
+    // Default pool='both' makes two calls: agent + company
+    expect(queryCalls).toHaveLength(2);
     expect(queryCalls[0].userId).toBe('alice');
+    expect(queryCalls[1].scope).toBe('company');
   });
 
-  it('channel context omits userId from query', async () => {
+  it('channel context omits userId from query (default pool=both)', async () => {
     const { memory, queryCalls } = createSpyMemory();
     const handlers = createMemoryHandlers(stubProviders(memory));
 
     const ctx: IPCContext = { sessionId: 's1', agentId: 'main', userId: 'alice', sessionScope: 'channel' };
     await handlers.memory_query({ scope: 'default', query: 'TypeScript' }, ctx);
 
-    expect(queryCalls).toHaveLength(1);
+    // Default pool='both' makes two calls: agent + company
+    expect(queryCalls).toHaveLength(2);
     expect(queryCalls[0].userId).toBeUndefined();
+    expect(queryCalls[1].scope).toBe('company');
   });
 
   it('DM context injects userId into list', async () => {
@@ -123,6 +127,68 @@ describe('memory IPC handlers — userId injection', () => {
     await handlers.memory_query({ scope: 'default', query: 'test' }, ctx);
 
     expect(queryCalls[0].userId).toBeUndefined();
+  });
+
+  it('memory_query with pool=both searches agent and company scopes', async () => {
+    const { memory, queryCalls } = createSpyMemory();
+    const handlers = createMemoryHandlers(stubProviders(memory));
+
+    const ctx: IPCContext = { sessionId: 's1', agentId: 'my-agent', userId: 'alice', sessionScope: 'dm' };
+    await handlers.memory_query({ scope: 'knowledge', query: 'test', pool: 'both' }, ctx);
+
+    // Should have been called twice: once for agent scope (with userId), once for company
+    expect(queryCalls).toHaveLength(2);
+    expect(queryCalls[0].userId).toBe('alice');
+    expect(queryCalls[1].scope).toBe('company');
+    expect(queryCalls[1].userId).toBeUndefined();
+  });
+
+  it('memory_query with pool=company only queries company scope', async () => {
+    const { memory, queryCalls } = createSpyMemory();
+    const handlers = createMemoryHandlers(stubProviders(memory));
+
+    const ctx: IPCContext = { sessionId: 's1', agentId: 'my-agent', userId: 'alice', sessionScope: 'dm' };
+    await handlers.memory_query({ scope: 'knowledge', query: 'test', pool: 'company' }, ctx);
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0].scope).toBe('company');
+    expect(queryCalls[0].userId).toBeUndefined();
+  });
+
+  it('memory_query with pool=agent only queries agent scope', async () => {
+    const { memory, queryCalls } = createSpyMemory();
+    const handlers = createMemoryHandlers(stubProviders(memory));
+
+    const ctx: IPCContext = { sessionId: 's1', agentId: 'my-agent', userId: 'alice', sessionScope: 'dm' };
+    await handlers.memory_query({ scope: 'knowledge', query: 'test', pool: 'agent' }, ctx);
+
+    expect(queryCalls).toHaveLength(1);
+    expect(queryCalls[0].userId).toBe('alice');
+    expect(queryCalls[0].scope).toBe('knowledge');
+  });
+
+  it('memory_write with pool=company writes to company scope', async () => {
+    const { memory, writeCalls } = createSpyMemory();
+    const handlers = createMemoryHandlers(stubProviders(memory));
+
+    const ctx: IPCContext = { sessionId: 's1', agentId: 'my-agent', userId: 'alice', sessionScope: 'dm' };
+    await handlers.memory_write({ scope: 'knowledge', content: 'shared fact', pool: 'company' }, ctx);
+
+    expect(writeCalls).toHaveLength(1);
+    expect(writeCalls[0].scope).toBe('company');
+    expect(writeCalls[0].userId).toBeUndefined();
+  });
+
+  it('memory_write without pool writes to agent scope (default)', async () => {
+    const { memory, writeCalls } = createSpyMemory();
+    const handlers = createMemoryHandlers(stubProviders(memory));
+
+    const ctx: IPCContext = { sessionId: 's1', agentId: 'my-agent', userId: 'alice', sessionScope: 'dm' };
+    await handlers.memory_write({ scope: 'knowledge', content: 'personal fact' }, ctx);
+
+    expect(writeCalls).toHaveLength(1);
+    expect(writeCalls[0].scope).toBe('knowledge');
+    expect(writeCalls[0].userId).toBe('alice');
   });
 
   it('memory_read does not inject userId (ID-based access)', async () => {

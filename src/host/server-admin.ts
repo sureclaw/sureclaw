@@ -144,6 +144,8 @@ export interface AdminDeps {
   startTime: number;
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
+  /** When true, auth is handled externally (by auth middleware). Skip inline token check. */
+  externalAuth?: boolean;
   domainList?: ProxyDomainList;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
@@ -179,7 +181,7 @@ export function createAdminHandler(deps: AdminDeps) {
     // API routes require auth (unless local dev mode + localhost connection)
     if (pathname.startsWith('/admin/api/')) {
       const clientIp = req.socket?.remoteAddress ?? 'unknown';
-      const skipAuth = authDisabled || (deps.localDevMode && isLoopback(clientIp));
+      const skipAuth = authDisabled || deps.externalAuth || (deps.localDevMode && isLoopback(clientIp));
 
       if (!skipAuth) {
         if (isRateLimited(clientIp)) {
@@ -235,7 +237,11 @@ async function handleAdminAPI(
   // GET /admin/api/agents
   if (pathname === '/admin/api/agents' && method === 'GET') {
     const agents = await agentRegistry.list();
-    sendJSON(res, agents);
+    // Exclude archived agents unless ?include_archived=true
+    const reqUrl = new URL(req.url ?? '/', 'http://localhost');
+    const includeArchived = reqUrl.searchParams.get('include_archived') === 'true';
+    const filtered = includeArchived ? agents : agents.filter(a => a.status !== 'archived');
+    sendJSON(res, filtered);
     return;
   }
 
@@ -247,6 +253,17 @@ async function handleAdminAPI(
     if (!agent) { sendError(res, 404, 'Agent not found'); return; }
     const children = await agentRegistry.children(id);
     sendJSON(res, { ...agent, children });
+    return;
+  }
+
+  // DELETE /admin/api/agents/:id — archive an agent (soft delete)
+  if (agentMatch && method === 'DELETE') {
+    const id = decodeURIComponent(agentMatch[1]);
+    const agent = await agentRegistry.get(id);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+    await agentRegistry.update(id, { status: 'archived' });
+    logger.info('agent_archived', { agentId: id });
+    sendJSON(res, { ok: true, agentId: id });
     return;
   }
 
@@ -899,7 +916,8 @@ async function handleSetupAPI(
     sendJSON(res, {
       configured: configExists,
       profile: deps.config?.profile,
-      auth_disabled: deps.config.admin.disable_auth === true,
+      auth_disabled: deps.config.admin.disable_auth === true && !deps.externalAuth,
+      external_auth: !!deps.externalAuth,
     });
     return;
   }

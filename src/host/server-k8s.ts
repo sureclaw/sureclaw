@@ -160,6 +160,7 @@ async function main(): Promise<void> {
     startTime,
     domainList,
     mcpManager,
+    externalAuth: !!providers.auth?.length,
   });
 
   // ── processCompletion wrapper with per-turn HTTP IPC ──
@@ -441,6 +442,7 @@ async function main(): Promise<void> {
     webhookPrefix,
     webhookHandler,
     adminHandler,
+    authProviders: providers.auth,
     isDraining: () => draining,
     trackRequestStart,
     trackRequestEnd,

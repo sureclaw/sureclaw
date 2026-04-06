@@ -2,6 +2,14 @@
 
 Security hardening: provider path resolution, cross-provider dependencies, vulnerability fixes.
 
+## [2026-04-05 16:35] — Add authenticateRequest middleware function
+
+**Task:** Implement auth middleware that iterates through auth providers to authenticate HTTP requests (Task 4 of auth provider feature)
+**What I did:** Created test file with 4 TDD tests (empty list, no match, first match, short-circuit), then added `authenticateRequest()` export to server-request-handlers.ts
+**Files touched:** `tests/host/auth-middleware.test.ts` (created), `src/host/server-request-handlers.ts` (modified — added import + function)
+**Outcome:** Success — all 4 new tests pass, full suite (256 files, 2880 tests) passes
+**Notes:** Function follows provider chain pattern: iterate providers, return first non-null AuthResult, default to `{ authenticated: false }`. Will be wired into request dispatch in Task 5.
+
 ## [2026-03-19 05:04] — Evaluate MITM TLS proxy for sandbox skill auth
 
 **Task:** Assess whether a MITM TLS proxy could let env-auth skill CLIs run in k8s without placing raw credentials in the sandbox

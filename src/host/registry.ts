@@ -1,6 +1,7 @@
 import { resolveProviderPath, listPluginProviders } from './provider-map.js';
 import type { Config, ProviderRegistry } from '../types.js';
 import type { DatabaseProvider } from '../providers/database/types.js';
+import type { AuthProvider } from '../providers/auth/types.js';
 import { isTracingEnabled, getTracer } from '../utils/tracing.js';
 import { TracedLLMProvider } from '../providers/llm/traced.js';
 import type { PluginHost } from './plugin-host.js';
@@ -43,6 +44,16 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   }
   const { loadCredentials } = await import('../dotenv.js');
   await loadCredentials(credentials);
+
+  // Load auth providers (after credentials so env vars are available)
+  const authProviders: AuthProvider[] = [];
+  if (config.providers.auth?.length) {
+    for (const name of config.providers.auth) {
+      const provider = await loadProvider('auth', name, config) as AuthProvider;
+      if (provider.init) await provider.init();
+      authProviders.push(provider);
+    }
+  }
 
   // Load database provider if not already loaded above for credential provider.
   if (!database && config.providers.database) {
@@ -144,6 +155,7 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     eventbus,
     workspace,
     mcp,
+    auth: authProviders.length ? authProviders : undefined,
     screener,
   };
 

@@ -116,6 +116,8 @@
 - OS username != channel user ID — admins file seed doesn't help channels [providers/channel.md](providers/channel.md)
 - Node.js Buffer -> fetch body: use standalone ArrayBuffer to avoid detached buffer errors [providers/channel.md](providers/channel.md)
 - Node.js fetch body does not accept Buffer in strict TypeScript [providers/channel.md](providers/channel.md)
+- Multi-agent Slack: thread ownership is in-memory — not suitable for multi-pod [providers/channel.md](providers/channel.md)
+- Shared agents need separate Slack app registrations [providers/channel.md](providers/channel.md)
 - pi-agent-core only supports text — image blocks must bypass it [providers/memory.md](providers/memory.md)
 - Salience formula produces 0 at zero reinforcement — test ratios need nonzero counts [providers/memory.md](providers/memory.md)
 - Scheduler must be started in BOTH server.ts AND host-process.ts [providers/scheduler.md](providers/scheduler.md)
@@ -125,6 +127,8 @@
 - Check dependency chain before implementing plan tasks — missing prereqs block you [providers/memory.md](providers/memory.md)
 - Identity content and injection patterns are semantically identical [providers/scanner.md](providers/scanner.md)
 - Check the audit_log table when identity persistence fails [providers/scanner.md](providers/scanner.md)
+- BetterAuth database option requires raw DB instances, not URL strings [providers/auth.md](providers/auth.md)
+- Use fromNodeHeaders() from better-auth/node for header conversion [providers/auth.md](providers/auth.md)
 
 ### host
 

@@ -90,6 +90,8 @@ export interface CompletionDeps {
   removeSessionPod?: (sessionId: string) => void;
   /** Per-agent plugin MCP server registry (Cowork plugins). */
   mcpManager?: McpConnectionManager;
+  /** Dynamic agent provisioner for multi-agent resolution. */
+  provisioner?: import('./agent-provisioner.js').AgentProvisioner;
 }
 
 export interface ExtractedFile {
@@ -168,13 +170,24 @@ async function loadIdentityFromDB(
 
   try {
     const allKeys = await documents.list('identity');
-    const agentPrefix = `${agentName}/`;
-    const userPrefix = `${agentName}/users/${userId}/`;
 
-    // Load agent-level identity files
+    // 1. Load company base identity first
+    const companyPrefix = 'company/';
+    for (const key of allKeys) {
+      if (!key.startsWith(companyPrefix)) continue;
+      if (key.includes('/users/')) continue;
+      const filename = key.slice(companyPrefix.length);
+      const field = IDENTITY_FILE_MAP[filename];
+      if (field) {
+        const content = await documents.get('identity', key);
+        if (content) identity[field] = content;
+      }
+    }
+
+    // 2. Load agent-level identity files (appended to company base)
+    const agentPrefix = `${agentName}/`;
     for (const key of allKeys) {
       if (!key.startsWith(agentPrefix)) continue;
-      // Skip user-level keys at this stage
       if (key.includes('/users/')) continue;
 
       const filename = key.slice(agentPrefix.length);
@@ -182,12 +195,13 @@ async function loadIdentityFromDB(
       if (field) {
         const content = await documents.get('identity', key);
         if (content) {
-          identity[field] = content;
+          identity[field] = identity[field] ? `${identity[field]}\n\n---\n\n${content}` : content;
         }
       }
     }
 
-    // Load user-level identity files (e.g. USER.md)
+    // 3. Load user-level identity files (e.g. USER.md)
+    const userPrefix = `${agentName}/users/${userId}/`;
     for (const key of allKeys) {
       if (!key.startsWith(userPrefix)) continue;
 
@@ -423,8 +437,11 @@ export async function processCompletion(
       reqLogger.warn('fast_path_skip_no_documents');
       // Fall through to sandbox path below
     } else {
-    const agentName = config.agent_name ?? 'main';
-    const currentUserId = userId ?? process.env.USER ?? 'default';
+    const currentUserId = userId ?? 'anonymous';
+    const resolvedAgent = userId && deps.provisioner
+      ? await deps.provisioner.resolveAgent(userId)
+      : undefined;
+    const agentName = resolvedAgent?.id ?? config.agent_name ?? 'main';
     try {
       const fastResult = await runFastPath(
         {
@@ -493,8 +510,11 @@ export async function processCompletion(
   let proxyCleanup: (() => void) | undefined;
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
-  const agentName = config.agent_name ?? 'main';
-  const currentUserId = userId ?? process.env.USER ?? 'default';
+  const currentUserId = userId ?? 'anonymous';
+  const sandboxResolvedAgent = userId && deps.provisioner
+    ? await deps.provisioner.resolveAgent(userId)
+    : undefined;
+  const agentName = sandboxResolvedAgent?.id ?? config.agent_name ?? 'main';
 
   // Register session context so the credential provide endpoint can resolve
   // agentName/userId from just a sessionId (client doesn't send these).

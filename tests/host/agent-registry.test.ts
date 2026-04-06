@@ -187,17 +187,155 @@ describe('AgentRegistry', () => {
     expect(kids.map(k => k.id).sort()).toEqual(['child1', 'child2']);
   });
 
-  test('ensureDefault creates main agent on first call', async () => {
-    const main = await registry.ensureDefault();
-    expect(main.id).toBe('main');
-    expect(main.status).toBe('active');
-    expect(main.createdBy).toBe('system');
+  describe('admins field', () => {
+    test('register stores admins', async () => {
+      const entry = await registry.register({
+        id: 'test-agent',
+        name: 'Test Agent',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'alice',
+        admins: ['alice'],
+      });
+      expect(entry.admins).toEqual(['alice']);
+    });
+
+    test('findByAdmin returns agents where userId is an admin', async () => {
+      await registry.register({
+        id: 'a1', name: 'A1', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+      await registry.register({
+        id: 'a2', name: 'A2', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'bob',
+        admins: ['bob', 'alice'],
+      });
+      await registry.register({
+        id: 'a3', name: 'A3', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'carol',
+        admins: ['carol'],
+      });
+
+      const aliceAgents = await registry.findByAdmin('alice');
+      expect(aliceAgents.map(a => a.id).sort()).toEqual(['a1', 'a2']);
+    });
+
+    test('findByAdmin only returns active agents', async () => {
+      await registry.register({
+        id: 'active-agent', name: 'Active', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+      await registry.register({
+        id: 'suspended-agent', name: 'Suspended', status: 'suspended', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        admins: ['alice'],
+      });
+
+      const agents = await registry.findByAdmin('alice');
+      expect(agents).toHaveLength(1);
+      expect(agents[0].id).toBe('active-agent');
+    });
+
+    test('register defaults admins to empty array when not provided', async () => {
+      const entry = await registry.register({
+        id: 'no-admins',
+        name: 'No Admins',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'test',
+      });
+      expect(entry.admins).toEqual([]);
+    });
   });
 
-  test('ensureDefault returns existing main agent on subsequent calls', async () => {
-    const first = await registry.ensureDefault();
-    const second = await registry.ensureDefault();
-    expect(first.createdAt).toBe(second.createdAt);
+  describe('display_name and agent_kind fields', () => {
+    test('register stores display_name and agent_kind', async () => {
+      const entry = await registry.register({
+        id: 'backend-bot',
+        name: 'Backend Bot',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: ['coding'],
+        createdBy: 'alice',
+        admins: ['alice'],
+        displayName: 'Backend Team Bot',
+        agentKind: 'shared',
+      });
+      expect(entry.displayName).toBe('Backend Team Bot');
+      expect(entry.agentKind).toBe('shared');
+    });
+
+    test('display_name defaults to name when not provided', async () => {
+      const entry = await registry.register({
+        id: 'default-display',
+        name: 'My Agent',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'test',
+      });
+      expect(entry.displayName).toBe('My Agent');
+    });
+
+    test('agent_kind defaults to personal when not provided', async () => {
+      const entry = await registry.register({
+        id: 'default-kind',
+        name: 'My Agent',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'test',
+      });
+      expect(entry.agentKind).toBe('personal');
+    });
+
+    test('update can modify display_name', async () => {
+      await registry.register({
+        id: 'up-display',
+        name: 'Original',
+        status: 'active',
+        parentId: null,
+        agentType: 'pi-coding-agent',
+        capabilities: [],
+        createdBy: 'test',
+        displayName: 'Original Display',
+      });
+
+      const updated = await registry.update('up-display', {
+        displayName: 'New Display',
+      });
+      expect(updated.displayName).toBe('New Display');
+    });
+
+    test('findByKind returns agents of the specified kind', async () => {
+      await registry.register({
+        id: 'personal-a', name: 'PA', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        agentKind: 'personal',
+      });
+      await registry.register({
+        id: 'shared-a', name: 'SA', status: 'active', parentId: null,
+        agentType: 'pi-coding-agent', capabilities: [], createdBy: 'alice',
+        agentKind: 'shared',
+      });
+
+      const shared = await registry.findByKind('shared');
+      expect(shared).toHaveLength(1);
+      expect(shared[0].id).toBe('shared-a');
+
+      const personal = await registry.findByKind('personal');
+      expect(personal).toHaveLength(1);
+      expect(personal[0].id).toBe('personal-a');
+    });
   });
 
   test('persists across registry instances', async () => {

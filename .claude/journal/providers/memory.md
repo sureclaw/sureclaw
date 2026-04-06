@@ -1,5 +1,13 @@
 # Providers: Memory
 
+## [2026-04-04 20:15] — Fix pgvector dimension mismatch on config change
+
+**Task:** PostgreSQL error "expected 1536 dimensions, not 1024" when embedding config changes after table creation
+**What I did:** Added dimension mismatch detection to `initPostgresql()` in embedding-store.ts. Queries `pg_attribute.atttypmod` to get current vector column dimension, and if it differs from config, drops and re-adds the column.
+**Files touched:** `src/providers/memory/cortex/embedding-store.ts`
+**Outcome:** Success — TypeScript compiles, all 16 embedding-store tests pass. Backfill will regenerate cleared embeddings.
+**Notes:** `CREATE TABLE IF NOT EXISTS` is a no-op on existing tables, so vector column dimensions were never updated when config changed. Embeddings are derivable data so dropping the column is safe.
+
 ## [2026-03-15 14:21] — Parallel LIKE + embedding search for memory queries
 
 **Task:** When querying memory with a string (no pre-computed embedding), run both LIKE keyword search and embedding semantic search in parallel, merge and deduplicate results

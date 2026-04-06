@@ -113,6 +113,7 @@ export interface MemoryEntryView {
 export interface SetupStatus {
   configured: boolean;
   auth_disabled?: boolean;
+  external_auth?: boolean;
 }
 
 /** Setup configuration request. */

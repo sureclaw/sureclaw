@@ -15,6 +15,7 @@ import type { EventBus, StreamEvent } from './event-bus.js';
 import type { Router } from './router.js';
 import type { Config, ProviderRegistry, ContentBlock } from '../types.js';
 import type { InboundMessage } from '../providers/channel/types.js';
+import type { AuthProvider, AuthResult } from '../providers/auth/types.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import type { FileStore } from '../file-store.js';
 import type { GcsFileStorage } from './gcs-file-storage.js';
@@ -26,6 +27,19 @@ const logger = getLogger();
 
 /** SSE keepalive interval. */
 const SSE_KEEPALIVE_MS = 15_000;
+
+// ── Auth middleware ──
+
+export async function authenticateRequest(
+  req: IncomingMessage,
+  providers: AuthProvider[],
+): Promise<AuthResult> {
+  for (const provider of providers) {
+    const result = await provider.authenticate(req);
+    if (result !== null) return result;
+  }
+  return { authenticated: false };
+}
 
 // ── Models ──
 
@@ -97,6 +111,7 @@ export async function handleCompletions(
   req: IncomingMessage,
   res: ServerResponse,
   opts: CompletionHandlerOpts,
+  authenticatedUserId?: string,
 ): Promise<void> {
   const requestId = `chatcmpl-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
@@ -122,7 +137,9 @@ export async function handleCompletions(
     sendError(res, 400, parsed.error);
     return;
   }
-  const { sessionId, userId, content, requestModel } = parsed;
+  // When authenticated, bind userId to the verified principal — don't trust the request body
+  const userId = authenticatedUserId ?? parsed.userId;
+  const { sessionId, content, requestModel } = parsed;
 
   // Optional pre-flight (bootstrap gate, etc.)
   if (opts.preFlightCheck) {
@@ -474,6 +491,9 @@ export interface RequestHandlerOpts {
   // Mode-specific routes — called BEFORE the 404 fallback.
   // Return true if the route was handled, false to fall through.
   extraRoutes?: (req: IncomingMessage, res: ServerResponse, url: string) => Promise<boolean>;
+
+  /** Auth providers — checked in order for admin/chat routes. */
+  authProviders?: AuthProvider[];
 }
 
 export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
@@ -481,6 +501,7 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
     modelId, eventBus, providers, fileStore, gcsFileStorage,
     completionOpts, webhookPrefix, webhookHandler, adminHandler,
     isDraining, trackRequestStart, trackRequestEnd, extraRoutes,
+    authProviders,
   } = opts;
 
   // Create chat API handler if storage is available
@@ -531,9 +552,18 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
 
     // Completions
     if (url === '/v1/chat/completions' && req.method === 'POST') {
+      let authenticatedUserId: string | undefined;
+      if (authProviders?.length) {
+        const authResult = await authenticateRequest(req, authProviders);
+        if (!authResult.authenticated || !authResult.user) {
+          sendError(res, 401, 'Unauthorized');
+          return;
+        }
+        authenticatedUserId = authResult.user.id;
+      }
       trackRequestStart?.();
       try {
-        await handleCompletions(req, res, completionOpts);
+        await handleCompletions(req, res, completionOpts, authenticatedUserId);
       } catch (err) {
         logger.error('request_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Internal server error');
@@ -571,12 +601,30 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
       return;
     }
 
-    // Webhooks
+    // Webhooks — supports both /webhooks/{name} and /webhooks/{agentId}/{name}
     if (webhookHandler && url.startsWith(webhookPrefix)) {
-      const webhookName = url.slice(webhookPrefix.length).split('?')[0];
+      const remainder = url.slice(webhookPrefix.length).split('?')[0];
+      if (!remainder) {
+        sendError(res, 404, 'Not found');
+        return;
+      }
+      // Parse: "agentId/name" or just "name"
+      const segments = remainder.split('/').filter(Boolean);
+      let webhookName: string;
+      let webhookAgentId: string | undefined;
+      if (segments.length >= 2) {
+        webhookAgentId = segments[0];
+        webhookName = segments.slice(1).join('/');
+      } else {
+        webhookName = segments[0];
+      }
       if (!webhookName) {
         sendError(res, 404, 'Not found');
         return;
+      }
+      // Inject agentId into the request headers so the webhook handler can use it
+      if (webhookAgentId) {
+        req.headers['x-ax-agent-id'] = webhookAgentId;
       }
       trackRequestStart?.();
       try {
@@ -663,6 +711,16 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
       }
     }
 
+    // Auth routes — delegate to auth provider handleRequest
+    if (url.startsWith('/api/auth/') && authProviders?.length) {
+      for (const ap of authProviders) {
+        if (ap.handleRequest) {
+          const handled = await ap.handleRequest(req, res);
+          if (handled) return;
+        }
+      }
+    }
+
     // Admin dashboard
     if (adminHandler && url.startsWith('/admin')) {
       try {
@@ -682,7 +740,7 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
 
     // Chat UI (SPA fallback for non-API, non-admin routes)
     // Don't serve /v1/* or /admin* or /health as SPA — those are API routes
-    if (chatUIHandler && !url.startsWith('/v1/') && !url.startsWith('/admin') && url !== '/health') {
+    if (chatUIHandler && !url.startsWith('/v1/') && !url.startsWith('/admin') && !url.startsWith('/api/auth/') && url !== '/health') {
       chatUIHandler(req, res, url);
       return;
     }

@@ -86,4 +86,40 @@ describe('resolveCredential', () => {
     const val = await resolveCredential(provider, 'KEY', 'main', 'alice');
     expect(val).toBe('agent-val');
   });
+
+  test('company scope is checked between agent and global scopes', async () => {
+    const provider = mockProvider({
+      'company': { API_KEY: 'company-key' },
+      'global': { API_KEY: 'global-key' },
+    });
+    const result = await resolveCredential(provider, 'API_KEY', 'some-agent', 'alice');
+    expect(result).toBe('company-key');
+  });
+
+  test('agent scope takes precedence over company scope', async () => {
+    const provider = mockProvider({
+      'agent:my-agent': { API_KEY: 'agent-key' },
+      'company': { API_KEY: 'company-key' },
+    });
+    const result = await resolveCredential(provider, 'API_KEY', 'my-agent');
+    expect(result).toBe('agent-key');
+  });
+
+  test('user scope takes precedence over company scope', async () => {
+    const provider = mockProvider({
+      'user:my-agent:alice': { API_KEY: 'user-key' },
+      'company': { API_KEY: 'company-key' },
+    });
+    const result = await resolveCredential(provider, 'API_KEY', 'my-agent', 'alice');
+    expect(result).toBe('user-key');
+  });
+
+  test('company scope is used when agent scope is missing but global exists', async () => {
+    const provider = mockProvider({
+      'company': { TOKEN: 'company-token' },
+      'global': { TOKEN: 'global-token' },
+    });
+    const result = await resolveCredential(provider, 'TOKEN', 'any-agent');
+    expect(result).toBe('company-token');
+  });
 });

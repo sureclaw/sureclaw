@@ -67,6 +67,7 @@ const ConfigSchema = z.strictObject({
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
     workspace: providerEnum('workspace').optional().default('none'),
     mcp: providerEnum('mcp').optional(),
+    auth: z.array(providerEnum('auth')).optional(),
     screener: z.string().optional(),
   }),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
@@ -162,12 +163,38 @@ const ConfigSchema = z.strictObject({
     port: z.number().int().min(1).max(65535).default(8080),
     disable_auth: z.boolean().optional(),
   }).default({ enabled: true, port: 8080 }),
+  auth: z.strictObject({
+    better_auth: z.strictObject({
+      google: z.strictObject({
+        client_id: z.string().min(1),
+        client_secret: z.string().min(1),
+      }).optional(),
+      allowed_domains: z.array(z.string().min(1)).optional(),
+    }).optional(),
+  }).optional(),
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
   url_rewrites: z.record(z.string(), z.string()).optional(),
   plugins: z.array(z.strictObject({
     source: z.string().min(1).max(1000),
     agents: z.array(z.string().min(1).max(100)).min(1),
+  })).optional(),
+  shared_agents: z.array(z.strictObject({
+    id: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/),
+    display_name: z.string().min(1).max(200),
+    agent: z.enum(['pi-coding-agent', 'claude-code']).optional(),
+    models: z.strictObject({
+      default: z.array(z.string()).optional(),
+      fast: z.array(z.string()).optional(),
+      thinking: z.array(z.string()).optional(),
+      coding: z.array(z.string()).optional(),
+      image: z.array(z.string()).optional(),
+    }).optional(),
+    slack_bot_token_env: z.string().min(1).optional(),
+    slack_app_token_env: z.string().min(1).optional(),
+    admins: z.array(z.string().min(1)).optional(),
+    capabilities: z.array(z.string().min(1)).optional(),
+    description: z.string().optional(),
   })).optional(),
 });
 

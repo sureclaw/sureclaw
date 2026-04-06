@@ -67,11 +67,13 @@ export interface AdminSetupOpts {
   localDevMode?: boolean;
   domainList?: import('./proxy-domain-list.js').ProxyDomainList;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
+  /** When true, auth is handled externally by auth middleware. */
+  externalAuth?: boolean;
 }
 
 export function setupAdminHandler(opts: AdminSetupOpts) {
-  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager } = opts;
+  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth } = opts;
   return config.admin?.enabled
-    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager })
+    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth })
     : null;
 }

@@ -2,6 +2,14 @@
 
 Integration test fixes, CI stability, smoke test improvements.
 
+## [2026-04-05 16:48] — Add auth provider chain integration tests
+
+**Task:** Create integration tests for the authenticateRequest middleware with real admin-token provider instances
+**What I did:** Created tests/integration/auth-flow.test.ts with 5 tests covering valid token auth, unauthenticated fallthrough, invalid token rejection, multi-provider first-match-wins, and empty provider list
+**Files touched:** tests/integration/auth-flow.test.ts (created)
+**Outcome:** Success — all 5 tests pass, full suite passes (258 files, 2890 tests)
+**Notes:** Final task (13/13) for the auth provider feature branch
+
 ## [2026-03-18 14:30] — Fix CI test failures for web_approve tool addition
 
 **Task:** Fix 6 failing CI tests after web_approve tool was added to TOOL_CATALOG

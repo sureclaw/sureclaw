@@ -55,6 +55,7 @@ export async function apiFetch<T>(
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers,
+    credentials: 'include',
   });
 
   if (res.status === 401) {
@@ -100,6 +101,14 @@ export const api = {
     return apiFetch<{ ok: boolean }>(
       `/agents/${encodeURIComponent(id)}/kill`,
       { method: 'POST' }
+    );
+  },
+
+  /** Archive (soft-delete) an agent. */
+  archiveAgent(id: string): Promise<{ ok: boolean }> {
+    return apiFetch<{ ok: boolean }>(
+      `/agents/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
     );
   },
 

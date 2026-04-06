@@ -30,3 +30,5 @@ Provider-specific lessons covering LLM, skills, sandbox, channel (Slack), and me
 - Zod transform for backward-compatible config migration [credentials.md](credentials.md)
 - Identity content and injection patterns are semantically identical [scanner.md](scanner.md)
 - Check the audit_log table when identity persistence fails [scanner.md](scanner.md)
+- BetterAuth database option requires raw DB instances, not URL strings [auth.md](auth.md)
+- Use fromNodeHeaders() from better-auth/node for header conversion [auth.md](auth.md)

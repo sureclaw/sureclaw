@@ -1,5 +1,11 @@
 # Host
 
+### Git worktrees share dist/ and node_modules — tsx resolves from main tree
+**Date:** 2026-04-04
+**Context:** Implementing multi-agent features in a worktree. Tests passed even before creating source files because tsx module resolution found the main tree's version via the shared dist/ directory.
+**Lesson:** When using worktrees, always verify that module imports resolve from the worktree's `src/` not the main tree's `dist/`. Check with `find` before assuming a file doesn't exist. Copy files from main tree when needed.
+**Tags:** worktree, tsx, module-resolution, testing
+
 ## Tool router header lookup must use server URL, not tool name
 **Date:** 2026-03-29
 **Context:** The tool router called `getServerMeta(agentId, call.name)` where `call.name` was the tool name (e.g. `linear__getIssues`), but `getServerMeta` expected a server name (e.g. `linear`). This silently failed to resolve headers for DB-configured MCP servers.

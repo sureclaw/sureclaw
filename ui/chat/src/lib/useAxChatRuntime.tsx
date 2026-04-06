@@ -83,6 +83,7 @@ export const useAxChatRuntime = (
   onCredentialRequired?: (event: CredentialRequiredEvent) => void,
   onStatus?: (event: StatusEvent) => void,
   onRunStart?: () => void,
+  user?: string,
 ): AssistantRuntime => {
   const callbackRef = useRef(onCredentialRequired);
   callbackRef.current = onCredentialRequired;
@@ -95,11 +96,12 @@ export const useAxChatRuntime = (
     () =>
       new AxChatTransport({
         api: '/v1/chat/completions',
+        user,
         onCredentialRequired: (event) => callbackRef.current?.(event),
         onStatus: (event) => statusRef.current?.(event),
         onRunStart: () => runStartRef.current?.(),
       }),
-    [],
+    [user],
   );
 
   return useRemoteThreadListRuntime({

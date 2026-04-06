@@ -97,6 +97,27 @@ export class EmbeddingStore {
         user_id    TEXT
       )`,
     ).execute(this.db);
+
+    // If the table already existed, the vector column may have stale dimensions
+    // (e.g. config changed from 1536 → 1024). Detect and fix so inserts don't fail.
+    const dimResult = await sql`
+      SELECT a.atttypmod AS dim
+      FROM pg_attribute a
+      JOIN pg_class c ON a.attrelid = c.oid
+      JOIN pg_namespace n ON c.relnamespace = n.oid
+      WHERE c.relname = 'embedding_meta'
+        AND a.attname = 'embedding'
+        AND n.nspname = current_schema()
+    `.execute(this.db);
+    const currentDim = (dimResult.rows as Array<{ dim: number }>)?.[0]?.dim;
+    if (currentDim != null && currentDim !== this.dimensions) {
+      logger.warn('embedding_dimension_changed', { was: currentDim, now: this.dimensions });
+      await sql`ALTER TABLE embedding_meta DROP COLUMN embedding`.execute(this.db);
+      await sql.raw(
+        `ALTER TABLE embedding_meta ADD COLUMN embedding vector(${this.dimensions})`,
+      ).execute(this.db);
+    }
+
     await sql`CREATE INDEX IF NOT EXISTS idx_emeta_scope ON embedding_meta(scope)`.execute(this.db);
     await sql`CREATE INDEX IF NOT EXISTS idx_emeta_user ON embedding_meta(user_id, scope)`.execute(this.db);
   }

@@ -22,6 +22,7 @@ import SettingsPage from './components/pages/settings-page';
 import ConnectorsPage from './components/pages/connectors-page';
 
 type Page = 'overview' | 'agents' | 'connectors' | 'security' | 'logs' | 'settings';
+type AuthState = 'loading' | 'authenticated' | 'login' | 'access-denied' | 'setup';
 
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
@@ -32,60 +33,121 @@ const NAV_ITEMS: { id: Page; label: string; icon: typeof Shield }[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
-export default function App() {
-  const [authenticated, setAuthenticated] = useState(() => {
-    // Check for token in URL query param (e.g. ?token=xxx)
-    const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    if (urlToken) {
-      setToken(urlToken);
-      // Strip token from URL to avoid leaking it in browser history
-      params.delete('token');
-      const clean = params.toString();
-      const newUrl = window.location.pathname + (clean ? `?${clean}` : '') + window.location.hash;
-      window.history.replaceState({}, '', newUrl);
-      return true;
-    }
-    return !!getToken();
-  });
-  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
-  const [activePage, setActivePage] = useState<Page>('overview');
-  const [checkingSetup, setCheckingSetup] = useState(true);
+/** Access denied screen for authenticated users without admin role. */
+function AccessDenied() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-sm animate-fade-in-up">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-foreground/[0.04] border border-border/50 mb-4">
+            <Shield className="h-7 w-7 text-rose" strokeWidth={1.8} />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Access Denied</h1>
+          <p className="text-[13px] text-muted-foreground mt-2">
+            You need admin privileges to access this dashboard.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  // Check if initial setup is needed
+export default function App() {
+  const [authState, setAuthState] = useState<AuthState>('loading');
+  const [sessionAuth, setSessionAuth] = useState(false);
+  const [activePage, setActivePage] = useState<Page>('overview');
+
+  // Check authentication on mount
   useEffect(() => {
     let cancelled = false;
 
-    async function checkSetup() {
+    async function checkAuth() {
+      // Check for token in URL query param (e.g. ?token=xxx)
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('token');
+      if (urlToken) {
+        setToken(urlToken);
+        // Strip token from URL to avoid leaking it in browser history
+        params.delete('token');
+        const clean = params.toString();
+        const newUrl = window.location.pathname + (clean ? `?${clean}` : '') + window.location.hash;
+        window.history.replaceState({}, '', newUrl);
+      }
+
+      // Check if setup is needed first
       try {
-        const result = await apiFetch<SetupStatus>('/setup/status');
-        if (!cancelled) {
-          setNeedsSetup(!result.configured);
-          // If server has auth disabled, auto-authenticate
-          if (result.auth_disabled) {
-            setAuthenticated(true);
-          }
-          setCheckingSetup(false);
+        const setupResult = await apiFetch<SetupStatus>('/setup/status');
+        if (cancelled) return;
+
+        if (!setupResult.configured) {
+          setAuthState('setup');
+          return;
+        }
+
+        // If server has auth disabled (and no external auth), auto-authenticate
+        if (setupResult.auth_disabled) {
+          setAuthState('authenticated');
+          return;
+        }
+
+        // If external auth (BetterAuth) is configured, skip token check and go straight to session check
+        if (setupResult.external_auth) {
+          setSessionAuth(true);
         }
       } catch {
-        // If we can't reach the endpoint, assume configured
-        if (!cancelled) {
-          setNeedsSetup(false);
-          setCheckingSetup(false);
-        }
+        // If setup check fails, continue with auth checks
+        if (cancelled) return;
       }
+
+      // If we have a bearer token, use token-based auth
+      if (getToken()) {
+        if (!cancelled) setAuthState('authenticated');
+        return;
+      }
+
+      // Try session-based auth (BetterAuth)
+      try {
+        const res = await fetch('/api/auth/get-session', {
+          credentials: 'include',
+        });
+
+        if (cancelled) return;
+
+        if (res.ok) {
+          const session = await res.json();
+          if (session?.user) {
+            if (session.user.role === 'admin') {
+              setAuthState('authenticated');
+            } else {
+              setAuthState('access-denied');
+            }
+            return;
+          }
+        }
+
+        // Session endpoint exists but no valid session — show session login
+        if (res.status !== 404) {
+          setSessionAuth(true);
+        }
+      } catch {
+        // BetterAuth not configured or not reachable — fall back to token auth
+        if (cancelled) return;
+      }
+
+      // No valid auth found — show login
+      if (!cancelled) setAuthState('login');
     }
 
-    checkSetup();
+    checkAuth();
     return () => {
       cancelled = true;
     };
-  }, [authenticated]);
+  }, []);
 
   // Listen for auth-required events (dispatched by apiFetch on 401)
   const handleAuthRequired = useCallback(() => {
     clearToken();
-    setAuthenticated(false);
+    setAuthState('login');
   }, []);
 
   useEffect(() => {
@@ -96,21 +158,20 @@ export default function App() {
   }, [handleAuthRequired]);
 
   const handleLogin = useCallback(() => {
-    setAuthenticated(true);
+    setAuthState('authenticated');
   }, []);
 
   const handleSetupComplete = useCallback(() => {
-    setNeedsSetup(false);
-    setAuthenticated(true);
+    setAuthState('authenticated');
   }, []);
 
   const handleLogout = useCallback(() => {
     clearToken();
-    setAuthenticated(false);
+    setAuthState('login');
   }, []);
 
-  // Show setup wizard if not configured
-  if (checkingSetup) {
+  // Loading state
+  if (authState === 'loading') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="flex items-center gap-3 text-muted-foreground">
@@ -121,13 +182,19 @@ export default function App() {
     );
   }
 
-  if (needsSetup) {
+  // Setup wizard
+  if (authState === 'setup') {
     return <SetupPage onComplete={handleSetupComplete} />;
   }
 
-  // Show login if not authenticated
-  if (!authenticated) {
-    return <LoginPage onLogin={handleLogin} />;
+  // Access denied (authenticated but not admin)
+  if (authState === 'access-denied') {
+    return <AccessDenied />;
+  }
+
+  // Login page
+  if (authState === 'login') {
+    return <LoginPage onLogin={handleLogin} sessionAuth={sessionAuth} />;
   }
 
   // Main dashboard layout

@@ -1,5 +1,11 @@
 # Provider Lessons: Memory
 
+### pgvector columns need dimension migration on config change
+**Date:** 2026-04-04
+**Context:** Config changed `embedding_dimensions` from 1536 to 1024 but PostgreSQL table already had `vector(1536)`. `CREATE TABLE IF NOT EXISTS` doesn't alter existing columns.
+**Lesson:** Any `CREATE TABLE IF NOT EXISTS` with sized types (e.g. `vector(N)`) must include a follow-up check that the existing column matches the configured size. For pgvector, query `pg_attribute.atttypmod` to detect stale dimensions and drop/re-add the column. Embeddings are regenerable via backfill so data loss is acceptable.
+**Tags:** pgvector, embedding, migration, postgresql, dimension-mismatch
+
 ### Read-path reinforcement should use fire-and-forget, not await
 **Date:** 2026-03-06
 **Context:** Adding `store.reinforce()` to read() and query() per plan spec. Initial implementation was skipped ("keep reads side-effect-free") but the plan specifies reinforcement on retrieval for salience accuracy.

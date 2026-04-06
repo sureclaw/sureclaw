@@ -18,15 +18,40 @@ export function createMemoryHandlers(providers: ProviderRegistry) {
   return {
     memory_write: async (req: any, ctx: IPCContext) => {
       const userId = isDmScope(ctx) ? ctx.userId : undefined;
-      const entry = { ...req, userId };
-      await providers.audit.log({ action: 'memory_write', args: { scope: req.scope } });
+      const pool = req.pool ?? 'agent';
+      const scope = pool === 'company' ? 'company' : req.scope;
+      const writeUserId = pool === 'company' ? undefined : userId;
+      const { pool: _pool, ...rest } = req;
+      const entry = { ...rest, scope, userId: writeUserId };
+      await providers.audit.log({ action: 'memory_write', args: { scope, pool } });
       return { id: await providers.memory.write(entry) };
     },
 
     memory_query: async (req: any, ctx: IPCContext) => {
       const userId = isDmScope(ctx) ? ctx.userId : undefined;
-      const query = { ...req, userId };
-      return { results: await providers.memory.query(query) };
+      const pool = req.pool ?? 'both';
+      const { pool: _pool, ...rest } = req;
+
+      if (pool === 'company') {
+        const query = { ...rest, scope: 'company', userId: undefined };
+        return { results: await providers.memory.query(query) };
+      }
+
+      const agentResults = await providers.memory.query({ ...rest, userId });
+
+      if (pool === 'both') {
+        const companyResults = await providers.memory.query({ ...rest, scope: 'company', userId: undefined });
+        // Merge and dedup by id
+        const seen = new Set(agentResults.map((r: any) => r.id));
+        const merged = [...agentResults];
+        for (const r of companyResults) {
+          if (!seen.has(r.id)) merged.push(r);
+        }
+        const limit = req.limit ?? 20;
+        return { results: merged.slice(0, limit) };
+      }
+
+      return { results: agentResults };
     },
 
     memory_read: async (req: any) => {

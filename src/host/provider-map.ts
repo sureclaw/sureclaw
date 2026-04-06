@@ -97,6 +97,10 @@ const _PROVIDER_MAP = {
     none:     '../providers/mcp/none.js',
     database: '../providers/mcp/database.js',
   },
+  auth: {
+    'admin-token': '../providers/auth/admin-token.js',
+    'better-auth': '../providers/auth/better-auth.js',
+  },
 } as const;
 
 // Re-export with the same name and looser type for backwards compatibility.
@@ -133,6 +137,7 @@ export type StorageProviderName    = keyof ProviderMapType['storage'];
 export type EventBusProviderName   = keyof ProviderMapType['eventbus'];
 export type WorkspaceProviderName  = keyof ProviderMapType['workspace'];
 export type McpProviderName        = keyof ProviderMapType['mcp'];
+export type AuthProviderName       = keyof ProviderMapType['auth'];
 
 /** Union of all provider names for a given kind. */
 export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];

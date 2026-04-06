@@ -86,6 +86,7 @@ export const MemoryWriteSchema = ipcAction('memory_write', {
   content: safeString(100_000),
   tags: z.array(safeString(100)).optional(),
   tainted: z.boolean().optional(),
+  pool: z.enum(['agent', 'company']).optional(),
 });
 
 export const MemoryQuerySchema = ipcAction('memory_query', {
@@ -93,6 +94,7 @@ export const MemoryQuerySchema = ipcAction('memory_query', {
   query: safeString(10_000).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   tags: z.array(safeString(100)).optional(),
+  pool: z.enum(['agent', 'company', 'both']).optional(),
 });
 
 export const MemoryReadSchema = ipcAction('memory_read', { id: uuid });
@@ -232,6 +234,51 @@ export const UserWriteSchema = ipcAction('user_write', {
   content: safeString(32_768),
   reason: safeString(512),
   origin: z.enum(IDENTITY_ORIGINS),
+});
+
+// ── Catalog ───────────────────────────────────────────
+
+export const CatalogPublishSchema = ipcAction('catalog_publish', {
+  slug: safeString(200),
+  type: z.enum(['skill', 'connector']),
+  name: safeString(200),
+  description: safeString(2000),
+  tags: z.array(safeString(100)).max(20).optional(),
+  version: safeString(50),
+  content: safeString(500_000),
+});
+
+export const CatalogGetSchema = ipcAction('catalog_get', {
+  slug: safeString(200),
+});
+
+export const CatalogListSchema = ipcAction('catalog_list', {
+  type: z.enum(['skill', 'connector']).optional(),
+  tags: z.array(safeString(100)).max(20).optional(),
+  query: safeString(500).optional(),
+});
+
+export const CatalogUnpublishSchema = ipcAction('catalog_unpublish', {
+  slug: safeString(200),
+});
+
+export const CatalogSetRequiredSchema = ipcAction('catalog_set_required', {
+  slug: safeString(200),
+  required: z.boolean(),
+});
+
+// ── Company Identity ──────────────────────────────────
+
+export const COMPANY_IDENTITY_FILES = ['AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'HEARTBEAT.md'] as const;
+
+export const CompanyIdentityReadSchema = ipcAction('company_identity_read', {
+  file: z.enum(COMPANY_IDENTITY_FILES),
+});
+
+export const CompanyIdentityWriteSchema = ipcAction('company_identity_write', {
+  file: z.enum(COMPANY_IDENTITY_FILES),
+  content: safeString(32_768),
+  reason: safeString(512),
 });
 
 // ── Scheduler ──────────────────────────────────────────
