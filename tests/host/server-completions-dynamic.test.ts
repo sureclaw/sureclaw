@@ -60,7 +60,8 @@ describe('dynamic agent resolution for completions', () => {
   test('provisioner falls through to config.agent_name when not set', async () => {
     // When no provisioner is available, the code falls back to config.agent_name ?? 'main'
     // This is tested by verifying the fallback logic at the type level
-    const fallback: string = undefined as any ?? 'main';
+    const value: any = undefined;
+    const fallback: string = value ?? 'main';
     expect(fallback).toBe('main');
   });
 });

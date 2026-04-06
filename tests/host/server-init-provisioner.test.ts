@@ -11,12 +11,12 @@ describe('HostCore provisioner field', () => {
   test('HostCore interface includes provisioner of type AgentProvisioner', () => {
     // Type-level assertion: if this compiles, the field exists.
     // Runtime check: ensure the type is structurally sound.
-    const mock: Pick<HostCore, 'provisioner'> = {
+    const mock = {
       provisioner: {
-        ensureAgent: async () => ({} as any),
-        resolveAgent: async () => ({} as any),
-      } as AgentProvisioner,
-    };
+        ensureAgent: async (_userId: string) => ({}) as any,
+        resolveAgent: async (_userId: string, _agentId?: string) => ({}) as any,
+      },
+    } satisfies Pick<HostCore, 'provisioner'>;
     expect(mock.provisioner).toBeDefined();
     expect(typeof mock.provisioner.resolveAgent).toBe('function');
     expect(typeof mock.provisioner.ensureAgent).toBe('function');

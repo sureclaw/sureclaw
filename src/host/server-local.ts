@@ -401,9 +401,9 @@ export async function createServer(
           }
 
           // Register (or update) shared agent in registry
-          let entry = await core.agentRegistry.get(sa.id);
+          const entry = await core.agentRegistry.get(sa.id);
           if (!entry) {
-            entry = await core.agentRegistry.register({
+            await core.agentRegistry.register({
               id: sa.id,
               name: sa.display_name,
               description: sa.description,

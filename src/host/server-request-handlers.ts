@@ -111,6 +111,7 @@ export async function handleCompletions(
   req: IncomingMessage,
   res: ServerResponse,
   opts: CompletionHandlerOpts,
+  authenticatedUserId?: string,
 ): Promise<void> {
   const requestId = `chatcmpl-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
@@ -136,7 +137,9 @@ export async function handleCompletions(
     sendError(res, 400, parsed.error);
     return;
   }
-  const { sessionId, userId, content, requestModel } = parsed;
+  // When authenticated, bind userId to the verified principal — don't trust the request body
+  const userId = authenticatedUserId ?? parsed.userId;
+  const { sessionId, content, requestModel } = parsed;
 
   // Optional pre-flight (bootstrap gate, etc.)
   if (opts.preFlightCheck) {
@@ -549,16 +552,18 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
 
     // Completions
     if (url === '/v1/chat/completions' && req.method === 'POST') {
+      let authenticatedUserId: string | undefined;
       if (authProviders?.length) {
         const authResult = await authenticateRequest(req, authProviders);
-        if (!authResult.authenticated) {
+        if (!authResult.authenticated || !authResult.user) {
           sendError(res, 401, 'Unauthorized');
           return;
         }
+        authenticatedUserId = authResult.user.id;
       }
       trackRequestStart?.();
       try {
-        await handleCompletions(req, res, completionOpts);
+        await handleCompletions(req, res, completionOpts, authenticatedUserId);
       } catch (err) {
         logger.error('request_failed', { error: (err as Error).message });
         if (!res.headersSent) sendError(res, 500, 'Internal server error');

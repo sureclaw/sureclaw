@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
 import type { CredentialRequiredEvent, StatusEvent } from './lib/ax-chat-transport';
-import { getSession, signInWithGoogle, signOut, type AuthUser } from './lib/auth';
+import { signInWithGoogle, signOut, type AuthUser } from './lib/auth';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
 import { CredentialModal } from './components/credential-modal';
