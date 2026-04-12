@@ -84,7 +84,7 @@ describe('PromptBuilder integration', () => {
       workspace: '/tmp',
       skills: [makeSkill('Big Skill', 'A very large skill')],
       profile: 'paranoid',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
       identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },

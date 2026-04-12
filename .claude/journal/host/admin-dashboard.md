@@ -2,6 +2,14 @@
 
 Journal entries for the admin dashboard implementation.
 
+## [2026-04-06 10:12] — PVC cleanup on agent deletion (Phase 3 PVC lifecycle)
+
+**Task:** Wire up PVC deletion when an agent is deleted via the admin API DELETE endpoint.
+**What I did:** Added PVC cleanup call in the DELETE /admin/api/agents/:id handler in server-admin.ts. After archiving the agent, the handler checks if `providers.sandbox.deletePvc` exists (only k8s provider has it) and calls it with `ax-workspace-{agentId}` in a fire-and-forget pattern (errors are logged but don't fail the response). Added 4 tests: deletePvc called with correct name, graceful when sandbox lacks deletePvc, succeeds even when deletePvc rejects, and 404 for unknown agent.
+**Files touched:** src/host/server-admin.ts, tests/host/server-admin.test.ts
+**Outcome:** Success — build passes, all 37 server-admin tests pass.
+**Notes:** The deletePvc method is optional on SandboxProvider (only k8s.ts implements it). Fire-and-forget with .catch() prevents PVC cleanup failures from breaking the admin API response.
+
 ## [2026-03-04 03:45] — Implement admin dashboard (18-task plan)
 
 **Task:** Execute the full admin dashboard implementation plan from docs/plans/2026-03-03-admin-dashboard.md — remove CLI chat, add admin API, build dashboard SPA, wire first-run setup wizard.

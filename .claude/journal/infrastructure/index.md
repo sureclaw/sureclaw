@@ -4,6 +4,8 @@ Infrastructure, deployment, Helm, k8s, FluxCD entries.
 
 ## Entries
 
+- Git-SSH workspace provider on kind: openssh-client in container, network policy for SSH, sshd config fix for K8s (no chroot) [git-ssh-workspace.md](git-ssh-workspace.md)
+- PVC workspace config: configurable PVC size + aggressive pod idle timeout [pvc-workspace-config.md](pvc-workspace-config.md)
 - K8s dev loop: extraVolumes in PodTemplate, Helm chart updates, kind-dev-values.yaml, k8s-dev.sh script [k8s-dev-loop.md](k8s-dev-loop.md)
 
 - Runner IS the standby: remove sleep hack, runner.js subscribes to NATS for work [pool-controller-nats.md](pool-controller-nats.md)

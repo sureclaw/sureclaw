@@ -12,6 +12,10 @@ const mockCreateNamespacedPod = vi.fn().mockResolvedValue({ body: {} });
 const mockDeleteNamespacedPod = vi.fn().mockResolvedValue({ body: {} });
 const mockListNamespacedPod = vi.fn().mockResolvedValue({ body: { items: [] } });
 const mockReadNamespacedPodLog = vi.fn().mockRejectedValue(new Error('not ready'));
+const mockReadNamespacedPersistentVolumeClaim = vi.fn().mockRejectedValue(
+  Object.assign(new Error('not found'), { response: { statusCode: 404 } }),
+);
+const mockCreateNamespacedPersistentVolumeClaim = vi.fn().mockResolvedValue({ body: {} });
 const mockWatch = vi.fn().mockImplementation((_path: string, _query: any, callback: any, _done: any) => {
   // Simulate immediate success
   setTimeout(() => {
@@ -33,6 +37,8 @@ class MockKubeConfig {
       deleteNamespacedPod: mockDeleteNamespacedPod,
       listNamespacedPod: mockListNamespacedPod,
       readNamespacedPodLog: mockReadNamespacedPodLog,
+      readNamespacedPersistentVolumeClaim: mockReadNamespacedPersistentVolumeClaim,
+      createNamespacedPersistentVolumeClaim: mockCreateNamespacedPersistentVolumeClaim,
     };
   }
 }
@@ -64,8 +70,8 @@ function mockConfig(): Config {
   return {
     profile: 'balanced',
     providers: {
-      memory: 'cortex', scanner: 'patterns',
-      channels: ['cli'], web: { extract: 'none', search: 'none' }, browser: 'none',
+      memory: 'cortex', security: 'patterns',
+      channels: ['cli'], web: { extract: 'none', search: 'none' },
       credentials: 'keychain', skills: 'database', audit: 'database',
       sandbox: 'k8s', scheduler: 'none',
     },
@@ -302,5 +308,66 @@ describe('sandbox-k8s provider', () => {
     const reqIdEnv = env.find((e: any) => e.name === 'AX_IPC_REQUEST_ID');
     expect(tokenEnv).toEqual({ name: 'AX_IPC_TOKEN', value: 'tok-abc-123' });
     expect(reqIdEnv).toEqual({ name: 'AX_IPC_REQUEST_ID', value: 'req-456' });
+  });
+
+  test('ensurePvc creates PVC with configured size', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+
+    const config: SandboxConfig = {
+      ...mockSandboxConfig(),
+      pvcName: 'ax-workspace-test',
+      workspaceSizeGi: 20,
+    };
+    await provider.spawn(config);
+
+    expect(mockReadNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'ax-workspace-test' }),
+    );
+    expect(mockCreateNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          spec: expect.objectContaining({
+            resources: { requests: { storage: '20Gi' } },
+          }),
+        }),
+      }),
+    );
+  });
+
+  test('ensurePvc defaults to 10Gi when workspaceSizeGi not set', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+
+    const config: SandboxConfig = {
+      ...mockSandboxConfig(),
+      pvcName: 'ax-workspace-default',
+    };
+    await provider.spawn(config);
+
+    expect(mockCreateNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          spec: expect.objectContaining({
+            resources: { requests: { storage: '10Gi' } },
+          }),
+        }),
+      }),
+    );
+  });
+
+  test('workspace volume uses PVC when pvcName is set', async () => {
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+
+    const config: SandboxConfig = {
+      ...mockSandboxConfig(),
+      pvcName: 'ax-workspace-test',
+    };
+    await provider.spawn(config);
+
+    const volumes = mockCreateNamespacedPod.mock.calls[0][0].body.spec.volumes;
+    const wsVol = volumes.find((v: any) => v.name === 'workspace');
+    expect(wsVol.persistentVolumeClaim).toEqual({ claimName: 'ax-workspace-test' });
   });
 });

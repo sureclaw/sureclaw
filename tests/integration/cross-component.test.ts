@@ -81,7 +81,7 @@ function createMockProviders(tmpDir: string, overrides?: {
           .map(([id, e]) => ({ id, ...e }));
       },
     },
-    scanner: {
+    security: {
       canaryToken() { return `CANARY-${Date.now()}`; },
       checkCanary(output, token) { return output.includes(token); },
       async scanInput(msg) {
@@ -96,15 +96,6 @@ function createMockProviders(tmpDir: string, overrides?: {
     webFetch: { async fetch() { throw new Error('Provider disabled'); } },
     webExtract: { async extract() { throw new Error('Provider disabled'); } },
     webSearch: { async search() { throw new Error('Provider disabled'); } },
-    browser: {
-      async launch() { throw new Error('Provider disabled'); },
-      async navigate() { throw new Error('Provider disabled'); },
-      async snapshot() { throw new Error('Provider disabled'); },
-      async click() { throw new Error('Provider disabled'); },
-      async type() { throw new Error('Provider disabled'); },
-      async screenshot() { throw new Error('Provider disabled'); },
-      async close() { throw new Error('Provider disabled'); },
-    },
     credentials: {
       async get() { return null; },
       async set() {},
@@ -163,12 +154,6 @@ function createMockProviders(tmpDir: string, overrides?: {
         close() {},
       };
     })(),
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
-    },
   } as ProviderRegistry;
 
   return {
@@ -422,13 +407,6 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
     const orchestrationActions = new Set([
       'agent_orch_status', 'agent_orch_list', 'agent_orch_tree',
       'agent_orch_message', 'agent_orch_poll', 'agent_orch_interrupt',
-      'agent_orch_timeline',
-    ]);
-
-    // Cowork plugin actions require opts.coworkPlugins (McpConnectionManager).
-    // This test doesn't configure one, so those handlers aren't registered.
-    const coworkPluginActions = new Set([
-      'plugin_install_cowork', 'plugin_uninstall_cowork', 'plugin_list_cowork',
     ]);
 
     // Host→pod push notifications (no handler on host side)
@@ -438,7 +416,6 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
 
     for (const action of VALID_ACTIONS) {
       if (orchestrationActions.has(action)) continue;
-      if (coworkPluginActions.has(action)) continue;
       if (hostPushActions.has(action)) continue;
       const result = JSON.parse(await handleIPC(JSON.stringify({
         action,
@@ -471,8 +448,6 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
         ...(action === 'scheduler_run_at' ? { datetime: new Date(Date.now() + 60_000).toISOString(), prompt: 'test' } : {}),
         ...(action === 'scheduler_remove_cron' ? { jobId: 'j1' } : {}),
         ...(action === 'scheduler_list_jobs' ? {} : {}),
-        ...(action === 'workspace_list' ? { scope: 'session' } : {}),
-        ...(action === 'workspace_read' ? { scope: 'session', path: 'test.txt' } : {}),
       }), ctx));
 
       // The key assertion: we must NOT get "No handler for action"

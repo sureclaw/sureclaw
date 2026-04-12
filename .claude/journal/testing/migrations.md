@@ -2,6 +2,14 @@
 
 Kysely migration infrastructure: runner, database factory, store integration, upgrade-path tests.
 
+## [2026-04-06 10:25] — Update tests for single workspace model (Phase 5)
+
+**Task:** Update all remaining tests for the single workspace model (PVC workspace plan Phase 5)
+**What I did:** Grepped tests/ for 14 old workspace patterns. Fixed docker-nats.ts test provider: removed workspaceLocation field, replaced CANONICAL.scratch/agent/user with CANONICAL.root, removed agentWorkspace/userWorkspace/agentWorkspaceWritable/userWorkspaceWritable references. Verified sandbox-isolation.test.ts negative assertions are correct (they check old fields DON'T exist). Verified server-files/file-attachments mocks of userWorkspaceDir are correct (production code still uses it via deprecated path).
+**Files touched:** tests/providers/sandbox/docker-nats.ts
+**Outcome:** Success — build passes, 2590 tests pass (3 pre-existing failures unrelated to workspace)
+**Notes:** The userWorkspaceDir mock in server-files tests is still correct because the production code (server-files.ts, server-channels.ts, ipc-handlers/llm.ts) still imports it. It's marked @deprecated but not yet removed. The sandbox-isolation.test.ts assertions are all negative (not.toContain) verifying the old fields are gone from production — good regression tests to keep.
+
 ## [2026-03-31 06:30] — Fix 25 test failures from double-migration and stale global-MCP assumptions
 
 **Task:** Fix 25 failing tests across 8 test files

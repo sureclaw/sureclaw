@@ -67,11 +67,4 @@ describe('cross-provider import isolation', () => {
     });
   }
 
-  test('image/router.ts does not import from llm/', () => {
-    const content = readFileSync(join(providersDir, 'image/router.ts'), 'utf-8');
-    const importLines = content.split('\n').filter(line => /^\s*import\s/.test(line));
-    for (const line of importLines) {
-      expect(line).not.toContain('../llm/');
-    }
-  });
 });

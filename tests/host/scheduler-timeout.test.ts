@@ -17,10 +17,10 @@ describe('scheduler sandbox timeout override', () => {
       profile: 'paranoid',
       agent_name: 'main',
       providers: {
-        memory: 'cortex', scanner: 'patterns', channels: ['cli'],
-        web: { extract: 'none', search: 'none' }, browser: 'none',
+        memory: 'cortex', security: 'patterns', channels: ['cli'],
+        web: { extract: 'none', search: 'none' },
         credentials: 'keychain', skills: 'database', audit: 'database',
-        sandbox: 'subprocess', scheduler: 'plainjob',
+        sandbox: 'docker', scheduler: 'plainjob',
       },
       sandbox: { timeout_sec: 600, memory_mb: 512 },
       scheduler: {

@@ -2,7 +2,7 @@
  * Phase 2 Integration Tests
  *
  * Verifies Phase 2 providers: cortex memory, Guardian scanner,
- * OS keychain, multi-agent delegation, browser container, web search.
+ * OS keychain, multi-agent delegation, web search.
  * Tests architectural invariants still hold with expanded provider set.
  */
 
@@ -20,7 +20,7 @@ import { create as createStorage } from '../../src/providers/storage/database.js
 import type { MessageQueueStore } from '../../src/providers/storage/types.js';
 import { TaintBudget, thresholdForProfile } from '../../src/host/taint-budget.js';
 import type { ProviderRegistry, Config } from '../../src/types.js';
-import type { ScanResult } from '../../src/providers/scanner/types.js';
+import type { ScanResult } from '../../src/providers/security/types.js';
 import type { InboundMessage } from '../../src/providers/channel/types.js';
 import type { ChatChunk } from '../../src/providers/llm/types.js';
 import type { AuditEntry } from '../../src/providers/audit/types.js';
@@ -38,8 +38,8 @@ function powerUserConfig(): Config {
   return {
     profile: 'yolo',
     providers: {
-      memory: 'cortex', scanner: 'guardian',
-      channels: [], web: { extract: 'tavily', search: 'tavily' }, browser: 'container',
+      memory: 'cortex', security: 'guardian',
+      channels: [], web: { extract: 'tavily', search: 'tavily' },
       credentials: 'keychain', audit: 'database',
       sandbox: 'docker', scheduler: 'plainjob',
     },
@@ -85,11 +85,14 @@ function mockProviders(opts?: {
       async list() { return []; },
       memorize: opts?.memorizeCallback,
     },
-    scanner: {
+    security: {
       async scanInput() { return inputResult; },
       async scanOutput() { return outputResult; },
       canaryToken() { return `canary-${randomUUID()}`; },
       checkCanary(output: string, token: string) { return output.includes(token); },
+      async screen() { return { allowed: true, reasons: [] }; },
+      async screenExtended() { return { verdict: 'APPROVE' as const, score: 0, reasons: [], permissions: [], excessPermissions: [] }; },
+      async screenBatch(items: any[]) { return items.map(() => ({ verdict: 'APPROVE' as const, score: 0, reasons: [], permissions: [], excessPermissions: [] })); },
     },
     channels: [],
     webFetch: {
@@ -100,15 +103,6 @@ function mockProviders(opts?: {
     },
     webSearch: {
       async search() { return [{ title: 'test', url: 'https://example.com', snippet: 'test', taint: { source: 'web_search', trust: 'external' as const, timestamp: new Date() } }]; },
-    },
-    browser: {
-      async launch() { return { id: 'b1' }; },
-      async navigate() {},
-      async snapshot() { return { title: 'Test Page', url: 'https://example.com', text: 'Page content', refs: [] }; },
-      async click() {},
-      async type() {},
-      async screenshot() { return Buffer.from('fake-png'); },
-      async close() {},
     },
     credentials: {
       async get() { return null; },
@@ -185,12 +179,11 @@ describe('Phase 2 Provider Map', () => {
 
     // Phase 2 providers
     expect(PROVIDER_MAP.memory).toHaveProperty('cortex');
-    expect(PROVIDER_MAP.scanner).toHaveProperty('guardian');
+    expect(PROVIDER_MAP.security).toHaveProperty('guardian');
     expect(PROVIDER_MAP.channel).toHaveProperty('slack');
     expect(PROVIDER_MAP.web_extract).toHaveProperty('tavily');
     expect(PROVIDER_MAP.web_search).toHaveProperty('tavily');
     expect(PROVIDER_MAP.web_search).toHaveProperty('brave');
-    expect(PROVIDER_MAP.browser).toHaveProperty('container');
     expect(PROVIDER_MAP.credentials).toHaveProperty('keychain');
     expect(PROVIDER_MAP.llm).toHaveProperty('router');
   });
@@ -242,7 +235,7 @@ describe('memU Memory Integration', () => {
 
 describe('Guardian Scanner Integration', () => {
   test('guardian scanner blocks regex patterns', async () => {
-    const { create } = await import('../../src/providers/scanner/guardian.js');
+    const { create } = await import('../../src/providers/security/guardian.js');
     const scanner = await create({} as Config);
 
     const result = await scanner.scanInput({
@@ -256,7 +249,7 @@ describe('Guardian Scanner Integration', () => {
   });
 
   test('guardian scanner passes clean input', async () => {
-    const { create } = await import('../../src/providers/scanner/guardian.js');
+    const { create } = await import('../../src/providers/security/guardian.js');
     const scanner = await create({} as Config);
 
     const result = await scanner.scanInput({
@@ -269,7 +262,7 @@ describe('Guardian Scanner Integration', () => {
   });
 
   test('guardian scanner detects credentials in output', async () => {
-    const { create } = await import('../../src/providers/scanner/guardian.js');
+    const { create } = await import('../../src/providers/security/guardian.js');
     const scanner = await create({} as Config);
 
     const result = await scanner.scanOutput({
@@ -453,19 +446,20 @@ describe('Architectural Invariants', () => {
     expect(typeof cortexProvider.memorize).toBe('function');
   });
 
-  test('scanner providers share the same interface', async () => {
-    const { create: createPatterns } = await import('../../src/providers/scanner/patterns.js');
-    const { create: createGuardian } = await import('../../src/providers/scanner/guardian.js');
+  test('security providers share the same interface', async () => {
+    const { create: createPatterns } = await import('../../src/providers/security/patterns.js');
+    const { create: createGuardian } = await import('../../src/providers/security/guardian.js');
 
     const patterns = await createPatterns({} as Config);
     const guardian = await createGuardian({} as Config);
 
     // Both should have the same interface
-    for (const scanner of [patterns, guardian]) {
-      expect(typeof scanner.scanInput).toBe('function');
-      expect(typeof scanner.scanOutput).toBe('function');
-      expect(typeof scanner.canaryToken).toBe('function');
-      expect(typeof scanner.checkCanary).toBe('function');
+    for (const security of [patterns, guardian]) {
+      expect(typeof security.scanInput).toBe('function');
+      expect(typeof security.scanOutput).toBe('function');
+      expect(typeof security.canaryToken).toBe('function');
+      expect(typeof security.checkCanary).toBe('function');
+      expect(typeof security.screen).toBe('function');
     }
   });
 
@@ -476,7 +470,6 @@ describe('Architectural Invariants', () => {
     expect(VALID_ACTIONS).toContain('llm_call');
     expect(VALID_ACTIONS).toContain('memory_write');
     expect(VALID_ACTIONS).toContain('web_fetch');
-    expect(VALID_ACTIONS).toContain('browser_launch');
     expect(VALID_ACTIONS).toContain('identity_write');
     expect(VALID_ACTIONS).toContain('audit_query');
 

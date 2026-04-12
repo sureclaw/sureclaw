@@ -4,6 +4,7 @@ Test infrastructure, integration tests, E2E framework, migration tests.
 
 ## Entries
 
+- 2026-04-06 10:25 — Update tests for single workspace model (Phase 5) [migrations.md](migrations.md)
 - 2026-04-05 16:48 — Add auth provider chain integration tests [integration.md](integration.md)
 - 2026-03-31 06:30 — Fix 25 test failures from double-migration and stale global-MCP assumptions [migrations.md](migrations.md)
 - 2026-03-20 12:00 — Update ax-debug skill to prefer e2e infrastructure [e2e.md](e2e.md)

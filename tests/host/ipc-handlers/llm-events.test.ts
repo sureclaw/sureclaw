@@ -20,12 +20,6 @@ function mockProviders(chatFn: () => AsyncIterable<any>): ProviderRegistry {
       chat: chatFn,
       async models() { return ['mock-model']; },
     },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
-    },
   } as unknown as ProviderRegistry;
 }
 
@@ -186,12 +180,6 @@ describe('LLM handler event emissions', () => {
         },
         async models() { return ['mock-model']; },
       },
-      workspace: {
-        async mount() { return { paths: {} }; },
-        async commit() { return { scopes: {} }; },
-        async cleanup() {},
-        activeMounts() { return []; },
-      },
     } as unknown as ProviderRegistry;
 
     const handlers = createLLMHandlers(providers, 'config-default-model');
@@ -210,12 +198,6 @@ describe('LLM handler event emissions', () => {
           yield { type: 'done', usage: { inputTokens: 1, outputTokens: 1 } };
         },
         async models() { return ['mock-model']; },
-      },
-      workspace: {
-        async mount() { return { paths: {} }; },
-        async commit() { return { scopes: {} }; },
-        async cleanup() {},
-        activeMounts() { return []; },
       },
     } as unknown as ProviderRegistry;
 

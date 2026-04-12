@@ -6,14 +6,14 @@ const config: Config = {
   profile: 'paranoid',
   providers: {
     memory: 'cortex',
-    scanner: 'patterns',
+    security: 'patterns',
     channels: ['cli'],
     web: { extract: 'none', search: 'none' },
-    browser: 'none',
+   
     credentials: 'keychain',
     skills: 'database',
     audit: 'database',
-    sandbox: 'subprocess',
+    sandbox: 'docker',
     scheduler: 'none',
   },
   sandbox: { timeout_sec: 120, memory_mb: 512 },

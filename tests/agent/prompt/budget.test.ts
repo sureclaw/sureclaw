@@ -9,7 +9,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     workspace: '/tmp',
     skills: [],
     profile: 'paranoid',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
     identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },

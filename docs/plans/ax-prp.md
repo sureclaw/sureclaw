@@ -59,17 +59,20 @@ The host process loads providers at startup from config. You start with all stub
 
 | Provider | Purpose | Stage 0 (Default) | Later Stages |
 |----------|---------|-------------------|--------------|
-| **LLM** | Talk to language models | `anthropic` | `openai`, `multi` (router) |
-| **Memory** | Long-term knowledge storage | `file` (markdown + grep) | `sqlite` (FTS5), `memu` (knowledge graph) |
-| **Scanner** | Injection detection, canary tokens | `basic` (regex) | `patterns` (expanded library), `promptfoo` (ML) |
-| **Channel** | Message ingress/egress | `cli` (stdin/stdout) | `whatsapp`, `telegram`, `discord` |
-| **Web** | External content retrieval | `none` (stub) | `fetch` (proxied), `search` (API) |
-| **Browser** | Headless browser control | `none` (stub) | `container` (sandboxed Playwright) |
-| **Credential** | Secret storage and injection | `env` (process.env) | `encrypted` (AES-256), `keychain` (OS) |
-| **Skill Store** | Skill versioning and self-modification | `readonly` | `git` (proposal-review-commit) |
-| **Audit** | Action logging | `file` (JSONL append) | `sqlite` (queryable) |
-| **Sandbox** | Agent process isolation | `subprocess` (dev) / `seatbelt` (macOS) / `nsjail` (Linux) | `docker` (gVisor), `firecracker` |
-| **Scheduler** | Proactive behavior | `none` (stub) | `cron` (jobs + heartbeats), `full` (events + memory hints) |
+| **LLM** | Talk to language models | `anthropic` | `openai`, `router` (multi-model) |
+| **Memory** | Long-term knowledge storage | `cortex` (vector-backed) | LLM-powered extraction and semantic search |
+| **Security** | Injection detection, canary tokens, skill screening | `patterns` (regex) | `guardian` (regex + LLM classification) |
+| **Channel** | Message ingress/egress | `slack` | Additional channels |
+| **Web** | External content retrieval | `none` (stub) | `tavily` (search + extract) |
+| **Credential** | Secret storage and injection | `plaintext` | `keychain` (OS), `database` |
+| **Audit** | Action logging | `database` (queryable) | |
+| **Sandbox** | Agent process isolation | `docker` | `apple` (macOS VM), `k8s` (Kubernetes pods) |
+| **Scheduler** | Proactive behavior | `none` (stub) | `plainjob` (cron + heartbeats) |
+| **Database** | Shared persistence | `sqlite` | `postgresql` |
+| **Storage** | Conversation history, queues | `database` | |
+| **EventBus** | Real-time event routing | `inprocess` | `postgres` (LISTEN/NOTIFY) |
+| **MCP** | External tool gateways | `none` (stub) | `database` (per-agent MCP servers) |
+| **Auth** | Authentication | `admin-token` | `better-auth` |
 
 ---
 
@@ -79,10 +82,11 @@ Most agent invocations are lightweight: read context → IPC call to host → re
 
 ### 4.1 Tiered Sandbox Provider
 
-| Platform | Default (lightweight) | Escalation (heavy workloads) |
-|----------|----------------------|------------------------------|
-| **Linux** | **nsjail** (~5ms start, ~1MB) — Linux namespaces + seccomp-bpf | Docker + gVisor, or Firecracker microVM |
-| **macOS** | **Seatbelt** (`sandbox-exec`, ~0ms, weaker isolation) | Docker Desktop fallback |
+| Platform | Default | Notes |
+|----------|---------|-------|
+| **Linux / macOS** | **Docker** (container, --network=none) | gVisor optional |
+| **macOS** | **Apple Container** (Virtualization.framework) | VM-level isolation |
+| **Kubernetes** | **k8s** (pod-based, HTTP IPC) | gVisor runtime class |
 
 ### 4.2 nsjail Key Properties (Linux Default)
 
@@ -111,20 +115,18 @@ Escalation can happen mid-session: start in nsjail, escalate to Docker if the ag
 |------|-------------|---------|-------------|
 | Host Process | Fully trusted | Full outbound | Reads from OS keychain |
 | Agent Container | **Untrusted** | **NONE** | **NONE** — via proxy only |
-| Browser Container | Untrusted | Filtered egress (allowlist) | Injected per-request by host |
-| memU Container | Semi-trusted | Localhost (PostgreSQL) | LLM via host proxy |
+| Plugin Processes | Semi-trusted | Separate processes | Integrity-verified, no raw credentials |
 
 ### 5.2 Trust Boundary Crossings
 
 Every crossing passes through a host-side mediator. No direct container-to-container connections.
 
-Key crossings: User→Agent (router+scanner), Agent→LLM (credential proxy), Agent→Web (fetch proxy with DNS pinning), Agent→Browser (structured command mediator), Agent→Skills (proposal-review-commit), Scheduler→Agent (same pipeline as user messages).
+Key crossings: User→Agent (router+scanner), Agent→LLM (credential proxy), Agent→Web (fetch proxy with DNS pinning), Agent→Skills (proposal-review-commit), Scheduler→Agent (same pipeline as user messages).
 
 ### 5.3 Configuration Profiles
 
 | Dimension | Paranoid (Default) | Standard | Power User |
 |-----------|-------------------|----------|------------|
-| Browser | Disabled | Blocklist egress | Unrestricted |
 | Web fetch | Allowlist (empty) | Blocklist | Unrestricted |
 | OAuth | None | Read-only | Read-write |
 | Skill modification | Read-only | Proposal-review-commit | Relaxed auto-approve |

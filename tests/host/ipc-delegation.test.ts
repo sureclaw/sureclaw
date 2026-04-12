@@ -12,7 +12,7 @@ function mockProviders(): ProviderRegistry {
       delete: vi.fn(),
       list: vi.fn(async () => []),
     },
-    scanner: {
+    security: {
       scanInput: vi.fn(async () => ({ verdict: 'PASS' as const })),
       scanOutput: vi.fn(async () => ({ verdict: 'PASS' as const })),
       canaryToken: vi.fn(() => 'CANARY-test'),
@@ -22,15 +22,6 @@ function mockProviders(): ProviderRegistry {
     webFetch: { fetch: vi.fn() },
     webExtract: { extract: vi.fn() },
     webSearch: { search: vi.fn(async () => []) },
-    browser: {
-      launch: vi.fn(),
-      navigate: vi.fn(),
-      snapshot: vi.fn(),
-      click: vi.fn(),
-      type: vi.fn(),
-      screenshot: vi.fn(),
-      close: vi.fn(),
-    },
     credentials: {
       get: vi.fn(async () => null),
       set: vi.fn(),
@@ -70,12 +61,6 @@ function mockProviders(): ProviderRegistry {
       conversations: {} as any,
       sessions: {} as any,
       close: vi.fn(),
-    },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
     },
   } as unknown as ProviderRegistry;
 }

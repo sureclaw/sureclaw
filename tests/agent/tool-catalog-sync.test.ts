@@ -77,7 +77,7 @@ function makePromptContext(overrides: Partial<PromptContext> = {}): PromptContex
     workspace: '/tmp',
     skills: [],
     profile: 'balanced',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
     identityFiles: {
@@ -194,7 +194,6 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       // Orchestration (host-internal, agents interact via IPC handlers)
       'agent_orch_status', 'agent_orch_list', 'agent_orch_tree',
       'agent_orch_message', 'agent_orch_poll', 'agent_orch_interrupt',
-      'agent_orch_timeline',
       // Sandbox audit gate (container-local execution, agent → host pre/post hooks)
       'sandbox_approve', 'sandbox_result',
       // Agent response (NATS mode — agent sends response via IPC instead of stdout)
@@ -205,12 +204,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'session_expiring',
       // Tool batch (scripted tool execution with __batchRef pipelining, not agent-facing tool)
       'tool_batch',
-      // Cowork plugin management (install/uninstall/list via IPC, not in tool catalog)
-      'plugin_install_cowork', 'plugin_uninstall_cowork', 'plugin_list_cowork',
       // Company identity management (read/write via IPC, admin-only writes)
       'company_identity_read', 'company_identity_write',
-      // Catalog management (publish/get/list/unpublish/set_required via IPC)
-      'catalog_publish', 'catalog_get', 'catalog_list', 'catalog_unpublish', 'catalog_set_required',
     ]);
 
     for (const action of schemaActions) {

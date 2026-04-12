@@ -1,5 +1,11 @@
 # Architecture
 
+## Host-side path helpers can stay for backward compat during workspace simplification
+**Date:** 2026-04-06
+**Context:** During the single-workspace refactor (removing agent/user workspace split), host-side code like server-files.ts and server-channels.ts still uses `userWorkspaceDir()` for local file storage (upload/download). These are host-side paths, not sandbox paths.
+**Lesson:** When simplifying the sandbox workspace model, keep deprecated host-side path helpers (agentWorkspaceDir, userWorkspaceDir) available for backward compatibility in host-only code (file upload/download, image resolution). Mark them @deprecated. Only remove sandbox-facing code (SandboxConfig fields, env vars, payload fields). Host-side and sandbox-side are separate concerns.
+**Tags:** workspace, refactoring, backward-compat, host-side, sandbox
+
 ## Chat UI prose classes require @tailwindcss/typography plugin
 **Date:** 2026-03-31
 **Context:** Chat UI markdown-text.tsx used Tailwind `prose` classes but `@tailwindcss/typography` was not installed. All prose-* utility classes were silently no-ops — headings, lists, code blocks, and tables rendered as unstyled elements.

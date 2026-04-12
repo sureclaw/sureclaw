@@ -13,7 +13,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     workspace: '/tmp',
     skills: [],
     profile: 'paranoid',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
     identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
@@ -141,30 +141,30 @@ describe('SkillsModule', () => {
     expect(mod.priority).toBe(70);
   });
 
-  test('includes filesystem-based skill creation instructions when writable', () => {
+  test('includes skill creation instructions when workspace available', () => {
     const mod = new SkillsModule();
-    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], userWorkspaceWritable: true });
+    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('./user/skills/');
+    expect(rendered).toContain('/workspace/skills/');
   });
 
-  test('omits skill creation when user workspace is not writable', () => {
+  test('omits skill creation when no workspace', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')] });
     const rendered = mod.render(ctx).join('\n');
     expect(rendered).not.toContain('Creating Skills');
   });
 
-  test('includes skill creation guidance when writable', () => {
+  test('includes skill creation guidance when workspace available', () => {
     const mod = new SkillsModule();
-    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], userWorkspaceWritable: true });
+    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
     const rendered = mod.render(ctx).join('\n');
     expect(rendered).toContain('type: "create"');
   });
 
-  test('includes creating skills section when writable', () => {
+  test('includes creating skills section when workspace available', () => {
     const mod = new SkillsModule();
-    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], userWorkspaceWritable: true });
+    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
     const rendered = mod.render(ctx).join('\n');
     expect(rendered).toContain('Creating Skills');
   });
@@ -175,7 +175,7 @@ describe('SkillsModule', () => {
     const rendered = mod.render(ctx).join('\n');
     expect(rendered).toContain('scan this list');
     expect(rendered).toContain('read_file');
-    expect(rendered).toContain('Do NOT use workspace_read');
+    expect(rendered).toContain('Do NOT use bash ls');
   });
 
   test('renderMinimal shows skill count', () => {

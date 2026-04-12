@@ -61,7 +61,7 @@ function stubProviders(documents?: DocumentStore): ProviderRegistry {
   const docs = documents ?? createMockDocumentStore();
   return {
     audit: { log: vi.fn() },
-    scanner: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
+    security: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
     storage: {
       documents: docs,
       messages: {} as any,

@@ -2,6 +2,14 @@
 
 README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment, skill syncs.
 
+## [2026-04-06 12:00] — Update docs and skills for PVC-backed single workspace model
+
+**Task:** Phase 6 of PVC workspace plan: update documentation for new single /workspace model
+**What I did:** Updated `.claude/skills/ax-provider-sandbox/SKILL.md` extensively: replaced old three-directory (scratch/agent/user) workspace layout with single /workspace model, updated SandboxConfig table (removed agentWorkspace/userWorkspace/writable fields, added pvcName/workspaceSizeGi), replaced workspaceLocation with deletePvc on SandboxProvider, rewrote canonical paths table, updated env vars, replaced GCS-based workspace lifecycle with PVC persistence model, updated k8s gotchas. Checked CLAUDE.md and README.md -- no workspace layout references needed updating (README only mentions "workspace isolation" generically).
+**Files touched:** `.claude/skills/ax-provider-sandbox/SKILL.md`
+**Outcome:** Success — build passes, all doc references now reflect single /workspace + PVC model
+**Notes:** CLAUDE.md had no workspace-specific content. README.md line 180 mentions "workspace isolation" but that's still accurate.
+
 ## [2026-03-29 14:00] — Restructure Agents page and add Plugins section
 
 **Task:** Tasks 5+6: Replace the agents list+detail panel with horizontal tabs with a new layout using agent selector dropdown, vertical sub-nav, and full content area. Add a PluginsSection component for installing/uninstalling/viewing plugins.

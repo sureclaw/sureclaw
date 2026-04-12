@@ -79,7 +79,7 @@ function createTestProviders(tmpDir: string) {
       async delete(id) { memoryStore.delete(id); },
       async list() { return [...memoryStore.entries()].map(([id, e]) => ({ id, ...e })); },
     },
-    scanner: {
+    security: {
       canaryToken() {
         canaryToken = `CANARY-e2e-${Date.now()}`;
         return canaryToken;
@@ -102,15 +102,6 @@ function createTestProviders(tmpDir: string) {
     webFetch: { async fetch() { throw new Error('Provider disabled (provider: none)'); } },
     webExtract: { async extract() { throw new Error('Provider disabled (provider: none)'); } },
     webSearch: { async search() { throw new Error('Provider disabled (provider: none)'); } },
-    browser: {
-      async launch() { throw new Error('Provider disabled (provider: none)'); },
-      async navigate() { throw new Error('Provider disabled (provider: none)'); },
-      async snapshot() { throw new Error('Provider disabled (provider: none)'); },
-      async click() { throw new Error('Provider disabled (provider: none)'); },
-      async type() { throw new Error('Provider disabled (provider: none)'); },
-      async screenshot() { throw new Error('Provider disabled (provider: none)'); },
-      async close() { throw new Error('Provider disabled (provider: none)'); },
-    },
     credentials: {
       async get() { return null; },
       async set() {},
@@ -150,12 +141,6 @@ function createTestProviders(tmpDir: string) {
       conversations: {} as any,
       sessions: {} as any,
       close() {},
-    },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
     },
   } as ProviderRegistry;
 

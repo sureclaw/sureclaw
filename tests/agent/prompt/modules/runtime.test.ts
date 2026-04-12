@@ -9,7 +9,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     workspace: '/tmp',
     skills: [],
     profile: 'paranoid',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
     identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
@@ -65,7 +65,7 @@ describe('RuntimeModule', () => {
     expect(text).not.toContain('/Users/');
     expect(text).not.toContain('.ax/data');
     expect(text).toContain('Working Directory');
-    expect(text).toContain('./scratch');
+    expect(text).toContain('/workspace');
   });
 
   test('uses static working directory label regardless of workspace path', () => {

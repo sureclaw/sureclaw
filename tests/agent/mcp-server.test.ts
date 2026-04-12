@@ -174,9 +174,8 @@ describe('IPC MCP Server', () => {
     const expectedTools = [
       'memory', 'web', 'audit', 'identity',
       'scheduler', 'skill', 'request_credential',
-      'agent', 'image',
-      'save_artifact', 'workspace_read', 'workspace_list',
-      'workspace_mount', 'governance',
+      'agent',
+      'save_artifact',
       'bash', 'read_file', 'write_file', 'edit_file',
       'grep', 'glob',
     ];
@@ -185,13 +184,13 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(20);
+    expect(registeredNames.length).toBe(16);
   });
 
   test('filter excludes scheduler when its flag is false but keeps skill', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: true, hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false,  hasGovernance: true },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
@@ -203,14 +202,13 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('identity');
-    // Enterprise workspace_mount still present
-    expect(names).toContain('workspace_mount');
+    expect(names).toContain('save_artifact');
   });
 
   test('filter with all flags false returns only core tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false,  hasGovernance: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
@@ -224,7 +222,6 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('request_credential'); // always available
     expect(names).toContain('skill'); // always available — delete/update don't require install intent
     expect(names).not.toContain('scheduler');
-    expect(names).not.toContain('workspace_mount');
     expect(names).not.toContain('governance');
   });
 

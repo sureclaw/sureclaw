@@ -3,7 +3,7 @@
  * with session_id to exercise conversation history persistence end-to-end.
  *
  * Only the LLM provider is mocked (llm-mock) — everything else is real:
- * real config loading, real registry, real subprocess sandbox, real scanner,
+ * real config loading, real registry, real docker sandbox, real scanner,
  * real router, real IPC, real conversation store (database-backed SQLite).
  *
  * All three tests share a single server process to avoid redundant cold

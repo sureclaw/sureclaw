@@ -33,7 +33,6 @@ export async function create(_config: Config, opts: DockerNATSOptions): Promise<
   const hostUrl = opts.hostUrl;
 
   return {
-    workspaceLocation: 'sandbox' as const,
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const podName = `docker-nats-${randomUUID().slice(0, 8)}`;
       const containerName = `ax-agent-${randomUUID().slice(0, 8)}`;
@@ -63,10 +62,8 @@ export async function create(_config: Config, opts: DockerNATSOptions): Promise<
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m',
         '--user', '1000:1000',
 
-        // Volume mounts — canonical paths
-        '-v', `${config.workspace}:${CANONICAL.scratch}:rw`,
-        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${CANONICAL.agent}:${config.agentWorkspaceWritable ? 'rw' : 'ro'}`] : []),
-        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${CANONICAL.user}:${config.userWorkspaceWritable ? 'rw' : 'ro'}`] : []),
+        // Volume mounts — single /workspace directory (rw)
+        '-v', `${config.workspace}:${CANONICAL.root}:rw`,
 
         // Working directory
         '-w', CANONICAL.root,

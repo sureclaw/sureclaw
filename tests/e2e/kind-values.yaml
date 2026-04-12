@@ -1,6 +1,6 @@
 # Kind cluster overrides for automated regression tests
 #
-# Uses k8s sandbox with HTTP IPC and NATS work dispatch.
+# Uses k8s sandbox with HTTP IPC.
 # Host pod creates sandbox pods via K8s API for each request.
 # All external services mocked via mock-server on host.
 # URL rewrites (set dynamically by global-setup.ts) redirect
@@ -37,18 +37,16 @@ config:
     audit: database
     credentials: database
     sandbox: k8s
-    screener: static
+    security: patterns
     scheduler: plainjob
-    browser: none
     skills: git
     channels: []
     web:
       extract: none
       search: none
-    scanner: patterns
     storage: database
     database: postgresql
-    eventbus: nats
+    eventbus: postgres
     workspace: gcs
   history:
     max_turns: 50
@@ -85,9 +83,6 @@ namespace:
   create: false
   name: ax-e2e
 
-poolController:
-  enabled: false
-
 sandbox:
   runtimeClass: ""
   image:
@@ -107,17 +102,6 @@ postgresql:
     primary:
       persistence:
         size: 1Gi
-
-nats:
-  enabled: true
-  config:
-    cluster:
-      enabled: false
-    jetstream:
-      enabled: true
-      memoryStore:
-        enabled: true
-        maxSize: 256Mi
 
 webProxy:
   enabled: true

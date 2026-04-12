@@ -57,7 +57,7 @@ function mockRegistry(documents?: DocumentStore): ProviderRegistry {
       async delete() {},
       async list() { return []; },
     },
-    scanner: {
+    security: {
       canaryToken() { return 'CANARY-test'; },
       checkCanary() { return false; },
       async scanInput() { return { verdict: 'PASS' as const }; },
@@ -67,15 +67,6 @@ function mockRegistry(documents?: DocumentStore): ProviderRegistry {
     webFetch: { async fetch() { throw new Error('Provider disabled (provider: none)'); } },
     webExtract: { async extract() { throw new Error('Provider disabled (provider: none)'); } },
     webSearch: { async search() { throw new Error('Provider disabled (provider: none)'); } },
-    browser: {
-      async launch() { throw new Error('Provider disabled (provider: none)'); },
-      async navigate() { throw new Error('Provider disabled (provider: none)'); },
-      async snapshot() { throw new Error('Provider disabled (provider: none)'); },
-      async click() { throw new Error('Provider disabled (provider: none)'); },
-      async type() { throw new Error('Provider disabled (provider: none)'); },
-      async screenshot() { throw new Error('Provider disabled (provider: none)'); },
-      async close() { throw new Error('Provider disabled (provider: none)'); },
-    },
     credentials: {
       async get() { return null; },
       async set() {},
@@ -105,12 +96,6 @@ function mockRegistry(documents?: DocumentStore): ProviderRegistry {
       conversations: {} as any,
       sessions: {} as any,
       close() {},
-    },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
     },
   } as ProviderRegistry;
 }
@@ -655,8 +640,8 @@ describe('unified identity_write', () => {
   test('rejects content flagged by scanner', async () => {
     const documents = createMockDocumentStore();
     const registry = mockRegistry(documents);
-    registry.scanner = {
-      ...registry.scanner,
+    registry.security = {
+      ...registry.security,
       async scanInput() {
         return { verdict: 'BLOCK' as const, reason: 'Suspicious instruction detected' };
       },
@@ -799,8 +784,8 @@ describe('user_write', () => {
 
   test('rejects content flagged by scanner', async () => {
     const registry = mockRegistry();
-    registry.scanner = {
-      ...registry.scanner,
+    registry.security = {
+      ...registry.security,
       async scanInput() {
         return { verdict: 'BLOCK' as const, reason: 'Injection detected' };
       },

@@ -28,15 +28,9 @@ describe('k8s init — parseArgs', () => {
     expect(opts.embeddingsModel).toBe('deepinfra/qwen/qwen3-embedding-0.6b');
   });
 
-  it('parses --tier flag', () => {
-    const opts = parseArgs(['--tier', 'heavy']);
-    expect(opts.tier).toBe('heavy');
-  });
-
   it('parses all flags together', () => {
     const opts = parseArgs([
       '--preset', 'large',
-      '--tier', 'heavy',
       '--model', 'openai/gpt-4o',
       '--api-key', 'sk-test',
       '--embeddings-model', 'openai/text-embedding-3-small',
@@ -46,7 +40,6 @@ describe('k8s init — parseArgs', () => {
       '--output', 'custom.yaml',
     ]);
     expect(opts.preset).toBe('large');
-    expect(opts.tier).toBe('heavy');
     expect(opts.model).toBe('openai/gpt-4o');
     expect(opts.apiKey).toBe('sk-test');
     expect(opts.embeddingsModel).toBe('openai/text-embedding-3-small');
@@ -67,7 +60,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('includes config.models.default from model ID', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       database: 'internal',
     });
@@ -79,7 +72,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('includes config.history.embedding_model from embeddings model ID', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       embeddingsModel: 'deepinfra/qwen/qwen3-embedding-0.6b',
       database: 'internal',
@@ -91,7 +84,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('derives provider from model ID for apiCredentials env var', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'openrouter/gpt-4.1',
       database: 'internal',
     });
@@ -101,7 +94,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('derives provider from embeddings model ID for apiCredentials env var', () => {
     const yaml = generateValuesYaml({
       preset: 'large',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       embeddingsModel: 'deepinfra/qwen/qwen3-embedding-0.6b',
       database: 'internal',
@@ -113,7 +106,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('omits embeddings config when no embeddings model', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       database: 'internal',
     });
@@ -124,7 +117,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('does not duplicate env var when LLM and embeddings share a provider', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'openai/gpt-4o',
       embeddingsModel: 'openai/text-embedding-3-small',
       database: 'internal',
@@ -137,7 +130,7 @@ describe('k8s init — generateValuesYaml', () => {
   it('generates secret key name from provider', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       database: 'internal',
     });
@@ -147,47 +140,13 @@ describe('k8s init — generateValuesYaml', () => {
   it('still generates postgresql and nats config', () => {
     const yaml = generateValuesYaml({
       preset: 'small',
-      tier: 'light',
+
       model: 'anthropic/claude-sonnet-4-20250514',
       database: 'external',
     });
     expect(yaml).toContain('postgresql:');
-    expect(yaml).toContain('nats:');
   });
 
-  it('enables only light tier warm pool when tier is light', () => {
-    const yaml = generateValuesYaml({
-      preset: 'small',
-      tier: 'light',
-      model: 'anthropic/claude-sonnet-4-20250514',
-      database: 'internal',
-    });
-    expect(yaml).toContain('sandbox:');
-    expect(yaml).toContain('tiers:');
-    expect(yaml).toContain('light:');
-    expect(yaml).toContain('heavy:');
-    // light tier should have minReady: 2, heavy should have minReady: 0
-    const lightSection = yaml.split('light:')[1].split('heavy:')[0];
-    expect(lightSection).toContain('minReady: 2');
-    const heavySection = yaml.split('heavy:')[1];
-    expect(heavySection).toContain('minReady: 0');
-    expect(heavySection).toContain('maxReady: 0');
-  });
-
-  it('enables only heavy tier warm pool when tier is heavy', () => {
-    const yaml = generateValuesYaml({
-      preset: 'small',
-      tier: 'heavy',
-      model: 'anthropic/claude-sonnet-4-20250514',
-      database: 'internal',
-    });
-    const lightSection = yaml.split('light:')[1].split('heavy:')[0];
-    expect(lightSection).toContain('minReady: 0');
-    expect(lightSection).toContain('maxReady: 0');
-    const heavySection = yaml.split('heavy:')[1];
-    expect(heavySection).toContain('minReady: 2');
-    expect(heavySection).toContain('maxReady: 10');
-  });
 });
 
 describe('k8s init — security', () => {

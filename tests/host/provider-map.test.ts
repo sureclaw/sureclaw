@@ -7,7 +7,6 @@ describe('Provider allowlist (SC-SEC-002)', () => {
     expect(resolveProviderPath('memory', 'cortex')).toContain('/providers/memory/cortex/index.js');
     expect(resolveProviderPath('scheduler', 'none')).toContain('/providers/scheduler/none.js');
     expect(resolveProviderPath('sandbox', 'docker')).toContain('/providers/sandbox/docker.js');
-    expect(resolveProviderPath('sandbox', 'subprocess')).toContain('/providers/sandbox/subprocess.js');
   });
 
   test('returns absolute file URLs', () => {
@@ -77,7 +76,6 @@ describe('Provider allowlist (SC-SEC-002)', () => {
   test('sandbox kind has all expected providers', () => {
     const sandboxMap = PROVIDER_MAP['sandbox'];
     expect(sandboxMap).toBeDefined();
-    expect(sandboxMap!['subprocess']).toBeDefined();
     expect(sandboxMap!['docker']).toBeDefined();
     expect(sandboxMap!['apple']).toBeDefined();
     expect(sandboxMap!['k8s']).toBeDefined();
