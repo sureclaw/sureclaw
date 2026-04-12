@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { runOnboarding } from '../../src/onboarding/wizard.js';
+import { runOnboarding, loadExistingApiKey } from '../../src/onboarding/wizard.js';
 import { parse as parseYaml } from 'yaml';
 
 describe('Onboarding Wizard', () => {
@@ -78,17 +78,15 @@ describe('Onboarding Wizard', () => {
 
   // ── API key handling ──
 
-  test('saves API key to credentials.yaml', async () => {
+  test('saves API key to database', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: { profile: 'balanced', apiKey: 'sk-ant-api-key-here' },
     });
 
-    const credsPath = join(dir, 'credentials.yaml');
-    expect(existsSync(credsPath)).toBe(true);
-    const creds = parseYaml(readFileSync(credsPath, 'utf-8'));
-    expect(creds.ANTHROPIC_API_KEY).toBe('sk-ant-api-key-here');
+    const key = await loadExistingApiKey(dir);
+    expect(key).toBe('sk-ant-api-key-here');
   });
 
   test('writes provider-specific API key for non-anthropic provider', async () => {
@@ -103,19 +101,22 @@ describe('Onboarding Wizard', () => {
       },
     });
 
-    const creds = parseYaml(readFileSync(join(dir, 'credentials.yaml'), 'utf-8'));
-    expect(creds.OPENROUTER_API_KEY).toBe('or-key-123456'); // gitleaks:allow
-    expect(creds.ANTHROPIC_API_KEY).toBeUndefined();
+    const orKey = await loadExistingApiKey(dir, 'openrouter');
+    expect(orKey).toBe('or-key-123456'); // gitleaks:allow
+    const anthKey = await loadExistingApiKey(dir);
+    expect(anthKey).toBe('');
   });
 
-  test('does not write empty API key to credentials.yaml', async () => {
+  test('does not write empty API key to database', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: { profile: 'balanced', apiKey: '' },
     });
 
-    expect(existsSync(join(dir, 'credentials.yaml'))).toBe(false);
+    // No database file should be created for empty key
+    const key = await loadExistingApiKey(dir);
+    expect(key).toBe('');
   });
 
   // ── Model selection ──
@@ -195,7 +196,7 @@ describe('Onboarding Wizard', () => {
     expect(config.providers.workspace).toBe('git-local');
     expect(config.providers.memory).toBe('cortex');
     expect(config.providers.security).toBe('patterns');
-    expect(config.providers.credentials).toBeDefined();
+    expect(config.providers.credentials).toBe('database');
   });
 
   // ── Reconfigure: loads existing config as defaults ──
@@ -222,8 +223,7 @@ describe('Onboarding Wizard', () => {
     expect(existing).toBeNull();
   });
 
-  test('loadExistingConfig reads API key from credentials.yaml', async () => {
-    const { loadExistingConfig } = await import('../../src/onboarding/wizard.js');
+  test('loadExistingApiKey reads API key from database', async () => {
     const dir = setup();
 
     await runOnboarding({
@@ -231,8 +231,8 @@ describe('Onboarding Wizard', () => {
       answers: { profile: 'balanced', apiKey: 'sk-my-saved-key' },
     });
 
-    const existing = loadExistingConfig(dir);
-    expect(existing!.apiKey).toBe('sk-my-saved-key');
+    const key = await loadExistingApiKey(dir);
+    expect(key).toBe('sk-my-saved-key');
   });
 
   test('loadExistingConfig reads model and derives llmProvider', async () => {

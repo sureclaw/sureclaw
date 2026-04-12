@@ -8,7 +8,7 @@ function testConfig(channelConfig?: Record<string, unknown>): Config {
     profile: 'default' as any,
     providers: {
       memory: 'cortex', security: 'patterns', channels: ['slack'],
-      web: { extract: 'none', search: 'none' }, credentials: 'keychain', skills: 'database',
+      web: { extract: 'none', search: 'none' }, credentials: 'database', skills: 'database',
       audit: 'database', sandbox: 'docker', scheduler: 'none',
     },
     channel_config: channelConfig as any,

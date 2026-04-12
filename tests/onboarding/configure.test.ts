@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { buildInquirerDefaults } from '../../src/onboarding/configure.js';
-import { runOnboarding, loadExistingConfig } from '../../src/onboarding/wizard.js';
+import { runOnboarding, loadExistingConfig, loadExistingApiKey } from '../../src/onboarding/wizard.js';
 
 describe('Configure UI Helpers', () => {
   let tmpDir: string;
@@ -38,21 +38,17 @@ describe('Configure UI Helpers', () => {
     const defaults = buildInquirerDefaults(existing);
 
     expect(defaults.profile).toBe('yolo');
-    expect(defaults.apiKey).toBe('sk-existing');
   });
 
-  test('buildInquirerDefaults masks API key for display', async () => {
+  test('loadExistingApiKey retrieves stored API key', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
       answers: { profile: 'balanced', apiKey: 'sk-ant-api03-longkeyvalue12345' },
     });
 
-    const existing = loadExistingConfig(dir);
-    const defaults = buildInquirerDefaults(existing);
-
-    expect(defaults.apiKey).toBe('sk-ant-api03-longkeyvalue12345');
-    expect(defaults.apiKeyMasked).toMatch(/^sk-\.\.\..+$/);
+    const key = await loadExistingApiKey(dir);
+    expect(key).toBe('sk-ant-api03-longkeyvalue12345');
   });
 
   test('buildInquirerDefaults includes model and llmProvider from existing config', async () => {
@@ -72,7 +68,6 @@ describe('Configure UI Helpers', () => {
 
     expect(defaults.model).toBe('openrouter/anthropic/claude-sonnet-4');
     expect(defaults.llmProvider).toBe('openrouter');
-    expect(defaults.apiKey).toBe('or-key-test-value');
   });
 
   test('buildInquirerDefaults returns undefined model when no existing config', () => {

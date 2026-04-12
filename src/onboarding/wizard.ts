@@ -56,18 +56,74 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   const yamlContent = yamlStringify(config, { indent: 2, lineWidth: 120 });
   writeFileSync(join(outputDir, 'ax.yaml'), yamlContent, 'utf-8');
 
-  // Write credentials to credentials.yaml
-  const creds: Record<string, string> = {};
+  // Store credentials in the database
   if (answers.apiKey.trim()) {
     const apiKeyEnvVar = answers.llmProvider && answers.llmProvider !== 'anthropic'
       ? `${answers.llmProvider.toUpperCase()}_API_KEY`
       : 'ANTHROPIC_API_KEY';
-    creds[apiKeyEnvVar] = answers.apiKey.trim();
+
+    const credProvider = await openCredentialStore(outputDir);
+    try {
+      await credProvider.set(apiKeyEnvVar, answers.apiKey.trim());
+    } finally {
+      await credProvider.close();
+    }
   }
-  if (Object.keys(creds).length > 0) {
-    const credsYaml = yamlStringify(creds, { indent: 2, lineWidth: 120 });
-    writeFileSync(join(outputDir, 'credentials.yaml'), credsYaml, 'utf-8');
-  }
+}
+
+/**
+ * Open a lightweight credential store for the wizard.
+ * Creates/opens the SQLite database and runs credential migrations.
+ */
+async function openCredentialStore(configDir: string) {
+  // Determine AX_HOME — if outputDir is the standard axHome(), use it.
+  // Otherwise (tests), use a data/ subdirectory under outputDir.
+  const { axHome } = await import('../paths.js');
+  const { dataFile, dataDir } = configDir === axHome()
+    ? await import('../paths.js')
+    : {
+      dataFile: (...segs: string[]) => join(configDir, 'data', ...segs),
+      dataDir: () => join(configDir, 'data'),
+    };
+
+  mkdirSync(dataDir(), { recursive: true });
+  const dbPath = dataFile('ax.db');
+
+  const { createRequire } = await import('node:module');
+  const { Kysely, SqliteDialect } = await import('kysely');
+  const req = createRequire(import.meta.url);
+  const Database = req('better-sqlite3');
+  const sqliteDb = new Database(dbPath);
+  sqliteDb.pragma('journal_mode = WAL');
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = new Kysely<any>({ dialect: new SqliteDialect({ database: sqliteDb }) });
+
+  const { runMigrations } = await import('../utils/migrator.js');
+  const { credentialDbMigrations } = await import('../providers/credentials/migrations.js');
+  const result = await runMigrations(db, credentialDbMigrations('sqlite'), 'credential_migration');
+  if (result.error) throw result.error;
+
+  return {
+    async set(service: string, value: string): Promise<void> {
+      const now = new Date().toISOString();
+      await db.insertInto('credential_store')
+        .values({ scope: 'global', env_name: service, value, created_at: now, updated_at: now })
+        .onConflict(oc => oc.columns(['scope', 'env_name']).doUpdateSet({ value, updated_at: now }))
+        .execute();
+    },
+    async get(service: string): Promise<string | null> {
+      const row = await db.selectFrom('credential_store')
+        .select('value')
+        .where('scope', '=', 'global')
+        .where('env_name', '=', service)
+        .executeTakeFirst();
+      return row ? (row.value as string) : null;
+    },
+    async close(): Promise<void> {
+      await db.destroy();
+    },
+  };
 }
 
 /**
@@ -88,34 +144,32 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const model: string | undefined = defaultModels?.[0];
     const llmProvider: string | undefined = model ? model.split('/')[0] : undefined;
 
-    // Read API key from credentials.yaml
-    let apiKey = '';
-    const credsYamlPath = join(dir, 'credentials.yaml');
-
-    if (existsSync(credsYamlPath)) {
-      try {
-        const credsRaw = readFileSync(credsYamlPath, 'utf-8');
-        const creds = parseYaml(credsRaw);
-        if (creds && typeof creds === 'object' && !Array.isArray(creds)) {
-          const store = creds as Record<string, string>;
-          if (llmProvider && llmProvider !== 'anthropic') {
-            const providerKeyName = `${llmProvider.toUpperCase()}_API_KEY`;
-            apiKey = store[providerKeyName] ? String(store[providerKeyName]) : '';
-          }
-          if (!apiKey) {
-            apiKey = store.ANTHROPIC_API_KEY ? String(store.ANTHROPIC_API_KEY) : '';
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    }
-
     return {
       profile: parsed.profile ?? 'balanced',
       model,
       llmProvider,
-      apiKey,
+      apiKey: '', // API key is in the database, not readable from config
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Load existing API key from the credential database for reconfigure flow.
+ */
+export async function loadExistingApiKey(dir: string, llmProvider?: string): Promise<string> {
+  try {
+    const store = await openCredentialStore(dir);
+    try {
+      const envVar = llmProvider && llmProvider !== 'anthropic'
+        ? `${llmProvider.toUpperCase()}_API_KEY`
+        : 'ANTHROPIC_API_KEY';
+      return (await store.get(envVar)) ?? '';
+    } finally {
+      await store.close();
+    }
+  } catch {
+    return '';
   }
 }

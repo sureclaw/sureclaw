@@ -44,8 +44,6 @@ const _PROVIDER_MAP = {
     brave:  '../providers/web/brave-search.js',
   },
   credentials: {
-    plaintext: '../providers/credentials/plaintext.js',
-    keychain:  '../providers/credentials/keychain.js',
     database:  '../providers/credentials/database.js',
   },
   audit: {

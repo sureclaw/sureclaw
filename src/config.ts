@@ -47,7 +47,7 @@ const ConfigSchema = z.strictObject({
       extract: providerEnum('web_extract').optional().default('none'),
       search: providerEnum('web_search').optional().default('none'),
     }).optional().default({ extract: 'none', search: 'none' }),
-    credentials: providerEnum('credentials').optional().default('keychain'),
+    credentials: providerEnum('credentials').optional().default('database'),
     audit: providerEnum('audit').optional().default('database'),
     sandbox: providerEnum('sandbox').optional().default(
       process.platform === 'darwin' ? 'apple' : 'docker',
@@ -64,7 +64,7 @@ const ConfigSchema = z.strictObject({
     security: 'patterns',
     channels: [],
     web: { extract: 'none', search: 'none' },
-    credentials: 'keychain',
+    credentials: 'database',
     audit: 'database',
     sandbox: process.platform === 'darwin' ? 'apple' : 'docker',
     scheduler: 'plainjob',
@@ -246,17 +246,13 @@ export function loadConfig(path?: string): Config {
     // expects.  The assertion is safe — invalid names are caught by parse().
     const config = ConfigSchema.parse(parsed) as unknown as Config;
 
-    // Container sandboxes have no outbound network and no OS keychain.
+    // Container sandboxes have no outbound network.
     // Default web_proxy to true (needed for HTTP access, credential injection,
-    // and skill installs) and credentials to database (keychain falls back to
-    // ephemeral plaintext files that are lost on pod restart).
+    // and skill installs).
     const containerSandboxes = new Set(['docker', 'apple', 'k8s']);
     if (containerSandboxes.has(config.providers.sandbox)) {
       if (config.web_proxy === undefined) {
         (config as { web_proxy: boolean }).web_proxy = true;
-      }
-      if (config.providers.credentials === 'keychain') {
-        (config.providers as { credentials: string }).credentials = 'database';
       }
     }
 

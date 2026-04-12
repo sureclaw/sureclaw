@@ -10,7 +10,7 @@ const config: Config = {
     channels: ['cli'],
     web: { extract: 'none', search: 'none' },
    
-    credentials: 'keychain',
+    credentials: 'database',
     skills: 'database',
     audit: 'database',
     sandbox: 'docker',

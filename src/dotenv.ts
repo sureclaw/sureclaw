@@ -5,8 +5,8 @@
  * Safe to call multiple times — skips keys already set in the environment.
  *
  * loadCredentials() seeds process.env from the credential provider
- * (credentials.yaml or keychain) so that synchronous readers like the
- * proxy can access tokens without going through the async provider API.
+ * (database-backed) so that synchronous readers like the proxy can
+ * access tokens without going through the async provider API.
  *
  * OAuth refresh functions accept an optional CredentialProvider. When
  * provided, they persist refreshed tokens through the provider. When

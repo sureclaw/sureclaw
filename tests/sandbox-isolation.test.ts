@@ -22,7 +22,7 @@ const mockConfig = {
   providers: {
     memory: 'cortex', security: 'patterns',
     channels: ['cli'], web: { extract: 'none', search: 'none' },
-    credentials: 'keychain', audit: 'database',
+    credentials: 'database', audit: 'database',
     sandbox: 'docker', scheduler: 'none',
   },
   sandbox: { timeout_sec: 120, memory_mb: 512 },

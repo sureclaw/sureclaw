@@ -20,7 +20,7 @@ import {
   RECONFIGURE_HEADER,
 } from './prompts.js';
 import type { ProfileName, LLMProviderChoice } from './prompts.js';
-import { runOnboarding, loadExistingConfig } from './wizard.js';
+import { runOnboarding, loadExistingConfig, loadExistingApiKey } from './wizard.js';
 import type { OnboardingAnswers } from './wizard.js';
 
 export interface InquirerDefaults {
@@ -63,6 +63,15 @@ export async function runConfigure(outputDir: string): Promise<void> {
   const existing = loadExistingConfig(outputDir);
   const isReconfigure = existing !== null;
   const defaults = buildInquirerDefaults(existing);
+
+  // Load existing API key from database for reconfigure flow
+  if (isReconfigure && existing) {
+    const existingKey = await loadExistingApiKey(outputDir, existing.llmProvider);
+    if (existingKey) {
+      defaults.apiKey = existingKey;
+      defaults.apiKeyMasked = maskKey(existingKey);
+    }
+  }
 
   console.log(isReconfigure ? RECONFIGURE_HEADER : ASCII_WELCOME);
 
@@ -113,16 +122,16 @@ export async function runConfigure(outputDir: string): Promise<void> {
   const apiKey = apiKeyInput.trim() || defaults.apiKey || '';
 
   if (!apiKey) {
-    console.log(`\nWarning: No API key provided. Set ${envVarName} in ~/.ax/credentials.yaml later.\n`);
+    console.log(`\nWarning: No API key provided. Set ${envVarName} later via ax configure.\n`);
   }
 
-  // Generate config
+  // Generate config and store credentials
   await runOnboarding({
     outputDir,
     answers: { profile, model, llmProvider, apiKey },
   });
 
   console.log(`\n  Config written to ${outputDir}/ax.yaml`);
-  console.log(`  API key written to ${outputDir}/credentials.yaml`);
+  console.log(`  Credentials stored in database`);
   console.log('');
 }
