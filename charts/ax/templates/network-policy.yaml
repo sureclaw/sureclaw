@@ -24,6 +24,14 @@ spec:
           protocol: TCP
         - port: 8080
           protocol: TCP
+    # Git server (workspace persistence via HTTP API)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ax-git
+      ports:
+        - port: {{ .Values.gitServer.httpPort }}
+          protocol: TCP
     # DNS
     - ports:
         - port: 53

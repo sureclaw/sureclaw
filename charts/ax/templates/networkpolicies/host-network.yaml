@@ -33,6 +33,14 @@ spec:
     - ports:
         - port: 5432
           protocol: TCP
+    # Git server (workspace persistence via HTTP API)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ax-git
+      ports:
+        - port: 8000
+          protocol: TCP
     # External HTTPS (channels: Slack, Discord, etc.)
     - ports:
         - port: 443

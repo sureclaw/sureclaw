@@ -38,23 +38,6 @@ host:
       hostPath:
         path: /ax-dev/skills
 
-poolController:
-  replicas: 1
-  command: ["node", "/opt/ax/dist/pool-controller/main.js"]
-  reconcileIntervalMs: 3000
-  extraVolumeMounts:
-    - name: ax-dev-dist
-      mountPath: /opt/ax/dist
-    - name: ax-dev-templates
-      mountPath: /opt/ax/templates
-  extraVolumes:
-    - name: ax-dev-dist
-      hostPath:
-        path: /ax-dev/dist
-    - name: ax-dev-templates
-      hostPath:
-        path: /ax-dev/templates
-
 sandbox:
   runtimeClass: ""
   tiers:
@@ -138,9 +121,19 @@ webProxy:
   enabled: true
   port: 3128
 
+gitServer:
+  enabled: true
+  image:
+    repository: ax-git-server
+    tag: latest
+    pullPolicy: IfNotPresent
+
 config:
   profile: balanced
   web_proxy: true
+  gitServer:
+    host: git-server.ax-dev.svc.cluster.local
+    httpPort: 8000
   models:
     default:
       - openrouter/google/gemini-3-flash-preview
@@ -149,3 +142,4 @@ config:
     database: postgresql
     eventbus: postgres
     sandbox: k8s
+    workspace: git-http

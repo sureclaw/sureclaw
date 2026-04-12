@@ -8,7 +8,7 @@ description: AX project architecture and coding skills - use sub-skills for spec
 This is the parent skill group for all AX project-specific architecture and coding skills. Use the appropriate sub-skill for the subsystem you're working on.
 
 - **Core**: ax-agent, ax-host, ax-cli, ax-config, ax-ipc, ax-runners, ax-utils
-- **Providers**: ax-provider-audit, ax-provider-browser, ax-provider-channel, ax-provider-credentials, ax-provider-database, ax-provider-development, ax-provider-eventbus, ax-provider-image, ax-provider-llm, ax-provider-memory, ax-provider-sandbox, ax-provider-scanner, ax-provider-scheduler, ax-provider-screener, ax-provider-skills, ax-provider-storage, ax-provider-system, ax-provider-web
+- **Providers**: ax-provider-audit, ax-provider-channel, ax-provider-credentials, ax-provider-database, ax-provider-development, ax-provider-eventbus, ax-provider-llm, ax-provider-memory, ax-provider-sandbox, ax-provider-scheduler, ax-provider-skills, ax-provider-storage, ax-provider-system, ax-provider-web
 - **Cross-cutting**: ax-security, ax-testing, ax-logging-errors, ax-persistence, ax-prompt-builder, ax-onboarding
 - **UI**: ax-admin-dashboard-ui
 
@@ -18,16 +18,15 @@ AX uses a **provider contract pattern**. The trusted host process (`src/host/`) 
 
 ### Sandbox Model
 
-Agent isolation uses a unified container model with four sandbox providers:
+Agent isolation uses a unified container model with three sandbox providers:
 
 | Provider | Platform | IPC Transport | Notes |
 |----------|----------|---------------|-------|
-| `subprocess` | Any | Unix socket | No isolation, dev/test use |
 | `docker` | Any | Unix socket | Container isolation via Docker |
 | `apple` | macOS | Unix socket (reverse bridge) | Apple Container framework |
 | `k8s` | Kubernetes | **HTTP** (IPC + work dispatch) | Session-long pods with HTTP-based IPC |
 
-Old Linux-specific sandbox providers (seatbelt, nsjail, bwrap) have been removed. The k8s provider uses HTTP for all communication — IPC (`HttpIPCClient` → `POST /internal/ipc`) and work dispatch (`GET /internal/work`). Session-long pods are managed by `SessionPodManager` and reused across turns. Pods cannot share a filesystem with the host.
+Old Linux-specific sandbox providers (seatbelt, nsjail, bwrap) and the subprocess dev fallback have been removed. The k8s provider uses HTTP for all communication — IPC (`HttpIPCClient` → `POST /internal/ipc`) and work dispatch (`GET /internal/work`). Session-long pods are managed by `SessionPodManager` and reused across turns. Pods cannot share a filesystem with the host.
 
 **Outbound HTTP via Web Proxy**: Agents can optionally make outbound HTTP/HTTPS requests (npm install, pip install, curl, git clone) through a controlled forward proxy on the host. Opt-in via `config.web_proxy` (disabled by default). Containers keep `--network=none` — agents reach the proxy via a TCP bridge over a mounted Unix socket. The proxy enforces private IP blocking (SSRF), canary token scanning, and audit logging. K8s pods connect directly via a k8s Service (`ax-web-proxy`).
 
@@ -37,13 +36,9 @@ In k8s mode, all communication uses HTTP:
 - **IPC**: `src/agent/http-ipc-client.ts` → `POST /internal/ipc` route on host (`src/host/server-k8s.ts`)
 - **LLM proxy**: `src/host/llm-proxy-core.ts` → `/internal/llm-proxy` HTTP route
 - **Work dispatch**: Host queues work via `SessionPodManager.queueWork()`; pods fetch via `GET /internal/work`
-- **Event bus**: `src/providers/eventbus/nats.ts` OR `src/providers/eventbus/postgres.ts` (NATS or PostgreSQL-backed pub/sub for events)
+- **Event bus**: `src/providers/eventbus/postgres.ts` (PostgreSQL-backed pub/sub for events)
 
 **HTTP for all payloads**: Workspace file data flows via HTTP POST to the host's `/internal/workspace-staging` endpoint. IPC requests use HTTP POST to `/internal/ipc`. Work dispatch uses `SessionPodManager` (in-process queue). NetworkPolicy allows sandbox pods egress to host on port 8080.
-
-### Workspace Provider
-
-The workspace provider (`src/providers/workspace/`) manages persistent file workspaces for agent sessions across three scopes: agent, user, and session. Backends: `none` (no-op), `local` (filesystem), `gcs` (Google Cloud Storage). In k8s mode, workspace changes are synced back to GCS via the HTTP staging endpoint. Workspace operations are IPC-only through host handlers — there are no agent-side workspace CLI or release files. Loaded as part of the standard registry chain in `src/host/registry.ts`.
 
 ### MCP Fast Path (In-Process Agent)
 
@@ -76,4 +71,4 @@ Zero-dependency TypeScript tool stub generation with Proxy-based batching (`src/
 
 ### Provider Categories
 
-There are 18 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, image, memory, scanner, channel, web_extract, web_search, browser, credentials, audit, sandbox, scheduler, screener, database, storage, eventbus, workspace, mcp. The `mcp` category has `none` and `database` implementations.
+There are 15 provider categories in the static allowlist (`src/host/provider-map.ts`): llm, memory, security, channel, web_extract, web_search, credentials, audit, sandbox, scheduler, database, storage, eventbus, mcp, auth. The `mcp` category has `none` and `database` implementations.

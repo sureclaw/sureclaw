@@ -55,7 +55,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   }
 
   return {
-    workspaceLocation: 'host' as const,
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const [cmd, ...args] = config.command;
       const containerName = `ax-agent-${randomUUID().slice(0, 8)}`;
@@ -79,13 +78,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         '--read-only',                             // immutable root fs
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=64m', // writable /tmp
 
-        // Volume mounts — canonical paths so the LLM sees simple /scratch
-        '-v', `${config.workspace}:${CANONICAL.scratch}:rw`,
+        // Volume mounts — single /workspace directory (rw)
+        '-v', `${config.workspace}:${CANONICAL.root}:rw`,
         // IPC socket mount — only for agent containers, not ephemeral tool containers
         ...(hasIpcSocket ? ['-v', `${resolve(config.ipcSocket, '..')}:${resolve(config.ipcSocket, '..')}:rw`] : []),
-        // Enterprise mounts — canonical paths (rw per-tier when workspace provider active)
-        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${CANONICAL.agent}:${config.agentWorkspaceWritable ? 'rw' : 'ro'}`] : []),
-        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${CANONICAL.user}:${config.userWorkspaceWritable ? 'rw' : 'ro'}`] : []),
 
         // Working directory — canonical mount root
         '-w', CANONICAL.root,

@@ -263,6 +263,7 @@ async function handleAdminAPI(
     if (!agent) { sendError(res, 404, 'Agent not found'); return; }
     await agentRegistry.update(id, { status: 'archived' });
     logger.info('agent_archived', { agentId: id });
+
     sendJSON(res, { ok: true, agentId: id });
     return;
   }
@@ -407,28 +408,6 @@ async function handleAdminAPI(
     return;
   }
 
-  // GET /admin/api/agents/:id/workspace — list workspace files
-  const workspaceMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/workspace$/);
-  if (workspaceMatch && method === 'GET') {
-    const id = decodeURIComponent(workspaceMatch[1]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      if (!providers.workspace.listFiles) {
-        sendJSON(res, []);
-        return;
-      }
-      const url = new URL(req.url ?? '/', 'http://localhost');
-      const scope = (url.searchParams.get('scope') ?? 'agent') as 'agent' | 'user' | 'session';
-      // Workspace dirs are keyed by agent ID (e.g. "main"), not display name
-      const files = await providers.workspace.listFiles(scope, id);
-      sendJSON(res, files);
-    } catch (err) {
-      logger.error('admin_workspace_failed', { agentId: id, error: (err as Error).message });
-      sendError(res, 500, `Failed to list workspace files: ${(err as Error).message}`);
-    }
-    return;
-  }
 
   // GET /admin/api/agents/:id/memory — list memory entries
   const memoryMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/memory$/);
@@ -684,7 +663,7 @@ async function handleAdminAPI(
     return;
   }
 
-  // ── Cowork Plugin Management ──
+  // ── Plugin Management ──
 
   // GET /admin/api/agents/:id/plugins — list installed plugins
   const pluginListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins$/);
@@ -782,26 +761,6 @@ async function listWorkspaceSkills(
 ): Promise<Array<{ name: string; description?: string; path: string }>> {
   const skills: Array<{ name: string; description?: string; path: string }> = [];
 
-  for (const scope of ['agent', 'user'] as const) {
-    if (!providers.workspace.downloadScope) continue;
-    try {
-      const files = await providers.workspace.downloadScope(scope, agentId);
-      for (const f of files) {
-        if (!/^skills\/.*\.md$/i.test(f.path)) continue;
-        const content = f.content.toString('utf-8');
-        const parsed = parseAgentSkill(content);
-        const name = parsed.name || f.path.replace(/^skills\//, '').replace(/\.md$/i, '');
-        skills.push({
-          name,
-          description: parsed.description,
-          path: `${scope}/${f.path}`,
-        });
-      }
-    } catch {
-      // Scope not mounted or not available — skip silently
-    }
-  }
-
   return skills;
 }
 
@@ -811,24 +770,6 @@ async function findSkillContent(
   agentId: string,
   skillName: string,
 ): Promise<{ name: string; content: string } | undefined> {
-  // Search user scope first (user shadows agent)
-  for (const scope of ['user', 'agent'] as const) {
-    if (!providers.workspace.downloadScope) continue;
-    try {
-      const files = await providers.workspace.downloadScope(scope, agentId);
-      for (const f of files) {
-        if (!/^skills\/.*\.md$/i.test(f.path)) continue;
-        const content = f.content.toString('utf-8');
-        const parsed = parseAgentSkill(content);
-        const name = parsed.name || f.path.replace(/^skills\//, '').replace(/\.md$/i, '');
-        if (name === skillName) {
-          return { name, content };
-        }
-      }
-    } catch {
-      // Scope not mounted or not available — skip
-    }
-  }
   // Search plugin skills in DocumentStore
   if (providers.storage?.documents) {
     const allKeys = await providers.storage.documents.list('skills');

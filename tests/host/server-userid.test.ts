@@ -9,7 +9,7 @@ describe('server userId threading', () => {
       taintRatio: 0,
       taintThreshold: 0.3,
       profile: 'balanced',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
       userId: 'U12345',
     });
 
@@ -24,7 +24,7 @@ describe('server userId threading', () => {
       taintRatio: 0,
       taintThreshold: 0.3,
       profile: 'balanced',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
     });
 
     const result = parseStdinPayload(payload);

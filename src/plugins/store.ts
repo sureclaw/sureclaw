@@ -1,5 +1,5 @@
 /**
- * Plugin & command CRUD operations for database-stored Cowork plugins.
+ * Plugin & command CRUD operations for database-stored plugins.
  *
  * Uses DocumentStore with JSON serialization, following the same pattern
  * as src/providers/storage/skills.ts.
@@ -29,6 +29,8 @@ export interface PluginUpsertInput {
   skillCount: number;
   commandCount: number;
   mcpServers: PluginMcpServer[];
+  /** When true, the plugin's skills are shared with the company (visible to all agents). */
+  shared?: boolean;
 }
 
 export async function upsertPlugin(
@@ -38,6 +40,7 @@ export async function upsertPlugin(
   const record: InstalledPlugin = {
     ...input,
     installedAt: new Date().toISOString(),
+    ...(input.shared !== undefined ? { shared: input.shared } : {}),
   };
   await documents.put(
     'plugins',

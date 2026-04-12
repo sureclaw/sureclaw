@@ -1,8 +1,8 @@
 /**
- * CLI commands for Cowork plugin management: ax plugin install/remove/list
+ * CLI commands for plugin management: ax plugin install/remove/list
  *
- * Cowork plugins are file-based bundles (skills + commands + MCP servers)
- * from Claude Cowork, scoped per-agent.
+ * Plugins are GitHub-based bundles (skills + commands + MCP servers),
+ * installed from GitHub repositories and scoped per-agent.
  */
 
 import { loadConfig } from '../config.js';
@@ -23,21 +23,27 @@ export async function runPlugin(args: string[]): Promise<void> {
 
 function showPluginHelp(): void {
   console.log(`
-AX Plugin Manager (Cowork Plugins)
+AX Plugin Manager
 
 Usage:
-  ax plugin install <source> [--agent <name>]   Install a Cowork plugin
-  ax plugin remove <name> [--agent <name>]      Remove an installed plugin
-  ax plugin list [--agent <name>]               List installed plugins
+  ax plugin install <source> [--agent <name>] [--shared]   Install a plugin from GitHub
+  ax plugin remove <name> [--agent <name>]                 Remove an installed plugin
+  ax plugin list [--agent <name>]                          List installed plugins
 
-Sources:
-  anthropics/knowledge-work-plugins/sales       GitHub owner/repo/subdir
-  ./plugins/my-custom-plugin                    Local directory
-  https://github.com/org/repo                   GitHub URL
+Sources (GitHub-based):
+  owner/repo                                    GitHub repository
+  owner/repo/path/to/plugin                     Subdirectory within a repo
+  https://github.com/owner/repo                 Full GitHub URL
+  https://github.com/owner/repo/tree/main/sub   GitHub URL with branch and path
+  ./plugins/my-custom-plugin                    Local directory (development only)
+
+Options:
+  --agent <name>   Target agent (default: main)
+  --shared         Share this plugin's skills with the company
 
 Examples:
   ax plugin install anthropics/knowledge-work-plugins/sales --agent pi
-  ax plugin install ./plugins/internal-legal --agent counsel
+  ax plugin install myorg/internal-tools --shared
   ax plugin list --agent pi
   ax plugin remove sales --agent pi
 `);
@@ -53,6 +59,15 @@ function parseAgentFlag(args: string[]): { agentId: string; remaining: string[] 
   return { agentId: 'main', remaining: args };
 }
 
+function parseSharedFlag(args: string[]): { shared: boolean; remaining: string[] } {
+  const idx = args.indexOf('--shared');
+  if (idx >= 0) {
+    const remaining = [...args.slice(0, idx), ...args.slice(idx + 1)];
+    return { shared: true, remaining };
+  }
+  return { shared: false, remaining: args };
+}
+
 async function loadDeps() {
   const config = loadConfig();
   const providers = await loadProviders(config);
@@ -64,19 +79,20 @@ async function loadDeps() {
 }
 
 async function pluginInstall(args: string[]): Promise<void> {
-  const { agentId, remaining } = parseAgentFlag(args);
+  const { agentId, remaining: afterAgent } = parseAgentFlag(args);
+  const { shared, remaining } = parseSharedFlag(afterAgent);
   const source = remaining[0];
   if (!source) {
-    console.error('Error: Source required. Usage: ax plugin install <source> [--agent <name>]');
+    console.error('Error: Source required. Usage: ax plugin install <source> [--agent <name>] [--shared]');
     process.exit(1);
   }
 
-  console.log(`Installing plugin from ${source} for agent "${agentId}"...`);
+  console.log(`Installing plugin from ${source} for agent "${agentId}"${shared ? ' (shared)' : ''}...`);
 
   const { documents, audit } = await loadDeps();
   const mcpManager = new McpConnectionManager();
 
-  const result = await installPlugin({ source, agentId, documents, mcpManager, audit });
+  const result = await installPlugin({ source, agentId, documents, mcpManager, audit, shared });
 
   if (!result.installed) {
     console.error(`Failed: ${result.reason}`);
@@ -131,7 +147,8 @@ async function pluginList(args: string[]): Promise<void> {
 
   console.log(`Plugins for agent "${agentId}":\n`);
   for (const p of plugins) {
-    console.log(`  ${p.pluginName} v${p.version}`);
+    const sharedLabel = p.shared ? ' [shared]' : '';
+    console.log(`  ${p.pluginName} v${p.version}${sharedLabel}`);
     console.log(`    ${p.description}`);
     const mcpNames = p.mcpServers.map(s => s.name).join(', ') || 'none';
     console.log(`    Skills: ${p.skillCount}  Commands: ${p.commandCount}  MCP: ${mcpNames}`);

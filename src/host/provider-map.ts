@@ -23,20 +23,13 @@ const _PROVIDER_MAP = {
     router:     '../providers/llm/router.js',
     mock:       '../providers/llm/mock.js',
   },
-  image: {
-    openai:     '../providers/image/openai-images.js',
-    openrouter: '../providers/image/openrouter.js',
-    groq:       '../providers/image/openai-images.js',
-    gemini:     '../providers/image/gemini.js',
-    router:     '../providers/image/router.js',
-    mock:       '../providers/image/mock.js',
-  },
   memory: {
     cortex: '../providers/memory/cortex/index.js',
   },
-  scanner: {
-    patterns:  '../providers/scanner/patterns.js',
-    guardian: '../providers/scanner/guardian.js',
+  security: {
+    patterns:  '../providers/security/patterns.js',
+    guardian: '../providers/security/guardian.js',
+    none:    '../providers/security/none.js',
   },
   channel: {
     slack:     '../providers/channel/slack.js',
@@ -50,10 +43,6 @@ const _PROVIDER_MAP = {
     tavily: '../providers/web/tavily-search.js',
     brave:  '../providers/web/brave-search.js',
   },
-  browser: {
-    none:      '../providers/browser/none.js',
-    container: '../providers/browser/container.js',
-  },
   credentials: {
     plaintext: '../providers/credentials/plaintext.js',
     keychain:  '../providers/credentials/keychain.js',
@@ -63,7 +52,6 @@ const _PROVIDER_MAP = {
     database: '../providers/audit/database.js',
   },
   sandbox: {
-    subprocess: '../providers/sandbox/subprocess.js',
     docker:     '../providers/sandbox/docker.js',
     apple:      '../providers/sandbox/apple.js',
     k8s:        '../providers/sandbox/k8s.js',
@@ -71,10 +59,6 @@ const _PROVIDER_MAP = {
   scheduler: {
     none:     '../providers/scheduler/none.js',
     plainjob: '../providers/scheduler/plainjob.js',
-  },
-  screener: {
-    static: '../providers/screener/static.js',
-    none:   '../providers/screener/none.js',
   },
   database: {
     sqlite:     '../providers/database/sqlite.js',
@@ -85,13 +69,7 @@ const _PROVIDER_MAP = {
   },
   eventbus: {
     inprocess: '../providers/eventbus/inprocess.js',
-    nats:      '../providers/eventbus/nats.js',
     postgres:  '../providers/eventbus/postgres.js',
-  },
-  workspace: {
-    none:  '../providers/workspace/none.js',
-    local: '../providers/workspace/local.js',
-    gcs:   '../providers/workspace/gcs.js',
   },
   mcp: {
     none:     '../providers/mcp/none.js',
@@ -100,6 +78,9 @@ const _PROVIDER_MAP = {
   auth: {
     'admin-token': '../providers/auth/admin-token.js',
     'better-auth': '../providers/auth/better-auth.js',
+  },
+  workspace: {
+    'git-http': '../providers/workspace/git-http.js',
   },
 } as const;
 
@@ -120,24 +101,21 @@ export type ProviderKind = keyof ProviderMapType;
 
 /** Valid names for each provider kind. */
 export type LLMProviderName        = keyof ProviderMapType['llm'];
-export type ImageProviderName      = keyof ProviderMapType['image'];
 export type MemoryProviderName     = keyof ProviderMapType['memory'];
-export type ScannerProviderName    = keyof ProviderMapType['scanner'];
+export type SecurityProviderName   = keyof ProviderMapType['security'];
 export type ChannelProviderName    = keyof ProviderMapType['channel'];
 export type WebExtractProviderName = keyof ProviderMapType['web_extract'];
 export type WebSearchProviderName  = keyof ProviderMapType['web_search'];
-export type BrowserProviderName    = keyof ProviderMapType['browser'];
 export type CredentialProviderName = keyof ProviderMapType['credentials'];
 export type DatabaseProviderName    = keyof ProviderMapType['database'];
 export type AuditProviderName      = keyof ProviderMapType['audit'];
 export type SandboxProviderName    = keyof ProviderMapType['sandbox'];
 export type SchedulerProviderName  = keyof ProviderMapType['scheduler'];
-export type ScreenerProviderName   = keyof ProviderMapType['screener'];
 export type StorageProviderName    = keyof ProviderMapType['storage'];
 export type EventBusProviderName   = keyof ProviderMapType['eventbus'];
-export type WorkspaceProviderName  = keyof ProviderMapType['workspace'];
 export type McpProviderName        = keyof ProviderMapType['mcp'];
 export type AuthProviderName       = keyof ProviderMapType['auth'];
+export type WorkspaceProviderName  = keyof ProviderMapType['workspace'];
 
 /** Union of all provider names for a given kind. */
 export type ProviderNameFor<K extends ProviderKind> = keyof ProviderMapType[K];

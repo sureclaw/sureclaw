@@ -1,6 +1,6 @@
 /**
  * Creates a stub provider where every method throws "Provider disabled".
- * Used by "none" providers (browser/none, web/none) to satisfy the interface
+ * Used by "none" providers (web/none, etc.) to satisfy the interface
  * without implementing any real logic.
  */
 export function disabledProvider<T extends object>(): T {

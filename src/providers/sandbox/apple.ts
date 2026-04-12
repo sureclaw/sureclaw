@@ -38,7 +38,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   const image = process.env.AX_CONTAINER_IMAGE ?? DEFAULT_IMAGE;
 
   return {
-    workspaceLocation: 'host' as const,
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
       const [cmd, ...args] = config.command;
       const containerName = `ax-agent-${randomUUID().slice(0, 8)}`;
@@ -77,8 +76,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // TODO: re-enable --read-only once we find a writable non-tmpfs path
         // for the bridge socket (volume mounts don't support Unix sockets).
 
-        // Volume mounts — canonical paths so the LLM sees simple /scratch
-        '-v', `${config.workspace}:${CANONICAL.scratch}:rw`,
+        // Volume mounts — single /workspace directory (rw)
+        '-v', `${config.workspace}:${CANONICAL.root}:rw`,
 
         // IPC bridge — only for agent containers, not ephemeral tool containers.
         // --publish-socket creates the host-side socket and tunnels connections
@@ -86,10 +85,6 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         // support Unix domain sockets (connect returns ENOTSUP), so this is
         // the only way to bridge sockets across the VM boundary.
         ...(hasIpcSocket ? ['--publish-socket', `${bridgeSocketPath}:${CONTAINER_BRIDGE_SOCK}`] : []),
-
-        // Enterprise mounts — canonical paths (rw per-tier when workspace provider active)
-        ...(config.agentWorkspace ? ['-v', `${config.agentWorkspace}:${CANONICAL.agent}:${config.agentWorkspaceWritable ? 'rw' : 'ro'}`] : []),
-        ...(config.userWorkspace ? ['-v', `${config.userWorkspace}:${CANONICAL.user}:${config.userWorkspaceWritable ? 'rw' : 'ro'}`] : []),
 
         // Working directory — canonical mount root
         '-w', CANONICAL.root,

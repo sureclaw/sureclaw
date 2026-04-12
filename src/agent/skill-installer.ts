@@ -3,8 +3,7 @@
  *
  * Reads SKILL.md files from workspace skill directories, parses install
  * specs, and runs missing installs with package-manager prefix env vars
- * redirecting binaries into each workspace's own prefix (so agent-workspace
- * deps stay shared and user-workspace deps stay per-user).
+ * redirecting binaries into the workspace prefix.
  *
  * Called by runners after the web proxy bridge is up (so HTTP_PROXY is set)
  * and before the agent loop starts.
@@ -98,7 +97,7 @@ function loadSkillSpecs(dir: string): ParsedAgentSkill[] {
 }
 
 export interface SkillSource {
-  /** Directory containing SKILL.md files (e.g. /workspace/agent/skills) */
+  /** Directory containing SKILL.md files (e.g. /workspace/skills) */
   skillDir: string;
   /** Install prefix — binaries land under prefix/bin/ */
   prefix: string;
@@ -107,9 +106,7 @@ export interface SkillSource {
 /**
  * Install missing skill dependencies.
  *
- * Each source maps a skill directory to its install prefix so that
- * agent-workspace deps install to the shared location and user-workspace
- * deps install to the per-user location.
+ * Each source maps a skill directory to its install prefix for binary installation.
  */
 export async function installSkillDeps(sources: SkillSource[]): Promise<void> {
   const os = currentOS();

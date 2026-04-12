@@ -54,8 +54,6 @@ spec:
             - name: K8S_IMAGE_PULL_POLICY
               value: {{ $sandboxPullPolicy | quote }}
             {{- end }}
-            - name: WARM_POOL_ENABLED
-              value: {{ .Values.poolController.enabled | quote }}
             {{- if .Values.global.imagePullSecrets }}
             - name: K8S_IMAGE_PULL_SECRETS
               value: {{ join "," .Values.global.imagePullSecrets | quote }}

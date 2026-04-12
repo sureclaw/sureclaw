@@ -57,7 +57,7 @@ test.describe('Settings Page', () => {
     await expect(page.getByText('llm')).toBeVisible();
     await expect(page.getByText('anthropic')).toBeVisible();
     await expect(page.getByText('sandbox').first()).toBeVisible();
-    await expect(page.getByText('subprocess').first()).toBeVisible();
+    await expect(page.getByText('docker').first()).toBeVisible();
     await expect(page.getByText('audit')).toBeVisible();
     await expect(page.getByText('sqlite')).toBeVisible();
   });

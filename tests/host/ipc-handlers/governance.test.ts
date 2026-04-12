@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGovernanceHandlers } from '../../../src/host/ipc-handlers/governance.js';
-import { FileAgentRegistry, type AgentRegistry } from '../../../src/host/agent-registry.js';
+import type { AgentRegistry } from '../../../src/host/agent-registry.js';
+import { createSqliteRegistry } from '../../../src/host/agent-registry-db.js';
 import type { IPCContext } from '../../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../../src/types.js';
 
@@ -47,7 +48,7 @@ function createInMemoryDocuments(): any {
 function stubProviders(): ProviderRegistry {
   return {
     audit: { log: vi.fn() },
-    scanner: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
+    security: { scanInput: vi.fn().mockResolvedValue({ verdict: 'PASS' }) },
     storage: { documents: createInMemoryDocuments() },
   } as any;
 }
@@ -56,7 +57,7 @@ describe('Governance IPC handlers', () => {
   let ctx: IPCContext;
   let registry: AgentRegistry;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-gov-test-'));
     proposalsDirPath = join(tmpDir, 'proposals');
     agentTopDirPath = join(tmpDir, 'top');
@@ -69,7 +70,7 @@ describe('Governance IPC handlers', () => {
     // Seed admins file so existing tests (which use alice) pass admin gate
     writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
 
-    registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+    registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
     ctx = { sessionId: 'sess-1', agentId: 'main', userId: 'alice' };
   });
 
@@ -104,7 +105,7 @@ describe('Governance IPC handlers', () => {
 
   test('identity_propose blocks content flagged by scanner', async () => {
     const providers = stubProviders();
-    (providers.scanner.scanInput as any).mockResolvedValue({ verdict: 'BLOCK', reason: 'malicious' });
+    (providers.security.scanInput as any).mockResolvedValue({ verdict: 'BLOCK', reason: 'malicious' });
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
       agentName: 'main',
@@ -236,7 +237,7 @@ describe('Governance IPC handlers', () => {
   });
 
   test('agent_registry_list returns agents from registry', async () => {
-    registry.register({
+    await registry.register({
       id: 'test-bot',
       name: 'Test Bot',
       status: 'active',
@@ -260,7 +261,7 @@ describe('Governance IPC handlers', () => {
   });
 
   test('agent_registry_get returns specific agent', async () => {
-    registry.register({
+    await registry.register({
       id: 'specific-bot',
       name: 'Specific',
       status: 'active',

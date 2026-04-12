@@ -2,6 +2,28 @@
 
 Kysely migration infrastructure: runner, database factory, store integration, upgrade-path tests.
 
+## [2026-04-12 10:30] — Fix failing tests for workspace-git-ssh branch merge
+
+**Task:** Fix test failures caused by source code changes on workspace-git-ssh-src that weren't reflected in the test files from workspace-git-ssh-tests.
+**What I did:**
+- `tests/providers/scanner/guardian.test.ts` — Updated imports from `scanner/` to `security/` (provider was renamed)
+- `tests/sandbox-isolation.test.ts` — Changed pvcName assertion to verify PVC is NOT present (workspace is now git-backed)
+- `tests/providers/sandbox/k8s.test.ts` — Removed 3 PVC tests (ensurePvc, workspaceSizeGi, PVC volume mount), added emptyDir assertion
+- `tests/host/server-admin.test.ts` — Removed 2 deletePvc tests (agent delete no longer cleans up PVCs)
+- `tests/agent/tool-catalog-sync.test.ts` — Changed `user/skills/` to `/workspace/skills/`
+- `tests/agent/prompt/modules/skills.test.ts` — Changed `user/skills/` to `/workspace/skills/`
+**Files touched:** 6 test files modified
+**Outcome:** Success. All 6 fixed files pass (140 tests). Full suite: 2613 passed, 4 failed (pre-existing server/integration timeouts)
+**Notes:** runner.test.ts and pi-session.test.ts were already passing despite source changes. The 4 remaining failures are flaky timeout-based integration tests unrelated to the git-ssh changes.
+
+## [2026-04-06 10:25] — Update tests for single workspace model (Phase 5)
+
+**Task:** Update all remaining tests for the single workspace model (PVC workspace plan Phase 5)
+**What I did:** Grepped tests/ for 14 old workspace patterns. Fixed docker-nats.ts test provider: removed workspaceLocation field, replaced CANONICAL.scratch/agent/user with CANONICAL.root, removed agentWorkspace/userWorkspace/agentWorkspaceWritable/userWorkspaceWritable references. Verified sandbox-isolation.test.ts negative assertions are correct (they check old fields DON'T exist). Verified server-files/file-attachments mocks of userWorkspaceDir are correct (production code still uses it via deprecated path).
+**Files touched:** tests/providers/sandbox/docker-nats.ts
+**Outcome:** Success — build passes, 2590 tests pass (3 pre-existing failures unrelated to workspace)
+**Notes:** The userWorkspaceDir mock in server-files tests is still correct because the production code (server-files.ts, server-channels.ts, ipc-handlers/llm.ts) still imports it. It's marked @deprecated but not yet removed. The sandbox-isolation.test.ts assertions are all negative (not.toContain) verifying the old fields are gone from production — good regression tests to keep.
+
 ## [2026-03-31 06:30] — Fix 25 test failures from double-migration and stale global-MCP assumptions
 
 **Task:** Fix 25 failing tests across 8 test files

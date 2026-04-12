@@ -9,13 +9,20 @@ import { sql, type Kysely } from 'kysely';
 import type { DatabaseProvider } from '../providers/database/types.js';
 import type { AgentRegistry, AgentRegistryEntry, AgentRegisterInput, AgentStatus, AgentKind } from './agent-registry.js';
 import { runMigrations } from '../utils/migrator.js';
+import { createKyselyDb } from '../utils/database.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'agent-registry-db' });
 
+type DbDialect = 'sqlite' | 'postgresql';
+
 // ── Migration ──
 
-function registryMigrations() {
+function registryMigrations(dbType: DbDialect) {
+  const isSqlite = dbType === 'sqlite';
+  const timestampCol = isSqlite ? 'text' as const : 'timestamptz' as const;
+  const nowDefault = isSqlite ? sql`(datetime('now'))` : sql`NOW()`;
+
   return {
     registry_001_agent_registry: {
       async up(db: Kysely<any>) {
@@ -29,8 +36,8 @@ function registryMigrations() {
           .addColumn('parent_id', 'text')
           .addColumn('agent_type', 'text', col => col.notNull())
           .addColumn('capabilities', 'text', col => col.notNull().defaultTo('[]'))
-          .addColumn('created_at', 'timestamptz', col => col.notNull().defaultTo(sql`NOW()`))
-          .addColumn('updated_at', 'timestamptz', col => col.notNull().defaultTo(sql`NOW()`))
+          .addColumn('created_at', timestampCol, col => col.notNull().defaultTo(nowDefault))
+          .addColumn('updated_at', timestampCol, col => col.notNull().defaultTo(nowDefault))
           .addColumn('created_by', 'text', col => col.notNull())
           .execute();
 
@@ -133,7 +140,7 @@ export class DatabaseAgentRegistry implements AgentRegistry {
   }
 
   static async create(database: DatabaseProvider): Promise<DatabaseAgentRegistry> {
-    await runMigrations(database.db, registryMigrations(), 'registry_migration');
+    await runMigrations(database.db, registryMigrations(database.type), 'registry_migration');
     logger.info('registry_migrations_complete');
     return new DatabaseAgentRegistry(database.db);
   }
@@ -249,4 +256,19 @@ export class DatabaseAgentRegistry implements AgentRegistry {
     return rows.map(rowToEntry);
   }
 
+}
+
+/**
+ * Convenience factory: create a SQLite-backed registry at the given file path.
+ * Useful for tests and local dev where no DatabaseProvider is configured.
+ */
+export async function createSqliteRegistry(dbPath: string): Promise<AgentRegistry> {
+  const db = createKyselyDb({ type: 'sqlite', path: dbPath });
+  const provider: DatabaseProvider = {
+    db,
+    type: 'sqlite',
+    vectorsAvailable: false,
+    close: async () => { await db.destroy(); },
+  };
+  return DatabaseAgentRegistry.create(provider);
 }

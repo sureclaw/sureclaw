@@ -1,11 +1,11 @@
 ---
 name: ax-provider-eventbus
-description: Use when modifying the event bus — in-process pub/sub, NATS pub/sub, or streaming event routing in src/providers/eventbus/
+description: Use when modifying the event bus — in-process pub/sub, PostgreSQL pub/sub, or streaming event routing in src/providers/eventbus/
 ---
 
 ## Overview
 
-The event bus provides real-time typed pub/sub for completion observability. Abstracts between in-process (Phase 1) and NATS (Phase 2 for k8s). Components emit `StreamEvent`s; listeners subscribe globally or per-request.
+The event bus provides real-time typed pub/sub for completion observability. Abstracts between in-process and PostgreSQL LISTEN/NOTIFY (for k8s). Components emit `StreamEvent`s; listeners subscribe globally or per-request.
 
 ## Interface (`src/providers/eventbus/types.ts`)
 
@@ -24,14 +24,12 @@ The event bus provides real-time typed pub/sub for completion observability. Abs
 | Provider    | File            | Transport      | Notes                                       |
 |-------------|-----------------|----------------|---------------------------------------------|
 | `inprocess` | `inprocess.ts`  | In-memory      | Wraps existing `createEventBus()`; no-op close() |
-| `nats`      | `nats.ts`       | NATS pub/sub   | Dual-subject routing; listener eviction at capacity |
-| `postgres`  | `postgres.ts`   | PostgreSQL `LISTEN/NOTIFY` | Persistent pub/sub via PostgreSQL; no NATS dependency |
+| `postgres`  | `postgres.ts`   | PostgreSQL `LISTEN/NOTIFY` | Persistent pub/sub via PostgreSQL |
 
 Provider map entries in `src/host/provider-map.ts`:
 ```
 eventbus: {
   inprocess: '../providers/eventbus/inprocess.js',
-  nats:      '../providers/eventbus/nats.js',
   postgres:  '../providers/eventbus/postgres.js',
 }
 ```
@@ -80,7 +78,5 @@ eventbus: {
 
 - `src/providers/eventbus/types.ts` — Interface definitions
 - `src/providers/eventbus/inprocess.ts` — In-process implementation
-- `src/providers/eventbus/nats.ts` — NATS pub/sub implementation
 - `src/providers/eventbus/postgres.ts` — PostgreSQL LISTEN/NOTIFY implementation
-- `src/utils/nats.ts` — Shared `natsConnectOptions()` helper (server URL, auth, reconnect)
 - `tests/providers/eventbus/inprocess.test.ts`

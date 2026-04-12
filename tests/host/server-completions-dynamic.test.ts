@@ -4,7 +4,7 @@
  */
 import { describe, test, expect } from 'vitest';
 import { AgentProvisioner } from '../../src/host/agent-provisioner.js';
-import { FileAgentRegistry } from '../../src/host/agent-registry.js';
+import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -35,7 +35,7 @@ describe('dynamic agent resolution for completions', () => {
   test('provisioner resolves personal agent instead of hardcoded main', async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), 'ax-test-'));
     try {
-      const registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+      const registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
       const docs = createMockDocStore();
       const provisioner = new AgentProvisioner(registry, docs);
 

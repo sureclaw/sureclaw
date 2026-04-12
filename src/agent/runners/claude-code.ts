@@ -10,12 +10,12 @@
  *         → API calls → TCP bridge → Unix socket proxy → Anthropic API
  *         → AX IPC tools via in-process MCP server (memory, web_search, audit)
  *
- * Architecture (k8s mode — NATS_URL set, no proxySocket):
+ * Architecture (k8s mode — AX_HOST_URL set, no proxySocket):
  *   agent-runner.ts → runClaudeCode()
- *     → Start NATS bridge on localhost:PORT (HTTP → NATS request/reply)
+ *     → Start HTTP bridge on localhost:PORT (HTTP → host HTTP IPC)
  *     → Agent SDK query() with ANTHROPIC_BASE_URL=http://127.0.0.1:PORT
  *       → Claude Code CLI subprocess
- *         → API calls → NATS bridge → ipc.llm.{sessionId} → agent runtime LLM proxy → Anthropic API
+ *         → API calls → HTTP bridge → host LLM proxy → Anthropic API
  *         → AX IPC tools via in-process MCP server (memory, web_search, audit)
  */
 
@@ -29,7 +29,9 @@ import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt } from '../agent-setup.js';
 import { installSkillDeps } from '../skill-installer.js';
+import { GitWorkspace } from '../git-workspace.js';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'claude-code' });
@@ -171,11 +173,53 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     });
   }
 
-  // Install missing skill dependencies — each workspace installs to its own prefix
-  const skillSources: { skillDir: string; prefix: string }[] = [];
-  if (config.agentWorkspace) skillSources.push({ skillDir: join(config.agentWorkspace, 'skills'), prefix: config.agentWorkspace });
-  if (config.userWorkspace) skillSources.push({ skillDir: join(config.userWorkspace, 'skills'), prefix: config.userWorkspace });
-  if (skillSources.length > 0) await installSkillDeps(skillSources);
+  // 1c. Initialize git workspace if WORKSPACE_REPO_URL is set.
+  // In k8s, git-init container already cloned and .git is locked to UID 1001.
+  const hasGitWorkspace = !!process.env.WORKSPACE_REPO_URL;
+  const hasSidecar = hasGitWorkspace && !!process.env.AX_HOST_URL; // k8s mode
+  let gitWorkspace: GitWorkspace | null = null;
+  if (hasGitWorkspace && !hasSidecar) {
+    gitWorkspace = new GitWorkspace(config.workspace, process.env.WORKSPACE_REPO_URL!);
+    try {
+      await gitWorkspace.clone();
+      await gitWorkspace.init();
+      await gitWorkspace.pull();
+      logger.info('git_workspace_ready', { url: process.env.WORKSPACE_REPO_URL });
+    } catch (err) {
+      logger.error('git_workspace_init_failed', { error: (err as Error).message });
+      throw err;
+    }
+  } else if (hasSidecar) {
+    // K8s mode: pull latest via sidecar. Retry handles sidecar startup race
+    // (both containers start simultaneously, sidecar may not be listening yet).
+    const sidecarPort = process.env.AX_GIT_SIDECAR_PORT || '9099';
+    const sidecarUrl = `http://localhost:${sidecarPort}`;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        const resp = await fetch(`${sidecarUrl}/pull`, { method: 'POST' });
+        const result = await resp.json() as { ok: boolean; error?: string };
+        if (result.ok) {
+          logger.info('sidecar_pull_complete', { attempt });
+          break;
+        }
+        logger.warn('sidecar_pull_failed', { error: result.error, attempt });
+        if (attempt < 9) await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        if (attempt < 9) {
+          logger.debug('sidecar_not_ready', { attempt, error: (err as Error).message });
+          await new Promise(r => setTimeout(r, 500));
+        } else {
+          logger.warn('sidecar_pull_failed_all_retries', { error: (err as Error).message });
+        }
+      }
+    }
+  }
+
+  // Install missing skill dependencies from /workspace/skills/ (after git sync)
+  const skillSources = [{ skillDir: join(config.workspace, 'skills'), prefix: config.workspace }];
+  if (existsSync(skillSources[0].skillDir)) {
+    await installSkillDeps(skillSources);
+  }
 
   // 2. Connect IPC client for MCP tools
   // Use pre-connected client if available (listen mode starts before stdin read).
@@ -189,6 +233,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   // When running in a container, sandbox tools execute locally with host audit gate.
   const CONTAINER_SANDBOXES = new Set(['docker', 'apple', 'k8s']);
   const useLocalSandbox = CONTAINER_SANDBOXES.has(config.sandboxType ?? '');
+  logger.info('sandbox_type_check', { sandboxType: config.sandboxType, useLocalSandbox });
   const ipcMcpServer = createIPCMcpServer(client, {
     userId: config.userId,
     filter: toolFilter,
@@ -265,7 +310,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
       },
     });
 
-    // 7. Stream output (buffer in NATS mode, write to stdout otherwise)
+    // 7. Stream output (buffer in HTTP IPC mode, write to stdout otherwise)
     let hasOutput = false;
     for await (const msg of result) {
       if (msg.type === 'assistant') {
@@ -288,6 +333,30 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     }
     if (hasOutput && !isK8sTransport) process.stdout.write('\n');
 
+    // Persist workspace changes
+    if (gitWorkspace) {
+      try {
+        const timestamp = new Date().toISOString();
+        await gitWorkspace.commitAndPush(`agent-turn: ${timestamp}`);
+      } catch (err) {
+        logger.error('git_turn_commit_failed', { error: (err as Error).message });
+      }
+    } else if (hasSidecar) {
+      // Signal git-sidecar via HTTP — containers share localhost in the same pod
+      const sidecarPort = process.env.AX_GIT_SIDECAR_PORT || '9099';
+      try {
+        const resp = await fetch(`http://localhost:${sidecarPort}/turn-complete`, { method: 'POST' });
+        const result = await resp.json() as { ok: boolean; hash?: string; files?: number; error?: string };
+        if (result.ok) {
+          logger.info('sidecar_commit_complete', { hash: result.hash, files: result.files });
+        } else {
+          logger.error('sidecar_commit_failed', { error: result.error });
+        }
+      } catch (err) {
+        logger.error('sidecar_signal_failed', { error: (err as Error).message });
+      }
+    }
+
     // In k8s mode, send agent_response via IPC
     if (isK8sTransport) {
 
@@ -307,7 +376,7 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     process.stderr.write(`Claude Code agent failed: ${message}\n`);
     process.exitCode = 1;
   } finally {
-    // 8. Cleanup — bridge.stop() may be async (NATS bridge) or sync (TCP bridge)
+    // 8. Cleanup — bridge.stop() may be async (HTTP bridge) or sync (TCP bridge)
     if (bridge) await Promise.resolve(bridge.stop());
     if (webProxyBridge) webProxyBridge.stop();
     client.disconnect();

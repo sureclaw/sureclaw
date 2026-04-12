@@ -27,7 +27,7 @@ function mockProviders(): ProviderRegistry {
       delete: vi.fn(),
       list: vi.fn(async () => []),
     },
-    scanner: {
+    security: {
       scanInput: vi.fn(async () => ({ verdict: 'PASS' as const })),
       scanOutput: vi.fn(async () => ({ verdict: 'PASS' as const })),
       canaryToken: vi.fn(() => 'CANARY-test'),
@@ -37,15 +37,6 @@ function mockProviders(): ProviderRegistry {
     webFetch: { fetch: vi.fn() },
     webExtract: { extract: vi.fn() },
     webSearch: { search: vi.fn(async () => []) },
-    browser: {
-      launch: vi.fn(),
-      navigate: vi.fn(),
-      snapshot: vi.fn(),
-      click: vi.fn(),
-      type: vi.fn(),
-      screenshot: vi.fn(),
-      close: vi.fn(),
-    },
     credentials: {
       get: vi.fn(async () => null),
       set: vi.fn(),
@@ -85,12 +76,6 @@ function mockProviders(): ProviderRegistry {
       conversations: {} as any,
       sessions: {} as any,
       close: vi.fn(),
-    },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
     },
   } as unknown as ProviderRegistry;
 }
@@ -885,8 +870,7 @@ describe('delegation audit trail', () => {
 // with the parent's sessionId, but the child agent's events use a
 // different requestId (generated in handleDelegate). Auto-state inference
 // maps events by requestId → sessionToHandles, so the child's events
-// never matched the handle → no state transitions → no heartbeat update
-// → heartbeat monitor kills the agent after 120s.
+// never matched the handle → no state transitions.
 //
 // Fix: delegation handler generates the child's requestId, passes it to
 // onDelegate via DelegateRequest.requestId, and registers the handle
@@ -964,11 +948,6 @@ describe('fire-and-forget delegation heartbeat alignment', () => {
 
     // Auto-state should have transitioned the handle to tool_calling
     expect(handle!.state).toBe('tool_calling');
-
-    // The heartbeat should have been updated (agent.state event was emitted)
-    const lastActivity = orchestrator.heartbeat.getLastActivity(result.handleId);
-    expect(lastActivity).not.toBeNull();
-    expect(Date.now() - lastActivity!).toBeLessThan(1000);
 
     // Simulate llm.done — should transition back to running
     eventBus.emit({

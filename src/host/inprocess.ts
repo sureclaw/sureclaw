@@ -50,7 +50,7 @@ export interface FastPathDeps {
   logger: Logger;
   eventBus?: EventBus;
   workspaceBasePath: string;
-  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  /** Per-agent plugin MCP server registry. */
   mcpManager?: McpConnectionManager;
 }
 

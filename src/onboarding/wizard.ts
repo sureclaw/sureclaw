@@ -33,7 +33,6 @@ export interface OnboardingAnswers {
   webSearchApiKey?: string;
   slackBotToken?: string;
   slackAppToken?: string;
-  imageModel?: string;
 }
 
 export interface OnboardingOptions {
@@ -52,22 +51,17 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   // Ensure output directory exists
   mkdirSync(outputDir, { recursive: true });
 
-  // Build providers object — only include screener if the profile defines one
+  // Build providers object
   const providers: Record<string, unknown> = {
     memory: defaults.memory,
-    scanner: defaults.scanner,
+    security: defaults.security,
     channels: answers.channels,
     web: defaults.web,
-    browser: defaults.browser,
     credentials: defaults.credentials,
     audit: defaults.audit,
     sandbox: defaults.sandbox,
     scheduler: defaults.scheduler,
   };
-
-  if (defaults.screener) {
-    providers.screener = defaults.screener;
-  }
 
   // Build channel_config for selected channels
   const channelConfig: Record<string, Record<string, unknown>> = {};
@@ -84,7 +78,6 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
     ...(() => {
       const models: Record<string, string[]> = {};
       if (answers.model) models.default = [answers.model];
-      if (answers.imageModel) models.image = [answers.imageModel];
       return Object.keys(models).length > 0 ? { models } : {};
     })(),
     profile: answers.profile,
@@ -162,8 +155,6 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
     const model: string | undefined = defaultModels?.[0];
     const llmProvider: string | undefined = model ? model.split('/')[0] : undefined;
 
-    // Read image model (stored as "provider/model-name" in models.image)
-    const imageModel: string | undefined = parsed.models?.image?.[0];
 
     // Read secrets from credentials.yaml (preferred) or .env (backward compat)
     let apiKey = '';
@@ -255,7 +246,6 @@ export function loadExistingConfig(dir: string): OnboardingAnswers | null {
       webSearchApiKey,
       slackBotToken,
       slackAppToken,
-      imageModel,
     };
   } catch {
     return null;

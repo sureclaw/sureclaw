@@ -189,31 +189,5 @@ export function createOrchestrationHandlers(orchestrator: Orchestrator) {
       return { ok: true };
     },
 
-    /**
-     * Query event timeline for a specific agent handle.
-     * Scope: handle must be in caller's session.
-     */
-    agent_orch_timeline: async (req: any, ctx: IPCContext) => {
-      if (!orchestrator.eventStore) {
-        return { ok: false, error: 'Event store not available' };
-      }
-
-      const { handleId, limit, since, eventType } = req;
-
-      // Scope check: handle must be in caller's session
-      const handle = orchestrator.supervisor.get(handleId);
-      if (!handle || handle.sessionId !== ctx.sessionId) {
-        return { ok: false, error: 'Agent not found in current session' };
-      }
-
-      const events = await orchestrator.eventStore.query({
-        handleId,
-        limit: limit ?? 100,
-        since,
-        eventType,
-      });
-
-      return { ok: true, events, count: events.length };
-    },
   };
 }

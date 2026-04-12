@@ -55,21 +55,15 @@ export class RuntimeModule extends BasePromptModule {
       `**Agent Type**: ${ctx.agentType}`,
       `**Sandbox**: ${ctx.sandboxType}`,
       `**Security Profile**: ${ctx.profile}`,
-      `**Working Directory**: . (use ./scratch for working files)`,
-      ...(ctx.hasAgentWorkspace ? [
-        `**Agent Workspace**: ./agent (shared persistent files for this agent)`,
-        `  - ./agent/identity/ — agent identity files (SOUL.md, IDENTITY.md, etc.) [read-only]`,
-        `  - ./agent/skills/ — shared agent skills [read-only]`,
+      `**Working Directory**: /workspace`,
+      ...(ctx.hasWorkspace ? [
+        `  - /workspace/skills/ \u2014 installed skills`,
         ...(ctx.mcpCLIs?.length ? [
-          `  - ./agent/bin/ — MCP tool CLIs (in PATH)`,
+          `  - /workspace/bin/ \u2014 MCP tool CLIs (in PATH)`,
           `    Run \`<tool> --help\` for usage. Available: ${ctx.mcpCLIs.join(', ')}`,
-          `    These are Node.js CLIs. When writing multi-step scripts, use sandbox_write_file to write a .js file to ./scratch/, then run it with \`node scratch/script.js\`. Do not use heredocs or cat.`,
+          `    These are Node.js CLIs. When writing multi-step scripts, use sandbox_write_file to write a .js file, then run it with \`node script.js\`. Do not use heredocs or cat.`,
         ] : []),
-      ] : []),
-      ...(ctx.hasUserWorkspace ? [
-        `**User Workspace**: ./user (persistent files for the current user)`,
-        `  - ./user/skills/ — your personal skills`,
-        `  - ./user/bin/ — your installed binaries (in PATH)`,
+        `  - /workspace/artifacts/ \u2014 output files (uploaded for chat UI)`,
       ] : []),
       `**Current Time**: ${cacheStableTime()}`,
     ];

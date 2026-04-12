@@ -27,7 +27,7 @@ describe('ipc-tools', () => {
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
-    expect(names).toContain('image');
+
   });
 
   test('memory write sends IPC call with correct action', async () => {
@@ -154,13 +154,13 @@ describe('ipc-tools', () => {
   test('total tool count is 20 without filter', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(20);
+    expect(tools.length).toBe(16);
   });
 
   test('filter excludes scheduler tool when hasHeartbeat is false', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: true, hasWorkspaceScopes: true, hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: true, hasGovernance: true },
     });
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('scheduler');
@@ -172,10 +172,9 @@ describe('ipc-tools', () => {
   test('filter excludes enterprise tools when flags are false', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: true, skillInstallEnabled: true, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: true, skillInstallEnabled: true, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    expect(names).not.toContain('workspace_mount');
     expect(names).not.toContain('governance');
     // Core tools still present
     expect(names).toContain('memory');
@@ -193,21 +192,11 @@ describe('ipc-tools', () => {
     );
   });
 
-  test('image uses default timeout (heartbeat-based)', async () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'image');
-    await tool.execute('tc-image', { prompt: 'a cat' });
-    expect(client.call).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'image_generate', prompt: 'a cat' }),
-      120000,  // image has timeoutMs: 120_000
-    );
-  });
 
   test('filter with all flags false returns only core tools', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasWorkspaceScopes: false, hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
     // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + sandbox(6) = 14 tools
@@ -216,7 +205,7 @@ describe('ipc-tools', () => {
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
-    expect(names).toContain('image');
+
     expect(names).toContain('request_credential'); // always available
     expect(names).toContain('skill'); // always available — delete/update don't require install intent
     expect(names).toContain('bash');

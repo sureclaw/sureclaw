@@ -7,6 +7,7 @@
  */
 
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import {
   registerApiProvider,
   clearApiProviders,
@@ -37,6 +38,7 @@ import { makeProxyErrorMessage } from '../proxy-stream.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
 import { installSkillDeps } from '../skill-installer.js';
+import { GitWorkspace } from '../git-workspace.js';
 import { getLogger, truncate } from '../../logger.js';
 
 const logger = getLogger().child({ component: 'pi-session' });
@@ -356,6 +358,25 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
             return text(JSON.stringify(await sandbox.writeFile(callParams.path as string, callParams.content as string)));
           case 'sandbox_edit_file':
             return text(JSON.stringify(await sandbox.editFile(callParams.path as string, callParams.old_string as string, callParams.new_string as string)));
+          case 'sandbox_glob':
+            return text(JSON.stringify(await sandbox.glob(
+              callParams.pattern as string,
+              {
+                path: callParams.path as string | undefined,
+                max_results: callParams.max_results as number | undefined,
+              },
+            )));
+          case 'sandbox_grep':
+            return text(JSON.stringify(await sandbox.grep(
+              callParams.pattern as string,
+              {
+                path: callParams.path as string | undefined,
+                glob: callParams.glob as string | undefined,
+                max_results: callParams.max_results as number | undefined,
+                include_line_numbers: callParams.include_line_numbers as boolean | undefined,
+                context_lines: callParams.context_lines as number | undefined,
+              },
+            )));
         }
       }
 
@@ -445,11 +466,57 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     });
   }
 
-  // Install missing skill dependencies — each workspace installs to its own prefix
-  const skillSources: { skillDir: string; prefix: string }[] = [];
-  if (config.agentWorkspace) skillSources.push({ skillDir: join(config.agentWorkspace, 'skills'), prefix: config.agentWorkspace });
-  if (config.userWorkspace) skillSources.push({ skillDir: join(config.userWorkspace, 'skills'), prefix: config.userWorkspace });
-  if (skillSources.length > 0) await installSkillDeps(skillSources);
+  // Initialize git workspace if WORKSPACE_REPO_URL is set.
+  // In k8s, the git-init container already cloned the repo and locked .git to UID 1001.
+  // The agent (UID 1000) can read/write workspace files but cannot access .git.
+  // A git-sidecar container (UID 1001) handles commit+push when signalled.
+  const hasGitWorkspace = !!process.env.WORKSPACE_REPO_URL;
+  const hasSidecar = hasGitWorkspace && config.sandboxType === 'k8s';
+  let gitWorkspace: GitWorkspace | null = null;
+  if (hasGitWorkspace && !hasSidecar) {
+    // Non-k8s mode: agent owns git operations directly
+    logger.info('git_workspace_init', { workspace: config.workspace, url: process.env.WORKSPACE_REPO_URL });
+    gitWorkspace = new GitWorkspace(config.workspace, process.env.WORKSPACE_REPO_URL!);
+    try {
+      await gitWorkspace.clone();
+      await gitWorkspace.init();
+      await gitWorkspace.pull();
+      logger.info('git_workspace_ready', { workspace: config.workspace, url: process.env.WORKSPACE_REPO_URL });
+    } catch (err) {
+      logger.error('git_workspace_init_failed', { error: (err as Error).message });
+      throw err;
+    }
+  } else if (hasSidecar) {
+    // K8s mode: pull latest via sidecar. Retry handles sidecar startup race
+    // (both containers start simultaneously, sidecar may not be listening yet).
+    const sidecarPort = process.env.AX_GIT_SIDECAR_PORT || '9099';
+    const sidecarUrl = `http://localhost:${sidecarPort}`;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        const resp = await fetch(`${sidecarUrl}/pull`, { method: 'POST' });
+        const result = await resp.json() as { ok: boolean; error?: string };
+        if (result.ok) {
+          logger.info('sidecar_pull_complete', { attempt });
+          break;
+        }
+        logger.warn('sidecar_pull_failed', { error: result.error, attempt });
+        if (attempt < 9) await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        if (attempt < 9) {
+          logger.debug('sidecar_not_ready', { attempt, error: (err as Error).message });
+          await new Promise(r => setTimeout(r, 500));
+        } else {
+          logger.warn('sidecar_pull_failed_all_retries', { error: (err as Error).message });
+        }
+      }
+    }
+  }
+
+  // Install missing skill dependencies from /workspace/skills/ (after git sync)
+  const skillSources = [{ skillDir: join(config.workspace, 'skills'), prefix: config.workspace }];
+  if (existsSync(skillSources[0].skillDir)) {
+    await installSkillDeps(skillSources);
+  }
 
   // Decide LLM transport: proxy (direct Anthropic SDK) or IPC fallback
   const useProxy = !!config.proxySocket;
@@ -501,6 +568,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // with host audit gate instead of dispatching through the host.
   const CONTAINER_SANDBOXES = new Set(['docker', 'apple', 'k8s']);
   const useLocalSandbox = CONTAINER_SANDBOXES.has(config.sandboxType ?? '');
+  logger.info('sandbox_type_check', { sandboxType: config.sandboxType, useLocalSandbox });
   const ipcToolDefs = createIPCToolDefinitions(client, {
     userId: config.userId,
     filter: toolFilter,
@@ -517,7 +585,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Without this, both AgentSession.prompt() and the Agent loop throw
   // "No API key found for ax" because the model registry doesn't know
   // about our IPC provider. The host handles real auth — no keys in sandbox.
-  const authStorage = AuthStorage.create(join(config.workspace, 'auth.json'));
+  const authStorage = AuthStorage.create(join('/tmp/.ax-agent', 'auth.json'));
   authStorage.setRuntimeApiKey(activeModel.provider, apiName);
 
   // Create session with in-memory manager (no persistence in sandbox)
@@ -558,7 +626,7 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   const isK8sTransport = !!process.env.AX_HOST_URL;
   const textBuffer: string[] | undefined = isK8sTransport ? [] : undefined;
 
-  // Subscribe to events — stream text to stdout (or buffer for NATS), log tools/errors to stderr
+  // Subscribe to events — stream text to stdout (or buffer for HTTP IPC), log tools/errors to stderr
   const eventState = subscribeAgentEvents(session, config, { buffer: textBuffer });
 
   // Send message and wait — log tools that are actually on the agent
@@ -596,6 +664,31 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   }
 
   logger.debug('session_complete', { eventCount: eventState.eventCount(), hasOutput: eventState.hasOutput() });
+
+  // Persist workspace changes
+  if (gitWorkspace) {
+    // Non-k8s: agent owns git directly
+    try {
+      const timestamp = new Date().toISOString();
+      await gitWorkspace.commitAndPush(`agent-turn: ${timestamp}`);
+    } catch (err) {
+      logger.error('git_turn_commit_failed', { error: (err as Error).message });
+    }
+  } else if (hasSidecar) {
+    // Signal git-sidecar via HTTP — containers share localhost in the same pod
+    const sidecarPort = process.env.AX_GIT_SIDECAR_PORT || '9099';
+    try {
+      const resp = await fetch(`http://localhost:${sidecarPort}/turn-complete`, { method: 'POST' });
+      const result = await resp.json() as { ok: boolean; hash?: string; files?: number; error?: string };
+      if (result.ok) {
+        logger.info('sidecar_commit_complete', { hash: result.hash, files: result.files });
+      } else {
+        logger.error('sidecar_commit_failed', { error: result.error });
+      }
+    } catch (err) {
+      logger.error('sidecar_signal_failed', { error: (err as Error).message });
+    }
+  }
 
   // In k8s mode, send agent_response via IPC
   if (isK8sTransport) {

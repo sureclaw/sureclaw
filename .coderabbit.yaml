@@ -1,0 +1,7 @@
+reviews:
+  path_filters:
+    - "!.claude/**"
+    - "!tests/**"
+    - "!docs/**"
+    - "!flux/**"
+    - "!package-lock.json"

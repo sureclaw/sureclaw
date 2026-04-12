@@ -18,7 +18,6 @@ import type { AuditProvider } from '../../providers/audit/types.js';
 import { getLogger } from '../../logger.js';
 import { createAgentSupervisor, type AgentSupervisor, type AgentSupervisorConfig } from './agent-supervisor.js';
 import { createAgentDirectory, type AgentDirectory } from './agent-directory.js';
-import { createHeartbeatMonitor, type HeartbeatMonitor } from './heartbeat-monitor.js';
 import type {
   AgentHandle,
   AgentMessage,
@@ -26,9 +25,7 @@ import type {
   AgentRegistration,
   AgentSnapshot,
   AgentTree,
-  HeartbeatMonitorConfig,
   MessageScope,
-  OrchestrationEventStore,
 } from './types.js';
 import { TERMINAL_STATES, toSnapshot } from './types.js';
 
@@ -49,12 +46,6 @@ export interface Orchestrator {
 
   /** The agent directory. */
   readonly directory: AgentDirectory;
-
-  /** Persistent event store (may be undefined if not configured). */
-  readonly eventStore?: OrchestrationEventStore;
-
-  /** Heartbeat liveness monitor. */
-  readonly heartbeat: HeartbeatMonitor;
 
   /** Register a new agent (convenience wrapper around supervisor.register). */
   register(opts: AgentRegistration): AgentHandle;
@@ -91,24 +82,15 @@ export interface OrchestratorConfig {
   supervisor?: AgentSupervisorConfig;
   maxMailboxSize?: number;
   maxMessagePayloadBytes?: number;
-  heartbeat?: HeartbeatMonitorConfig;
 }
 
 export function createOrchestrator(
   eventBus: EventBus,
   audit?: AuditProvider,
   config?: OrchestratorConfig,
-  eventStore?: OrchestrationEventStore,
 ): Orchestrator {
   const supervisor = createAgentSupervisor(eventBus, audit, config?.supervisor);
   const directory = createAgentDirectory(supervisor);
-
-  // Start heartbeat monitor
-  const heartbeat = createHeartbeatMonitor(config?.heartbeat);
-  const heartbeatUnsub = heartbeat.start(eventBus, supervisor);
-
-  // Start event capture if store is provided
-  const captureUnsub = eventStore?.startCapture(eventBus);
 
   /** Per-agent mailboxes: handleId → queued messages. */
   const mailboxes = new Map<string, AgentMessage[]>();
@@ -374,10 +356,8 @@ export function createOrchestrator(
               if (handle.state !== 'tool_calling') {
                 supervisor.transition(handleId, 'tool_calling', `Tool: ${event.data.toolName ?? 'unknown'}`);
               } else {
-                // Already tool_calling — update activity label without a state transition,
-                // and record heartbeat activity so the monitor knows we're still alive.
+                // Already tool_calling — update activity label without a state transition.
                 handle.activity = `Tool: ${event.data.toolName ?? 'unknown'}`;
-                heartbeat.recordActivity(handleId);
               }
               break;
             case 'completion.agent':
@@ -403,10 +383,6 @@ export function createOrchestrator(
       }
     }
 
-    // Stop heartbeat and event capture
-    heartbeatUnsub();
-    captureUnsub?.();
-
     // Clear all mailboxes and listeners
     mailboxes.clear();
     messageListeners.clear();
@@ -419,8 +395,6 @@ export function createOrchestrator(
     eventBus,
     supervisor,
     directory,
-    eventStore,
-    heartbeat,
     register,
     send,
     broadcast,

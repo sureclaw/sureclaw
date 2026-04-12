@@ -166,7 +166,7 @@ describe('parseStdinPayload with taint state', () => {
     expect(result.taintRatio).toBe(0);
     expect(result.taintThreshold).toBe(1); // permissive default
     expect(result.profile).toBe('balanced');
-    expect(result.sandboxType).toBe('subprocess');
+    expect(result.sandboxType).toBe('docker');
   });
 
   test('plain text falls back gracefully', () => {
@@ -182,7 +182,7 @@ describe('parseStdinPayload with taint state', () => {
       taintRatio: 0,
       taintThreshold: 0.3,
       profile: 'balanced',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
       replyOptional: true,
     });
     const result = parseStdinPayload(payload);
@@ -196,7 +196,7 @@ describe('parseStdinPayload with taint state', () => {
       taintRatio: 0,
       taintThreshold: 0.3,
       profile: 'balanced',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
     });
     const result = parseStdinPayload(payload);
     expect(result.replyOptional).toBe(false);
@@ -209,7 +209,7 @@ describe('parseStdinPayload with taint state', () => {
       taintRatio: 0,
       taintThreshold: 0.3,
       profile: 'balanced',
-      sandboxType: 'subprocess',
+      sandboxType: 'docker',
       identity: {
         agents: '# Agents',
         soul: '# Soul',
@@ -236,7 +236,7 @@ describe('parseStdinPayload with taint state', () => {
   });
 
   test('extracts ipcToken from JSON payload', () => {
-    // Warm pool pods need the per-turn IPC token from the work payload
+    // K8s pods need the per-turn IPC token from the work payload
     // for HTTP IPC authentication (Authorization: Bearer <token>).
     const payload = JSON.stringify({
       message: 'hello',

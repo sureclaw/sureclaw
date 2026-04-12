@@ -1,5 +1,11 @@
 # IPC
 
+### "catalog" grep matches both tool-catalog and catalog-store — different systems
+**Date:** 2026-04-06
+**Context:** Removing the catalog-store IPC system (catalog_publish/get/list/unpublish/set_required). Grepping for "catalog" returned many matches from src/agent/tool-catalog.ts which is the agent-side tool metadata registry — a completely different system.
+**Lesson:** When removing the catalog-store system, only touch files that reference catalog-store.ts, catalog IPC schemas (catalog_publish etc.), or ipc-handlers/catalog.ts. Leave all tool-catalog.ts references alone — that's the agent tool metadata system (TOOL_CATALOG, filterTools, etc.) which has nothing to do with the catalog-store.
+**Tags:** ipc, catalog, refactoring, naming-collision
+
 ### Removing IPC schemas requires updating tool-catalog, mcp-server, prompt modules, and 4+ test files
 **Date:** 2026-03-22
 **Context:** Replaced `skill_search` + `skill_download` IPC schemas with `skill_install`. The sync test (`tool-catalog-sync.test.ts`) enforces bidirectional consistency: every IPC schema must map to a catalog tool or be in `knownInternalActions`, and every catalog action must have an IPC schema. The skills prompt module and its test also reference the old action names.

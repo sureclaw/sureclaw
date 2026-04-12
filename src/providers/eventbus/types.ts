@@ -1,8 +1,7 @@
 // src/providers/eventbus/types.ts — EventBusProvider interface
 //
 // Abstracts the EventBus behind a provider interface.
-// Phase 1 uses the existing in-process pub/sub; Phase 2 will add
-// a NATS implementation for distributed k8s deployments.
+// Implementations: in-process pub/sub (local) and PostgreSQL LISTEN/NOTIFY (k8s).
 
 import type { StreamEvent, EventListener } from '../../host/event-bus.js';
 
@@ -27,6 +26,6 @@ export interface EventBusProvider {
   /** Current number of global subscribers. */
   listenerCount(): number;
 
-  /** Release resources. No-op for in-process; closes NATS connection in Phase 2. */
+  /** Release resources. No-op for in-process; closes connection for distributed implementations. */
   close(): void;
 }

@@ -57,7 +57,7 @@ async function main(): Promise<void> {
 
   // ── Session pod manager (tracks session-long pods) ──
   const sessionPodManager = createSessionPodManager({
-    idleTimeoutMs: (config.sandbox?.idle_timeout_sec ?? 1800) * 1000,
+    idleTimeoutMs: (config.sandbox?.idle_timeout_sec ?? 300) * 1000,
     cleanIdleTimeoutMs: (config.sandbox?.clean_idle_timeout_sec ?? 300) * 1000,
     warningLeadMs: 120_000,
     onKill: (sessionId) => {
@@ -472,9 +472,13 @@ async function main(): Promise<void> {
     scheduler: providers.scheduler,
     isBootstrapMode: () => isAgentBootstrapMode(agentName),
     runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
-      const deps = config.scheduler.timeout_sec
-        ? { ...completionDeps, config: { ...config, sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } }
-        : undefined;
+      const deps: CompletionDeps = {
+        ...completionDeps,
+        singleTurn: true,
+        ...(config.scheduler.timeout_sec
+          ? { config: { ...config, sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } }
+          : {}),
+      };
       return processCompletionForSession(
         content, requestId,
         messages as { role: string; content: string | import('../types.js').ContentBlock[] }[],

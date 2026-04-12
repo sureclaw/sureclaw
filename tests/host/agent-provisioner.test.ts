@@ -3,7 +3,8 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AgentProvisioner } from '../../src/host/agent-provisioner.js';
-import { FileAgentRegistry } from '../../src/host/agent-registry.js';
+import type { AgentRegistry } from '../../src/host/agent-registry.js';
+import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 import type { DocumentStore } from '../../src/providers/storage/types.js';
 
 function createMockDocStore(): DocumentStore {
@@ -29,13 +30,13 @@ function createMockDocStore(): DocumentStore {
 
 describe('AgentProvisioner', () => {
   let tmpDir: string;
-  let registry: FileAgentRegistry;
+  let registry: AgentRegistry;
   let documents: DocumentStore;
   let provisioner: AgentProvisioner;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-provisioner-test-'));
-    registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+    registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
     documents = createMockDocStore();
     provisioner = new AgentProvisioner(registry, documents);
   });

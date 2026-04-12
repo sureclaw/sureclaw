@@ -20,7 +20,7 @@ export interface GovernanceHandlerOptions {
   agentDir?: string;
   agentName: string;
   profile: string;
-  registry: AgentRegistry;
+  registry?: AgentRegistry;
 }
 
 export interface Proposal {
@@ -65,7 +65,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
   return {
     identity_propose: async (req: any, ctx: IPCContext) => {
       // Scan content
-      const scanResult = await providers.scanner.scanInput({
+      const scanResult = await providers.security.scanInput({
         content: req.content,
         source: 'identity_proposal',
         sessionId: ctx.sessionId,
@@ -184,6 +184,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
     },
 
     agent_registry_list: async (req: any) => {
+      if (!registry) return { ok: false, error: 'Agent registry not available' };
       const agents = req.status
         ? await registry.list(req.status)
         : await registry.list();
@@ -191,6 +192,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
     },
 
     agent_registry_get: async (req: any) => {
+      if (!registry) return { ok: false, error: 'Agent registry not available' };
       const agent = await registry.get(req.agentId);
       if (!agent) {
         return { ok: false, error: `Agent "${req.agentId}" not found` };

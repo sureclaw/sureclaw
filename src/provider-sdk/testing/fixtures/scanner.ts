@@ -1,5 +1,5 @@
 /**
- * Test fixtures for scanner provider contract tests.
+ * Test fixtures for security provider contract tests.
  *
  * Includes both clean and suspicious content for testing
  * scan input/output behavior.
@@ -7,7 +7,7 @@
 
 import type { ScanTarget } from '../../interfaces/index.js';
 
-export const SCANNER_FIXTURES = {
+export const SECURITY_FIXTURES = {
   /** Clean input — should pass. */
   cleanInput: {
     content: 'What is the weather like today?',

@@ -211,31 +211,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       (args) => ipcCall('save_artifact', args),
     ),
 
-    // ── Workspace Read ──
-    tool('workspace_read', getToolDescription('workspace_read'),
-      {
-        scope: z.string().describe('"agent", "user", or "session"'),
-        path: z.string().describe('Relative path within the scope'),
-      },
-      (args) => ipcCall('workspace_read', args),
-    ),
-
-    // ── Workspace List ──
-    tool('workspace_list', getToolDescription('workspace_list'),
-      {
-        scope: z.string().describe('"agent", "user", or "session"'),
-        prefix: z.string().optional().describe('Filter by path prefix'),
-      },
-      (args) => ipcCall('workspace_list', args),
-    ),
-
-    // ── Workspace Scopes ──
-    tool('workspace_mount', getToolDescription('workspace_mount'),
-      {
-        scopes: z.array(z.string()).describe('Scopes to mount: "session", "user", or "agent"'),
-      },
-      (args) => ipcCall('workspace_mount', args),
-    ),
 
     // ── Governance ──
     tool('governance', getToolDescription('governance'),
@@ -288,16 +263,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       },
     ),
 
-    // ── Image (singleton) ──
-    tool('image', getToolDescription('image'),
-      {
-        prompt: z.string().describe('Text description of the image to generate'),
-        model: z.string().optional().describe('Model ID override (defaults to first configured image model)'),
-        size: z.string().optional().describe('Image size, e.g. "1024x1024"'),
-        quality: z.string().optional().describe('Quality level, e.g. "standard" or "hd"'),
-      },
-      (args) => ipcCall('image_generate', args),
-    ),
 
     // ── Sandbox (singleton tools for bash/file ops) ──
     // When localSandbox is set, tools execute in-container with host audit gate.

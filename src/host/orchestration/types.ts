@@ -7,7 +7,6 @@
  */
 
 import type { AgentType } from '../../types.js';
-import type { EventBus } from '../event-bus.js';
 
 // ═══════════════════════════════════════════════════════
 // Agent Lifecycle States
@@ -190,47 +189,4 @@ export function toSnapshot(handle: AgentHandle): AgentSnapshot {
   };
 }
 
-// ═══════════════════════════════════════════════════════
-// Persistent Event Store Types
-// ═══════════════════════════════════════════════════════
 
-export interface OrchestrationEvent {
-  readonly id: string;
-  readonly eventType: string;
-  readonly handleId: string;
-  readonly agentId: string;
-  readonly sessionId: string;
-  readonly userId: string;
-  readonly parentId: string | null;
-  readonly payload: Record<string, unknown>;
-  readonly createdAt: number; // Unix epoch ms
-}
-
-export interface EventFilter {
-  eventType?: string;
-  handleId?: string;
-  agentId?: string;
-  sessionId?: string;
-  userId?: string;
-  since?: number; // Unix epoch ms
-  until?: number; // Unix epoch ms
-  limit?: number;
-}
-
-export interface OrchestrationEventStore {
-  append(event: OrchestrationEvent): void | Promise<void>;
-  query(filter?: EventFilter): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
-  byAgent(handleId: string, limit?: number): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
-  bySession(sessionId: string, limit?: number): OrchestrationEvent[] | Promise<OrchestrationEvent[]>;
-  startCapture(eventBus: EventBus): () => void; // returns unsubscribe
-  close(): void | Promise<void>;
-}
-
-// ═══════════════════════════════════════════════════════
-// Heartbeat Liveness Monitor Types
-// ═══════════════════════════════════════════════════════
-
-export interface HeartbeatMonitorConfig {
-  timeoutMs?: number;       // Default: 120_000 (2 min)
-  checkIntervalMs?: number; // Default: 10_000 (10s)
-}

@@ -24,7 +24,7 @@ spec:
       profile: balanced
       providers:
         memory: cortex
-        scanner: regex
+        security: patterns
         channels: []
         web:
           extract: none
@@ -33,7 +33,7 @@ spec:
         credentials: env
         storage: database
         database: postgresql
-        eventbus: nats
+        eventbus: postgres
         sandbox: k8s
         audit: database
         history: sqlite
@@ -64,22 +64,7 @@ spec:
       autoscaling:
         enabled: false
 
-    poolController:
-      replicas: 1
-
     # sandbox worker tiers removed — agents execute tools locally
-
-    nats:
-      enabled: true
-      config:
-        cluster:
-          replicas: 1
-        jetstream:
-          enabled: true
-          memoryStore:
-            maxSize: 128Mi
-          fileStore:
-            maxSize: 4Gi
 
     networkPolicies:
       enabled: true

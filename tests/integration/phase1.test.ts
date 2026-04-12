@@ -21,7 +21,7 @@ import { create as createStorage } from '../../src/providers/storage/database.js
 import type { MessageQueueStore } from '../../src/providers/storage/types.js';
 import { TaintBudget, thresholdForProfile } from '../../src/host/taint-budget.js';
 import type { ProviderRegistry, Config } from '../../src/types.js';
-import type { ScanResult } from '../../src/providers/scanner/types.js';
+import type { ScanResult } from '../../src/providers/security/types.js';
 import type { InboundMessage } from '../../src/providers/channel/types.js';
 import type { ChatChunk } from '../../src/providers/llm/types.js';
 import type { AuditEntry } from '../../src/providers/audit/types.js';
@@ -40,10 +40,10 @@ function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Con
     profile,
     models: { default: ['mock/default'] },
     providers: {
-      memory: 'cortex', scanner: 'patterns',
-      channels: [], web: { extract: 'none', search: 'none' }, browser: 'none',
+      memory: 'cortex', security: 'patterns',
+      channels: [], web: { extract: 'none', search: 'none' },
       credentials: 'keychain', audit: 'database',
-      sandbox: 'subprocess', scheduler: 'none',
+      sandbox: 'docker', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
     scheduler: {
@@ -84,11 +84,14 @@ function mockProviders(opts?: {
       async delete() {},
       async list() { return []; },
     },
-    scanner: {
+    security: {
       async scanInput() { return inputResult; },
       async scanOutput() { return outputResult; },
       canaryToken() { return `canary-${randomUUID()}`; },
       checkCanary(output: string, token: string) { return output.includes(token); },
+      async screen() { return { allowed: true, reasons: [] }; },
+      async screenExtended() { return { verdict: 'APPROVE' as const, score: 0, reasons: [], permissions: [], excessPermissions: [] }; },
+      async screenBatch(items: any[]) { return items.map(() => ({ verdict: 'APPROVE' as const, score: 0, reasons: [], permissions: [], excessPermissions: [] })); },
     },
     channels: [],
     webFetch: {
@@ -99,15 +102,6 @@ function mockProviders(opts?: {
     },
     webSearch: {
       async search() { return []; },
-    },
-    browser: {
-      async launch() { return { id: 'b1' }; },
-      async navigate() {},
-      async snapshot() { return { title: '', url: '', text: '', refs: [] }; },
-      async click() {},
-      async type() {},
-      async screenshot() { return Buffer.alloc(0); },
-      async close() {},
     },
     credentials: {
       async get() { return null; },
@@ -341,7 +335,7 @@ describe('Balanced Profile Config', () => {
     const config = loadConfig(STANDARD_CONFIG);
 
     expect(config.profile).toBe('balanced');
-    expect(config.providers.scanner).toBe('patterns');
+    expect(config.providers.security).toBe('patterns');
     expect(config.providers.memory).toBe('cortex');
     expect(config.providers.audit).toBe('database');
   });
@@ -365,7 +359,7 @@ describe('Balanced Profile Config', () => {
 
       // Verify key Phase 1 providers loaded
       expect(providers.llm.name).toContain('router');
-      expect(providers.scanner).toBeDefined();
+      expect(providers.security).toBeDefined();
       expect(providers.memory).toBeDefined();
       expect(providers.audit).toBeDefined();
     } finally {
@@ -392,7 +386,7 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.memory).toHaveProperty('cortex');
 
     // Scanner providers
-    expect(PROVIDER_MAP.scanner).toHaveProperty('patterns');
+    expect(PROVIDER_MAP.security).toHaveProperty('patterns');
 
     // Channel providers (cli removed — replaced by ax chat client)
     expect(PROVIDER_MAP.channel).toHaveProperty('slack');
@@ -412,7 +406,6 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.audit).toHaveProperty('database');
 
     // Sandbox providers
-    expect(PROVIDER_MAP.sandbox).toHaveProperty('subprocess');
     expect(PROVIDER_MAP.sandbox).toHaveProperty('docker');
     expect(PROVIDER_MAP.sandbox).toHaveProperty('apple');
     expect(PROVIDER_MAP.sandbox).toHaveProperty('k8s');

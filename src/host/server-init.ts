@@ -34,7 +34,7 @@ export interface HostCoreOptions {
   providers: ProviderRegistry;
   eventBus: EventBus;
   verbose?: boolean;
-  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  /** Per-agent plugin MCP server registry. */
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
 }
 
@@ -88,16 +88,16 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const sessionStore = providers.storage.sessions;
   const fileStore = await FileStore.create(providers.database);
 
-  // Create GCS file storage if workspace bucket is configured
+  // Create GCS file storage if GCS bucket is configured
   let gcsFileStorage: import('./gcs-file-storage.js').GcsFileStorage | undefined;
-  const gcsBucket = config.workspace?.bucket ?? process.env.GCS_WORKSPACE_BUCKET;
+  const gcsBucket = config.gcs?.bucket;
   if (gcsBucket) {
     try {
       const { Storage } = await import('@google-cloud/storage');
       const storage = new Storage();
       const bucket = storage.bucket(gcsBucket);
       const { createGcsFileStorage } = await import('./gcs-file-storage.js');
-      gcsFileStorage = createGcsFileStorage(bucket, config.workspace?.prefix ?? '');
+      gcsFileStorage = createGcsFileStorage(bucket, config.gcs?.prefix ?? '');
     } catch (err) {
       // Non-fatal: fall back to local disk storage
       const initLogger = (await import('../logger.js')).getLogger();
@@ -347,7 +347,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
             : undefined,
         }
       : undefined,
-    coworkPlugins: mcpManager ? { mcpManager, domainList } : undefined,
     gcsFileStorage,
     fileStore,
   });

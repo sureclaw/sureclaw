@@ -59,7 +59,7 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       }
 
       // 0b. Scan proposed content — blocks injection in identity files
-      const scanResult = await providers.scanner.scanInput({
+      const scanResult = await providers.security.scanInput({
         content: req.content,
         source: 'identity_mutation',
         sessionId: ctx.sessionId,
@@ -149,7 +149,7 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       }
 
       // 0b. Scan proposed content — blocks injection in user files
-      const scanResult = await providers.scanner.scanInput({
+      const scanResult = await providers.security.scanInput({
         content: req.content,
         source: 'user_mutation',
         sessionId: ctx.sessionId,

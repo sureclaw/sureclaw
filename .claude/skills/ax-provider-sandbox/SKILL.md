@@ -1,13 +1,13 @@
 ---
 name: ax-provider-sandbox
-description: Use when modifying agent sandbox isolation -- subprocess (dev), Docker, Apple Container (macOS), or k8s providers in src/providers/sandbox/
+description: Use when modifying agent sandbox isolation -- Docker, Apple Container (macOS), or k8s providers in src/providers/sandbox/
 ---
 
 ## Overview
 
 Sandbox providers isolate agent processes with zero network access (by default), no credentials, and mount-only filesystem access. Each provider implements `SandboxProvider` from `src/providers/sandbox/types.ts` and exports `create(config: Config)`.
 
-Agents run INSIDE their containers and execute tools locally. Workspace lifecycle is driven by `workspaceLocation` on SandboxProvider: host-side providers (Docker/Apple/subprocess) prepare/finalize on bind-mounted paths; k8s provisions in-pod from HTTP work dispatch via `SessionPodManager`.
+Agents run INSIDE their containers and execute tools locally. Each agent gets a single `/workspace` directory (rw). In Docker/Apple mode it's bind-mounted from the host. In k8s mode it's backed by a PVC (persistent across pod restarts) or emptyDir (ephemeral).
 
 ## Interface
 
@@ -15,16 +15,14 @@ Agents run INSIDE their containers and execute tools locally. Workspace lifecycl
 
 | Field                    | Type                       | Notes                                                    |
 |--------------------------|----------------------------|----------------------------------------------------------|
-| workspace                | `string`                   | Session working directory (rw mount)                     |
+| workspace                | `string`                   | The single `/workspace` directory (rw mount)             |
 | ipcSocket                | `string`                   | Unix socket path for IPC                                 |
 | timeoutSec               | `number?`                  | Process timeout                                          |
 | memoryMB                 | `number?`                  | Memory limit                                             |
 | cpus                     | `number?`                  | CPU limit                                                |
 | command                  | `string[]`                 | Command + args to execute                                |
-| agentWorkspace           | `string?`                  | Agent's shared workspace                                 |
-| userWorkspace            | `string?`                  | Per-user persistent storage                              |
-| agentWorkspaceWritable   | `boolean?`                 | rw when admin + workspace provider active                |
-| userWorkspaceWritable    | `boolean?`                 | rw when workspace provider active                        |
+| pvcName                  | `string?`                  | PVC name for persistent workspace (k8s only)             |
+| workspaceSizeGi          | `number?`                  | PVC size in GiB (k8s only, default: 10)                  |
 | extraEnv                 | `Record<string, string>?`  | Additional env vars for sandbox pod (e.g. IPC tokens)    |
 
 Note: Identity files and skills are no longer mounted as filesystem directories. They are sent via stdin payload (loaded from DocumentStore by the host).
@@ -44,22 +42,20 @@ Note: Identity files and skills are no longer mounted as filesystem directories.
 
 **SandboxProvider**: `spawn(config)`, `kill(pid)`, `isAvailable()`, plus:
 
-| Field              | Type                    | Notes                                                     |
-|--------------------|-------------------------|-----------------------------------------------------------|
-| workspaceLocation  | `'host' \| 'sandbox'`  | Where workspace prepare/release runs. `host` = bind-mounted paths (Docker/Apple/subprocess). `sandbox` = in-pod provisioning from HTTP work dispatch (k8s). |
+| Field              | Type                                    | Notes                                                     |
+|--------------------|-----------------------------------------|-----------------------------------------------------------|
+| deletePvc?         | `(pvcName: string) => Promise<void>`    | Delete a PVC by name (k8s only). Used during agent deletion. |
 
 ## Canonical Paths (`canonical-paths.ts`)
 
-All sandbox providers remap host paths to short canonical paths. The LLM sees these canonical paths regardless of sandbox type:
+Every agent gets a single `/workspace` directory as its CWD and HOME. The old three-directory split (scratch/agent/user) has been removed.
 
 | Canonical Path         | Mount | Purpose                                                    |
 |------------------------|-------|------------------------------------------------------------|
-| `/workspace`           | ro    | Mount root (read-only), agent HOME/CWD                     |
-| `/workspace/scratch`   | rw    | Session working files (lost when session ends)              |
-| `/workspace/agent`     | ro*   | Agent workspace (*rw for admin users only)                  |
-| `/workspace/user`      | ro*   | Per-user storage (*rw when workspace active)                |
+| `/workspace`           | rw    | Single workspace directory, agent HOME/CWD                 |
+| `/workspace/bin`       | rw    | Prepended to PATH -- agents can install CLI tools here     |
 
-In k8s mode, scratch is backed by GCS via the workspace provider's 'session' scope, so its content survives across pod restarts within the same conversation.
+In Docker and Apple Container mode, `/workspace` is bind-mounted from the host. In k8s mode, `/workspace` is backed by a PVC (persistent across pod restarts) or emptyDir (ephemeral). PVC-backed workspaces mean installed tools and packages survive pod restarts.
 
 Identity files and skills are sent via stdin payload from DocumentStore -- not mounted as filesystem directories.
 
@@ -69,47 +65,37 @@ Identity files and skills are sent via stdin payload from DocumentStore -- not m
 - `AX_IPC_SOCKET` -- real host path for IPC
 - `AX_WEB_PROXY_SOCKET` -- path to web proxy Unix socket (same dir as IPC socket, `web-proxy.sock`)
 - `AX_WORKSPACE` -- canonical root (`/workspace`)
-- `AX_AGENT_WORKSPACE` -- `/workspace/agent` (if agentWorkspace set)
-- `AX_USER_WORKSPACE` -- `/workspace/user` (if userWorkspace set)
+- `PATH` -- `/workspace/bin` prepended to system PATH
 - `npm_config_cache`, `XDG_CACHE_HOME` -- redirected to `/tmp`
 - `AX_HOME` -- `/tmp/.ax-agent`
 
 ### Symlink Fallback
 
-Only subprocess uses symlink fallback (it can't remap filesystems). `createCanonicalSymlinks(config)` creates symlinks under `/tmp/.ax-mounts-<uuid>`. Returns `{ mountRoot, cleanup }`. `symlinkEnv()` builds env vars pointing to symlink paths instead of canonical paths.
+`createCanonicalSymlinks(config)` is retained for backward compatibility but is now a no-op -- returns the workspace path and an empty cleanup function.
 
 ## Implementations
 
 | Name       | File                 | Platform              | Isolation                                              |
 |------------|----------------------|-----------------------|--------------------------------------------------------|
-| subprocess | `subprocess.ts`      | Any                   | None -- dev-only fallback, logs warning                |
 | docker     | `docker.ts`          | Linux / macOS         | Container, --network=none (default), --cap-drop=ALL, optional gVisor |
 | apple      | `apple.ts`           | macOS (Apple Silicon) | Lightweight VM via Virtualization.framework, no shared kernel |
 | k8s        | `k8s.ts`             | Kubernetes            | Pod-based sandbox with HTTP IPC                        |
 
 Shared helpers in `utils.ts`: `exitCodePromise`, `enforceTimeout`, `killProcess`, `checkCommand`, `sandboxProcess`.
 
-## Unified Workspace Lifecycle
+## Workspace Model
 
-Workspace prepare/release is driven by `workspaceLocation` on each SandboxProvider:
+Each agent gets a single `/workspace` directory. No separate scratch/agent/user directories.
 
-**Host-side** (`workspaceLocation: 'host'` -- Docker/Apple/subprocess):
-1. `workspace.mount()` provisions GCS scopes to host paths (existing)
-2. `prepareGitWorkspace(plan)` clones/restores git workspace to host path (NEW)
-3. One container spawns -- bind-mounts host paths (no network needed)
-4. Agent runs and exits -- changes visible on host via bind-mount
-5. `workspace.commit()` diffs and persists changes (existing)
-6. `finalizeGitWorkspace(plan)` pushes changes + updates GCS cache (NEW)
+**Host-side** (Docker/Apple/subprocess):
+- `/workspace` is a host directory bind-mounted into the container (rw).
+- Content persists as long as the host directory exists.
 
-**Sandbox-side** (`workspaceLocation: 'sandbox'` -- k8s):
-1. `workspace.mount()` is a no-op (returns empty paths)
-2. Work payload arrives via HTTP (SessionPodManager), includes workspace provider type, agent/user/session IDs, and git URL
-3. One pod spawns -- runner provisions via HTTP from host before agent starts (`provisionWorkspaceFromPayload`). When `AX_HOST_URL` is set and workspace provider is `gcs`, all scopes are fetched from the host's `GET /internal/workspace/provision` endpoint (the host has GCS credentials, the pod doesn't). No GCS prefix fields needed in the payload for this path.
-4. Agent runs -- reads/writes canonical paths in emptyDir volumes
-5. Runner releases -- diffs against provisioned hashes, HTTP upload to host
-6. Runner finalizes -- git push + GCS cache update (in-pod)
-
-Key types: `WorkspaceLifecyclePlan`, `buildLifecyclePlan()`, `prepareGitWorkspace()`, `finalizeGitWorkspace()` in `src/providers/workspace/lifecycle.ts`.
+**K8s mode**:
+- `/workspace` is backed by a PersistentVolumeClaim (PVC) when `pvcName` is set on SandboxConfig.
+- The PVC is created on first use and persists across pod restarts. Installed tools, packages, and working files survive pod recycling.
+- Pod idle timeout is 5 minutes -- the PVC preserves state so pods can be recycled aggressively.
+- When no PVC is configured, `/workspace` uses an emptyDir (ephemeral, lost when pod terminates).
 
 ## Docker Provider (`docker.ts`)
 
@@ -140,6 +126,7 @@ Kubernetes pod-based sandbox (no k8s Exec/Attach):
 
 - **Warm pool**: `SessionPodManager` manages session-long pod reuse. Falls back to cold start.
 - **Cold start**: Always creates a new pod per sandbox request.
+- **PVC workspace**: When `pvcName` is set, `/workspace` is backed by a PVC. Installed tools and packages persist across pod restarts.
 - Communication: HTTP for both work dispatch (via `SessionPodManager`) and IPC:
   - Host dispatches work payload via HTTP through `SessionPodManager`
   - Agent sends IPC requests via HTTP POST to `/internal/ipc` (`HttpIPCClient`)
@@ -167,19 +154,6 @@ Kubernetes pod-based sandbox (no k8s Exec/Attach):
 
 Warm pool claiming is handled by `SessionPodManager`, which manages session-long pod reuse via HTTP. The separate `warm-pool-client.ts` has been removed.
 
-**Controller** (`src/pool-controller/`): Standalone process that maintains target warm pod counts per tier:
-
-| File              | Responsibility                                          |
-|-------------------|---------------------------------------------------------|
-| `controller.ts`   | Reconciliation loop: scale up/down, garbage collect     |
-| `k8s-client.ts`   | K8s pod CRUD, tier config types, pod template           |
-| `metrics.ts`      | Prometheus-style metrics for warm pool health           |
-| `main.ts`         | Entry point, tier config loading, graceful shutdown     |
-
-Default tiers: `light` (1 CPU, 2Gi) and `heavy` (4 CPU, 16Gi). Configurable via `SANDBOX_TEMPLATE_DIR` JSON files or env vars (`LIGHT_MIN_READY`, `LIGHT_MAX_READY`, etc.).
-
-Reconciliation cycle: list warm pods -> filter Running -> scale up if below `minReady` -> scale down if above `maxReady` -> garbage collect Failed/Succeeded pods.
-
 ## Local Sandbox Execution (`src/agent/local-sandbox.ts`)
 
 Agent-side tool execution with host audit gate protocol:
@@ -190,22 +164,13 @@ Agent-side tool execution with host audit gate protocol:
 
 All file operations use `safePath()` for path traversal prevention. Bash commands run via `execFileSync('sh', ['-c', command])` with timeout and buffer limits.
 
-### K8s Workspace File Transfer
+### K8s Workspace Persistence
 
-In k8s mode, the host is the single GCS credential holder. Pods transfer workspace files via symmetric HTTP endpoints:
-
-**Provision** (start of turn, GCS → host → pod):
-1. `provisionWorkspaceFromPayload()` detects `AX_HOST_URL` + workspace provider `gcs`
-2. For each scope (agent, user, session), calls `provisionScope()` which GETs `${hostUrl}/internal/workspace/provision?scope=<s>&id=<id>`
-3. Host reads from GCS via `providers.workspace.downloadScope()`, returns gzipped JSON with base64 file contents
-4. Pod decompresses, writes files to canonical mount paths, snapshots hashes for release diff
-
-**Release** (end of turn, pod → host → GCS):
-1. Agent runner diffs workspace scopes, gzips JSON, POSTs to host `/internal/workspace-staging`
-2. Host returns a `staging_key` UUID
-3. Agent sends `workspace_release` IPC via HTTP with just the `staging_key`
-4. Host looks up staged data, decompresses, decodes base64 content, calls `provider.setRemoteChanges()`
-5. `workspace.commit()` picks up stored changes via `RemoteTransport.diff()` and persists to GCS
+In k8s mode, workspace persistence is handled by PVCs (PersistentVolumeClaims):
+- When `pvcName` is set on SandboxConfig, the `/workspace` volume is backed by a PVC.
+- The PVC is created automatically on first use and persists across pod restarts.
+- Pod idle timeout is 5 minutes -- pods are recycled aggressively since the PVC preserves all state.
+- When an agent is deleted, the PVC is cleaned up via `SandboxProvider.deletePvc()`.
 
 ## Dev/Prod Mode Support
 
@@ -223,7 +188,7 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 3. Add to `PROVIDER_MAP` in `src/host/provider-map.ts`.
 4. Ensure `spawn()` passes minimal env via `canonicalEnv(config)`.
 5. Enforce `--network=none` or equivalent -- security invariant (unless `config.network` is true for three-phase orchestration).
-6. Mount workspace (rw), agent workspace (ro), user workspace (ro), IPC socket dir.
+6. Mount `/workspace` (rw) and IPC socket dir.
 7. Support `config.cpus` and `config.memoryMB` resource limits.
 8. Support `config.extraEnv` for per-turn env var injection.
 9. Add integration test in `tests/providers/sandbox/`.
@@ -236,13 +201,12 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 - **Apple Container bridge socket isolation**: Bridge sockets go in a `bridges/` subdirectory. If they shared the IPC server directory, container runtime cleanup could delete `proxy.sock`.
 - **K8s uses HTTP, not Unix socket IPC**: Pods can't share host filesystem. Agent uses `HttpIPCClient` (set via `AX_HOST_URL`). Streams are dummy PassThrough -- response comes via HTTP IPC `agent_response`. Work dispatch also uses HTTP via `SessionPodManager`.
 - **K8s pods have synthetic PIDs**: Real PIDs don't exist for k8s pods. The provider maintains a counter starting at 100,000.
-- **New host paths must be added to container providers**: SandboxConfig changes ripple to docker (-v :ro), apple (-v :ro), k8s (volume mounts).
+- **New host paths must be added to container providers**: SandboxConfig changes ripple to docker (-v), apple (-v), k8s (volume mounts).
 - **EPERM on kill**: tsx-wrapped agents may throw EPERM on SIGTERM/SIGKILL. `enforceTimeout()` handles this with try/catch.
 - **Identity/skills NOT mounted**: They come via stdin payload from DocumentStore. Don't add filesystem mounts for identity or skills.
 - **Web proxy socket location**: `web-proxy.sock` lives in the same directory as the IPC socket (already mounted into containers). `canonicalEnv()` computes the path from `dirname(config.ipcSocket)`. No extra mount needed.
 - **K8s web proxy uses k8s Service**: K8s pods don't use a Unix socket for the web proxy. Instead, `server-k8s.ts` passes `AX_WEB_PROXY_URL` pointing to a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Network policy allows pods to reach the proxy service.
-- **K8s pods have no GCS credentials or gsutil**: Agent pods cannot access GCS directly. All GCS access goes through the host via HTTP endpoints (`/internal/workspace/provision` for reads, `/internal/workspace-staging` for writes). Never shell out to `gsutil` in code that runs inside agent pods — use the host HTTP path or `@google-cloud/storage` SDK (for non-k8s only).
-- **K8s workspace uses symmetric HTTP endpoints**: Provision (GCS→host→pod) via `GET /internal/workspace/provision`, release (pod→host→GCS) via `POST /internal/workspace-staging`. Only the staging_key reference travels over HTTP IPC.
+- **K8s workspace uses PVCs**: `/workspace` is backed by a PVC in k8s mode. State persists across pod restarts. Pod idle timeout is 5 minutes since the PVC preserves everything.
 - **child.killed is true after ANY kill() call**, not just after the process is dead. Use a separate `exited` flag.
 - **Use direct binary paths** (`node_modules/.bin/tsx`) not `npx` inside sandboxes.
 - **Always have an integration test with the real sandbox**, not just subprocess fallback.
@@ -251,12 +215,10 @@ In k8s mode, the host is the single GCS credential holder. Pods transfer workspa
 
 - `src/providers/sandbox/types.ts` -- SandboxConfig, SandboxProcess, SandboxProvider interfaces
 - `src/providers/sandbox/canonical-paths.ts` -- Canonical path constants, env builders, symlink helpers
-- `src/providers/sandbox/subprocess.ts` -- Dev-only fallback (no isolation, symlink-based paths)
 - `src/providers/sandbox/docker.ts` -- Docker container provider (--network=none, gVisor optional)
 - `src/providers/sandbox/apple.ts` -- Apple Container provider (VM-based, --publish-socket IPC bridge)
 - `src/providers/sandbox/k8s.ts` -- Kubernetes pod provider (HTTP IPC, SessionPodManager)
-- `src/pool-controller/` -- Warm pod pool management (controller, k8s-client, metrics, main)
 - `src/providers/sandbox/utils.ts` -- Shared sandbox helpers (exitCodePromise, enforceTimeout, etc.)
 - `src/agent/local-sandbox.ts` -- Agent-side local tool execution with host audit gate
-- `src/host/provider-map.ts` -- Static allowlist (sandbox: subprocess, docker, apple, k8s)
+- `src/host/provider-map.ts` -- Static allowlist (sandbox: docker, apple, k8s)
 - `tests/providers/sandbox/` -- Tests: k8s, docker, apple, subprocess, k8s-warm-pool, k8s-ca-injection, canonical-paths, utils

@@ -32,12 +32,11 @@ config:
     default: ["anthropic/claude-sonnet-4-20250514"]
   providers:
     memory: cortex
-    scanner: patterns
+    security: patterns
     channels: []
     web:
       extract: none
       search: none
-    browser: none
     credentials: database
     skills: database
     storage: database
@@ -48,7 +47,7 @@ config:
     scheduler: plainjob
   sandbox:
     timeout_sec: 120
-    idle_timeout_sec: 1800
+    idle_timeout_sec: 300
     clean_idle_timeout_sec: 300
     memory_mb: 1024
   scheduler:
@@ -110,7 +109,7 @@ sandbox:
   image:
     registry: ""
     repository: ax
-    tag: "latest"
+    tag: ""  # Defaults to imageDefaults.tag
     pullPolicy: ""
   # Pod runtime class for sandbox pods (e.g., "gvisor" for GKE Autopilot).
   # Set to "" to disable (for kind/minikube/non-gVisor clusters).
@@ -174,11 +173,6 @@ webProxy:
 networkPolicies:
   enabled: true
 
-# ─── Pool Controller ────────────────────────────────────────────
-poolController:
-  enabled: true
-  replicas: 1
-
 # ─── API Credentials ─────────────────────────────────────────────
 # Each key maps an env var name to a secret key in the existingSecret.
 # Set a key to "" to omit it from the host pod.
@@ -188,3 +182,29 @@ apiCredentials:
     ANTHROPIC_API_KEY: "anthropic-api-key"
     # OPENROUTER_API_KEY: "openrouter-api-key"
     # OPENAI_API_KEY: "openai-api-key"
+
+# ─── Git Server (HTTP Workspace Repos) ────────────────────────────────
+# Optional Git server for agent workspace repositories (HTTP-only).
+# When enabled, each agent gets a bare repo on the git-server pod.
+# Agents clone and push via smart HTTP protocol — no SSH or credentials needed.
+gitServer:
+  enabled: false
+  replicas: 1
+  image:
+    repository: "ax/git-server"
+    tag: ""  # Defaults to imageDefaults.tag
+    pullPolicy: "IfNotPresent"
+  service:
+    type: ClusterIP
+  storage: "10Gi"  # Shared by git repos and LFS objects — increase for LFS-heavy workloads
+  storageClassName: ""  # Use default storage class if empty
+  logLevel: "info"
+  host: "git-server"
+  httpPort: 8000
+  resources:
+    limits:
+      cpu: 250m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 32Mi

@@ -185,8 +185,8 @@ export function agentIdentityFilesDir(agentId: string): string {
 }
 
 /**
- * Path to an agent's shared workspace (read-only to agent processes):
- * ~/.ax/agents/<agentId>/agent/workspace/
+ * @deprecated No longer used — single workspace model (/workspace in sandbox).
+ * Path to an agent's shared workspace: ~/.ax/agents/<agentId>/agent/workspace/
  */
 export function agentWorkspaceDir(agentId: string): string {
   return join(agentIdentityDir(agentId), 'workspace');
@@ -212,6 +212,7 @@ export function userSkillsDir(agentId: string, userId: string): string {
 }
 
 /**
+ * @deprecated No longer used — single workspace model (/workspace in sandbox).
  * Path to a user's workspace within an agent:
  * ~/.ax/agents/<agentId>/users/<userId>/workspace/
  */

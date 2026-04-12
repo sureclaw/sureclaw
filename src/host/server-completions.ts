@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
-import { workspaceDir, agentWorkspaceDir, userWorkspaceDir, agentDir } from '../paths.js';
+import { workspaceDir, agentDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
 import { isAdmin } from './server-admin-helpers.js';
 import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
@@ -19,7 +19,6 @@ import type { ConversationStoreProvider, DocumentStore, MessageQueueStore } from
 import type { Router } from './router.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { type Logger, truncate } from '../logger.js';
-import { drainGeneratedImages } from './ipc-handlers/image.js';
 import { startAnthropicProxy } from './proxy.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
@@ -88,10 +87,12 @@ export interface CompletionDeps {
   registerSessionPod?: (sessionId: string, pod: { podName: string; pid: number; kill: () => void }) => void;
   /** Remove a session pod mapping (called when pod exits unexpectedly). */
   removeSessionPod?: (sessionId: string) => void;
-  /** Per-agent plugin MCP server registry (Cowork plugins). */
+  /** Per-agent plugin MCP server registry. */
   mcpManager?: McpConnectionManager;
   /** Dynamic agent provisioner for multi-agent resolution. */
   provisioner?: import('./agent-provisioner.js').AgentProvisioner;
+  /** When true, sandbox exits after completing this turn (cron, heartbeat, delegation). */
+  singleTurn?: boolean;
 }
 
 export interface ExtractedFile {
@@ -463,7 +464,7 @@ export async function processCompletion(
           sessionCanaries,
           logger,
           eventBus,
-          workspaceBasePath: config.workspace?.basePath ?? '~/.ax/workspaces',
+          workspaceBasePath: '~/.ax/workspaces',
           mcpManager: deps.mcpManager,
         },
       );
@@ -670,7 +671,7 @@ export async function processCompletion(
 
     // Start web forward proxy for outbound HTTP/HTTPS access (npm install,
     // pip install, curl, git clone). Opt-in: only when config.web_proxy is truthy.
-    // Container sandboxes get a Unix socket; subprocess mode gets a TCP port.
+    // Container sandboxes get a Unix socket; local mode gets a TCP port.
     // The credential map is populated by reference later (after agentWsPath is set),
     // so the proxy will see the registered credentials when handling requests.
     let webProxySocketPath: string | undefined;
@@ -720,7 +721,7 @@ export async function processCompletion(
         });
         webProxyCleanup = webProxy.stop;
       } else {
-        // TCP mode — subprocess or k8s (k8s uses separate port in host-process.ts)
+        // TCP mode — docker or k8s (k8s uses separate port in host-process.ts)
         const webProxy = await startWebProxy({
           listen: 0,
           sessionId, canaryToken, onAudit: webProxyAudit,
@@ -793,80 +794,7 @@ export async function processCompletion(
       memoryMB: config.sandbox.memory_mb,
     });
 
-    // Enterprise: set up workspace directories.
-    // When workspace provider is active (not 'none'), pre-mount agent+user scopes
-    // and use the provider's directories (writable). Otherwise fall back to
-    // the legacy read-only enterprise paths.
-    const hasWorkspaceProvider = config.providers.workspace && config.providers.workspace !== 'none';
-    // Skip host-side workspace pre-mount when sandbox handles provisioning itself
-    // (k8s pods provision via GET /internal/workspace/provision — host mount is a no-op).
-    const shouldPreMount = hasWorkspaceProvider && agentSandbox.workspaceLocation !== 'sandbox';
-    let agentWsPath: string | undefined;
-    let userWsPath: string | undefined;
-    let agentWorkspaceWritable = false;
-    let userWorkspaceWritable = false;
-
-    if (shouldPreMount) {
-      // Pre-mount agent, user, and session scopes so their directories exist before sandbox spawn.
-      // Session scope backs scratch with GCS — in k8s mode, scratch content survives pod restarts.
-      try {
-        eventBus?.emit({
-          type: 'status',
-          requestId,
-          timestamp: Date.now(),
-          data: { operation: 'workspace', phase: 'downloading', message: 'Restoring workspace\u2026' },
-        });
-        const mountOpts = { userId: currentUserId };
-        const preMounted = await providers.workspace.mount(sessionId, ['agent', 'user', 'session'], mountOpts);
-        agentWsPath = preMounted.paths.agent;
-        userWsPath = preMounted.paths.user;
-        // Use session scope path as scratch workspace — GCS-backed in k8s mode
-        if (preMounted.paths.session) {
-          workspace = preMounted.paths.session;
-        }
-        userWorkspaceWritable = true;
-        agentWorkspaceWritable = isAdmin(agentDir(agentName), currentUserId);
-        eventBus?.emit({
-          type: 'workspace.mount',
-          requestId,
-          timestamp: Date.now(),
-          data: { sessionId, scopes: ['agent', 'user', 'session'], agentId: agentName },
-        });
-        eventBus?.emit({
-          type: 'status',
-          requestId,
-          timestamp: Date.now(),
-          data: { operation: 'workspace', phase: 'mounted', message: 'Workspace ready' },
-        });
-      } catch (err) {
-        reqLogger.warn('workspace_premount_failed', { error: (err as Error).message });
-      }
-
-      // Also re-mount any additional remembered scopes (e.g. 'session')
-      const rememberedScopes = providers.workspace.activeMounts(sessionId)
-        .filter(s => s !== 'agent' && s !== 'user');
-      if (rememberedScopes.length > 0) {
-        try {
-          await providers.workspace.mount(sessionId, rememberedScopes, { userId: currentUserId });
-        } catch (err) {
-          reqLogger.warn('workspace_automount_failed', { error: (err as Error).message, scopes: rememberedScopes });
-        }
-      }
-
-      // Note: sandbox tool writes now go through the mountRoot symlinks
-      // (created below), which resolve to the workspace provider's directories.
-      // No separate workspaceMap override needed here.
-    }
-
-    // Fallback: legacy enterprise paths (read-only in sandbox when workspace provider is 'none')
-    if (!agentWsPath || !userWsPath) {
-      const enterpriseAgentWs = agentWorkspaceDir(agentName);
-      const enterpriseUserWs = userWorkspaceDir(agentName, currentUserId);
-      mkdirSync(enterpriseAgentWs, { recursive: true });
-      mkdirSync(enterpriseUserWs, { recursive: true });
-      agentWsPath = agentWsPath ?? enterpriseAgentWs;
-      userWsPath = userWsPath ?? enterpriseUserWs;
-    }
+    // No separate agent/user workspace — single /workspace model.
 
     // Resolve uploaded file/image references: download from GCS (or local), provision
     // to sandbox workspace, and convert file blocks to inline data so the LLM can
@@ -897,15 +825,15 @@ export async function processCompletion(
             const entry = await deps.fileStore.lookup(fid);
             if (entry) {
               const segments = fid.split('/').filter(Boolean);
-              const srcPath = safePath(userWorkspaceDir(agentName, currentUserId), ...segments);
+              const srcPath = safePath(workspace, ...segments);
               if (existsSync(srcPath)) data = readFileSync(srcPath);
             }
           }
           if (data) {
-            // Write to local workspace for agent tool access (subprocess mode)
-            if (userWsPath) {
+            // Write to local workspace for agent tool access (local mode)
+            if (workspace) {
               const segments = fid.split('/').filter(Boolean);
-              const destPath = safePath(userWsPath, ...segments);
+              const destPath = safePath(workspace, ...segments);
               mkdirSync(dirname(destPath), { recursive: true });
               writeFileSync(destPath, data);
             }
@@ -953,7 +881,7 @@ export async function processCompletion(
     // Pre-load all stored credentials for this agent/user into the sandbox env.
     // When web_proxy is enabled: register as MITM proxy placeholders (the proxy
     // replaces them with real values in intercepted HTTPS traffic).
-    // When web_proxy is disabled (subprocess mode): inject real values directly
+    // When web_proxy is disabled (local mode): inject real values directly
     // since there's no proxy to do placeholder replacement.
     // Also check global (unscoped) credentials — catches credentials stored
     // without session context or via process.env fallback in the plaintext provider.
@@ -976,35 +904,22 @@ export async function processCompletion(
       } catch { /* list may not be supported */ }
     }
 
-    // Create a symlink mountRoot for the sandbox tool IPC handlers.
-    // This mirrors the layout the sandbox provider creates for the agent subprocess
-    // (scratch/, agent/, user/ as siblings), so tools like sandbox_bash see the same
-    // directory structure the agent does.
+    // Create canonical workspace mount info for sandbox tool IPC handlers.
     toolMountRoot = createCanonicalSymlinks({
       workspace,
       ipcSocket: ipcSocketPath,
       command: [],
-      agentWorkspace: agentWsPath,
-      userWorkspace: userWsPath,
     });
-
-    // Override the workspaceMap entry to point at the mountRoot instead of the
-    // scratch directory — sandbox tool handlers now see agent/ and user/ as siblings.
-    if (deps.workspaceMap) {
-      deps.workspaceMap.set(sessionId, toolMountRoot.mountRoot);
-    }
 
     // ── Load identity from DocumentStore ──
     // Identity files are keyed as <agentName>/<filename> and <agentName>/users/<userId>/<filename>
     const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
 
     // ── Load installed skills from DB ──
-    // Agent-scoped skills (from plugins/admin) and user-scoped skills (personal sandbox) are
-    // loaded separately and delivered as distinct payload fields so the agent writes them to
-    // the correct workspace tier (agentWorkspace/skills/ vs userWorkspace/skills/).
+    // All skills (agent-scoped and user-scoped) are merged into a single array
+    // and written to /workspace/skills/ in the sandbox.
     type SkillPayloadEntry = { slug: string; files: Array<{ path: string; content: string }> };
     let skillsPayload: SkillPayloadEntry[] = [];
-    let userSkillsPayload: SkillPayloadEntry[] = [];
     if (providers.storage?.documents) {
       try {
         const { listSkills, listUserSkills } = await import('../providers/storage/skills.js');
@@ -1013,13 +928,21 @@ export async function processCompletion(
           slug: s.id,
           files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
         }));
-        // Load user-scoped skills for the current user
+        // Merge user-scoped skills into the same array (user skills shadow agent by slug)
         if (currentUserId) {
           const dbUserSkills = await listUserSkills(providers.storage.documents, agentName, currentUserId);
-          userSkillsPayload = dbUserSkills.map(s => ({
-            slug: s.id,
-            files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
-          }));
+          const agentSlugs = new Set(skillsPayload.map(s => s.slug));
+          for (const s of dbUserSkills) {
+            const entry = {
+              slug: s.id,
+              files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
+            };
+            if (agentSlugs.has(s.id)) {
+              // User skill shadows agent skill — replace
+              skillsPayload = skillsPayload.filter(a => a.slug !== s.id);
+            }
+            skillsPayload.push(entry);
+          }
         }
       } catch (err) {
         reqLogger.warn('skills_load_failed', { error: (err as Error).message });
@@ -1104,20 +1027,15 @@ export async function processCompletion(
       sessionScope: sessionScope ?? 'dm',
       // Per-turn IPC token for HTTP IPC authentication
       ipcToken: deps.extraSandboxEnv?.AX_IPC_TOKEN,
-      // Web proxy URL — warm pool pods don't have this in their pod spec
+      // Web proxy URL — k8s pods don't have this in their pod spec
       webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
       // Enterprise fields
       agentId: agentName,
-      agentWorkspace: agentWsPath,
-      userWorkspace: userWsPath,
-      workspaceProvider: config.providers.workspace,
       // Identity, skills, and tool stubs from DocumentStore
       identity: identityPayload,
       skills: skillsPayload.length > 0 ? skillsPayload : undefined,
-      userSkills: userSkillsPayload.length > 0 ? userSkillsPayload : undefined,
       mcpCLIs: mcpCLIsPayload,
-      agentReadOnly: !agentWorkspaceWritable,
-      // Credential placeholders — warm pool pods don't have these in their pod spec,
+      // Credential placeholders — k8s pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
       credentialEnv: {
         ...credentialMap.toEnvMap(),
@@ -1127,11 +1045,19 @@ export async function processCompletion(
       },
       // MITM CA cert — sandbox pods need this to trust the proxy's TLS certs.
       caCert: caCertPem,
+      // Single-turn mode: sandbox exits after this turn (cron, heartbeat, delegation).
+      ...(deps.singleTurn ? { singleTurn: true } : {}),
     });
 
     // Spawn, run, and collect agent output — with retry on transient crashes.
     // Transient: OOM kill (137), segfault (139), generic crash with retryable stderr.
     // Permanent: auth failures, bad config, content filter blocks.
+
+    // Calculate workspace repository URL from config
+    const workspaceRepoUrl = providers.workspace
+      ? await providers.workspace.getRepoUrl(agentName)
+      : undefined;
+
     const sandboxConfig = {
       workspace,
       ipcSocket: ipcSocketPath,
@@ -1144,10 +1070,6 @@ export async function processCompletion(
       memoryMB: config.sandbox.memory_mb,
       cpus: config.sandbox.tiers?.default?.cpus ?? 1,
       command: spawnCommand,
-      agentWorkspace: agentWsPath,
-      userWorkspace: userWsPath,
-      agentWorkspaceWritable,
-      userWorkspaceWritable,
       extraEnv: {
         ...deps.extraSandboxEnv,
         // Web proxy — agent runners detect these to start bridge / set HTTP_PROXY
@@ -1155,6 +1077,8 @@ export async function processCompletion(
         // Credential placeholders + CA trust env vars for MITM proxy
         ...credentialMap.toEnvMap(),
         ...credentialEnv,
+        // Workspace repository URL for git clone and workspace manager setup
+        ...(workspaceRepoUrl ? { WORKSPACE_REPO_URL: workspaceRepoUrl } : {}),
       },
     };
 
@@ -1309,7 +1233,7 @@ export async function processCompletion(
         }
       }
 
-      // Deliver work payload to agent via stdin (subprocess/apple mode).
+      // Deliver work payload to agent via stdin (docker/apple mode).
       // In k8s HTTP mode, pods fetch work via GET /internal/work instead.
       if (!deps.agentResponsePromise) {
         try {
@@ -1439,32 +1363,6 @@ export async function processCompletion(
       }
     }
 
-    // Workspace provider: commit changes after agent turn
-    if (providers.workspace.activeMounts(sessionId).length > 0) {
-      try {
-        const commitResult = await providers.workspace.commit(sessionId);
-        for (const [scope, scopeResult] of Object.entries(commitResult.scopes)) {
-          if (scopeResult && scopeResult.status === 'committed') {
-            eventBus?.emit({
-              type: 'workspace.commit',
-              requestId,
-              timestamp: Date.now(),
-              data: { sessionId, scope, agentId: agentName, filesChanged: scopeResult.filesChanged, bytesChanged: scopeResult.bytesChanged },
-            });
-          }
-          if (scopeResult && scopeResult.rejections?.length) {
-            eventBus?.emit({
-              type: 'workspace.commit.rejected',
-              requestId,
-              timestamp: Date.now(),
-              data: { sessionId, scope, rejections: scopeResult.rejections },
-            });
-          }
-        }
-      } catch (err) {
-        reqLogger.warn('workspace_commit_failed', { error: (err as Error).message });
-      }
-    }
 
     // Parse structured response (may contain image blocks)
     const parsed = parseAgentResponse(response);
@@ -1494,7 +1392,7 @@ export async function processCompletion(
         if (b.type === 'text') return { ...b, text: outbound.content };
         return b;
       });
-      const extracted = await extractImageDataBlocks(withScannedText, userWsPath, reqLogger, deps.gcsFileStorage);
+      const extracted = await extractImageDataBlocks(withScannedText, workspace, reqLogger, deps.gcsFileStorage);
       responseBlocks = extracted.blocks;
       if (extracted.extractedFiles.length > 0) {
         extractedFiles = extracted.extractedFiles;
@@ -1507,37 +1405,6 @@ export async function processCompletion(
       }
     }
 
-    // Drain images generated via image_generate tool during this completion.
-    // These are held in memory by the image handler — no disk round-trip needed.
-    // The agent injects its session ID into IPC requests via _sessionId, so
-    // images are stored under the real session ID (e.g. 'ch-d81c057a').
-    const generatedImages = drainGeneratedImages(requestId);
-    reqLogger.debug('image_drain', { sessionKey: requestId, count: generatedImages.length });
-    if (generatedImages.length > 0) {
-      if (!extractedFiles) extractedFiles = [];
-      if (!responseBlocks) responseBlocks = [{ type: 'text', text: outbound.content }];
-      for (const img of generatedImages) {
-        extractedFiles.push({ fileId: img.fileId, mimeType: img.mimeType, data: img.data });
-        responseBlocks.push({ type: 'image', fileId: img.fileId, mimeType: img.mimeType as ImageMimeType });
-      }
-      // Persist generated images to user workspace so /v1/files/ can serve them later.
-      // Without this, image URLs return 404 after the in-memory drain.
-      for (const img of generatedImages) {
-        try {
-          if (deps.gcsFileStorage) {
-            await deps.gcsFileStorage.upload(img.fileId, img.data, img.mimeType, img.fileId.split('/').pop() ?? 'image');
-          } else {
-            const filePath = safePath(userWsPath, ...img.fileId.split('/').filter(Boolean));
-            mkdirSync(join(filePath, '..'), { recursive: true });
-            writeFileSync(filePath, img.data);
-          }
-          deps.fileStore?.register(img.fileId, agentName, currentUserId, img.mimeType);
-          reqLogger.info('image_persisted', { fileId: img.fileId, bytes: img.data.length });
-        } catch (err) {
-          reqLogger.warn('image_persist_failed', { fileId: img.fileId, workspace: userWsPath, error: (err as Error).message });
-        }
-      }
-    }
 
     // Memorize if provider supports it (text only for memory)
     if (providers.memory.memorize) {
@@ -1692,12 +1559,6 @@ export async function processCompletion(
     // Deregister session from shared credential registry (k8s shared proxy)
     if (deps.sharedCredentialRegistry) {
       deps.sharedCredentialRegistry.deregister(sessionId);
-    }
-    // Workspace provider: cleanup session scope for ephemeral sessions
-    if (!isPersistent) {
-      try { await providers.workspace.cleanup(sessionId); } catch {
-        reqLogger.debug('workspace_provider_cleanup_failed', { sessionId });
-      }
     }
     if (workspace && !isPersistent) {
       try { rmSync(workspace, { recursive: true, force: true }); } catch {

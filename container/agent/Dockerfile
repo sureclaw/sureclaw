@@ -13,7 +13,7 @@ FROM node:22-slim
 
 # Standard bash tools for agent sandbox (matches Claude Code expectations)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl jq ca-certificates \
+    git git-lfs curl jq ca-certificates \
     ripgrep \
     tree \
     less \
@@ -23,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     patch \
     file \
     procps \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install --system
 
 WORKDIR /opt/ax
 COPY package.json package-lock.json ./

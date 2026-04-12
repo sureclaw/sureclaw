@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry, TaintTag } from '../types.js';
 import { canonicalize, type InboundMessage } from '../providers/channel/types.js';
-import type { ScanResult } from '../providers/scanner/types.js';
+import type { ScanResult } from '../providers/security/types.js';
 import type { MessageQueueStore } from '../providers/storage/types.js';
 import type { TaintBudget } from './taint-budget.js';
 
@@ -51,7 +51,7 @@ export function createRouter(
   return {
     async processInbound(msg: InboundMessage): Promise<RouterResult> {
       const sessionId = canonicalize(msg.session);
-      const canaryToken = providers.scanner.canaryToken();
+      const canaryToken = providers.security.canaryToken();
 
       // Taint-tag external content
       const isTainted = msg.session.provider !== 'system';
@@ -62,7 +62,7 @@ export function createRouter(
       taintBudget?.recordContent(sessionId, msg.content, isTainted);
 
       // Scan input
-      const scanResult = await providers.scanner.scanInput({
+      const scanResult = await providers.security.scanInput({
         content: msg.content,
         source: msg.session.provider,
         taint,
@@ -115,7 +115,7 @@ export function createRouter(
       canaryToken: string,
     ): Promise<OutboundResult> {
       // Check for canary leakage (empty token = no canary to check)
-      const canaryLeaked = canaryToken.length > 0 && providers.scanner.checkCanary(response, canaryToken);
+      const canaryLeaked = canaryToken.length > 0 && providers.security.checkCanary(response, canaryToken);
 
       if (canaryLeaked) {
         await providers.audit.log({
@@ -127,7 +127,7 @@ export function createRouter(
       }
 
       // Scan output
-      const scanResult = await providers.scanner.scanOutput({
+      const scanResult = await providers.security.scanOutput({
         content: response,
         source: 'agent',
         sessionId,

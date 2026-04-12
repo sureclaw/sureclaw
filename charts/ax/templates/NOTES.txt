@@ -5,7 +5,6 @@ Release:   {{ .Release.Name }}
 
 Components:
   - Host:            {{ .Values.host.replicas }} replica(s)
-  - Pool Controller: {{ if .Values.poolController.enabled }}{{ .Values.poolController.replicas }} replica(s){{ else }}disabled{{ end }}
   - PostgreSQL:      {{ if .Values.postgresql.internal.enabled }}in-cluster{{ else }}external{{ end }}
 
 {{- if .Values.host.ingress.enabled }}
@@ -18,3 +17,10 @@ To access AX, set up port forwarding:
 {{- end }}
 
 Config mounted at: /etc/ax/ax.yaml (via AX_CONFIG_PATH)
+
+{{- if .Values.gitServer.enabled }}
+
+Git Server (HTTP):
+  Service: {{ include "ax.fullname" . }}-git.{{ include "ax.namespace" . }}.svc
+  Port:    8000
+{{- end }}

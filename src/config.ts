@@ -37,18 +37,16 @@ const ConfigSchema = z.strictObject({
     fast: z.array(z.string().min(1)).min(1).optional(),
     thinking: z.array(z.string().min(1)).min(1).optional(),
     coding: z.array(z.string().min(1)).min(1).optional(),
-    image: z.array(z.string().min(1)).min(1).optional(),
   }).optional(),
   profile: z.enum(PROFILE_NAMES),
   providers: z.strictObject({
     memory: providerEnum('memory'),
-    scanner: providerEnum('scanner'),
+    security: providerEnum('security'),
     channels: z.array(providerEnum('channel')),
     web: z.strictObject({
       extract: providerEnum('web_extract'),
       search: providerEnum('web_search'),
     }),
-    browser: providerEnum('browser'),
     credentials: z.union([providerEnum('credentials'), z.literal('env')])
       .transform((val) => {
         if (val === 'env') {
@@ -65,10 +63,9 @@ const ConfigSchema = z.strictObject({
     database: providerEnum('database').optional().default('sqlite'),
     storage: providerEnum('storage').optional().default('database'),
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
-    workspace: providerEnum('workspace').optional().default('none'),
     mcp: providerEnum('mcp').optional(),
     auth: z.array(providerEnum('auth')).optional(),
-    screener: z.string().optional(),
+    workspace: providerEnum('workspace').optional(),
   }),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
   max_tokens: z.number().int().min(256).max(200_000).optional().default(8192),
@@ -131,24 +128,6 @@ const ConfigSchema = z.strictObject({
     max_concurrent: z.number().int().min(1).max(10).default(3),
     max_depth: z.number().int().min(1).max(5).default(2),
   }).optional(),
-  workspace: z.strictObject({
-    basePath: z.string().default('~/.ax/workspaces'),
-    bucket: z.string().optional(),
-    prefix: z.string().optional(),
-    maxFileSize: z.number().int().min(1).default(10_485_760),
-    maxFiles: z.number().int().min(1).default(500),
-    maxCommitSize: z.number().int().min(1).default(52_428_800),
-    ignorePatterns: z.array(z.string()).default([
-      '.git/', 'node_modules/', 'venv/', '__pycache__/',
-      '*.log', '*.tmp', 'build/', 'dist/',
-    ]),
-  }).default({
-    basePath: '~/.ax/workspaces',
-    maxFileSize: 10_485_760,
-    maxFiles: 500,
-    maxCommitSize: 52_428_800,
-    ignorePatterns: ['.git/', 'node_modules/', 'venv/', '__pycache__/', '*.log', '*.tmp', 'build/', 'dist/'],
-  }),
   webhooks: z.strictObject({
     enabled: z.boolean(),
     token: z.string().min(1),
@@ -172,6 +151,17 @@ const ConfigSchema = z.strictObject({
       allowed_domains: z.array(z.string().min(1)).optional(),
     }).optional(),
   }).optional(),
+  gitServer: z.strictObject({
+    host: z.string().min(1),
+    port: z.number().int().min(1).max(65535).default(22),
+    httpPort: z.number().int().min(1).max(65535).default(8000).optional(),
+    user: z.string().min(1).default('git'),
+    repoBasePath: z.string().min(1).default('/var/git/repos'),
+  }).optional(),
+  gcs: z.strictObject({
+    bucket: z.string().min(1),
+    prefix: z.string().default(''),
+  }).optional(),
   web_proxy: z.boolean().optional(),
   namespace: z.string().optional(),
   url_rewrites: z.record(z.string(), z.string()).optional(),
@@ -188,7 +178,6 @@ const ConfigSchema = z.strictObject({
       fast: z.array(z.string()).optional(),
       thinking: z.array(z.string()).optional(),
       coding: z.array(z.string()).optional(),
-      image: z.array(z.string()).optional(),
     }).optional(),
     slack_bot_token_env: z.string().min(1).optional(),
     slack_app_token_env: z.string().min(1).optional(),

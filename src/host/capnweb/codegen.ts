@@ -3,7 +3,7 @@
  *
  * Output: one self-contained JS file per MCP server with #!/usr/bin/env node
  * shebang. Each file contains an IPC client (HTTP fetch), a declarative tool
- * registry, and a generic argv parser with --help. Written to agentWorkspace/bin/
+ * registry, and a generic argv parser with --help. Written to /workspace/bin/
  * and already in PATH.
  */
 

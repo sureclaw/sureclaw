@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 121 entries across 11 categories.
+Category-based organization of all journal entries. Total: 122 entries across 11 categories.
 
 ## Entries
 
+- 2026-04-06 14:00 — PVC Workspace Phase 2: Update host and agent code for single workspace [refactoring/cleanup.md](refactoring/cleanup.md)
 - 2026-03-29 11:49 — Implement plugin manifest parser (Task 2) [plugins/parser.md](plugins/parser.md)
 - 2026-03-27 06:25 — Fix bootstrap deadlock: taint gate, scheduler skip, and tool_calls_dropped [host/server.md](host/server.md)
 - 2026-03-26 07:45 — Fix proxy domain allowlist not loading DB-stored skill domains on startup [host/server.md](host/server.md)

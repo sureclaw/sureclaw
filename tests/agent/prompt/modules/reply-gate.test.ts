@@ -8,7 +8,7 @@ function makeCtx(overrides: Partial<PromptContext> = {}): PromptContext {
     workspace: '/tmp/test',
     skills: [],
     profile: 'balanced',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.3,
     identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },

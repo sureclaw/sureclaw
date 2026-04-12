@@ -1,14 +1,8 @@
 /**
  * k8s sandbox provider — Kubernetes pod-based isolation.
  *
- * Always cold-starts a new pod. Warm pool claiming is handled at the NATS
- * queue group level — the host's publishWork() uses nc.request('sandbox.work')
- * to deliver work to warm pods via queue groups before falling back to
- * cold-starting a pod here.
- *
- * Communication is via NATS (work dispatch) and HTTP (IPC, LLM proxy,
- * workspace release):
- *   - Host publishes work payload via NATS queue group or per-pod subject
+ * Always cold-starts a new pod. Communication is via HTTP:
+ *   - Host delivers work payload via HTTP POST to the pod
  *   - Agent sends IPC requests via HTTP to /internal/ipc
  *   - Agent sends response via agent_response IPC action
  *
@@ -27,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import type { SandboxProvider, SandboxConfig, SandboxProcess } from './types.js';
 import type { Config } from '../../types.js';
 import { getLogger } from '../../logger.js';
-import { CANONICAL, canonicalEnv } from './canonical-paths.js';
+import { canonicalEnv } from './canonical-paths.js';
 
 const logger = getLogger().child({ component: 'sandbox-k8s' });
 
@@ -75,48 +69,120 @@ function buildPodSpec(
       ...(process.env.K8S_IMAGE_PULL_SECRETS ? {
         imagePullSecrets: process.env.K8S_IMAGE_PULL_SECRETS.split(',').map(s => ({ name: s.trim() })),
       } : {}),
-      containers: [{
-        name: 'sandbox',
-        image: options.image,
-        ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
-        command: [cmd, ...args],
-        workingDir: '/workspace',
-        resources: {
-          requests: {
-            cpu: DEFAULT_CPU_LIMIT,
-            memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
+      initContainers: [
+        // Clone repo with --separate-git-dir so .git objects land on /gitdir
+        // (a volume mounted ONLY in this init container and the sidecar).
+        // The agent container never sees .git metadata.
+        // After clone, remove the .git pointer file from /workspace to keep it clean.
+        ...(config.extraEnv?.WORKSPACE_REPO_URL ? [{
+          name: 'git-init',
+          image: options.image,
+          ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
+          command: [
+            'sh', '-c',
+            'git clone --separate-git-dir=/gitdir/repo "$WORKSPACE_REPO_URL" /workspace && rm -f /workspace/.git',
+          ],
+          env: [
+            { name: 'WORKSPACE_REPO_URL', value: config.extraEnv.WORKSPACE_REPO_URL },
+          ],
+          securityContext: {
+            readOnlyRootFilesystem: false,
+            allowPrivilegeEscalation: false,
+            runAsNonRoot: true,
+            runAsUser: 1000,
+            capabilities: { drop: ['ALL'] },
           },
-          limits: {
-            cpu: DEFAULT_CPU_LIMIT,
-            memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
+          volumeMounts: [
+            { name: 'workspace', mountPath: '/workspace' },
+            { name: 'gitdir', mountPath: '/gitdir' },
+            { name: 'home', mountPath: '/home/user' },
+          ],
+        }] : []),
+        // Git sidecar as native k8s sidecar (init container with restartPolicy: Always).
+        // Kubernetes auto-terminates it when the sandbox container exits.
+        // Mounts /gitdir (not mounted in sandbox) — agent cannot access .git.
+        ...(config.extraEnv?.WORKSPACE_REPO_URL ? [{
+          name: 'git-sidecar',
+          image: options.image,
+          ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
+          restartPolicy: 'Always',
+          command: ['node', 'dist/agent/git-sidecar.js'],
+          resources: {
+            requests: { cpu: '50m', memory: '128Mi' },
+            limits: { cpu: '200m', memory: '256Mi' },
           },
+          securityContext: {
+            readOnlyRootFilesystem: false,
+            allowPrivilegeEscalation: false,
+            runAsNonRoot: true,
+            runAsUser: 1000,
+            capabilities: { drop: ['ALL'] },
+          },
+          env: [
+            { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? 'warn' },
+            { name: 'AX_WORKSPACE', value: envVars.AX_WORKSPACE || '/workspace' },
+            { name: 'AX_GITDIR', value: '/gitdir/repo' },
+            { name: 'AX_GIT_SIDECAR_PORT', value: '9099' },
+            { name: 'WORKSPACE_REPO_URL', value: config.extraEnv.WORKSPACE_REPO_URL },
+          ],
+          volumeMounts: [
+            { name: 'workspace', mountPath: '/workspace' },
+            { name: 'gitdir', mountPath: '/gitdir' },
+            { name: 'home', mountPath: '/home/user' },
+          ],
+        }] : []),
+      ],
+      containers: [
+        {
+          name: 'sandbox',
+          image: options.image,
+          ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
+          command: [cmd, ...args],
+          workingDir: '/workspace',
+          resources: {
+            requests: {
+              cpu: DEFAULT_CPU_LIMIT,
+              memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
+            },
+            limits: {
+              cpu: DEFAULT_CPU_LIMIT,
+              memory: config.memoryMB ? `${config.memoryMB}Mi` : DEFAULT_MEMORY_LIMIT,
+            },
+          },
+          securityContext: {
+            // Writable root: allows npm install, pip install, etc.
+            readOnlyRootFilesystem: false,
+            allowPrivilegeEscalation: false,
+            runAsNonRoot: true,
+            runAsUser: 1000,
+            capabilities: { drop: ['ALL'] },
+          },
+          env: [
+            // Work comes via HTTP
+            { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? (process.env.AX_VERBOSE === '1' ? 'debug' : 'warn') },
+            ...Object.entries(envVars)
+              .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
+              .map(([name, value]) => ({ name, value })),
+            ...Object.entries(config.extraEnv ?? {})
+              .map(([name, value]) => ({ name, value })),
+            { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
+            // Sidecar port — agent POSTs to localhost:PORT/turn-complete when turn ends
+            ...(config.extraEnv?.WORKSPACE_REPO_URL ? [{ name: 'AX_GIT_SIDECAR_PORT', value: '9099' }] : []),
+          ],
+          volumeMounts: [
+            { name: 'workspace', mountPath: '/workspace' },
+            { name: 'tmp', mountPath: '/tmp' },
+            { name: 'home', mountPath: '/home/user' },
+          ],
         },
-        securityContext: {
-          // Writable root: allows npm install, pip install, etc.
-          readOnlyRootFilesystem: false,
-          allowPrivilegeEscalation: false,
-          runAsNonRoot: true,
-          runAsUser: 1000,
-          capabilities: { drop: ['ALL'] },
-        },
-        env: [
-          // No NATS env vars — work comes via HTTP
-          { name: 'LOG_LEVEL', value: process.env.K8S_POD_LOG_LEVEL ?? (process.env.AX_VERBOSE === '1' ? 'debug' : 'warn') },
-          ...Object.entries(envVars)
-            .filter(([k]) => k !== 'AX_IPC_SOCKET' && k !== 'AX_WEB_PROXY_SOCKET')
-            .map(([name, value]) => ({ name, value })),
-          ...Object.entries(config.extraEnv ?? {})
-            .map(([name, value]) => ({ name, value })),
-          { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
-        ],
-        volumeMounts: [
-          { name: 'workspace', mountPath: '/workspace' },
-          { name: 'tmp', mountPath: '/tmp' },
-        ],
-      }],
+      ],
       volumes: [
+        // Workspace: agent's working tree (shared between agent + sidecar)
         { name: 'workspace', emptyDir: { sizeLimit: '2Gi' } },
+        // Gitdir: .git objects (mounted ONLY in git-init + git-sidecar, NOT in agent)
+        { name: 'gitdir', emptyDir: { sizeLimit: '1Gi' } },
         { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
+        { name: 'home', emptyDir: { sizeLimit: '256Mi' } },
       ],
       // k8s-native safety net: kills the pod even if the host crashes and
       // loses its in-memory idle timers. Uses timeoutSec (24h for session pods,
@@ -159,10 +225,16 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       let resolved = false;
       let lastPhase: string | undefined;
       const watchStartTime = Date.now();
+      let watchReq: any;
 
       const watchPath = `/api/v1/namespaces/${namespace}/pods`;
 
-      watch.watch(
+      const cleanup = () => {
+        clearTimeout(timer);
+        try { watchReq?.abort(); } catch { /* best-effort */ }
+      };
+
+      watchReq = watch.watch(
         watchPath,
         { fieldSelector: `metadata.name=${podName}` },
         (type: string, obj: any) => {
@@ -173,6 +245,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           if (phase === 'Succeeded') {
             resolved = true;
             activePods.delete(pid);
+            cleanup();
             resolve(0);
           } else if (phase === 'Failed') {
             resolved = true;
@@ -181,6 +254,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
             const reason = containerStatus?.state?.terminated?.reason;
             logger.warn('pod_failed', { podName, exitCode: code, reason, phase });
+            cleanup();
             resolve(code);
           }
         },
@@ -189,6 +263,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             resolved = true;
             activePods.delete(pid);
             logger.warn('pod_watch_error', { podName, lastPhase, error: err?.message });
+            cleanup();
             resolve(1);
           }
         },
@@ -201,6 +276,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           resolved = true;
           activePods.delete(pid);
           logger.warn('pod_timeout', { podName, timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
+          try { watchReq?.abort(); } catch { /* best-effort */ }
           resolve(1);
         }
       }, timeoutMs);
@@ -212,14 +288,16 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   /**
    * Cold-start path: create a new pod from scratch.
    *
-   * The pod runs runner.js which connects to NATS and waits for work.
-   * No k8s Attach — communication is entirely via NATS.
+   * The pod runs runner.js which connects via HTTP and waits for work.
+   * No k8s Attach — communication is entirely via HTTP.
    */
   async function spawnCold(config: SandboxConfig): Promise<SandboxProcess> {
     const podName = `ax-sandbox-${randomUUID().slice(0, 8)}`;
     const pid = nextPid++;
 
     logger.info('creating_pod', { podName, namespace, image });
+
+    // Workspace is managed via git sidecar — no PVC needed
 
     const podSpec = buildPodSpec(podName, config, {
       image,
@@ -249,7 +327,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       return code;
     });
 
-    // Dummy streams — response comes via NATS agent_response, not stdout.
+    // Dummy streams — response comes via HTTP agent_response, not stdout.
     const stdout = new PassThrough();
     const stderr = new PassThrough();
     const stdin = new PassThrough();
@@ -257,7 +335,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     stderr.end();
     stdin.end();
 
-    // Wait for pod to reach Running (so NATS work delivery can succeed).
+    // Wait for pod to reach Running (so HTTP work delivery can succeed).
     (async () => {
       try {
         for (let i = 0; i < 120; i++) {
@@ -297,10 +375,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   }
 
   return {
-    workspaceLocation: 'sandbox' as const,
     async spawn(config: SandboxConfig): Promise<SandboxProcess> {
-      // Always cold start — warm pool claiming is now handled by NATS queue groups
-      // (the host's publishWork uses nc.request('sandbox.work') before calling spawn).
+      // Always cold start a new pod.
       return spawnCold(config);
     },
 

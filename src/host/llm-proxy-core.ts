@@ -1,6 +1,6 @@
 // src/host/llm-proxy-core.ts — Shared LLM credential injection and forwarding.
 //
-// Used by both the Unix socket proxy (proxy.ts, for docker/apple/subprocess)
+// Used by both the Unix socket proxy (proxy.ts, for docker/apple)
 // and the HTTP route (/internal/llm-proxy, for k8s).
 
 import type { IncomingHttpHeaders, ServerResponse } from 'node:http';

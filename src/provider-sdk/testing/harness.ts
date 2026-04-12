@@ -12,13 +12,11 @@
  */
 
 import type { MemoryProvider, MemoryEntry } from '../interfaces/index.js';
-import type { ScannerProvider } from '../interfaces/index.js';
+import type { SecurityProvider } from '../interfaces/index.js';
 import type { AuditProvider } from '../interfaces/index.js';
 import type { CredentialProvider } from '../interfaces/index.js';
 import type { WebExtractProvider, WebSearchProvider } from '../interfaces/index.js';
-import type { BrowserProvider } from '../interfaces/index.js';
 import type { LLMProvider } from '../interfaces/index.js';
-import type { ImageProvider } from '../interfaces/index.js';
 import type { SchedulerProvider } from '../interfaces/index.js';
 import type { SandboxProvider } from '../interfaces/index.js';
 import type { ChannelProvider } from '../interfaces/index.js';
@@ -45,19 +43,17 @@ export interface HarnessResult {
 // ═══════════════════════════════════════════════════════
 
 export type ProviderKind =
-  | 'llm' | 'image' | 'memory' | 'scanner' | 'channel'
-  | 'web_extract' | 'web_search' | 'browser' | 'credentials'
+  | 'llm' | 'memory' | 'security' | 'channel'
+  | 'web_extract' | 'web_search' | 'credentials'
   | 'audit' | 'sandbox' | 'scheduler';
 
 type ProviderForKind<K extends ProviderKind> =
   K extends 'llm' ? LLMProvider :
-  K extends 'image' ? ImageProvider :
   K extends 'memory' ? MemoryProvider :
-  K extends 'scanner' ? ScannerProvider :
+  K extends 'security' ? SecurityProvider :
   K extends 'channel' ? ChannelProvider :
   K extends 'web_extract' ? WebExtractProvider :
   K extends 'web_search' ? WebSearchProvider :
-  K extends 'browser' ? BrowserProvider :
   K extends 'credentials' ? CredentialProvider :
   K extends 'audit' ? AuditProvider :
   K extends 'sandbox' ? SandboxProvider :
@@ -122,7 +118,7 @@ function memoryContract(): ContractTest<MemoryProvider>[] {
   ];
 }
 
-function scannerContract(): ContractTest<ScannerProvider>[] {
+function securityContract(): ContractTest<SecurityProvider>[] {
   return [
     {
       name: 'scanInput returns a ScanResult',
@@ -166,6 +162,14 @@ function scannerContract(): ContractTest<ScannerProvider>[] {
         const token = provider.canaryToken();
         const detected = provider.checkCanary(`output contains ${token} here`, token);
         assert(detected === true, 'checkCanary() must detect the token in output');
+      },
+    },
+    {
+      name: 'screen returns a ScreeningVerdict',
+      async run(provider) {
+        const result = await provider.screen('hello world');
+        assertType(result.allowed, 'boolean', 'screen().allowed must be boolean');
+        assertType(result.reasons, 'array', 'screen().reasons must be an array');
       },
     },
   ];
@@ -245,35 +249,6 @@ function webSearchContract(): ContractTest<WebSearchProvider>[] {
   ];
 }
 
-function browserContract(): ContractTest<BrowserProvider>[] {
-  return [
-    {
-      name: 'launch is a function',
-      async run(provider) {
-        assertType(provider.launch, 'function', 'launch must be a function');
-      },
-    },
-    {
-      name: 'navigate is a function',
-      async run(provider) {
-        assertType(provider.navigate, 'function', 'navigate must be a function');
-      },
-    },
-    {
-      name: 'snapshot is a function',
-      async run(provider) {
-        assertType(provider.snapshot, 'function', 'snapshot must be a function');
-      },
-    },
-    {
-      name: 'close is a function',
-      async run(provider) {
-        assertType(provider.close, 'function', 'close must be a function');
-      },
-    },
-  ];
-}
-
 function llmContract(): ContractTest<LLMProvider>[] {
   return [
     {
@@ -287,30 +262,6 @@ function llmContract(): ContractTest<LLMProvider>[] {
       name: 'chat is a function',
       async run(provider) {
         assertType(provider.chat, 'function', 'chat must be a function');
-      },
-    },
-    {
-      name: 'models is a function',
-      async run(provider) {
-        assertType(provider.models, 'function', 'models must be a function');
-      },
-    },
-  ];
-}
-
-function imageContract(): ContractTest<ImageProvider>[] {
-  return [
-    {
-      name: 'name is a non-empty string',
-      async run(provider) {
-        assertType(provider.name, 'string', 'name must be a string');
-        assert(provider.name.length > 0, 'name must be non-empty');
-      },
-    },
-    {
-      name: 'generate is a function',
-      async run(provider) {
-        assertType(provider.generate, 'function', 'generate must be a function');
       },
     },
     {
@@ -404,13 +355,11 @@ function channelContract(): ContractTest<ChannelProvider>[] {
 
 const CONTRACTS: Record<ProviderKind, () => ContractTest<any>[]> = {
   llm: llmContract,
-  image: imageContract,
   memory: memoryContract,
-  scanner: scannerContract,
+  security: securityContract,
   channel: channelContract,
   web_extract: webExtractContract,
   web_search: webSearchContract,
-  browser: browserContract,
   credentials: credentialContract,
   audit: auditContract,
   sandbox: sandboxContract,
