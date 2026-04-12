@@ -33,6 +33,12 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
         execFileSync('git', ['init', '--bare', repoPath], {
           stdio: 'pipe',
         });
+        // Ensure default branch is 'main' regardless of system git config
+        try {
+          execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], {
+            cwd: repoPath, stdio: 'pipe',
+          });
+        } catch { /* old git — leave as system default */ }
         logger.debug('repo_initialized', { agentId, repoName, repoPath });
       } catch (err) {
         // git init --bare is idempotent — reinitializing is not an error

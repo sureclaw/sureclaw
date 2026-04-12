@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { workspaceDir, agentDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
 import { isAdmin } from './server-admin-helpers.js';
@@ -328,6 +329,57 @@ export async function extractImageDataBlocks(
   return { blocks: converted, extractedFiles };
 }
 
+/**
+ * Clone or pull a workspace from a file:// bare repo on the host side.
+ * Container sandboxes can't access file:// URLs — the host must do git ops.
+ */
+function hostGitSync(workspace: string, repoUrl: string, logger: Logger): void {
+  const hasGit = existsSync(join(workspace, '.git'));
+  const gitOpts = { cwd: workspace, stdio: 'pipe' as const };
+
+  if (!hasGit) {
+    try {
+      execFileSync('git', ['clone', repoUrl, '.'], gitOpts);
+      // Ensure we're on 'main' regardless of system default
+      try { execFileSync('git', ['branch', '-M', 'main'], gitOpts); } catch { /* no commits yet */ }
+    } catch {
+      // Clone fails on empty bare repos (no commits yet) — init and add remote
+      execFileSync('git', ['init'], gitOpts);
+      execFileSync('git', ['remote', 'add', 'origin', repoUrl], gitOpts);
+      try { execFileSync('git', ['checkout', '-b', 'main'], gitOpts); } catch { /* already on main */ }
+    }
+  } else {
+    try {
+      execFileSync('git', ['pull', 'origin', 'main'], gitOpts);
+    } catch { /* may fail on empty repo or no remote changes */ }
+  }
+
+  execFileSync('git', ['config', 'user.name', 'agent'], gitOpts);
+  execFileSync('git', ['config', 'user.email', 'agent@ax.local'], gitOpts);
+  logger.debug('host_git_synced', { workspace, repoUrl });
+}
+
+/**
+ * Commit and push workspace changes to the file:// bare repo from the host.
+ */
+function hostGitCommit(workspace: string, logger: Logger): void {
+  const gitOpts = { cwd: workspace, stdio: 'pipe' as const };
+  try {
+    execFileSync('git', ['add', '.'], gitOpts);
+    const status = execFileSync('git', ['status', '--porcelain'], {
+      cwd: workspace, encoding: 'utf-8', stdio: 'pipe',
+    });
+    if (status.trim()) {
+      const timestamp = new Date().toISOString();
+      execFileSync('git', ['commit', '-m', `agent-turn: ${timestamp}`], gitOpts);
+      execFileSync('git', ['push', 'origin', 'main'], gitOpts);
+      logger.info('host_git_committed', { workspace });
+    }
+  } catch (err) {
+    logger.warn('host_git_commit_failed', { error: (err as Error).message });
+  }
+}
+
 export async function processCompletion(
   deps: CompletionDeps,
   content: string | ContentBlock[],
@@ -511,6 +563,7 @@ export async function processCompletion(
   let proxyCleanup: (() => void) | undefined;
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
+  let hostManagedGit = false;
   const currentUserId = userId ?? 'anonymous';
   const sandboxResolvedAgent = userId && deps.provisioner
     ? await deps.provisioner.resolveAgent(userId)
@@ -527,6 +580,20 @@ export async function processCompletion(
       mkdirSync(workspace, { recursive: true });
     } else {
       workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
+    }
+
+    // For file:// workspace URLs (git-local provider), clone/pull on the host side.
+    // Container sandboxes can't access host file paths, so the host manages git.
+    if (providers.workspace) {
+      const repoUrl = await providers.workspace.getRepoUrl(agentName);
+      if (repoUrl.startsWith('file://')) {
+        try {
+          hostGitSync(workspace, repoUrl, reqLogger);
+          hostManagedGit = true;
+        } catch (err) {
+          reqLogger.warn('host_git_sync_failed', { error: (err as Error).message });
+        }
+      }
     }
 
     // Register workspace for sandbox tool IPC handlers.
@@ -1053,8 +1120,9 @@ export async function processCompletion(
     // Transient: OOM kill (137), segfault (139), generic crash with retryable stderr.
     // Permanent: auth failures, bad config, content filter blocks.
 
-    // Calculate workspace repository URL from config
-    const workspaceRepoUrl = providers.workspace
+    // Calculate workspace repository URL from config.
+    // For file:// URLs (git-local), the host already did clone/pull — don't pass to agent.
+    const workspaceRepoUrl = !hostManagedGit && providers.workspace
       ? await providers.workspace.getRepoUrl(agentName)
       : undefined;
 
@@ -1077,7 +1145,7 @@ export async function processCompletion(
         // Credential placeholders + CA trust env vars for MITM proxy
         ...credentialMap.toEnvMap(),
         ...credentialEnv,
-        // Workspace repository URL for git clone and workspace manager setup
+        // Workspace repository URL for git clone (non-file:// URLs only; host manages file://)
         ...(workspaceRepoUrl ? { WORKSPACE_REPO_URL: workspaceRepoUrl } : {}),
       },
     };
@@ -1559,6 +1627,10 @@ export async function processCompletion(
     // Deregister session from shared credential registry (k8s shared proxy)
     if (deps.sharedCredentialRegistry) {
       deps.sharedCredentialRegistry.deregister(sessionId);
+    }
+    // Commit workspace changes to the bare repo before cleanup.
+    if (hostManagedGit && workspace) {
+      hostGitCommit(workspace, reqLogger);
     }
     if (workspace && !isPersistent) {
       try { rmSync(workspace, { recursive: true, force: true }); } catch {
