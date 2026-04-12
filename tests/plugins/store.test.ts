@@ -38,7 +38,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     const docs = memoryDocuments();
     await upsertPlugin(docs, {
       pluginName: 'hubspot-crm',
-      source: 'cowork:hubspot-crm',
+      source: 'acme/hubspot-crm',
       version: '1.2.0',
       description: 'HubSpot CRM integration',
       agentId: 'pi',
@@ -50,7 +50,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     const plugin = await getPlugin(docs, 'pi', 'hubspot-crm');
     expect(plugin).not.toBeNull();
     expect(plugin!.pluginName).toBe('hubspot-crm');
-    expect(plugin!.source).toBe('cowork:hubspot-crm');
+    expect(plugin!.source).toBe('acme/hubspot-crm');
     expect(plugin!.version).toBe('1.2.0');
     expect(plugin!.description).toBe('HubSpot CRM integration');
     expect(plugin!.agentId).toBe('pi');
@@ -59,13 +59,33 @@ describe('plugin CRUD (DocumentStore)', () => {
     expect(plugin!.mcpServers).toHaveLength(1);
     expect(plugin!.mcpServers[0].name).toBe('hubspot');
     expect(plugin!.installedAt).toBeTruthy();
+    expect(plugin!.shared).toBeUndefined();
+  });
+
+  it('stores shared flag when provided', async () => {
+    const docs = memoryDocuments();
+    await upsertPlugin(docs, {
+      pluginName: 'shared-plugin',
+      source: 'acme/shared-plugin',
+      version: '1.0.0',
+      description: 'A shared plugin',
+      agentId: 'pi',
+      skillCount: 1,
+      commandCount: 0,
+      mcpServers: [],
+      shared: true,
+    });
+
+    const plugin = await getPlugin(docs, 'pi', 'shared-plugin');
+    expect(plugin).not.toBeNull();
+    expect(plugin!.shared).toBe(true);
   });
 
   it('upsert overwrites existing plugin', async () => {
     const docs = memoryDocuments();
     await upsertPlugin(docs, {
       pluginName: 'slack-plugin',
-      source: 'cowork:slack',
+      source: 'acme/slack-plugin',
       version: '1.0.0',
       description: 'v1',
       agentId: 'pi',
@@ -75,7 +95,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     });
     await upsertPlugin(docs, {
       pluginName: 'slack-plugin',
-      source: 'cowork:slack',
+      source: 'acme/slack-plugin',
       version: '2.0.0',
       description: 'v2',
       agentId: 'pi',
@@ -100,7 +120,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     const docs = memoryDocuments();
     await upsertPlugin(docs, {
       pluginName: 'hubspot-crm',
-      source: 'cowork:hubspot-crm',
+      source: 'acme/hubspot-crm',
       version: '1.0.0',
       description: 'HubSpot',
       agentId: 'pi',
@@ -110,7 +130,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     });
     await upsertPlugin(docs, {
       pluginName: 'slack-plugin',
-      source: 'cowork:slack',
+      source: 'acme/slack-plugin',
       version: '1.0.0',
       description: 'Slack',
       agentId: 'pi',
@@ -120,7 +140,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     });
     await upsertPlugin(docs, {
       pluginName: 'legal-docs',
-      source: 'cowork:legal-docs',
+      source: 'acme/legal-docs',
       version: '1.0.0',
       description: 'Legal templates',
       agentId: 'counsel',
@@ -146,7 +166,7 @@ describe('plugin CRUD (DocumentStore)', () => {
     const docs = memoryDocuments();
     await upsertPlugin(docs, {
       pluginName: 'del-me',
-      source: 'cowork:del-me',
+      source: 'acme/del-me',
       version: '1.0.0',
       description: 'Temporary',
       agentId: 'pi',

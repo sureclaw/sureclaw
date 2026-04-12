@@ -19,14 +19,12 @@ export const AGENT_DESCRIPTIONS: Record<AgentType, string> = {
 export interface ProfileDefaults {
   agent: AgentType;
   memory: string;
-  scanner: string;
+  security: string;
   web: { extract: string; search: string };
-  browser: string;
   credentials: string;
   audit: string;
   sandbox: string;
   scheduler: string;
-  screener?: string;
   timeoutSec: number;
   memoryMb: number;
 }
@@ -37,9 +35,8 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   paranoid: {
     agent: 'pi-coding-agent',
     memory: 'cortex',
-    scanner: 'patterns',
+    security: 'patterns',
     web: { extract: 'none', search: 'none' },
-    browser: 'none',
     credentials: 'keychain',
 
     audit: 'database',
@@ -51,30 +48,26 @@ export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
   balanced: {
     agent: 'pi-coding-agent',
     memory: 'cortex',
-    scanner: 'patterns',
+    security: 'patterns',
     web: { extract: 'none', search: 'none' },
-    browser: 'none',
     credentials: 'keychain',
 
     audit: 'database',
     sandbox: defaultSandbox,
     scheduler: 'plainjob',
-    screener: 'static',
     timeoutSec: 120,
     memoryMb: 512,
   },
   yolo: {
     agent: 'pi-coding-agent',
     memory: 'cortex',
-    scanner: 'patterns',
+    security: 'patterns',
     web: { extract: 'none', search: 'none' },
-    browser: 'container',
     credentials: 'keychain',
 
     audit: 'database',
     sandbox: defaultSandbox,
     scheduler: 'plainjob',
-    screener: 'static',
     timeoutSec: 300,
     memoryMb: 1024,
   },
@@ -92,9 +85,9 @@ export const PROFILE_DISPLAY_NAMES: Record<ProfileName, string> = {
 };
 
 export const PROFILE_DESCRIPTIONS: Record<ProfileName, string> = {
-  paranoid: 'Maximum security, minimal features — no web, no browser, database skills',
+  paranoid: 'Maximum security, minimal features — no web, database skills',
   balanced: 'Balanced security and features — web fetch, database skills, SQLite storage (recommended)',
-  yolo: 'Maximum features — browser automation, extended timeouts (be careful!)',
+  yolo: 'Maximum features — extended timeouts (be careful!)',
 };
 
 // ── Auth Method ──
@@ -141,42 +134,15 @@ export const DEFAULT_MODELS: Record<LLMProviderChoice, string> = {
   deepinfra: 'meta-llama/Meta-Llama-3.1-70B-Instruct',
 };
 
-// ── Image Provider ──
-
-export const IMAGE_PROVIDERS = ['openai', 'openrouter', 'gemini', 'groq'] as const;
-export type ImageProviderChoice = (typeof IMAGE_PROVIDERS)[number];
-
-export const IMAGE_PROVIDER_DISPLAY_NAMES: Record<ImageProviderChoice, string> = {
-  openai: 'OpenAI',
-  openrouter: 'OpenRouter',
-  gemini: 'Google Gemini',
-  groq: 'Groq',
-};
-
-export const IMAGE_PROVIDER_DESCRIPTIONS: Record<ImageProviderChoice, string> = {
-  openai: 'DALL-E and GPT Image models',
-  openrouter: 'Image generation via OpenRouter (Gemini, Flux, etc.)',
-  gemini: 'Gemini image generation models',
-  groq: 'Image generation via Groq',
-};
-
-export const DEFAULT_IMAGE_MODELS: Record<ImageProviderChoice, string> = {
-  openai: 'gpt-image-1',
-  openrouter: 'google/gemini-3-pro-image-preview',
-  gemini: 'gemini-2.0-flash-exp',
-  groq: 'playai/play-image-gen-large',
-};
-
 /** Available provider choices per category, derived from the provider map. */
 export const PROVIDER_CHOICES = {
   memory: ['cortex'],
   scanner: ['patterns'],
   web_extract: ['none', 'tavily'],
   web_search: ['none', 'tavily', 'brave'],
-  browser: ['none', 'container'],
   credentials: ['keychain', 'plaintext'],
   audit: ['database'],
-  sandbox: ['subprocess', 'docker', 'apple', 'k8s'],
+  sandbox: ['docker', 'apple', 'k8s'],
   scheduler: ['none', 'plainjob'],
   channels: ['slack'],
 } as const;

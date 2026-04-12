@@ -17,7 +17,7 @@ const AGENT = 'main';
 
 const mockConfig = {
   profile: 'paranoid',
-  providers: { memory: 'cortex', scanner: 'patterns', channels: ['cli'], web: { extract: 'none', search: 'none' }, browser: 'none', credentials: 'keychain', skills: 'database', audit: 'database', sandbox: 'subprocess', scheduler: 'plainjob' },
+  providers: { memory: 'cortex', security: 'patterns', channels: ['cli'], web: { extract: 'none', search: 'none' }, credentials: 'keychain', skills: 'database', audit: 'database', sandbox: 'docker', scheduler: 'plainjob' },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
   scheduler: {
     active_hours: { start: '00:00', end: '23:59', timezone: 'UTC' },

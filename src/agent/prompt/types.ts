@@ -25,7 +25,7 @@ export interface PromptContext {
 
   // Security (from host via stdin payload)
   profile: string;       // 'paranoid' | 'balanced' | 'yolo'
-  sandboxType: string;   // 'docker' | 'apple' | 'k8s' | 'subprocess'
+  sandboxType: string;   // 'docker' | 'apple' | 'k8s'
   taintRatio: number;    // 0-1, current session taint ratio from host
   taintThreshold: number; // profile threshold (0.10, 0.30, 0.60)
 
@@ -44,12 +44,8 @@ export interface PromptContext {
   agentId?: string;
   /** Whether governance (proposal) system is active. */
   hasGovernance?: boolean;
-  /** Whether the agent workspace tier is mounted (./agent directory). */
-  hasAgentWorkspace?: boolean;
-  /** Whether the user workspace tier is mounted (./user directory). */
-  hasUserWorkspace?: boolean;
-  /** Whether the user workspace is writable (workspace provider is active). */
-  userWorkspaceWritable?: boolean;
+  /** Whether the workspace is available. */
+  hasWorkspace?: boolean;
   /** MCP CLI tool names available in PATH (e.g. ['linear', 'github']). */
   mcpCLIs?: string[];
   /** Whether to show skill install instructions (detected from user message). */

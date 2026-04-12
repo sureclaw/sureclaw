@@ -14,8 +14,8 @@ import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
   | 'memory' | 'web' | 'audit' | 'identity'
-  | 'scheduler' | 'skill' | 'credential' | 'delegation' | 'image'
-  | 'workspace' | 'workspace_scopes' | 'governance' | 'sandbox';
+  | 'scheduler' | 'skill' | 'credential' | 'delegation'
+  | 'workspace' | 'governance' | 'sandbox';
 
 export interface ToolSpec {
   name: string;
@@ -26,7 +26,7 @@ export interface ToolSpec {
   /** When true, execute() must inject userId into IPC call params. */
   injectUserId?: boolean;
   /** Custom IPC call timeout in ms. Tools that spawn subprocesses (agent_delegate)
-   *  or call slow external APIs (image_generate) need longer than the 30s default. */
+   *  or call slow external APIs need longer than the 30s default. */
   timeoutMs?: number;
   /** Maps type discriminator values to IPC action names. Present on multi-op tools. */
   actionMap?: Record<string, string>;
@@ -281,46 +281,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     singletonAction: 'save_artifact',
   },
 
-  // ── Workspace Read ──
-  {
-    name: 'workspace_read',
-    label: 'Read Workspace File',
-    description:
-      'Read a file from a workspace scope (agent, user, or session). Returns the file content as text.',
-    parameters: Type.Object({
-      scope: Type.String({ description: '"agent", "user", or "session"' }),
-      path: Type.String({ description: 'Relative path within the scope' }),
-    }),
-    category: 'workspace',
-    singletonAction: 'workspace_read',
-  },
-
-  // ── Workspace List ──
-  {
-    name: 'workspace_list',
-    label: 'List Workspace Files',
-    description:
-      'List files in a workspace scope (agent, user, or session). Optionally filter by path prefix.',
-    parameters: Type.Object({
-      scope: Type.String({ description: '"agent", "user", or "session"' }),
-      prefix: Type.Optional(Type.String({ description: 'Filter by path prefix' })),
-    }),
-    category: 'workspace',
-    singletonAction: 'workspace_list',
-  },
-
-  // ── Workspace Scopes ──
-  {
-    name: 'workspace_mount',
-    label: 'Mount Workspace',
-    description:
-      'Mount workspace scopes for file persistence. Scopes: session (temporary), user (private), agent (shared). Additive — call multiple times to add scopes.',
-    parameters: Type.Object({
-      scopes: Type.Array(Type.String({ description: 'Scopes to mount: "session", "user", or "agent"' })),
-    }),
-    category: 'workspace_scopes',
-    singletonAction: 'workspace_mount',
-  },
 
   // ── Governance ──
   {
@@ -404,24 +364,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     },
   },
 
-  // ── Image (singleton) ──
-  {
-    name: 'image',
-    label: 'Generate Image',
-    description:
-      'Generate an image from a text prompt using a configured image model. ' +
-      'Returns a JSON object with a `url` field. Display the image in your response ' +
-      'using markdown: ![description](url)',
-    parameters: Type.Object({
-      prompt: Type.String({ description: 'Text description of the image to generate' }),
-      model: Type.Optional(Type.String({ description: 'Model ID override (defaults to first configured image model)' })),
-      size: Type.Optional(Type.String({ description: 'Image size, e.g. "1024x1024"' })),
-      quality: Type.Optional(Type.String({ description: 'Quality level, e.g. "standard" or "hd"' })),
-    }),
-    category: 'image',
-    timeoutMs: 120_000,
-    singletonAction: 'image_generate',
-  },
 
   // ── Sandbox (singleton tools for bash/file ops) ──
   {
@@ -550,8 +492,6 @@ export function getToolParamKeys(name: string): string[] {
 export interface ToolFilterContext {
   /** identityFiles.heartbeat is non-empty */
   hasHeartbeat: boolean;
-  /** Workspace scoped mounts available (workspace provider != 'none') */
-  hasWorkspaceScopes: boolean;
   /** Enterprise governance enabled */
   hasGovernance: boolean;
   /** User message indicates skill install intent — show install tool */
@@ -571,8 +511,6 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
       switch (spec.category) {
         case 'scheduler':  return ctx.hasHeartbeat;
         case 'skill':      return true;  // always available — delete/update shouldn't require install intent
-        case 'workspace':        return ctx.hasWorkspaceScopes;
-        case 'workspace_scopes': return ctx.hasWorkspaceScopes;
         case 'governance': return ctx.hasGovernance;
         default:           return true;
       }

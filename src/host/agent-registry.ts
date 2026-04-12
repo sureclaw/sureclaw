@@ -1,21 +1,16 @@
 /**
  * Agent Registry — tracks registered agents, capabilities, status, relationships.
  *
- * Two implementations:
- *   - FileAgentRegistry  — JSON file at ~/.ax/registry.json (used with SQLite / no database)
- *   - DatabaseAgentRegistry — PostgreSQL-backed (see agent-registry-db.ts)
+ * Uses DatabaseAgentRegistry (see agent-registry-db.ts) backed by either
+ * PostgreSQL or SQLite depending on the configured DatabaseProvider.
  *
- * Use createAgentRegistry() factory to get the right one.
+ * Use createAgentRegistry() factory to get an instance.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { registryPath } from '../paths.js';
-import { getLogger } from '../logger.js';
+import { mkdirSync } from 'node:fs';
 import type { DatabaseProvider } from '../providers/database/types.js';
-
-const logger = getLogger().child({ component: 'agent-registry' });
+import { createKyselyDb } from '../utils/database.js';
+import { dataDir, dataFile } from '../paths.js';
 
 // ═══════════════════════════════════════════════════════
 // Types
@@ -79,127 +74,24 @@ export interface AgentRegistry {
 }
 
 // ═══════════════════════════════════════════════════════
-// File-based implementation
-// ═══════════════════════════════════════════════════════
-
-interface AgentRegistryData {
-  version: 1;
-  agents: AgentRegistryEntry[];
-}
-
-export class FileAgentRegistry implements AgentRegistry {
-  private readonly filePath: string;
-
-  constructor(filePath?: string) {
-    this.filePath = filePath ?? registryPath();
-  }
-
-  private load(): AgentRegistryData {
-    try {
-      if (!existsSync(this.filePath)) {
-        return { version: 1, agents: [] };
-      }
-      const raw = readFileSync(this.filePath, 'utf-8');
-      const data = JSON.parse(raw) as AgentRegistryData;
-      if (data.version !== 1) {
-        logger.warn('registry_version_mismatch', { version: data.version });
-      }
-      return data;
-    } catch (err) {
-      logger.error('registry_load_error', { error: (err as Error).message });
-      return { version: 1, agents: [] };
-    }
-  }
-
-  private save(data: AgentRegistryData): void {
-    const dir = dirname(this.filePath);
-    mkdirSync(dir, { recursive: true });
-    const tmpPath = join(dir, `.registry-${randomUUID().slice(0, 8)}.tmp`);
-    writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
-    renameSync(tmpPath, this.filePath);
-  }
-
-  async list(status?: AgentStatus): Promise<AgentRegistryEntry[]> {
-    const data = this.load();
-    return status ? data.agents.filter(a => a.status === status) : data.agents;
-  }
-
-  async get(agentId: string): Promise<AgentRegistryEntry | null> {
-    const data = this.load();
-    return data.agents.find(a => a.id === agentId) ?? null;
-  }
-
-  async register(entry: AgentRegisterInput): Promise<AgentRegistryEntry> {
-    const data = this.load();
-    if (data.agents.some(a => a.id === entry.id)) {
-      throw new Error(`Agent "${entry.id}" already exists in registry`);
-    }
-    const now = new Date().toISOString();
-    const full: AgentRegistryEntry = {
-      ...entry,
-      admins: entry.admins ?? [],
-      displayName: entry.displayName ?? entry.name,
-      agentKind: entry.agentKind ?? 'personal',
-      createdAt: now,
-      updatedAt: now,
-    };
-    data.agents.push(full);
-    this.save(data);
-    logger.info('agent_registered', { agentId: entry.id, agentType: entry.agentType });
-    return full;
-  }
-
-  async update(agentId: string, updates: Partial<Pick<AgentRegistryEntry, 'name' | 'description' | 'status' | 'capabilities' | 'displayName'>>): Promise<AgentRegistryEntry> {
-    const data = this.load();
-    const idx = data.agents.findIndex(a => a.id === agentId);
-    if (idx === -1) throw new Error(`Agent "${agentId}" not found in registry`);
-    const updated: AgentRegistryEntry = { ...data.agents[idx], ...updates, updatedAt: new Date().toISOString() };
-    data.agents[idx] = updated;
-    this.save(data);
-    logger.info('agent_updated', { agentId, updates: Object.keys(updates) });
-    return updated;
-  }
-
-  async remove(agentId: string): Promise<boolean> {
-    const data = this.load();
-    const idx = data.agents.findIndex(a => a.id === agentId);
-    if (idx === -1) return false;
-    data.agents.splice(idx, 1);
-    this.save(data);
-    logger.info('agent_removed', { agentId });
-    return true;
-  }
-
-  async findByCapability(capability: string): Promise<AgentRegistryEntry[]> {
-    const data = this.load();
-    return data.agents.filter(a => a.status === 'active' && a.capabilities.includes(capability));
-  }
-
-  async findByAdmin(userId: string): Promise<AgentRegistryEntry[]> {
-    const data = this.load();
-    return data.agents.filter(a => a.status === 'active' && a.admins?.includes(userId));
-  }
-
-  async findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]> {
-    const data = this.load();
-    return data.agents.filter(a => a.status === 'active' && a.agentKind === kind);
-  }
-
-  async children(parentId: string): Promise<AgentRegistryEntry[]> {
-    const data = this.load();
-    return data.agents.filter(a => a.parentId === parentId);
-  }
-
-}
-
-// ═══════════════════════════════════════════════════════
 // Factory
 // ═══════════════════════════════════════════════════════
 
 export async function createAgentRegistry(database?: DatabaseProvider): Promise<AgentRegistry> {
-  if (database?.type === 'postgresql') {
-    const { DatabaseAgentRegistry } = await import('./agent-registry-db.js');
+  const { DatabaseAgentRegistry } = await import('./agent-registry-db.js');
+
+  if (database) {
     return DatabaseAgentRegistry.create(database);
   }
-  return new FileAgentRegistry();
+
+  // No external database — create a local SQLite-backed registry
+  mkdirSync(dataDir(), { recursive: true });
+  const db = createKyselyDb({ type: 'sqlite', path: dataFile('registry.db') });
+  const sqliteProvider: DatabaseProvider = {
+    db,
+    type: 'sqlite',
+    vectorsAvailable: false,
+    close: async () => { await db.destroy(); },
+  };
+  return DatabaseAgentRegistry.create(sqliteProvider);
 }

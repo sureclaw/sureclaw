@@ -67,10 +67,6 @@ export interface AgentConfig {
   sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
   // Enterprise fields
   agentId?: string;
-  agentWorkspace?: string;
-  userWorkspace?: string;
-  /** Configured workspace provider name (e.g. 'none', 'local', 'gcs'). */
-  workspaceProvider?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
   /** Pre-loaded skills from host (via stdin payload from DB).
@@ -266,33 +262,24 @@ export interface StdinPayload {
   requestId?: string;
   /** Session scope from channel provider — determines memory scoping (dm = user-scoped, channel = agent-scoped). */
   sessionScope?: 'dm' | 'channel' | 'thread' | 'group';
-  /** Per-turn IPC capability token (for NATS subject scoping in k8s mode). */
+  /** Per-turn IPC capability token (for HTTP IPC authentication in k8s mode). */
   ipcToken?: string;
   // Enterprise fields
   agentId?: string;
-  agentWorkspace?: string;
-  userWorkspace?: string;
-  /** Configured workspace provider name (e.g. 'none', 'local', 'gcs'). */
-  workspaceProvider?: string;
   /** Pre-loaded identity files from host (loaded from DocumentStore). */
   identity?: Partial<IdentityFiles>;
-  /** Whether agent scope is read-only (non-admin users). */
-  agentReadOnly?: boolean;
-  /** Web proxy URL for outbound HTTP/HTTPS (warm pool pods get this from payload, not pod env). */
+  /** Web proxy URL for outbound HTTP/HTTPS (k8s pods get this from payload, not pod env). */
   webProxyUrl?: string;
-  /** Credential placeholder env vars — warm pool pods get these from payload, not pod spec. */
+  /** Credential placeholder env vars — k8s pods get these from payload, not pod spec. */
   credentialEnv?: Record<string, string>;
   /** MITM CA cert PEM — written to disk so sandbox processes trust the proxy. */
   caCert?: string;
-  /** Pre-loaded agent-level skills from DB (installed via plugins/admin dashboard).
+  /** Pre-loaded skills from DB (agent-scoped and user-scoped, merged).
    *  Each skill includes its full file contents so the runner can write
-   *  them to agentWorkspace/skills/ for installSkillDeps() and
+   *  them to /workspace/skills/ for installSkillDeps() and
    *  buildSystemPrompt() to read. */
   skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
-  /** Pre-loaded user-scoped skills from DB (created by user via skill_create).
-   *  Written to userWorkspace/skills/ so users can test/debug before promoting to agent scope. */
-  userSkills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
-  /** MCP CLI executables — one file per server, written to agentWorkspace/bin/. */
+  /** MCP CLI executables — one file per server, written to /workspace/bin/. */
   mcpCLIs?: Array<{ path: string; content: string }>;
 }
 
@@ -308,7 +295,7 @@ export function parseStdinPayload(data: string): StdinPayload {
     taintRatio: 0,
     taintThreshold: 1,   // permissive default (no blocking)
     profile: 'balanced',
-    sandboxType: 'subprocess',
+    sandboxType: 'docker',
   };
 
   try {
@@ -325,7 +312,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         taintRatio: typeof parsed.taintRatio === 'number' ? parsed.taintRatio : 0,
         taintThreshold: typeof parsed.taintThreshold === 'number' ? parsed.taintThreshold : 1,
         profile: typeof parsed.profile === 'string' ? parsed.profile : 'balanced',
-        sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'subprocess',
+        sandboxType: typeof parsed.sandboxType === 'string' ? parsed.sandboxType : 'docker',
         userId: typeof parsed.userId === 'string' ? parsed.userId : undefined,
         replyOptional: parsed.replyOptional === true,
         sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
@@ -334,20 +321,14 @@ export function parseStdinPayload(data: string): StdinPayload {
         ipcToken: typeof parsed.ipcToken === 'string' ? parsed.ipcToken : undefined,
         // Enterprise fields
         agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
-        agentWorkspace: typeof parsed.agentWorkspace === 'string' ? parsed.agentWorkspace : undefined,
-        userWorkspace: typeof parsed.userWorkspace === 'string' ? parsed.userWorkspace : undefined,
-        workspaceProvider: typeof parsed.workspaceProvider === 'string' ? parsed.workspaceProvider : undefined,
         // Identity from host (loaded from DocumentStore)
         identity: parsed.identity && typeof parsed.identity === 'object' ? parsed.identity as Partial<IdentityFiles> : undefined,
-        // Workspace provisioning fields (sandbox-side providers provision in-pod)
-        agentReadOnly: parsed.agentReadOnly === true,
         webProxyUrl: typeof parsed.webProxyUrl === 'string' ? parsed.webProxyUrl : undefined,
         credentialEnv: parsed.credentialEnv && typeof parsed.credentialEnv === 'object' && !Array.isArray(parsed.credentialEnv)
           ? parsed.credentialEnv as Record<string, string>
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
-        userSkills: Array.isArray(parsed.userSkills) ? parsed.userSkills : undefined,
         mcpCLIs: Array.isArray(parsed.mcpCLIs) ? parsed.mcpCLIs : undefined,
       };
     }
@@ -381,7 +362,7 @@ export async function run(config: AgentConfig): Promise<void> {
 
 /**
  * Apply a parsed StdinPayload to the AgentConfig.
- * Shared between stdin and NATS work dispatch paths.
+ * Shared between stdin and HTTP work dispatch paths.
  */
 function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   const msgText = typeof payload.message === 'string' ? payload.message : extractText(payload.message);
@@ -419,7 +400,7 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
     process.env.AX_IPC_TOKEN = payload.ipcToken;
   }
 
-  // Web proxy URL — warm pool pods don't have AX_WEB_PROXY_URL in their pod spec,
+  // Web proxy URL — k8s pods don't have AX_WEB_PROXY_URL in their pod spec,
   // so the host sends it in the payload. Set it in process.env so the runner picks it up.
   if (payload.webProxyUrl && !process.env.AX_WEB_PROXY_URL) {
     process.env.AX_WEB_PROXY_URL = payload.webProxyUrl;
@@ -473,17 +454,11 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
     }
   }
 
-  // Enterprise fields — prefer canonical env vars (set by sandbox provider)
-  // over payload (which carries host paths).
+  // Enterprise fields
   config.agentId = payload.agentId;
-  config.agentWorkspace = process.env.AX_AGENT_WORKSPACE || payload.agentWorkspace;
-  config.userWorkspace = process.env.AX_USER_WORKSPACE || payload.userWorkspace;
-  config.workspaceProvider = payload.workspaceProvider;
-  // Write agent-level skills (installed via plugins/admin dashboard) to
-  // agentWorkspace/skills/ so installSkillDeps() and loadSkillsMultiDir() find them.
-  // User-created skills live in userWorkspace/skills/ (written by the user, not here).
-  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.agentWorkspace) {
-    const skillsBase = resolve(config.agentWorkspace, 'skills');
+  // Write skills to /workspace/skills/ so installSkillDeps() and loadSkillsMultiDir() find them.
+  if (Array.isArray(payload.skills) && payload.skills.length > 0 && config.workspace) {
+    const skillsBase = resolve(config.workspace, 'skills');
     // Prune stale skills from previous turns so deleted skills don't linger on disk
     if (existsSync(skillsBase)) {
       rmSync(skillsBase, { recursive: true, force: true });
@@ -506,38 +481,12 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
         writeFileSync(filePath, file.content, 'utf-8');
       }
     }
-    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase, scope: 'agent' });
+    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
   }
 
-  // Write user-scoped skills (created via skill_create by non-admin users)
-  // to userWorkspace/skills/ so users can test and debug before promoting to agent scope.
-  if (Array.isArray(payload.userSkills) && payload.userSkills.length > 0 && config.userWorkspace) {
-    const userSkillsBase = resolve(config.userWorkspace, 'skills');
-    if (existsSync(userSkillsBase)) {
-      rmSync(userSkillsBase, { recursive: true, force: true });
-    }
-    for (const skill of payload.userSkills) {
-      const skillDir = resolve(userSkillsBase, skill.slug.replace(/[/\\]/g, '_').replace(/\.\./g, '_'));
-      if (!skillDir.startsWith(userSkillsBase + sep)) {
-        logger.warn('skill_path_traversal_blocked', { slug: skill.slug, scope: 'user' });
-        continue;
-      }
-      for (const file of skill.files) {
-        const filePath = resolve(skillDir, file.path);
-        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
-          logger.warn('skill_file_path_traversal_blocked', { slug: skill.slug, path: file.path, scope: 'user' });
-          continue;
-        }
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, file.content, 'utf-8');
-      }
-    }
-    logger.info('skills_written', { count: payload.userSkills.length, dir: userSkillsBase, scope: 'user' });
-  }
-
-  // ── Write MCP CLI executables to agentWorkspace/bin/ ──
-  if (Array.isArray(payload.mcpCLIs) && config.agentWorkspace) {
-    const binDir = resolve(config.agentWorkspace, 'bin');
+  // ── Write MCP CLI executables to /workspace/bin/ ──
+  if (Array.isArray(payload.mcpCLIs) && config.workspace) {
+    const binDir = resolve(config.workspace, 'bin');
     mkdirSync(binDir, { recursive: true });
     for (const file of payload.mcpCLIs) {
       const filePath = resolve(binDir, file.path);
@@ -572,7 +521,7 @@ if (isMain) {
   logger.debug('main_start', { agent: config.agent, workspace: config.workspace });
 
   // Choose IPC transport. Three modes:
-  // 1. HTTP (k8s): AX_HOST_URL set → HttpIPCClient + NATS queue group for work dispatch
+  // 1. HTTP (k8s): AX_HOST_URL set → HttpIPCClient + HTTP long-poll for work dispatch
   // 2. Listen (Apple Container): AX_IPC_LISTEN=1 → listen for incoming connection before stdin
   // 3. Default (socket connect): runners create their own IPCClient later
   const isHTTPMode = !!process.env.AX_HOST_URL;

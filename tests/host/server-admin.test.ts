@@ -4,7 +4,7 @@ import { createServer as createHttpServer, type Server } from 'node:http';
 import { createAdminHandler, _rateLimits, type AdminDeps } from '../../src/host/server-admin.js';
 import { ProxyDomainList } from '../../src/host/proxy-domain-list.js';
 import type { Config } from '../../src/types.js';
-import { FileAgentRegistry } from '../../src/host/agent-registry.js';
+import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 import { createEventBus } from '../../src/host/event-bus.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,13 +19,13 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
     profile: 'balanced',
     providers: {
       memory: 'cortex',
-      scanner: 'patterns',
+      security: 'patterns',
       channels: [],
       web: { extract: 'none', search: 'none' },
-      browser: 'none',
+     
       credentials: 'keychain',
       audit: 'database',
-      sandbox: 'subprocess',
+      sandbox: 'docker',
       scheduler: 'none',
     },
     sandbox: { timeout_sec: 120, memory_mb: 512 },
@@ -58,7 +58,7 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
 async function mockDeps(configOverrides: Partial<Config['admin']> = {}): Promise<AdminDeps> {
   const tmpDir = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
   const config = makeConfig(configOverrides);
-  const registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+  const registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
   await registry.register({ id: 'main', name: 'Main Agent', description: 'Test agent', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'test' });
 
   return {
@@ -83,11 +83,6 @@ async function mockDeps(configOverrides: Partial<Config['admin']> = {}): Promise
             collection === 'identity' ? Promise.resolve(['main/persona.md']) : Promise.resolve([])),
           get: vi.fn().mockResolvedValue('You are a helpful assistant.'),
         },
-      },
-      workspace: {
-        listFiles: vi.fn().mockResolvedValue([
-          { path: 'notes.txt', size: 42 },
-        ]),
       },
       memory: {
         recall: vi.fn().mockResolvedValue([]),
@@ -300,6 +295,88 @@ describe('GET /admin/api/agents/:id', () => {
   });
 });
 
+describe('DELETE /admin/api/agents/:id', () => {
+  let server: Server;
+  let port: number;
+
+  afterEach(() => { server.close(); });
+
+  it('archives agent and calls deletePvc when sandbox supports it', async () => {
+    _rateLimits.clear();
+    const deps = await mockDeps();
+    const deletePvc = vi.fn().mockResolvedValue(undefined);
+    (deps.providers as any).sandbox = { deletePvc };
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/agents/main', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    const data = res.body as { ok: boolean; agentId: string };
+    expect(data.ok).toBe(true);
+    expect(data.agentId).toBe('main');
+
+    // deletePvc should have been called with the correct PVC name
+    expect(deletePvc).toHaveBeenCalledWith('ax-workspace-main');
+  });
+
+  it('archives agent without error when sandbox has no deletePvc', async () => {
+    _rateLimits.clear();
+    const deps = await mockDeps();
+    (deps.providers as any).sandbox = {};
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/agents/main', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(200);
+    const data = res.body as { ok: boolean; agentId: string };
+    expect(data.ok).toBe(true);
+  });
+
+  it('succeeds even when deletePvc fails', async () => {
+    _rateLimits.clear();
+    const deps = await mockDeps();
+    const deletePvc = vi.fn().mockRejectedValue(new Error('k8s API down'));
+    (deps.providers as any).sandbox = { deletePvc };
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/agents/main', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+    // Should still succeed — PVC deletion is fire and forget
+    expect(res.status).toBe(200);
+    expect(deletePvc).toHaveBeenCalledWith('ax-workspace-main');
+  });
+
+  it('returns 404 for unknown agent', async () => {
+    _rateLimits.clear();
+    const deps = await mockDeps();
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    const res = await fetchAdmin(port, '/admin/api/agents/nonexistent', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
 describe('GET /admin/api/audit', () => {
   let server: Server;
   let port: number;
@@ -468,33 +545,6 @@ describe('GET /admin/api/agents/:id/skills', () => {
   });
 });
 
-describe('GET /admin/api/agents/:id/workspace', () => {
-  let server: Server;
-  let port: number;
-
-  beforeEach(async () => {
-    _rateLimits.clear();
-    const deps = await mockDeps();
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-  });
-
-  afterEach(() => { server.close(); });
-
-  it('returns workspace files', async () => {
-    const res = await fetchAdmin(port, '/admin/api/agents/main/workspace', { token: 'test-secret-token' });
-    expect(res.status).toBe(200);
-    const files = res.body as Array<{ path: string; size: number }>;
-    expect(Array.isArray(files)).toBe(true);
-  });
-
-  it('returns 404 for unknown agent', async () => {
-    const res = await fetchAdmin(port, '/admin/api/agents/nonexistent/workspace', { token: 'test-secret-token' });
-    expect(res.status).toBe(404);
-  });
-});
 
 describe('tab endpoints handle provider errors gracefully', () => {
   let server: Server;
@@ -504,7 +554,7 @@ describe('tab endpoints handle provider errors gracefully', () => {
     _rateLimits.clear();
     const tmpDir = mkdtempSync(join(tmpdir(), 'ax-admin-test-'));
     const config = makeConfig();
-    const registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+    const registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
     await registry.register({ id: 'main', name: 'Main Agent', description: 'Test agent', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'test' });
 
     const deps: AdminDeps = {
@@ -519,9 +569,6 @@ describe('tab endpoints handle provider errors gracefully', () => {
             list: vi.fn().mockRejectedValue(new Error('database connection lost')),
             get: vi.fn().mockRejectedValue(new Error('database connection lost')),
           },
-        },
-        workspace: {
-          listFiles: vi.fn().mockRejectedValue(new Error('workspace unavailable')),
         },
         memory: {
           list: vi.fn().mockRejectedValue(new Error('memory provider error')),
@@ -555,13 +602,6 @@ describe('tab endpoints handle provider errors gracefully', () => {
     expect(body.error.message).toContain('Failed to list skills');
   });
 
-  it('workspace endpoint returns 500 with specific error when provider fails', async () => {
-    const res = await fetchAdmin(port, '/admin/api/agents/main/workspace', { token: 'test-secret-token' });
-    expect(res.status).toBe(500);
-    const body = res.body as { error: { message: string } };
-    expect(body.error.message).toContain('Failed to list workspace files');
-    expect(body.error.message).toContain('workspace unavailable');
-  });
 
   it('memory endpoint returns 500 with specific error when provider fails', async () => {
     const res = await fetchAdmin(port, '/admin/api/agents/main/memory', { token: 'test-secret-token' });

@@ -21,16 +21,15 @@ describe('history config', () => {
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -49,16 +48,15 @@ scheduler:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -81,16 +79,15 @@ history:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120

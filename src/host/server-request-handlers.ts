@@ -59,7 +59,7 @@ export interface CompletionHandlerOpts {
   agentName: string;
   agentDirVal: string;
   eventBus: EventBus;
-  /** Called to run the completion. Allows callers to wrap with NATS logic. */
+  /** Called to run the completion. Allows callers to wrap with custom dispatch logic. */
   runCompletion: (
     content: string | ContentBlock[],
     requestId: string,

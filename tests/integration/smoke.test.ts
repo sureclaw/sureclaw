@@ -3,7 +3,7 @@
  * the Unix socket, and verifies responses come back through the full pipeline.
  *
  * Only the LLM provider is mocked (llm-mock) — everything else is real:
- * real config loading, real registry, real subprocess sandbox, real scanner,
+ * real config loading, real registry, real docker sandbox, real scanner,
  * real router, real IPC, real message queue.
  *
  * Tests that share the same config reuse a single server process to avoid

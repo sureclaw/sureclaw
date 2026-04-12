@@ -26,7 +26,7 @@ function mockRegistry(): ProviderRegistry {
       async delete() {},
       async list() { return []; },
     },
-    scanner: {
+    security: {
       canaryToken() { return CANARY; },
       checkCanary(output: string, token: string) { return output.includes(token); },
       async scanInput(msg) {
@@ -46,15 +46,6 @@ function mockRegistry(): ProviderRegistry {
     webFetch: { async fetch() { throw new Error('Provider disabled'); } },
     webExtract: { async extract() { throw new Error('Provider disabled'); } },
     webSearch: { async search() { throw new Error('Provider disabled'); } },
-    browser: {
-      async launch() { throw new Error('Provider disabled'); },
-      async navigate() { throw new Error('Provider disabled'); },
-      async snapshot() { throw new Error('Provider disabled'); },
-      async click() { throw new Error('Provider disabled'); },
-      async type() { throw new Error('Provider disabled'); },
-      async screenshot() { throw new Error('Provider disabled'); },
-      async close() { throw new Error('Provider disabled'); },
-    },
     credentials: {
       async get() { return null; },
       async set() {},
@@ -82,12 +73,6 @@ function mockRegistry(): ProviderRegistry {
     scheduler: {
       async start() {},
       async stop() {},
-    },
-    workspace: {
-      async mount() { return { paths: {} }; },
-      async commit() { return { scopes: {} }; },
-      async cleanup() {},
-      activeMounts() { return []; },
     },
   } as ProviderRegistry;
 }

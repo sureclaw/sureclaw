@@ -101,8 +101,8 @@ describe('Plugin Manifest validation', () => {
 
   test('accepts all valid provider kinds', () => {
     const kinds = [
-      'llm', 'image', 'memory', 'scanner', 'channel',
-      'web', 'browser', 'credentials', 'skills',
+      'llm', 'memory', 'security', 'channel',
+      'web', 'credentials', 'skills',
       'audit', 'sandbox', 'scheduler',
     ];
 

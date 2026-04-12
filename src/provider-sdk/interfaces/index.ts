@@ -19,13 +19,6 @@ export type {
   ResolveImageFile,
 } from '../../providers/llm/types.js';
 
-// ── Image ────────────────────────────────────────────
-export type {
-  ImageProvider,
-  ImageGenerateRequest,
-  ImageGenerateResult,
-} from '../../providers/image/types.js';
-
 // ── Memory ───────────────────────────────────────────
 export type {
   MemoryProvider,
@@ -35,12 +28,16 @@ export type {
   ProactiveHint,
 } from '../../providers/memory/types.js';
 
-// ── Scanner ──────────────────────────────────────────
+// ── Security ─────────────────────────────────────────
 export type {
+  SecurityProvider,
   ScannerProvider,
   ScanTarget,
   ScanResult,
-} from '../../providers/scanner/types.js';
+  SkillScreenerProvider,
+  ScreeningVerdict,
+  ExtendedScreeningVerdict,
+} from '../../providers/security/types.js';
 
 // ── Channel ──────────────────────────────────────────
 export type {
@@ -64,25 +61,10 @@ export type {
   ExtractResult,
 } from '../../providers/web/types.js';
 
-// ── Browser ──────────────────────────────────────────
-export type {
-  BrowserProvider,
-  BrowserConfig,
-  BrowserSession,
-  PageSnapshot,
-} from '../../providers/browser/types.js';
-
 // ── Credentials ──────────────────────────────────────
 export type {
   CredentialProvider,
 } from '../../providers/credentials/types.js';
-
-// ── Screener ────────────────────────────────────────
-export type {
-  SkillScreenerProvider,
-  ScreeningVerdict,
-  ExtendedScreeningVerdict,
-} from '../../providers/screener/types.js';
 
 // ── Audit ────────────────────────────────────────────
 export type {

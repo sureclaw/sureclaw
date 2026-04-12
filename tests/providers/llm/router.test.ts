@@ -16,10 +16,10 @@ function routerConfig(model: string, fallbacks?: string[], extras?: Partial<Mode
     },
     profile: 'balanced',
     providers: {
-      memory: 'cortex', scanner: 'patterns',
-      channels: [], web: { extract: 'none', search: 'none' }, browser: 'none',
+      memory: 'cortex', security: 'patterns',
+      channels: [], web: { extract: 'none', search: 'none' },
       credentials: 'keychain', skills: 'database', audit: 'database',
-      sandbox: 'subprocess', scheduler: 'none',
+      sandbox: 'docker', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
     scheduler: {

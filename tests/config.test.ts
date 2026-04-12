@@ -36,16 +36,15 @@ agent: ${agent}
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -72,16 +71,15 @@ agent: unknown-agent
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -109,16 +107,15 @@ models:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -139,49 +136,6 @@ scheduler:
     }
   });
 
-  test('accepts config with models.image array', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-image-models.yaml');
-    writeFileSync(tmpPath, `
-models:
-  default:
-    - anthropic/claude-sonnet-4-20250514
-  image:
-    - openai/gpt-image-1.5
-    - openrouter/seedream-5-0
-profile: balanced
-providers:
-  memory: cortex
-  scanner: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  browser: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: subprocess
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
-      const config = loadConfig(tmpPath);
-      expect(config.models!.image).toEqual([
-        'openai/gpt-image-1.5',
-        'openrouter/seedream-5-0',
-      ]);
-    } finally {
-      rmSync(tmpPath);
-    }
-  });
-
   test('accepts config with all task-type model chains', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
     const tmpPath = resolve(import.meta.dirname, '../ax-test-task-models.yaml');
@@ -195,21 +149,18 @@ models:
     - anthropic/claude-opus-4-20250514
   coding:
     - anthropic/claude-sonnet-4-20250514
-  image:
-    - openai/gpt-image-1.5
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -225,7 +176,6 @@ scheduler:
       expect(config.models!.fast).toEqual(['anthropic/claude-haiku-4-5-20251001']);
       expect(config.models!.thinking).toEqual(['anthropic/claude-opus-4-20250514']);
       expect(config.models!.coding).toEqual(['anthropic/claude-sonnet-4-20250514']);
-      expect(config.models!.image).toEqual(['openai/gpt-image-1.5']);
     } finally {
       rmSync(tmpPath);
     }
@@ -244,16 +194,15 @@ scheduler:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -284,16 +233,15 @@ webhooks:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -330,16 +278,15 @@ webhooks:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -378,16 +325,15 @@ webhooks:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -418,16 +364,15 @@ admin:
 profile: balanced
 providers:
   memory: cortex
-  scanner: promptfoo
+  security: promptfoo
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: plaintext
   skills: database
   audit: sqlite
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -438,9 +383,9 @@ scheduler:
   heartbeat_interval_min: 30
 `);
     try {
-      expect(() => loadConfig(tmpPath)).toThrow(/providers\.scanner: "promptfoo" is not a valid option/);
+      expect(() => loadConfig(tmpPath)).toThrow(/providers\.security: "promptfoo" is not a valid option/);
       expect(() => loadConfig(tmpPath)).toThrow(/providers\.audit: "sqlite" is not a valid option/);
-      expect(() => loadConfig(tmpPath)).toThrow(/Valid values: "patterns", "guardian"/);
+      expect(() => loadConfig(tmpPath)).toThrow(/Valid values: "patterns", "guardian", "none"/);
       expect(() => loadConfig(tmpPath)).toThrow(/Valid values: "database"/);
       expect(() => loadConfig(tmpPath)).toThrow(/Edit your config:/);
     } finally {
@@ -455,16 +400,15 @@ scheduler:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -513,16 +457,15 @@ shared_agents:
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 sandbox:
   timeout_sec: 120
@@ -542,25 +485,23 @@ shared_agents:
     }
   });
 
-  test('accepts config with optional screener', async () => {
+  test('accepts config with security provider', async () => {
     const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-screener.yaml');
+    const tmpPath = resolve(import.meta.dirname, '../ax-test-security.yaml');
     writeFileSync(tmpPath, `
 profile: balanced
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web:
     extract: none
     search: none
-  browser: none
   credentials: env
   skills: database
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
-  screener: static
 sandbox:
   timeout_sec: 120
   memory_mb: 512
@@ -571,7 +512,7 @@ scheduler:
 `);
     try {
       const config = loadConfig(tmpPath);
-      expect(config.providers.screener).toBe('static');
+      expect(config.providers.security).toBe('patterns');
     } finally {
       rmSync(tmpPath);
     }

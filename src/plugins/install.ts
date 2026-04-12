@@ -23,6 +23,8 @@ export interface InstallPluginInput {
   sessionId?: string;
   /** Database provider — used to persist MCP servers globally. */
   database?: DatabaseProvider;
+  /** When true, the plugin's skills are shared with the company (visible to all agents). */
+  shared?: boolean;
 }
 
 export interface InstallPluginResult {
@@ -145,6 +147,7 @@ export async function installPlugin(input: InstallPluginInput): Promise<InstallP
     skillCount: bundle.skills.length,
     commandCount: bundle.commands.length,
     mcpServers: bundle.mcpServers,
+    shared: input.shared,
   });
 
   // 8. Audit log

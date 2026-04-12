@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { ProviderTestHarness } from '../../src/provider-sdk/testing/harness.js';
 import type { MemoryProvider, MemoryEntry, MemoryQuery } from '../../src/provider-sdk/interfaces/index.js';
-import type { ScannerProvider, ScanTarget, ScanResult } from '../../src/provider-sdk/interfaces/index.js';
+import type { SecurityProvider, ScanTarget, ScanResult } from '../../src/provider-sdk/interfaces/index.js';
 import type { AuditProvider, AuditEntry, AuditFilter } from '../../src/provider-sdk/interfaces/index.js';
 import type { CredentialProvider } from '../../src/provider-sdk/interfaces/index.js';
 
@@ -33,12 +33,12 @@ function createMockMemoryProvider(): MemoryProvider {
   };
 }
 
-function createMockScannerProvider(): ScannerProvider {
+function createMockSecurityProvider(): SecurityProvider {
   return {
-    async scanInput(msg) {
+    async scanInput(_msg) {
       return { verdict: 'PASS' };
     },
-    async scanOutput(msg) {
+    async scanOutput(_msg) {
       return { verdict: 'PASS' };
     },
     canaryToken() {
@@ -46,6 +46,15 @@ function createMockScannerProvider(): ScannerProvider {
     },
     checkCanary(output, token) {
       return output.includes(token);
+    },
+    async screen() {
+      return { allowed: true, reasons: [] };
+    },
+    async screenExtended() {
+      return { verdict: 'APPROVE', score: 0, reasons: [], permissions: [], excessPermissions: [] };
+    },
+    async screenBatch(items) {
+      return items.map(() => ({ verdict: 'APPROVE' as const, score: 0, reasons: [], permissions: [], excessPermissions: [] }));
     },
   };
 }
@@ -122,10 +131,10 @@ describe('ProviderTestHarness', () => {
     });
   });
 
-  describe('scanner contract', () => {
+  describe('security contract', () => {
     test('all tests pass for a valid implementation', async () => {
-      const harness = new ProviderTestHarness('scanner');
-      const result = await harness.run(createMockScannerProvider());
+      const harness = new ProviderTestHarness('security');
+      const result = await harness.run(createMockSecurityProvider());
       expect(result.failed).toBe(0);
       expect(result.passed).toBeGreaterThan(0);
     });

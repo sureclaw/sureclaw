@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, normalizeOrigin, normalizeI
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 20 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(20);
+  test('exports exactly 16 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(16);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -53,8 +53,8 @@ describe('tool-catalog', () => {
   test('contains all expected tool names', () => {
     const expected = [
       'memory', 'web', 'identity', 'scheduler', 'skill', 'request_credential',
-      'save_artifact', 'workspace_read', 'workspace_list', 'workspace_mount',
-      'governance', 'audit', 'agent', 'image',
+      'save_artifact',
+      'governance', 'audit', 'agent',
       'bash', 'read_file', 'write_file', 'edit_file',
       'grep', 'glob',
     ];
@@ -142,8 +142,8 @@ describe('tool-catalog', () => {
   test('every tool has a valid category', () => {
     const validCategories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skill', 'credential', 'delegation', 'image',
-      'workspace', 'workspace_scopes', 'governance', 'sandbox',
+      'scheduler', 'skill', 'credential', 'delegation',
+      'workspace', 'governance', 'sandbox',
     ];
     for (const spec of TOOL_CATALOG) {
       expect(validCategories, `"${spec.name}" has invalid category "${spec.category}"`).toContain(spec.category);
@@ -153,8 +153,8 @@ describe('tool-catalog', () => {
   test('every category has at least one tool', () => {
     const categories: ToolCategory[] = [
       'memory', 'web', 'audit', 'identity',
-      'scheduler', 'skill', 'credential', 'delegation', 'image',
-      'workspace', 'workspace_scopes', 'governance', 'sandbox',
+      'scheduler', 'skill', 'credential', 'delegation',
+      'workspace', 'governance', 'sandbox',
     ];
     for (const cat of categories) {
       const tools = TOOL_CATALOG.filter(s => s.category === cat);
@@ -221,14 +221,14 @@ describe('normalizeIdentityFile', () => {
 describe('filterTools', () => {
   const ALL_FLAGS: ToolFilterContext = {
     hasHeartbeat: true,
-    hasWorkspaceScopes: true,
+    
     hasGovernance: true,
     skillInstallEnabled: true,
   };
 
   const NO_FLAGS: ToolFilterContext = {
     hasHeartbeat: false,
-    hasWorkspaceScopes: false,
+    
     hasGovernance: false,
     skillInstallEnabled: false,
   };
@@ -243,13 +243,13 @@ describe('filterTools', () => {
     // scheduler/workspace/governance are excluded when their flags are false
     // skill is always included (delete/update shouldn't require install intent)
     const alwaysOn = TOOL_CATALOG.filter(s =>
-      !['scheduler', 'workspace', 'workspace_scopes', 'governance'].includes(s.category)
+      !['scheduler', 'governance'].includes(s.category)
     );
     expect(result.length).toBe(alwaysOn.length);
 
     // Verify excluded categories
     for (const spec of result) {
-      expect(['scheduler', 'workspace', 'workspace_scopes', 'governance']).not.toContain(spec.category);
+      expect(['scheduler', 'governance']).not.toContain(spec.category);
     }
   });
 
@@ -306,7 +306,7 @@ describe('filterTools', () => {
   });
 
   test('skillInstallEnabled undefined defaults to including skill tool without install', () => {
-    const ctx: ToolFilterContext = { hasHeartbeat: false, hasWorkspaceScopes: false, hasGovernance: false };
+    const ctx: ToolFilterContext = { hasHeartbeat: false,  hasGovernance: false };
     const result = filterTools(ctx);
     const skill = result.find(s => s.name === 'skill');
     expect(skill).toBeDefined();

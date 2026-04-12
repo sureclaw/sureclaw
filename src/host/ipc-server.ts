@@ -9,23 +9,18 @@ import type { EventBus } from './event-bus.js';
 import { createLLMHandlers } from './ipc-handlers/llm.js';
 import { createMemoryHandlers } from './ipc-handlers/memory.js';
 import { createWebHandlers } from './ipc-handlers/web.js';
-import { createBrowserHandlers } from './ipc-handlers/browser.js';
 import { createSkillsHandlers } from './ipc-handlers/skills.js';
 import { createIdentityHandlers } from './ipc-handlers/identity.js';
 import { createDelegationHandlers } from './ipc-handlers/delegation.js';
 import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
-import { createWorkspaceHandlers } from './ipc-handlers/workspace.js';
+import { createArtifactHandlers } from './ipc-handlers/artifact.js';
 import { createGovernanceHandlers } from './ipc-handlers/governance.js';
-import { createImageHandlers } from './ipc-handlers/image.js';
 import { createPluginHandlers } from './ipc-handlers/plugin.js';
-import { createCoworkPluginHandlers, type CoworkPluginHandlerOptions } from './ipc-handlers/cowork-plugins.js';
 import { createOrchestrationHandlers } from './ipc-handlers/orchestration.js';
 import { createSandboxToolHandlers } from './ipc-handlers/sandbox-tools.js';
 import { createToolBatchHandlers, type ToolBatchProvider, type ToolBatchOptions } from './ipc-handlers/tool-batch.js';
 import { createCompanyHandlers } from './ipc-handlers/company.js';
-import { createCatalogHandlers } from './ipc-handlers/catalog.js';
-import { CatalogStore } from './catalog-store.js';
-import { type AgentRegistry, FileAgentRegistry } from './agent-registry.js';
+import type { AgentRegistry } from './agent-registry.js';
 import type { Orchestrator } from './orchestration/orchestrator.js';
 
 const logger = getLogger().child({ component: 'ipc' });
@@ -97,8 +92,6 @@ export interface IPCHandlerOptions {
   /** Returns the MCP provider for tool batch execution (null = not configured).
    *  Accepts either a simple callback or full ToolBatchOptions with plugin MCP routing. */
   toolBatchProvider?: ((ctx: IPCContext) => ToolBatchProvider | null) | ToolBatchOptions;
-  /** Cowork plugin management: MCP connection manager + optional domain list. */
-  coworkPlugins?: CoworkPluginHandlerOptions;
   /** GCS file storage for persistent file access. */
   gcsFileStorage?: import('./gcs-file-storage.js').GcsFileStorage;
   /** File store for file metadata lookups. */
@@ -118,7 +111,6 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...createLLMHandlers(providers, opts?.configModel, agentName, opts?.eventBus),
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
-    ...createBrowserHandlers(providers),
     ...createSkillsHandlers(providers, {
       requestedCredentials: opts?.requestedCredentials,
       eventBus: opts?.eventBus,
@@ -129,20 +121,17 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       profile,
       taintBudget,
     }),
-    ...createImageHandlers(providers),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentName),
-    ...createWorkspaceHandlers(providers, { agentName, profile, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
+    ...createArtifactHandlers(providers, { agentName, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
     ...createGovernanceHandlers(providers, {
       agentDir: opts?.agentDir,
       agentName,
       profile,
-      registry: opts?.agentRegistry ?? new FileAgentRegistry(),
+      registry: opts?.agentRegistry,
     }),
     ...createPluginHandlers(providers),
     ...(providers.storage?.documents ? createCompanyHandlers(providers.storage.documents, providers.audit) : {}),
-    ...(providers.storage?.documents ? createCatalogHandlers(new CatalogStore(providers.storage.documents), providers.storage.documents, providers.audit) : {}),
-    ...(opts?.coworkPlugins ? createCoworkPluginHandlers(providers, opts.coworkPlugins) : {}),
     ...(opts?.orchestrator ? createOrchestrationHandlers(opts.orchestrator) : {}),
     ...(opts?.workspaceMap ? createSandboxToolHandlers(providers, {
       workspaceMap: opts.workspaceMap,
@@ -385,7 +374,7 @@ export async function createIPCServer(
         const msgId = msgIdMatch?.[1];
 
         // Send periodic heartbeat frames so the client knows we're alive
-        // during long-running handlers (agent_delegate, image_generate, etc.)
+        // during long-running handlers (agent_delegate, etc.)
         const heartbeatInterval = setInterval(() => {
           const hb = JSON.stringify({ _heartbeat: true, ts: Date.now(), ...(msgId ? { _msgId: msgId } : {}) });
           const hbBuf = Buffer.from(hb, 'utf-8');

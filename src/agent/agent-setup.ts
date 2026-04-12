@@ -18,10 +18,10 @@ const logger = getLogger().child({ component: 'agent-setup' });
 
 const DEFAULT_CONTEXT_WINDOW = 200000;
 
-/** Scan agentWorkspace/bin/ for MCP CLI executables. */
-function scanMcpCLIs(agentWorkspace?: string): string[] | undefined {
-  if (!agentWorkspace) return undefined;
-  const binDir = resolve(agentWorkspace, 'bin');
+/** Scan workspace/bin/ for MCP CLI executables. */
+function scanMcpCLIs(workspace: string): string[] | undefined {
+  if (!workspace) return undefined;
+  const binDir = resolve(workspace, 'bin');
   if (!existsSync(binDir)) return undefined;
   try {
     const entries = readdirSync(binDir).filter(f => {
@@ -47,16 +47,12 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  // Load skills from workspace directories (user shadows agent).
+  // Load skills from workspace/skills/ directory.
   // In k8s mode, the runner writes DB-loaded skills to the workspace
   // skills/ directory before we get here (see applyPayload in runner.ts).
-  const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [];
-  if (config.agentWorkspace) {
-    skillDirs.push({ dir: join(config.agentWorkspace, 'skills'), scope: 'agent' });
-  }
-  if (config.userWorkspace) {
-    skillDirs.push({ dir: join(config.userWorkspace, 'skills'), scope: 'user' });
-  }
+  const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [
+    { dir: join(config.workspace, 'skills'), scope: 'agent' as const },
+  ];
   const skills = loadSkillsMultiDir(skillDirs);
 
   // Identity is pre-loaded from host (via stdin payload from DocumentStore).
@@ -65,7 +61,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     preloaded: config.identity,
   });
 
-  const hasWorkspaceScopes = !!config.workspaceProvider && config.workspaceProvider !== 'none';
   const hasGovernance = config.profile === 'paranoid' || config.profile === 'balanced';
 
   // Detect skill install intent from user message
@@ -77,7 +72,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     skillInstallEnabled = detectSkillInstallIntent(msgText);
   }
 
-  const mcpCLIs = scanMcpCLIs(config.agentWorkspace);
+  const mcpCLIs = scanMcpCLIs(config.workspace);
 
   const promptBuilder = new PromptBuilder();
   const promptResult = promptBuilder.build({
@@ -85,7 +80,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     workspace: config.workspace,
     skills,
     profile: config.profile ?? 'balanced',
-    sandboxType: config.sandboxType ?? 'subprocess',
+    sandboxType: config.sandboxType ?? 'docker',
     taintRatio: config.taintRatio ?? 0,
     taintThreshold: config.taintThreshold ?? 1,
     identityFiles,
@@ -95,16 +90,13 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     // Enterprise fields
     agentId: config.agentId,
     hasGovernance,
-    hasAgentWorkspace: !!config.agentWorkspace,
-    hasUserWorkspace: !!config.userWorkspace,
-    userWorkspaceWritable: hasWorkspaceScopes && !!config.userWorkspace,
+    hasWorkspace: !!config.workspace,
     mcpCLIs,
     skillInstallEnabled,
   });
 
   const toolFilter: ToolFilterContext = {
     hasHeartbeat: !!identityFiles.heartbeat?.trim(),
-    hasWorkspaceScopes,
     hasGovernance,
     skillInstallEnabled,
   };
@@ -120,13 +112,13 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
 
 /**
  * Subscribe to pi-ai agent events — streams text to stdout (or buffers it
- * for NATS mode), logs tools and errors to stderr. Returns a state object
+ * for HTTP IPC mode), logs tools and errors to stderr. Returns a state object
  * for tracking output and retrieving buffered content.
  *
  * Works with pi-coding-agent AgentSession.subscribe() event shape.
  *
  * @param opts.buffer - When provided, text is appended to this array instead
- *   of writing to stdout. Used in NATS mode where the response is sent via
+ *   of writing to stdout. Used in HTTP IPC mode where the response is sent via
  *   IPC agent_response instead of stdout.
  */
 export function subscribeAgentEvents(

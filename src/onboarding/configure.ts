@@ -21,15 +21,11 @@ import {
   LLM_PROVIDER_DISPLAY_NAMES,
   LLM_PROVIDER_DESCRIPTIONS,
   DEFAULT_MODELS,
-  IMAGE_PROVIDERS,
-  IMAGE_PROVIDER_DISPLAY_NAMES,
-  IMAGE_PROVIDER_DESCRIPTIONS,
-  DEFAULT_IMAGE_MODELS,
   PROVIDER_CHOICES,
   ASCII_WELCOME,
   RECONFIGURE_HEADER,
 } from './prompts.js';
-import type { ProfileName, AgentType, AuthMethod, LLMProviderChoice, ImageProviderChoice } from './prompts.js';
+import type { ProfileName, AgentType, AuthMethod, LLMProviderChoice } from './prompts.js';
 import { runOnboarding, loadExistingConfig } from './wizard.js';
 import type { OnboardingAnswers } from './wizard.js';
 
@@ -51,7 +47,6 @@ export interface InquirerDefaults {
   slackBotTokenMasked?: string;
   slackAppToken?: string;
   slackAppTokenMasked?: string;
-  imageModel?: string;
 }
 
 /**
@@ -86,7 +81,6 @@ export function buildInquirerDefaults(existing: OnboardingAnswers | null): Inqui
     slackBotTokenMasked: maskKey(existing.slackBotToken),
     slackAppToken: existing.slackAppToken,
     slackAppTokenMasked: maskKey(existing.slackAppToken),
-    imageModel: existing.imageModel,
   };
 }
 
@@ -257,37 +251,6 @@ export async function runConfigure(outputDir: string): Promise<void> {
     }
   }
 
-  // 2d. Image generation (optional, all agent types)
-  let imageModel: string | undefined;
-  const hasExistingImage = !!defaults.imageModel;
-  const wantImage = await confirm({
-    message: 'Enable image generation?',
-    default: hasExistingImage,
-  });
-
-  if (wantImage) {
-    const imageProvider = await select({
-      message: 'Image provider',
-      choices: IMAGE_PROVIDERS.map((p) => ({
-        name: `${IMAGE_PROVIDER_DISPLAY_NAMES[p]}  —  ${IMAGE_PROVIDER_DESCRIPTIONS[p]}`,
-        value: p,
-      })),
-      default: hasExistingImage ? defaults.imageModel!.split('/')[0] as ImageProviderChoice : 'openai',
-    }) as ImageProviderChoice;
-
-    // Derive existing model name if same provider
-    const existingImageModelName = defaults.imageModel && defaults.imageModel.split('/')[0] === imageProvider
-      ? defaults.imageModel.split('/').slice(1).join('/')
-      : undefined;
-
-    const imageModelName = await input({
-      message: 'Image model name',
-      default: existingImageModelName ?? DEFAULT_IMAGE_MODELS[imageProvider],
-    });
-
-    imageModel = `${imageProvider}/${imageModelName}`;
-  }
-
   // 3. Channel selection (optional — default CLI-only)
   let channels: string[] = [];
   const hasExistingChannels = defaults.channels && defaults.channels.length > 0;
@@ -375,7 +338,6 @@ export async function runConfigure(outputDir: string): Promise<void> {
       channels, skipSkills, installSkills,
       webProvider, webSearchApiKey,
       slackBotToken, slackAppToken,
-      imageModel,
     },
   });
 

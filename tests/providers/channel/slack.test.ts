@@ -7,9 +7,9 @@ function testConfig(channelConfig?: Record<string, unknown>): Config {
   return {
     profile: 'default' as any,
     providers: {
-      memory: 'cortex', scanner: 'patterns', channels: ['slack'],
-      web: { extract: 'none', search: 'none' }, browser: 'none', credentials: 'keychain', skills: 'database',
-      audit: 'database', sandbox: 'subprocess', scheduler: 'none',
+      memory: 'cortex', security: 'patterns', channels: ['slack'],
+      web: { extract: 'none', search: 'none' }, credentials: 'keychain', skills: 'database',
+      audit: 'database', sandbox: 'docker', scheduler: 'none',
     },
     channel_config: channelConfig as any,
     sandbox: { timeout_sec: 30, memory_mb: 512 },

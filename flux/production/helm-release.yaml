@@ -24,7 +24,7 @@ spec:
       profile: paranoid
       providers:
         memory: cortex
-        scanner: regex
+        security: patterns
         channels: []
         web:
           extract: none
@@ -33,7 +33,7 @@ spec:
         credentials: env
         storage: database
         database: postgresql
-        eventbus: nats
+        eventbus: postgres
         sandbox: k8s
         audit: database
         history: sqlite
@@ -86,25 +86,7 @@ spec:
         maxReplicas: 20
         targetCPUUtilizationPercentage: 60
 
-    poolController:
-      replicas: 1
-
     # sandbox worker tiers removed — agents execute tools locally
-
-    nats:
-      enabled: true
-      config:
-        cluster:
-          enabled: true
-          replicas: 3
-        jetstream:
-          enabled: true
-          memoryStore:
-            maxSize: 256Mi
-          fileStore:
-            maxSize: 8Gi
-            pvc:
-              size: 10Gi
 
     networkPolicies:
       enabled: true

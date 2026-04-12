@@ -1,6 +1,6 @@
 // src/providers/skills/types.ts — Parsed skill format types (no store provider)
 
-// Re-export screener types from their new home for backward compatibility
+// Re-export screener types from the unified security provider
 export type {
   ScreeningVerdict,
   ScreeningSeverity,
@@ -8,7 +8,7 @@ export type {
   ScreeningReason,
   ExtendedScreeningVerdict,
   SkillScreenerProvider,
-} from '../screener/types.js';
+} from '../security/types.js';
 
 /**
  * New install step format: raw `run` commands instead of structured kind/package taxonomy.

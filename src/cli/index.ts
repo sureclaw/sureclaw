@@ -66,7 +66,7 @@ Usage:
   ax send <message>      Send a single message
   ax configure           Run configuration wizard
   ax bootstrap [agent]   Reset agent identity and re-run bootstrap
-  ax plugin <command>    Manage Cowork plugins (install/remove/list)
+  ax plugin <command>    Manage plugins (install/remove/list)
   ax provider <command>  Manage third-party provider plugins (add/remove/list/verify)
   ax mcp <command>       Manage MCP server connections (add/remove/list/test)
   ax k8s init [options]  Generate Helm values and K8s secrets for deployment

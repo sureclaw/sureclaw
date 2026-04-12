@@ -82,20 +82,10 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     ? new TracedLLMProvider(llm, getTracer())
     : llm;
 
-  // Load image router only when models.image is configured.
-  const image = config.models?.image?.length
-    ? await loadProvider('image', 'router', config)
-    : undefined;
-
   // Load storage provider BEFORE skills — skills provider needs DocumentStore
   const storageModPath = resolveProviderPath('storage', config.providers.storage);
   const storageMod = await import(storageModPath);
   const storage = await storageMod.create(config, config.providers.storage, { database });
-
-  // Load screener for workspace release screening
-  const screener = config.providers.screener
-    ? await loadProvider('screener', config.providers.screener, config)
-    : undefined;
 
   // Load eventbus provider BEFORE memory and scheduler — both consume it.
   const eventbus = await loadProvider('eventbus', config.providers.eventbus, config);
@@ -110,18 +100,10 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   const auditMod = await import(auditModPath);
   const audit = await auditMod.create(config, config.providers.audit, { database });
 
-  // Load workspace provider with skill screening hook (default: none = no-op stub)
-  const { createCommitScreener } = await import('./workspace-release-screener.js');
-  const wsModPath = resolveProviderPath('workspace', config.providers.workspace);
-  const wsMod = await import(wsModPath);
-  const workspace = await wsMod.create(config, config.providers.workspace, {
-    screenCommit: createCommitScreener(screener, audit),
-  });
-
   // Load MCP provider if configured (optional — fast path only).
   // NOTE: providers.mcp is deprecated. New MCP servers should be added via:
   // 1. Database: `ax mcp add` / admin dashboard (loaded into McpConnectionManager at startup)
-  // 2. Cowork plugins: `ax plugin install` (loaded into McpConnectionManager on install)
+  // 2. Plugins: `ax plugin install` (loaded into McpConnectionManager on install)
   // The database MCP provider remains as a legacy option until all callers
   // migrate to the unified McpConnectionManager routing path.
   let mcp;
@@ -138,25 +120,22 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
 
   const registry: ProviderRegistry = {
     llm:         tracedLlm,
-    image,
     memory,
-    scanner:     await loadScanner(config, tracedLlm),
+    security:    await loadSecurity(config, tracedLlm),
     channels,
     webFetch:   await (await import('../providers/web/fetch.js')).create(config),
     webExtract: await loadProvider('web_extract', config.providers.web.extract, config),
     webSearch:  await loadProvider('web_search', config.providers.web.search, config),
-    browser:     await loadProvider('browser', config.providers.browser, config),
     credentials,
     audit,
     sandbox:     await loadProvider('sandbox', config.providers.sandbox, config),
+    workspace:   config.providers.workspace ? await loadProvider('workspace', config.providers.workspace, config) : undefined,
     scheduler:   await loadScheduler(config, database, eventbus),
     storage,
     database,
     eventbus,
-    workspace,
     mcp,
     auth: authProviders.length ? authProviders : undefined,
-    screener,
   };
 
   if (opts?.providerOverrides) {
@@ -179,10 +158,10 @@ async function loadProvider(kind: string, name: string, config: Config) {
   return mod.create(config, name);
 }
 
-async function loadScanner(config: Config, llm: import('../providers/llm/types.js').LLMProvider) {
-  const scannerModPath = resolveProviderPath('scanner', config.providers.scanner);
-  const scannerMod = await import(scannerModPath);
-  return scannerMod.create(config, config.providers.scanner, { llm });
+async function loadSecurity(config: Config, llm: import('../providers/llm/types.js').LLMProvider) {
+  const securityModPath = resolveProviderPath('security', config.providers.security);
+  const securityMod = await import(securityModPath);
+  return securityMod.create(config, config.providers.security, { llm });
 }
 
 async function loadScheduler(config: Config, database?: DatabaseProvider, eventbus?: import('../providers/eventbus/types.js').EventBusProvider) {

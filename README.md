@@ -29,19 +29,19 @@
 
 ---
 
-AX is a **personal AI agent** that lets you message an AI assistant (via CLI, Slack, WhatsApp, Telegram, etc.) and have it take actions on your behalf — read emails, fetch web pages, control a browser, generate images, manage your calendar, remember your preferences.
+AX is a **personal AI agent** that lets you message an AI assistant (via CLI, Slack, WhatsApp, Telegram, etc.) and have it take actions on your behalf — read emails, fetch web pages, manage your calendar, remember your preferences.
 
 Sound familiar? It should. **OpenClaw** proved that AI agents can be genuinely useful. The problem is that OpenClaw also proved what happens when you don't think about security until it's too late: ~173k lines of code nobody can audit, 42,665 exposed instances on Shodan, a remote code execution CVE, and 341 malicious skills in its marketplace.
 
 We love what OpenClaw does. We just couldn't sleep at night running it.
 
-AX gives you the same power — **multi-channel messaging, web access, browser automation, image generation, long-term memory, extensible skills, plugin ecosystem** — but with security guardrails that are actually enforced by the architecture, not just by good intentions. And at ~34,600 lines of TypeScript across 17 provider categories, it's still small enough to audit in a long weekend.
+AX gives you the same power — **multi-channel messaging, web access, long-term memory, extensible skills, plugin ecosystem** — but with security guardrails that are actually enforced by the architecture, not just by good intentions. And at ~34,600 lines of TypeScript across 15 provider categories, it's still small enough to audit in a long weekend.
 
 The best part? **You decide where you sit on the spectrum.** Lock everything down, open everything up, or land somewhere in the middle. We give you the dial. We just make sure the safety net is always there, even when you crank it to 11.
 
 ## Architecture
 
-We use a **provider contract pattern** — every subsystem (LLM, memory, scanner, channels, etc.) is a TypeScript interface with pluggable implementations. The host process is trusted. Agent containers are not. That's not rude, it's just good security.
+We use a **provider contract pattern** — every subsystem (LLM, memory, security, channels, etc.) is a TypeScript interface with pluggable implementations. The host process is trusted. Agent containers are not. That's not rude, it's just good security.
 
 ### Trust Zones
 
@@ -49,7 +49,6 @@ We use a **provider contract pattern** — every subsystem (LLM, memory, scanner
 |------|-------------|-----------|
 | **Host Process** | Fully trusted | Runs on your machine |
 | **Agent Container** | Untrusted | No network, no credentials, no host filesystem |
-| **Browser Container** | Untrusted | Filtered egress only |
 | **Plugin Processes** | Semi-trusted | Separate processes, integrity-verified, no raw credentials |
 
 ### Architectural Invariants
@@ -82,7 +81,7 @@ This is the dial. You pick where you want to be:
 |---------|---------------|-----------------|
 | **Paranoid** (default) | Maximum safety. Web disabled, no OAuth, read-only skills. | 10% |
 | **Standard** | The sweet spot for most people. Web access with blocklists, scheduled tasks, skill proposals with review. | 30% |
-| **Power User** | Full capability. Unrestricted web, read-write OAuth, browser automation, multi-agent delegation. You know the risks. | 60% |
+| **Power User** | Full capability. Unrestricted web, read-write OAuth, multi-agent delegation. You know the risks. | 60% |
 
 The taint threshold controls when we pause to ask before doing something sensitive (like sending an email) based on how much external content is in the conversation. Higher threshold = more autonomy. All three profiles keep the architectural invariants intact — the agent never gets network access or raw credentials, no matter what.
 
@@ -106,26 +105,17 @@ models:
     - anthropic/claude-opus-4-20250514
   coding:                                       # code generation, review (optional)
     - anthropic/claude-sonnet-4-20250514
-  image:                                        # image generation (optional)
-    - openai/gpt-image-1.5
-    - openrouter/seedream-5-0
 ```
 
-Only `default` is required — all other task types fall back to it when not configured. The **LLM router** handles failover automatically within each chain — if your primary model hits a rate limit or goes down, AX falls back to the next candidate with exponential backoff and circuit breakers. The **image router** works the same way for image generation. You set the preference order; we handle the rest.
+Only `default` is required — all other task types fall back to it when not configured. The **LLM router** handles failover automatically within each chain — if your primary model hits a rate limit or goes down, AX falls back to the next candidate with exponential backoff and circuit breakers. You set the preference order; we handle the rest.
 
 Extended thinking models (Anthropic's `thinking` blocks, OpenAI's `reasoning_content`, DeepSeek R1) are supported natively — reasoning steps stream in real time alongside regular content.
-
-### Image Generation
-
-Full image generation pipeline with multi-provider routing. Generate images via OpenAI, OpenRouter, or Gemini, with automatic fallback between providers. Generated images are persisted to your workspace and accessible via `/v1/files/` endpoints — no ephemeral URLs that expire when you're not looking.
-
-Images flow through channels too — generate in Slack and the result gets uploaded right back to the thread via `uploadV2`.
 
 ### Streaming Event Bus
 
 Real-time observability into everything your agent does. The event bus emits typed events — `llm.start`, `llm.chunk`, `llm.thinking`, `tool.call`, `scan.inbound`, `scan.outbound`, `completion.done` — and you can subscribe globally or per-request. Connect via the `/v1/events` SSE endpoint to watch your agent think in real time.
 
-Locally, the event bus runs in-process. In Kubernetes, it switches to **NATS JetStream** — events flow across pods so every agent-runtime instance sees the same stream. Same interface, same subscriptions, just distributed.
+Locally, the event bus runs in-process. In Kubernetes, it switches to **PostgreSQL LISTEN/NOTIFY** — events flow across pods so every agent-runtime instance sees the same stream. Same interface, same subscriptions, just distributed.
 
 ### Plugin Framework
 
@@ -142,10 +132,6 @@ Extend AX with third-party providers without touching core code. The plugin syst
 Plug AX into your existing observability stack. Set `OTEL_EXPORTER_OTLP_ENDPOINT` and every LLM call, tool invocation, and completion gets traced with spans and attributes. First-class Langfuse integration too — just set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`.
 
 Zero cost when disabled. The heavy OTel SDK packages are lazy-loaded only when tracing is actually configured.
-
-### Agent Workspaces
-
-Persistent file workspaces that give agents a place to read and write files across sessions. Three scopes — **agent** (shared by all sessions for that agent), **user** (per-user across sessions), and **session** (ephemeral per conversation) — are bind-mounted into the sandbox. After each session, changed files go through scanner screening before being persisted. Backends include local filesystem and Google Cloud Storage, so workspaces work the same on your laptop and in Kubernetes.
 
 ### Shared Database & Storage
 
@@ -195,16 +181,15 @@ Agents can delegate tasks to specialized subagents. The `claude-code` runner han
 
 ### Kubernetes Deployment
 
-AX ships with a production-ready **Helm chart** for Kubernetes. The architecture splits into multiple pods — host (ingress layer), agent-runtime (conversation layer), pool controller (sandbox pod lifecycle), and ephemeral sandbox pods — all coordinated through NATS JetStream.
+AX ships with a production-ready **Helm chart** for Kubernetes. The architecture splits into multiple pods — host (ingress layer), agent-runtime (conversation layer), and ephemeral sandbox pods — coordinated through HTTP and PostgreSQL.
 
 ```bash
 helm install ax ./charts/ax -f values.yaml
 ```
 
 The chart includes:
-- **Multi-pod architecture** — host, agent-runtime, and pool controller scale independently with HPA
-- **NATS JetStream** — distributed event bus and IPC bridge for sandbox communication
-- **PostgreSQL** — external or embedded, shared across all providers
+- **Multi-pod architecture** — host and agent-runtime scale independently with HPA
+- **PostgreSQL** — external or embedded, shared across all providers (event bus via LISTEN/NOTIFY)
 - **Network policies** — defense-in-depth isolation for sandbox pods (zero egress, host-only ingress)
 - **Sandbox tiers** — light and heavy pod templates with configurable CPU/memory and gVisor runtime
 - **FluxCD overlays** — staging and production HelmRelease configs with SOPS encryption
@@ -230,25 +215,21 @@ Every subsystem is a swappable provider. Here's what ships in the box:
 | Category | Implementations |
 |----------|----------------|
 | **LLM** | Anthropic, OpenAI, OpenRouter, Groq, DeepInfra, router (with fallback), traced (OTel wrapper) |
-| **Image** | OpenAI, OpenRouter, Groq, Gemini, router (with fallback) |
 | **Memory** | cortex (vector-backed, LLM-powered extraction and semantic search) |
-| **Scanner** | patterns (regex-only), guardian (regex + LLM classification) |
+| **Security** | patterns (regex-only), guardian (regex + LLM classification) |
 | **Channel** | Slack |
-| **Web** | fetch, Tavily |
-| **Browser** | container (Playwright) |
-| **Credentials** | plaintext, OS keychain |
-| **Skills** | readonly, git-backed (with screening) |
-| **Audit** | file (JSONL), database (queryable) |
-| **Sandbox** | subprocess, Docker, Apple Virtualization, k8s (Kubernetes pods) |
-| **Scheduler** | full (with active hours), plainjob |
-| **Screener** | static (rule-based) |
+| **Web** | fetch, Tavily (search + extract) |
+| **Credentials** | plaintext, OS keychain, database |
+| **Audit** | database (queryable) |
+| **Sandbox** | Docker, Apple Virtualization, k8s (Kubernetes pods) |
+| **Scheduler** | none, plainjob |
 | **Database** | SQLite (with sqlite-vec), PostgreSQL (with pgvector) |
-| **Storage** | file, database |
-| **EventBus** | inprocess, NATS JetStream |
+| **Storage** | database |
+| **EventBus** | inprocess, PostgreSQL (LISTEN/NOTIFY) |
 | **MCP Gateway** | none (disabled), database (per-agent HTTP/SSE MCP servers with circuit breaker) |
-| **Workspace** | none (disabled), local (filesystem), gcs (Google Cloud Storage) |
+| **Auth** | admin-token, better-auth |
 
-18 provider categories. 50+ implementations. All swappable.
+15 provider categories. All swappable.
 
 ## Quick Start
 
@@ -278,18 +259,15 @@ models:
     - anthropic/claude-sonnet-4-20250514
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   channels: []
   web: none
-  browser: none
   credentials: plaintext
-  skills: readonly
-  audit: file
-  sandbox: subprocess
+  audit: database
+  sandbox: docker
   scheduler: none
   database: sqlite
   eventbus: inprocess
-  workspace: none
 ```
 
 For Kubernetes production deployments, the Helm chart renders a ConfigMap with production-ready defaults:
@@ -301,8 +279,8 @@ providers:
   sandbox: k8s
   database: postgresql
   audit: database
-  eventbus: nats
-  scanner: guardian
+  eventbus: postgres
+  security: guardian
 ```
 
 See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details.
@@ -332,7 +310,7 @@ docker build -f container/Dockerfile -t your-registry/ax:latest .
 docker push your-registry/ax:latest
 ```
 
-The same image is used for all pod types — host, agent-runtime, pool-controller, and sandbox workers. The entrypoint is overridden per deployment via the Helm chart.
+The same image is used for all pod types — host, agent-runtime, and sandbox workers. The entrypoint is overridden per deployment via the Helm chart.
 
 ### 2. Create Kubernetes Secrets
 
@@ -402,7 +380,7 @@ Create a `my-values.yaml` to override the defaults. At minimum, point the images
 ```yaml
 # my-values.yaml
 
-# Set image tag once for all components (host, agent-runtime, pool-controller)
+# Set image tag once for all components (host, agent-runtime)
 global:
   imageTag: "latest"
 
@@ -411,10 +389,6 @@ host:
     repository: your-registry/ax
 
 agentRuntime:
-  image:
-    repository: your-registry/ax
-
-poolController:
   image:
     repository: your-registry/ax
 
@@ -434,9 +408,9 @@ config:
     sandbox: k8s
     database: postgresql
     storage: database
-    eventbus: nats
+    eventbus: postgres
     audit: database
-    scanner: patterns
+    security: patterns
 
 # PostgreSQL — external database (or set internal.enabled: true for Bitnami subchart)
 postgresql:
@@ -457,9 +431,6 @@ apiCredentials:
 ### 4. Install with Helm
 
 ```bash
-# Update Helm dependencies (pulls NATS subchart)
-helm dependency update ./charts/ax
-
 # Install
 helm install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace
 ```
@@ -473,30 +444,23 @@ kubectl get pods -n ax
 # You should see:
 #   ax-host-xxx          — HTTP ingress (x2)
 #   ax-agent-runtime-xxx — conversation layer (x3)
-#   ax-pool-controller-xxx — sandbox pool manager (x1)
-#   ax-nats-xxx          — NATS JetStream (x3)
-#   ax-sandbox-light-xxx — warm sandbox pods (x2, managed by pool controller)
 
 # Verify the host is healthy
 kubectl port-forward -n ax svc/ax-host 8080:80 &
 curl http://localhost:8080/health
-
-# Check NATS streams were created
-kubectl exec -n ax ax-nats-0 -- nats stream ls
-# Should show: SESSIONS, TASKS, RESULTS, EVENTS, IPC
 ```
 
 ### Architecture Overview
 
-The Helm chart deploys a three-layer architecture:
+The Helm chart deploys a two-layer architecture:
 
 | Layer | Pods | Role |
 |-------|------|------|
 | **Ingress** | `host` | Stateless HTTP API. Routes requests, streams SSE events. No LLM calls, no credentials. |
-| **Conversation** | `agent-runtime` | Runs agent sessions, makes LLM calls, dispatches tools to sandbox pods via NATS. |
+| **Conversation** | `agent-runtime` | Runs agent sessions, makes LLM calls, dispatches tools to sandbox pods via HTTP. |
 | **Execution** | `sandbox` (ephemeral) | Isolated tool execution. No network, no credentials, no host filesystem. gVisor runtime. |
 
-Communication between layers flows through **NATS JetStream**. PostgreSQL provides shared persistent state. The pool controller maintains a warm pool of sandbox pods so tool execution doesn't wait for cold starts.
+Communication between layers flows through **HTTP**. PostgreSQL provides shared persistent state and event distribution via LISTEN/NOTIFY.
 
 ### Key Configuration
 
@@ -505,11 +469,7 @@ Communication between layers flows through **NATS JetStream**. PostgreSQL provid
 | `host.replicas` | 2 | Host pod count (stateless, scale freely) |
 | `agentRuntime.replicas` | 3 | Agent runtime pods (each handles multiple sessions) |
 | `sandbox.runtimeClass` | `"gvisor"` | Set to `""` for clusters without gVisor |
-| `sandbox.tiers.light.minReady` | 2 | Warm sandbox pods kept ready |
-| `sandbox.tiers.light.maxReady` | 10 | Maximum warm sandbox pods |
-| `sandbox.tiers.heavy.minReady` | 0 | Heavy-tier pods (on-demand by default) |
 | `networkPolicies.enabled` | true | Enforce zero-egress on sandbox pods |
-| `nats.config.cluster.replicas` | 3 | NATS cluster size |
 | `host.autoscaling.enabled` | false | Enable HPA for host pods |
 | `agentRuntime.autoscaling.enabled` | false | Enable HPA for agent-runtime pods |
 
@@ -546,142 +506,11 @@ kind load docker-image your-registry/ax:latest --name ax-dev
 # Install with local-friendly settings
 helm install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace \
   --set sandbox.runtimeClass="" \
-  --set nats.config.cluster.replicas=1 \
   --set host.replicas=1 \
   --set agentRuntime.replicas=1
 ```
 
 Note: kind doesn't support gVisor, so sandbox pods run without runtime isolation. Fine for development — not recommended for production.
-
-### GCS Workspace Provider (Kubernetes)
-
-AX supports Google Cloud Storage as a persistent workspace backend — files your agent creates survive pod restarts, rescheduling, and even cluster recreation. Here's how to set it up.
-
-#### Prerequisites
-
-- A GCS bucket (the agent needs read/write access)
-- GKE with [Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity) enabled (recommended), or a service account key
-
-#### 1. Create a GCS Bucket
-
-```bash
-# Pick a globally unique name
-export GCS_BUCKET=ax-workspaces-yourproject
-
-gcloud storage buckets create gs://$GCS_BUCKET \
-  --location=us-central1 \
-  --uniform-bucket-level-access
-```
-
-#### 2. Set Up GCS Authentication
-
-**Option A: GKE Workload Identity (recommended)**
-
-This is the zero-secrets approach. The Kubernetes service account gets mapped to a GCP IAM service account that has bucket access.
-
-```bash
-# Create a GCP service account for AX
-gcloud iam service-accounts create ax-workspace \
-  --display-name="AX Workspace Writer"
-
-# Grant it access to the bucket
-gcloud storage buckets add-iam-policy-binding gs://$GCS_BUCKET \
-  --member="serviceAccount:ax-workspace@YOUR_PROJECT.iam.gserviceaccount.com" \
-  --role="roles/storage.objectUser"
-
-# Bind the GCP SA to the Kubernetes SA
-gcloud iam service-accounts add-iam-policy-binding \
-  ax-workspace@YOUR_PROJECT.iam.gserviceaccount.com \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="serviceAccount:YOUR_PROJECT.svc.id.goog[ax/ax-agent-runtime]"
-```
-
-Then annotate the agent-runtime service account in your values file:
-
-```yaml
-# my-values.yaml
-agentRuntime:
-  env:
-    - name: GCS_WORKSPACE_BUCKET
-      value: "ax-workspaces-yourproject"
-```
-
-And add the Workload Identity annotation to the service account template (or patch it after install):
-
-```bash
-kubectl annotate serviceaccount ax-agent-runtime -n ax \
-  iam.gke.io/gcp-service-account=ax-workspace@YOUR_PROJECT.iam.gserviceaccount.com
-```
-
-**Option B: Service Account Key (non-GKE clusters)**
-
-If you're not on GKE, create a key file and mount it:
-
-```bash
-# Create and download a key
-gcloud iam service-accounts keys create gcs-key.json \
-  --iam-account=ax-workspace@YOUR_PROJECT.iam.gserviceaccount.com
-
-# Create a Kubernetes secret from it
-kubectl create secret generic ax-gcs-credentials \
-  --namespace ax \
-  --from-file=key.json=gcs-key.json
-```
-
-Then add the secret mount and env var to your values:
-
-```yaml
-agentRuntime:
-  env:
-    - name: GCS_WORKSPACE_BUCKET
-      value: "ax-workspaces-yourproject"
-    - name: GOOGLE_APPLICATION_CREDENTIALS
-      value: "/etc/gcs/key.json"
-```
-
-You'll also need to add a volume and volumeMount to the agent-runtime deployment (post-install patch or chart template override).
-
-#### 3. Configure AX for GCS Workspaces
-
-Add the workspace provider to your Helm values:
-
-```yaml
-# my-values.yaml
-config:
-  providers:
-    workspace: gcs
-  workspace:
-    bucket: "ax-workspaces-yourproject"
-    # prefix: "production/"  # optional — namespaces objects within the bucket
-    # maxFileSize: 10485760  # optional — 10MB default
-    # maxFiles: 1000         # optional
-```
-
-Or skip the config-level `bucket` and set `GCS_WORKSPACE_BUCKET` as an env var on the agent-runtime pods (shown above). The env var works as a fallback when `workspace.bucket` isn't in config.
-
-#### 4. Deploy
-
-```bash
-helm upgrade --install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace
-```
-
-#### 5. Verify Workspaces Are Working
-
-```bash
-# Port-forward to the host
-kubectl port-forward -n ax svc/ax-host 8080:80 &
-
-# Send a message asking the agent to create a file
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"Mount your agent workspace and write a file called hello.txt with the text \"it works\""}]}'
-
-# Check the GCS bucket
-gcloud storage ls gs://$GCS_BUCKET/agent/
-# You should see: gs://ax-workspaces-yourproject/agent/main/hello.txt
-```
-
-Workspace files are organized in GCS as `<prefix>/<scope>/<id>/<path>` — where scope is `agent`, `user`, or `session`, and id is the agent name or session identifier.
 
 ### FluxCD GitOps
 
@@ -699,7 +528,7 @@ Secrets are encrypted with SOPS (age-based). See `flux/README.md` for setup inst
 
 ## MCP Fast Path
 
-Most agent turns are simple — call an API, answer a question, look something up. They don't need a full sandbox container with network isolation, GCS workspace sync, and a MITM proxy. That's like renting a U-Haul to pick up a coffee.
+Most agent turns are simple — call an API, answer a question, look something up. They don't need a full sandbox container with network isolation and a MITM proxy. That's like renting a U-Haul to pick up a coffee.
 
 The **MCP fast path** runs these simple turns entirely in the host process. No pods, no IPC, no proxy. MCP tools route through external HTTP/SSE MCP servers that handle authentication and API calls. The agent never sees credentials. When a turn actually needs shell access, filesystem, or git — the agent requests sandbox escalation and a dedicated pod is provisioned on demand.
 

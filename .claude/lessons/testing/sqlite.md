@@ -36,6 +36,12 @@
 **Lesson:** To create a `MessageQueueStore` in tests, you must: (1) `createKyselyDb({ type: 'sqlite', path })`, (2) `runMigrations(db, storageMigrations('sqlite'))`, (3) `createStorage(config, undefined, { database: { db, type: 'sqlite', vectorsAvailable: false, close } })`, (4) use `storage.messages`. The `createMessageQueue()` internal function is not exported, so you must go through the full `createStorage()` path. For cleanup, call `kyselyDb.destroy()` not `db.close()` since `MessageQueueStore` has no close method. When `dispose()` must stay synchronous (e.g., called by many callers without `await`), use `void kyselyDb.destroy()`.
 **Tags:** sqlite, kysely, testing, message-queue, storage-provider, migration
 
+### SQLite DEFAULT expressions need outer parentheses for function calls
+**Date:** 2026-04-06
+**Context:** Making DatabaseAgentRegistry migrations work with SQLite. Used `sql\`datetime('now')\`` as a column default which caused "syntax error near ("
+**Lesson:** In Kysely schema builder, SQLite DEFAULT expressions that call functions must be wrapped in outer parentheses: `sql\`(datetime('now'))\`` not `sql\`datetime('now')\``. This is a SQLite-specific requirement. PostgreSQL's `sql\`NOW()\`` works without outer parens. Follow the pattern in `src/providers/storage/migrations.ts`.
+**Tags:** sqlite, kysely, migrations, datetime, default-value
+
 ### Structured content serialization — use JSON detection on load
 **Date:** 2026-02-25
 **Context:** Storing ContentBlock[] in SQLite TEXT columns alongside plain string content

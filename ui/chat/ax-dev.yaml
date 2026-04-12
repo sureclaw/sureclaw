@@ -11,7 +11,7 @@ models:
 profile: yolo
 providers:
   memory: cortex
-  scanner: patterns
+  security: patterns
   database: sqlite
   channels: []
   web:
@@ -20,9 +20,8 @@ providers:
   browser: none
   credentials: keychain
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
-  screener: none
   workspace: none
 sandbox:
   timeout_sec: 300

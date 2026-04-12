@@ -56,7 +56,7 @@ export class SkillsModule extends BasePromptModule {
         '',
         '**To use a skill:** call `read_file` with the exact path from the table, then follow its instructions.',
         'That is the ONLY step needed — one read_file call, then act on what it says.',
-        'Do NOT use workspace_read, workspace_list, bash ls, or any other discovery tool.',
+        'Do NOT use bash ls or any other discovery tool.',
         '',
         '| Skill | Description | Path |',
         '|-------|-------------|------|',
@@ -82,15 +82,13 @@ export class SkillsModule extends BasePromptModule {
       );
     }
 
-    if (ctx.userWorkspaceWritable) {
+    if (ctx.hasWorkspace) {
       lines.push(
         '',
         '### Creating Skills',
         '',
         'Use the `skill` tool with `type: "create"` to author a new skill.',
-        'Non-admin users get a personal skill in `./user/skills/` for testing.',
-        'Admins get an agent-wide skill in `./agent/skills/`.',
-        'Personal skills can be promoted to agent scope by an admin later.',
+        'Skills are saved to `/workspace/skills/`.',
       );
     }
 

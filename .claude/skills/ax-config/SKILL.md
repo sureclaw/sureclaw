@@ -31,20 +31,17 @@ Validated by `ConfigSchema` (Zod `strictObject` -- rejects unknown keys).
 | `profile` | enum from `PROFILE_NAMES` | required | Personality profile |
 | `providers` | object | required | Maps each category to a provider name |
 | `providers.memory` | string | required | Memory provider (e.g., `sqlite`, `mock`) |
-| `providers.scanner` | string | required | Scanner provider |
+| `providers.security` | string | required | Security provider (scanner + screener) |
 | `providers.channels` | string[] | required | Active channel providers |
 | `providers.web` | string | required | Web provider |
-| `providers.browser` | string | required | Browser provider |
 | `providers.credentials` | string | required | Credentials provider |
 | `providers.skills` | string | required | Skill store provider (only `database` supported) |
 | `providers.audit` | string | required | Audit provider (only `database` supported) |
-| `providers.sandbox` | string | required | Sandbox provider (`subprocess`, `docker`, `apple`, `k8s`) |
+| `providers.sandbox` | string | required | Sandbox provider (`docker`, `apple`, `k8s`) |
 | `providers.scheduler` | string | required | Scheduler provider (`none` or `plainjob`) |
-| `providers.workspace` | string | optional | Workspace provider (`none`, `local`, `gcs`) |
 | `providers.storage` | string | `database` | Storage provider (only `database` supported) |
 | `providers.database` | string | optional | Database provider (e.g., `sqlite`, `postgresql`) |
-| `providers.eventbus` | string | required | Event bus provider (e.g., `inprocess`, `nats`) |
-| `providers.screener` | string | optional | Skill screener provider |
+| `providers.eventbus` | string | required | Event bus provider (e.g., `inprocess`, `postgres`) |
 | `channel_config` | `Record<string, ChannelAccessConfig>` | optional | Per-channel access policies |
 | `max_tokens` | number (256-200000) | 8192 | Max tokens for LLM calls |
 | `sandbox` | object | required | `timeout_sec` (1-3600), `memory_mb` (64-8192) |
@@ -143,5 +140,4 @@ Each value is a string array. First entry is primary model. Router-based agents 
 - **`AX_HOME` overrides all paths**: Set in tests to isolate SQLite databases and prevent lock contention.
 - **Session ID segments are filesystem-safe**: Validated by `SEGMENT_RE` (`/^[a-zA-Z0-9_.@\-]+$/`). Colons are separators, never part of a segment.
 - **Models are string arrays**: First entry is primary model; remaining entries for fallback.
-- **Image provider is separate from LLM provider**: Images route via `models.image` to a separate `ImageProvider`, not through LLM chat.
 - **Provider enums derived at runtime**: `providerEnum()` dynamically builds Zod enums from `PROVIDER_MAP` keys.

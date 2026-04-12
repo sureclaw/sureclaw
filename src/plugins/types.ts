@@ -1,6 +1,6 @@
-// src/plugins/types.ts — Cowork plugin types
+// src/plugins/types.ts — Plugin types
 
-/** Parsed Cowork plugin manifest (.claude-plugin/plugin.json). */
+/** Parsed plugin manifest (.claude-plugin/plugin.json). */
 export interface PluginManifest {
   name: string;
   version: string;
@@ -34,7 +34,7 @@ export interface PluginMcpServer {
   url: string;
 }
 
-/** A fully parsed Cowork plugin bundle. */
+/** A fully parsed plugin bundle. */
 export interface PluginBundle {
   manifest: PluginManifest;
   skills: PluginSkill[];
@@ -54,4 +54,6 @@ export interface InstalledPlugin {
   /** Full MCP server configs (persisted for restart recovery). */
   mcpServers: PluginMcpServer[];
   installedAt: string;
+  /** When true, the plugin's skills are shared with the company (visible to all agents). */
+  shared?: boolean;
 }

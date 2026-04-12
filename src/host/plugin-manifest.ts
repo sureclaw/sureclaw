@@ -36,8 +36,8 @@ const networkEndpoint = z.string().regex(
 
 /** Valid provider kinds. */
 const PLUGIN_PROVIDER_KINDS = [
-  'llm', 'image', 'memory', 'scanner', 'channel',
-  'web', 'browser', 'credentials', 'skills',
+  'llm', 'memory', 'security', 'channel',
+  'web', 'credentials', 'skills',
   'audit', 'sandbox', 'scheduler',
 ] as const;
 

@@ -206,10 +206,9 @@ providers:
   web:
     extract: none
     search: none
-  browser: none
   credentials: keychain
   audit: database
-  sandbox: subprocess
+  sandbox: docker
   scheduler: none
 
 sandbox:

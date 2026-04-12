@@ -11,7 +11,6 @@
 
 import { describe, test, expect, vi } from 'vitest';
 import { resolve, sep } from 'node:path';
-import { create as createSubprocess } from '../src/providers/sandbox/subprocess.js';
 import { createIPCMcpServer } from '../src/agent/mcp-server.js';
 import type { IPCClient } from '../src/agent/ipc-client.js';
 import type { Config } from '../src/types.js';
@@ -21,10 +20,10 @@ import type { Config } from '../src/types.js';
 const mockConfig = {
   profile: 'paranoid',
   providers: {
-    memory: 'cortex', scanner: 'patterns',
-    channels: ['cli'], web: { extract: 'none', search: 'none' }, browser: 'none',
+    memory: 'cortex', security: 'patterns',
+    channels: ['cli'], web: { extract: 'none', search: 'none' },
     credentials: 'keychain', audit: 'database',
-    sandbox: 'subprocess', scheduler: 'none',
+    sandbox: 'docker', scheduler: 'none',
   },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
   scheduler: {
@@ -62,30 +61,22 @@ const HOME_DIR = process.env.HOME ?? '';
 
 // ── Per-Tier Writable Workspace Flags in Sandbox Providers ───────────
 
-describe('per-tier writable workspace flags in sandbox providers', () => {
-  test('docker uses per-tier writable flags', async () => {
+describe('single workspace model in sandbox providers', () => {
+  test('docker mounts single /workspace rw', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/docker.ts'), 'utf-8');
-    expect(source).toContain("config.agentWorkspaceWritable ? 'rw' : 'ro'");
-    expect(source).toContain("config.userWorkspaceWritable ? 'rw' : 'ro'");
-    expect(source).not.toContain('workspaceMountsWritable');
+    // No per-tier writable flags in simplified model
+    expect(source).not.toContain('agentWorkspaceWritable');
+    expect(source).not.toContain('userWorkspaceWritable');
   });
 
-  test('apple container uses per-tier writable flags', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/apple.ts'), 'utf-8');
-    expect(source).toContain("config.agentWorkspaceWritable ? 'rw' : 'ro'");
-    expect(source).toContain("config.userWorkspaceWritable ? 'rw' : 'ro'");
-  });
-
-  test('server-completions uses isAdmin for agent workspace permission', async () => {
+  test('server-completions uses single workspace (no agent/user split)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
 
-    expect(source).toContain('isAdmin');
-    expect(source).toContain('agentWorkspaceWritable');
-    expect(source).toContain('userWorkspaceWritable');
-    expect(source).not.toContain('workspaceMountsWritable');
+    // Should not reference removed workspace tier fields
+    expect(source).not.toContain('agentWorkspaceWritable');
+    expect(source).not.toContain('userWorkspaceWritable');
   });
 });
 
@@ -108,54 +99,6 @@ describe('sandbox providers do not mount identity (now via stdin payload)', () =
     const source = readFileSync(resolve('src/providers/sandbox/docker.ts'), 'utf-8');
     expect(source).not.toContain('agentDir');
     expect(source).not.toContain('CANONICAL.identity');
-  });
-});
-
-// ── Subprocess Sandbox Env Leak (Documented Dev-Only Risk) ──────────
-
-describe('subprocess sandbox env leak (dev-only fallback)', () => {
-  test('subprocess sandbox uses process.env spread — documented dev-only risk', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/subprocess.ts'), 'utf-8');
-
-    // Document that subprocess spreads process.env
-    expect(source).toContain('...process.env');
-
-    // It does emit a warning about no isolation
-    expect(source).toContain('no_isolation');
-    expect(source).toContain('dev-only');
-  });
-
-  test('subprocess sandbox adds AX_ env vars with canonical symlink paths', async () => {
-    // Verify subprocess actually spawns with the right env by running a real process.
-    // With canonical paths, AX_WORKSPACE points to symlinks under /tmp/.ax-mounts-*/
-    // Skills are now sent via stdin payload, so AX_SKILLS is no longer set.
-    const { mkdirSync, rmSync } = await import('node:fs');
-    const ws = '/tmp/test-ws-' + process.pid;
-    mkdirSync(ws, { recursive: true });
-    try {
-    const provider = await createSubprocess(mockConfig);
-    const proc = await provider.spawn({
-      workspace: ws,
-      ipcSocket: '/tmp/test-ipc.sock',
-      command: ['node', '-e', 'console.log(JSON.stringify({ipc:process.env.AX_IPC_SOCKET,ws:process.env.AX_WORKSPACE,sk:process.env.AX_SKILLS}))'],
-      timeoutSec: 5,
-    });
-
-    let output = '';
-    for await (const chunk of proc.stdout) {
-      output += chunk.toString();
-    }
-    await proc.exitCode;
-
-    const env = JSON.parse(output.trim());
-    expect(env.ipc).toBe('/tmp/test-ipc.sock');
-    // AX_WORKSPACE is now the mount root; AX_SKILLS is no longer set (skills come via stdin)
-    expect(env.ws).toMatch(/\/tmp\/\.ax-mounts-[a-f0-9]+$/);
-    expect(env.sk).toBeUndefined();
-    } finally {
-      rmSync(ws, { recursive: true, force: true });
-    }
   });
 });
 
@@ -424,23 +367,22 @@ describe('spawn command construction', () => {
 // ── MCP Server Tool Registry ─────────────────────────────────────────
 
 describe('MCP server tool registry security', () => {
-  test('exposes exactly 20 IPC tools', () => {
+  test('exposes exactly 16 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expected = [
       'memory', 'web', 'identity', 'scheduler', 'skill', 'request_credential',
-      'audit', 'agent', 'image',
+      'audit', 'agent',
       // Enterprise tools
-      'save_artifact', 'workspace_read', 'workspace_list',
-      'workspace_mount', 'governance',
+      'save_artifact', 'governance',
       // Sandbox tools
       'bash', 'read_file', 'write_file', 'edit_file', 'grep', 'glob',
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(20);
+    expect(Object.keys(tools).length).toBe(16);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {
@@ -480,51 +422,27 @@ describe('/workspace root is read-only', () => {
 
 // Session scope / scratch workspace tests removed — sandbox-worker deleted
 
-// ── Per-Tier Writable Workspace Flags ─────────────────────────────────
+// ── Single Workspace Model ─────────────────────────────────────────────
 
-describe('per-tier writable workspace flags', () => {
-  test('SandboxConfig has agentWorkspaceWritable and userWorkspaceWritable flags', async () => {
+describe('single workspace model', () => {
+  test('SandboxConfig has pvcName for k8s persistent workspace', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/types.ts'), 'utf-8');
 
-    expect(source).toContain('agentWorkspaceWritable');
-    expect(source).toContain('userWorkspaceWritable');
-    // Old flag should be removed
-    expect(source).not.toContain('workspaceMountsWritable');
+    expect(source).toContain('pvcName');
+    // Old per-tier flags should be removed
+    expect(source).not.toContain('agentWorkspaceWritable');
+    expect(source).not.toContain('userWorkspaceWritable');
   });
 });
 
-// ── Sandbox workspaceLocation Capability ──────────────────────────────
+// ── Workspace Location removed (single /workspace model) ──────────────
 
-describe('sandbox workspaceLocation capability', () => {
-  test('SandboxProvider has workspaceLocation field', async () => {
+describe('workspace location removed', () => {
+  test('SandboxProvider no longer has workspaceLocation field', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/types.ts'), 'utf-8');
-    expect(source).toContain('workspaceLocation');
-  });
-
-  test('docker provider sets workspaceLocation to host', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/docker.ts'), 'utf-8');
-    expect(source).toContain("workspaceLocation: 'host'");
-  });
-
-  test('apple provider sets workspaceLocation to host', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/apple.ts'), 'utf-8');
-    expect(source).toContain("workspaceLocation: 'host'");
-  });
-
-  test('subprocess provider sets workspaceLocation to host', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/subprocess.ts'), 'utf-8');
-    expect(source).toContain("workspaceLocation: 'host'");
-  });
-
-  test('k8s provider sets workspaceLocation to sandbox', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/providers/sandbox/k8s.ts'), 'utf-8');
-    expect(source).toContain("workspaceLocation: 'sandbox'");
+    expect(source).not.toContain('workspaceLocation');
   });
 });
 
@@ -564,11 +482,10 @@ describe('work payload includes skills from DB', () => {
     expect(source).toContain('skills: skillsPayload');
   });
 
-  test('StdinPayload type includes skills and agentReadOnly fields', async () => {
+  test('StdinPayload type includes skills field', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
     expect(source).toContain('skills?:');
-    expect(source).toContain('agentReadOnly');
   });
 });
 
@@ -586,6 +503,5 @@ describe('IPC tools do not expose paths', () => {
     expect(names).toContain('audit');
     expect(names).toContain('skill');
     expect(names).toContain('agent');
-    expect(names).toContain('image');
   });
 });

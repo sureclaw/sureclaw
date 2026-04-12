@@ -177,11 +177,11 @@ export const MOCK_CONFIG = {
   profile: 'balanced',
   providers: {
     llm: 'anthropic',
-    sandbox: 'subprocess',
+    sandbox: 'docker',
     audit: 'sqlite',
   },
   sandbox: {
-    type: 'subprocess',
+    type: 'docker',
     timeout: 30000,
   },
   scheduler: {

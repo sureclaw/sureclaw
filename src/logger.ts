@@ -185,7 +185,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
     });
   }
 
-  // JSON to console for production/piping/--json (stderr in NATS mode)
+  // JSON to console for production/piping/--json (stderr in k8s HTTP mode)
   targets.push({
     target: 'pino/file',
     options: { destination: consoleFd },

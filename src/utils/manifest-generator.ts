@@ -87,7 +87,6 @@ const IPC_TOOLS = [
   'skill_install', 'skill_update', 'skill_delete',
   'workspace_mount',
   'agent_delegate',
-  'browser_launch', 'browser_navigate', 'browser_snapshot',
 ] as const;
 
 function detectIpcTools(text: string): string[] {

@@ -70,15 +70,6 @@ export const LlmCallSchema = ipcAction('llm_call', {
   maxTokens: z.number().int().min(1).max(200_000).optional(),
 });
 
-// ── Image Generation ────────────────────────────────
-
-export const ImageGenerateSchema = ipcAction('image_generate', {
-  prompt: safeString(10_000),
-  model: safeString(128).optional(),
-  size: safeString(32).optional(),
-  quality: safeString(32).optional(),
-});
-
 // ── Memory ───────────────────────────────────────────
 
 export const MemoryWriteSchema = ipcAction('memory_write', {
@@ -123,38 +114,6 @@ export const WebSearchSchema = ipcAction('web_search', {
 export const WebExtractSchema = ipcAction('web_extract', {
   url: z.url().max(2048),
 });
-
-// ── Browser ──────────────────────────────────────────
-
-const browserSession = safeString(128);
-
-export const BrowserLaunchSchema = ipcAction('browser_launch', {
-  config: z.strictObject({
-    headless: z.boolean().optional(),
-    viewport: z.strictObject({
-      width: z.number().int().min(320).max(3840).optional(),
-      height: z.number().int().min(240).max(2160).optional(),
-    }).optional(),
-  }).optional(),
-});
-
-export const BrowserNavigateSchema = ipcAction('browser_navigate', {
-  session: browserSession, url: z.url().max(2048),
-});
-
-export const BrowserSnapshotSchema = ipcAction('browser_snapshot', { session: browserSession });
-
-export const BrowserClickSchema = ipcAction('browser_click', {
-  session: browserSession, ref: z.number().int().min(0),
-});
-
-export const BrowserTypeSchema = ipcAction('browser_type', {
-  session: browserSession, ref: z.number().int().min(0), text: safeString(10_000),
-});
-
-export const BrowserScreenshotSchema = ipcAction('browser_screenshot', { session: browserSession });
-
-export const BrowserCloseSchema = ipcAction('browser_close', { session: browserSession });
 
 // ── Skills ───────────────────────────────────────────
 
@@ -236,37 +195,6 @@ export const UserWriteSchema = ipcAction('user_write', {
   origin: z.enum(IDENTITY_ORIGINS),
 });
 
-// ── Catalog ───────────────────────────────────────────
-
-export const CatalogPublishSchema = ipcAction('catalog_publish', {
-  slug: safeString(200),
-  type: z.enum(['skill', 'connector']),
-  name: safeString(200),
-  description: safeString(2000),
-  tags: z.array(safeString(100)).max(20).optional(),
-  version: safeString(50),
-  content: safeString(500_000),
-});
-
-export const CatalogGetSchema = ipcAction('catalog_get', {
-  slug: safeString(200),
-});
-
-export const CatalogListSchema = ipcAction('catalog_list', {
-  type: z.enum(['skill', 'connector']).optional(),
-  tags: z.array(safeString(100)).max(20).optional(),
-  query: safeString(500).optional(),
-});
-
-export const CatalogUnpublishSchema = ipcAction('catalog_unpublish', {
-  slug: safeString(200),
-});
-
-export const CatalogSetRequiredSchema = ipcAction('catalog_set_required', {
-  slug: safeString(200),
-  required: z.boolean(),
-});
-
 // ── Company Identity ──────────────────────────────────
 
 export const COMPANY_IDENTITY_FILES = ['AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'HEARTBEAT.md'] as const;
@@ -333,32 +261,12 @@ export const SchedulerRemoveCronSchema = ipcAction('scheduler_remove_cron', {
 
 export const SchedulerListJobsSchema = ipcAction('scheduler_list_jobs', {});
 
-// ── Enterprise: Workspace ──────────────────────────────
-
-export const WorkspaceMountSchema = ipcAction('workspace_mount', {
-  scopes: z.array(z.enum(['agent', 'user', 'session'])),
-});
-
-export const WorkspaceWriteSchema = ipcAction('workspace_write', {
-  tier: z.enum(['agent', 'user', 'session']),
-  path: safeString(1024),
-  content: safeString(500_000),
-});
+// ── Artifact ──────────────────────────────────────────
 
 export const SaveArtifactSchema = ipcAction('save_artifact', {
   tier: z.enum(['agent', 'user', 'session']),
   path: safeString(1024),
   content: safeString(500_000),
-});
-
-export const WorkspaceListSchema = ipcAction('workspace_list', {
-  scope: z.enum(['agent', 'user', 'session']),
-  prefix: safeString(1024).optional(),
-});
-
-export const WorkspaceReadSchema = ipcAction('workspace_read', {
-  scope: z.enum(['agent', 'user', 'session']),
-  path: safeString(1024),
 });
 
 // ── Session Lifecycle ──────────────────────────────────
@@ -443,14 +351,7 @@ export const AgentOrchInterruptSchema = ipcAction('agent_orch_interrupt', {
   reason: safeString(1000),
 });
 
-export const AgentOrchTimelineSchema = ipcAction('agent_orch_timeline', {
-  handleId: agentHandleId,
-  limit: z.number().int().min(1).max(500).optional(),
-  since: z.number().min(0).optional(),
-  eventType: safeString(200).optional(),
-});
-
-// ── Agent Response (NATS mode) ──────────────────────
+// ── Agent Response (HTTP IPC mode) ──────────────────
 
 export const AgentResponseSchema = ipcAction('agent_response', {
   content: safeString(2_000_000),
@@ -534,18 +435,6 @@ export const PluginListSchema = ipcAction('plugin_list', {});
 export const PluginStatusSchema = ipcAction('plugin_status', {
   packageName: safeString(214),
 });
-
-// ── Cowork Plugin Management ────────────────────────
-
-export const CoworkPluginInstallSchema = ipcAction('plugin_install_cowork', {
-  source: safeString(1000),
-});
-
-export const CoworkPluginUninstallSchema = ipcAction('plugin_uninstall_cowork', {
-  pluginName: safeString(200),
-});
-
-export const CoworkPluginListSchema = ipcAction('plugin_list_cowork', {});
 
 // ═══════════════════════════════════════════════════════
 // Auto-generated registry

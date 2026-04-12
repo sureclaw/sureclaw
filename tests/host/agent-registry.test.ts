@@ -2,15 +2,16 @@ import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { FileAgentRegistry } from '../../src/host/agent-registry.js';
+import type { AgentRegistry } from '../../src/host/agent-registry.js';
+import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 
 describe('AgentRegistry', () => {
   let tmpDir: string;
-  let registry: FileAgentRegistry;
+  let registry: AgentRegistry;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-registry-test-'));
-    registry = new FileAgentRegistry(join(tmpDir, 'registry.json'));
+    registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
   });
 
   afterEach(() => {
@@ -339,14 +340,14 @@ describe('AgentRegistry', () => {
   });
 
   test('persists across registry instances', async () => {
-    const path = join(tmpDir, 'persist.json');
-    const r1 = new FileAgentRegistry(path);
+    const path = join(tmpDir, 'persist.db');
+    const r1 = await createSqliteRegistry(path);
     await r1.register({
       id: 'persist-test', name: 'Persist', status: 'active',
       parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'test',
     });
 
-    const r2 = new FileAgentRegistry(path);
+    const r2 = await createSqliteRegistry(path);
     expect(await r2.get('persist-test')).not.toBeNull();
   });
 });

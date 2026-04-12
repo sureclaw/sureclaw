@@ -2,7 +2,7 @@
  * Generates MCP CLI executables from tool schemas.
  *
  * Called when preparing a sandbox. One executable per MCP server,
- * sent via stdin payload and written to agentWorkspace/bin/ by applyPayload().
+ * sent via stdin payload and written to /workspace/bin/ by applyPayload().
  */
 
 import type { McpToolSchema } from '../../providers/mcp/types.js';

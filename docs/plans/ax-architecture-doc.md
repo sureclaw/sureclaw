@@ -27,7 +27,7 @@
 │                    └─────────┬──────────┘                           │
 │                              │                                      │
 │                    ┌─────────▼──────────┐                           │
-│                    │  Sandbox Launcher   │  ← nsjail/Docker/Seatbelt│
+│                    │  Sandbox Launcher   │  ← Docker/Apple/K8s     │
 │                    └─────────┬──────────┘                           │
 │                              │                                      │
 │  ┌───────────────────────────▼──────────────────────────────────┐  │
@@ -36,7 +36,6 @@
 │  │  • LLM calls → Credential Proxy → API                        │  │
 │  │  • Memory read/write → Memory Provider                        │  │
 │  │  • Web fetch → Web Provider (DNS pinning, taint tagging)      │  │
-│  │  • Browser commands → Browser Provider (structured only)      │  │
 │  │  • Skill proposals → Skill Store (validate, stage, commit)    │  │
 │  │  • OAuth calls → Credential Provider (scope-validated)        │  │
 │  └──────────────────────────────────────────────────────────────┘  │
@@ -106,12 +105,13 @@ export interface MemoryProvider {
   onProactiveHint?(handler: (hint: ProactiveHint) => void): void;
 }
 
-// ── Scanner Provider ──────────────────────────────────
-export interface ScannerProvider {
+// ── Security Provider (scanner + screener merged) ─────
+export interface SecurityProvider {
   scanInput(msg: ScanTarget): Promise<ScanResult>;
   scanOutput(msg: ScanTarget): Promise<ScanResult>;
   canaryToken(): string;
   checkCanary(output: string, token: string): boolean;
+  screenSkill?(content: string): Promise<ScreenResult>;
 }
 
 // ── Channel Provider ──────────────────────────────────
@@ -127,17 +127,6 @@ export interface ChannelProvider {
 export interface WebProvider {
   fetch(req: FetchRequest): Promise<FetchResponse>;
   search(query: string, maxResults?: number): Promise<SearchResult[]>;
-}
-
-// ── Browser Provider ──────────────────────────────────
-export interface BrowserProvider {
-  launch(config: BrowserConfig): Promise<BrowserSession>;
-  navigate(session: string, url: string): Promise<void>;
-  snapshot(session: string): Promise<PageSnapshot>;
-  click(session: string, ref: number): Promise<void>;
-  type(session: string, ref: number, text: string): Promise<void>;
-  screenshot(session: string): Promise<Buffer>;
-  close(session: string): Promise<void>;
 }
 
 // ── Credential Provider ───────────────────────────────
@@ -207,10 +196,9 @@ import { PROVIDER_MAP } from './provider-map.js';
 export interface ProviderRegistry {
   llm: P.LLMProvider;
   memory: P.MemoryProvider;
-  scanner: P.ScannerProvider;
+  security: P.SecurityProvider;
   channels: P.ChannelProvider[];
   web: P.WebProvider;
-  browser: P.BrowserProvider;
   credentials: P.CredentialProvider;
   skills: P.SkillStoreProvider;
   audit: P.AuditProvider;
@@ -222,12 +210,11 @@ export async function loadProviders(config: Config): Promise<ProviderRegistry> {
   return {
     llm:         await loadProvider('llm', config.providers.llm, config),
     memory:      await loadProvider('memory', config.providers.memory, config),
-    scanner:     await loadProvider('scanner', config.providers.scanner, config),
+    security:    await loadProvider('security', config.providers.security, config),
     channels:    await Promise.all(
                    config.providers.channels.map(c => loadProvider('channel', c, config))
                  ),
     web:         await loadProvider('web', config.providers.web, config),
-    browser:     await loadProvider('browser', config.providers.browser, config),
     credentials: await loadProvider('credentials', config.providers.credentials, config),
     skills:      await loadProvider('skills', config.providers.skills, config),
     audit:       await loadProvider('audit', config.providers.audit, config),
@@ -255,14 +242,12 @@ async function loadProvider(kind: string, name: string, config: Config) {
 providers:
   llm: anthropic              # providers/llm/anthropic.ts
   memory: file                # providers/memory/file.ts
-  scanner: basic              # providers/scanner/basic.ts
-  channels: [cli]             # providers/channel/cli.ts
+  security: patterns           # providers/security/patterns.ts
+  channels: [slack]            # providers/channel/slack.ts
   web: none                   # providers/web/none.ts
-  browser: none               # providers/browser/none.ts
-  credentials: env            # providers/credentials/env.ts
-  skills: readonly            # providers/skills/readonly.ts
-  audit: file                 # providers/audit/file.ts
-  sandbox: subprocess          # providers/sandbox/subprocess.ts (or seatbelt/nsjail/docker)
+  credentials: plaintext      # providers/credentials/plaintext.ts
+  audit: database             # providers/audit/database.ts
+  sandbox: docker             # providers/sandbox/docker.ts (or apple/k8s)
   scheduler: none             # providers/scheduler/none.ts
 
 # Profile presets (paranoid | standard | power-user)
@@ -324,10 +309,10 @@ ax/
 │       │                            #   write()/delete() are no-ops (memorize is source of truth)
 │       │                            #   query()/read()/list() read from knowledge graph
 │       │
-│       ├── scanner/                   # ── Scanner Providers ──────────
-│       │   ├── basic.ts              # Regex + canary tokens (~60) [Stage 0]
-│       │   ├── patterns.ts           # Expanded pattern library (~150) [Stage 1]
-│       │   └── promptfoo.ts          # ML-based detection (~200) [Stage 5]
+│       ├── security/                  # ── Security Providers ─────────
+│       │   ├── patterns.ts           # Regex pattern library + skill screening (~150)
+│       │   ├── guardian.ts           # Regex + LLM classification (~200)
+│       │   └── none.ts              # No-op stub (~10)
 │       │
 │       ├── channel/                   # ── Channel Providers ──────────
 │       │   ├── cli.ts                # stdin/stdout (~40) [Stage 0]
@@ -339,10 +324,6 @@ ax/
 │       │   ├── none.ts               # Stub (~10) [Stage 0]
 │       │   ├── fetch.ts              # Proxied fetch + DNS pinning (~100) [Stage 1]
 │       │   └── search.ts            # Search API integration (~50) [Stage 2]
-│       │
-│       ├── browser/                   # ── Browser Providers ─────────
-│       │   ├── none.ts               # Stub (~10) [Stage 0]
-│       │   └── container.ts          # Sandboxed Playwright (~250) [Stage 4]
 │       │
 │       ├── credentials/               # ── Credential Providers ──────
 │       │   ├── env.ts                # Read from process.env (~30) [Stage 0]
@@ -358,10 +339,9 @@ ax/
 │       │   └── sqlite.ts            # Queryable SQLite log (~80) [Stage 1]
 │       │
 │       ├── sandbox/                   # ── Sandbox Providers ─────────
-│       │   ├── subprocess.ts        # No isolation, dev only (~50) [Stage 0, Dev]
-│       │   ├── seatbelt.ts          # macOS sandbox-exec (~80) [Stage 0, macOS]
-│       │   ├── nsjail.ts            # Linux namespaces + seccomp (~100) [Stage 0, Linux]
-│       │   └── docker.ts            # Docker + gVisor (~150) [Stage 0 alt]
+│       │   ├── docker.ts            # Docker + gVisor (~150)
+│       │   ├── apple.ts             # Apple Container framework (~150)
+│       │   └── k8s.ts               # Kubernetes pods (~200)
 │       │
 │       └── scheduler/                 # ── Scheduler Providers ───────
 │           ├── none.ts               # Stub (~10) [Stage 0]

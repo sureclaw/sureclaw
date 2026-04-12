@@ -4,6 +4,7 @@ IPC protocol lessons: Zod schema validation, handler registration, response shap
 
 ## Entries
 
+- "catalog" grep matches both tool-catalog and catalog-store — different systems [entries.md](entries.md)
 - IPC client cannot handle concurrent calls without message ID correlation [entries.md](entries.md)
 - IPC schemas use z.strictObject — extra fields cause silent validation failures [entries.md](entries.md)
 - ipcAction() auto-registers schemas in IPC_SCHEMAS — just call it at module level [entries.md](entries.md)

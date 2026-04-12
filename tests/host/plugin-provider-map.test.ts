@@ -46,7 +46,7 @@ describe('Plugin provider registration (SC-SEC-002)', () => {
 
   test('listPluginProviders returns registered plugins', () => {
     registerPluginProvider('memory', 'mongo', 'plugin://@test/mongo');
-    registerPluginProvider('scanner', 'ml', 'plugin://@test/ml-scanner');
+    registerPluginProvider('security', 'ml', 'plugin://@test/ml-scanner');
 
     const list = listPluginProviders();
     expect(list).toHaveLength(2);
@@ -56,7 +56,7 @@ describe('Plugin provider registration (SC-SEC-002)', () => {
       modulePath: 'plugin://@test/mongo',
     });
     expect(list).toContainEqual({
-      kind: 'scanner',
+      kind: 'security',
       name: 'ml',
       modulePath: 'plugin://@test/ml-scanner',
     });

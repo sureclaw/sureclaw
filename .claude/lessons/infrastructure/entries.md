@@ -1,3 +1,9 @@
+### Large-scale provider removal requires systematic grep + batch replace
+**Date:** 2026-04-06
+**Context:** Removing subprocess sandbox required updating 53 files. The string 'subprocess' appeared in test configs, YAML fixtures, comments, and code. Simple batch `perl -pi -e` replacements handled most cases, but special tests that tested the subprocess provider itself (sandbox-isolation subprocess env leak, provider-map subprocess assertions) required manual removal/editing.
+**Lesson:** When removing a provider: (1) delete source + test files, (2) remove from provider-map, (3) grep entire codebase for the provider name, (4) batch-replace in test configs with `perl -pi -e`, (5) manually handle tests that specifically test the removed provider (delete test blocks, not whole files). Always check that "subprocess" in comments about CLI subprocesses is semantically different from the sandbox provider name.
+**Tags:** provider-removal, batch-replace, subprocess, refactoring
+
 ### Admin API must sync MCP server changes to McpConnectionManager
 **Date:** 2026-03-30
 **Context:** Linear connector was configured via admin dashboard with correct auth headers, but CLI tool wasn't generated because `discoverAllTools()` sent requests without auth. Root cause: admin CRUD only wrote to DB; the in-memory McpConnectionManager was only populated at startup via `loadDatabaseMcpServers()`.

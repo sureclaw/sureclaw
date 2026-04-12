@@ -1,29 +1,25 @@
 // src/types.ts — Shared cross-cutting types
 import type { ProfileName } from './onboarding/prompts.js';
 import type { LLMProvider } from './providers/llm/types.js';
-import type { ImageProvider } from './providers/image/types.js';
 import type { MemoryProvider } from './providers/memory/types.js';
-import type { ScannerProvider } from './providers/scanner/types.js';
+import type { SecurityProvider } from './providers/security/types.js';
 import type { ChannelProvider, ChannelAccessConfig } from './providers/channel/types.js';
 import type { WebExtractProvider, WebSearchProvider, FetchRequest, FetchResponse } from './providers/web/types.js';
-import type { BrowserProvider } from './providers/browser/types.js';
 import type { CredentialProvider } from './providers/credentials/types.js';
-import type { SkillScreenerProvider } from './providers/screener/types.js';
 import type { AuditProvider } from './providers/audit/types.js';
 import type { SandboxProvider } from './providers/sandbox/types.js';
 import type { SchedulerProvider, CronDelivery } from './providers/scheduler/types.js';
 import type { StorageProvider } from './providers/storage/types.js';
 import type { EventBusProvider } from './providers/eventbus/types.js';
 import type { DatabaseProvider } from './providers/database/types.js';
-import type { WorkspaceProvider } from './providers/workspace/types.js';
 import type { McpProvider } from './providers/mcp/types.js';
 import type {
-  MemoryProviderName, ScannerProviderName, ChannelProviderName,
-  WebExtractProviderName, WebSearchProviderName, BrowserProviderName, CredentialProviderName,
+  MemoryProviderName, SecurityProviderName, ChannelProviderName,
+  WebExtractProviderName, WebSearchProviderName, CredentialProviderName,
   AuditProviderName, SandboxProviderName,
   SchedulerProviderName, StorageProviderName, EventBusProviderName,
-  DatabaseProviderName, WorkspaceProviderName, McpProviderName,
-  AuthProviderName,
+  DatabaseProviderName, McpProviderName,
+  AuthProviderName, WorkspaceProviderName,
 } from './host/provider-map.js';
 
 /** Allowed image MIME types (matches Anthropic vision API). */
@@ -68,12 +64,12 @@ export interface TaintTag {
 export type AgentType = 'pi-coding-agent' | 'claude-code';
 
 /** Task types for model routing. All except 'default' are optional and fall back to 'default'. */
-export const MODEL_TASK_TYPES = ['default', 'fast', 'thinking', 'coding', 'image'] as const;
+export const MODEL_TASK_TYPES = ['default', 'fast', 'thinking', 'coding'] as const;
 export type ModelTaskType = typeof MODEL_TASK_TYPES[number];
 
-/** LLM-only task types (everything except 'image', which goes to the image router). */
-export const LLM_TASK_TYPES = ['default', 'fast', 'thinking', 'coding'] as const;
-export type LLMTaskType = typeof LLM_TASK_TYPES[number];
+/** @deprecated LLM_TASK_TYPES is now identical to MODEL_TASK_TYPES since image was removed. */
+export const LLM_TASK_TYPES = MODEL_TASK_TYPES;
+export type LLMTaskType = ModelTaskType;
 
 /** Per-task-type model map. 'default' is required for router-based agents; optional for claude-code. */
 export interface ModelMap {
@@ -81,7 +77,6 @@ export interface ModelMap {
   fast?: string[];
   thinking?: string[];
   coding?: string[];
-  image?: string[];
 }
 
 export interface Config {
@@ -93,13 +88,12 @@ export interface Config {
   profile: ProfileName;
   providers: {
     memory: MemoryProviderName;
-    scanner: ScannerProviderName;
+    security: SecurityProviderName;
     channels: ChannelProviderName[];
     web: {
       extract: WebExtractProviderName;
       search: WebSearchProviderName;
     };
-    browser: BrowserProviderName;
     credentials: CredentialProviderName;
     audit: AuditProviderName;
     sandbox: SandboxProviderName;
@@ -107,10 +101,9 @@ export interface Config {
     storage: StorageProviderName;
     database?: DatabaseProviderName;
     eventbus: EventBusProviderName;
-    workspace: WorkspaceProviderName;
     mcp?: McpProviderName;
     auth?: AuthProviderName[];
-    screener?: string;
+    workspace?: WorkspaceProviderName;
   };
   channel_config?: Record<string, Partial<ChannelAccessConfig>>;
   sandbox: {
@@ -153,15 +146,6 @@ export interface Config {
     max_concurrent?: number;
     max_depth?: number;
   };
-  workspace: {
-    basePath: string;
-    bucket?: string;
-    prefix?: string;
-    maxFileSize: number;
-    maxFiles: number;
-    maxCommitSize: number;
-    ignorePatterns: string[];
-  };
   webhooks?: {
     enabled: boolean;
     token: string;
@@ -184,6 +168,16 @@ export interface Config {
       };
       allowed_domains?: string[];
     };
+  };
+  /** Git server configuration for workspace repositories. */
+  gitServer?: {
+    host: string;
+    httpPort?: number;
+  };
+  /** GCS bucket configuration for file storage (artifacts, attachments). */
+  gcs?: {
+    bucket: string;
+    prefix?: string;
   };
   /** Enable HTTP forward proxy for agent outbound HTTP/HTTPS requests. */
   web_proxy?: boolean;
@@ -228,14 +222,12 @@ export interface PluginDeclaration {
 
 export interface ProviderRegistry {
   llm: LLMProvider;
-  image?: ImageProvider;
   memory: MemoryProvider;
-  scanner: ScannerProvider;
+  security: SecurityProvider;
   channels: ChannelProvider[];
   webFetch: { fetch(req: FetchRequest): Promise<FetchResponse> };
   webExtract: WebExtractProvider;
   webSearch: WebSearchProvider;
-  browser: BrowserProvider;
   credentials: CredentialProvider;
   audit: AuditProvider;
   sandbox: SandboxProvider;
@@ -243,9 +235,8 @@ export interface ProviderRegistry {
   storage: StorageProvider;
   database?: DatabaseProvider;
   eventbus: EventBusProvider;
-  workspace: WorkspaceProvider;
   /** @deprecated Use McpConnectionManager for unified MCP tool discovery and routing. */
   mcp?: McpProvider;
   auth?: import('./providers/auth/types.js').AuthProvider[];
-  screener?: SkillScreenerProvider;
+  workspace?: import('./providers/workspace/types.js').WorkspaceProvider;
 }

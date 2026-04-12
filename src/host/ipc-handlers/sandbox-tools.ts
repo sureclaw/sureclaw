@@ -3,8 +3,7 @@
  * sandbox_write_file, sandbox_edit_file) and audit gate (sandbox_approve,
  * sandbox_result).
  *
- * In subprocess mode these execute directly on the host filesystem using the
- * session's workspace directory. In container mode (docker/apple/k8s), the
+ * In container mode (docker/apple/k8s), the
  * agent executes tools locally inside the container and uses the audit gate
  * for pre-execution approval and post-execution reporting.
  *
@@ -409,9 +408,25 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         ? safeWorkspacePath(workspace, req.path)
         : workspace;
 
+      // Log the exact paths being searched (visible in stderr)
+      logger.info('sandbox_glob_paths', {
+        sessionId: ctx.sessionId,
+        workspace,
+        basePath,
+        pattern: req.pattern,
+      });
+
       // Fall back to pure Node.js glob if rg is not installed
       if (!isRgAvailable()) {
         const result = nodeGlob(basePath, req.pattern, maxResults);
+        logger.debug('sandbox_glob_nodeglob', {
+          pattern: req.pattern,
+          path: req.path,
+          basePath,
+          workspace,
+          resultCount: result.count,
+          truncated: result.truncated,
+        });
         await providers.audit.log({
           action: 'sandbox_glob',
           sessionId: ctx.sessionId,
@@ -425,6 +440,14 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
       const args: string[] = ['--files', '--glob', req.pattern, '--color', 'never'];
       args.push(basePath);
 
+      logger.debug('sandbox_glob_rg_start', {
+        pattern: req.pattern,
+        path: req.path,
+        basePath,
+        workspace,
+        rgCommand: `rg ${args.join(' ')}`,
+      });
+
       return new Promise<{ files: string[]; truncated: boolean; count: number }>((resolve) => {
         const child = spawn('rg', args, {
           cwd: workspace,
@@ -434,6 +457,7 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         const files: string[] = [];
         let buffer = '';
         let truncated = false;
+        let stderrOutput = '';
 
         child.stdout.on('data', (chunk: Buffer) => {
           if (truncated) return;
@@ -451,11 +475,24 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
           }
         });
 
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderrOutput += chunk.toString('utf-8');
+        });
+
         child.on('close', async (code) => {
           // Process any remaining buffer content
           if (buffer && !truncated && files.length < maxResults) {
             files.push(buffer.startsWith(workspace) ? buffer.slice(workspace.length + 1) : buffer);
           }
+          logger.debug('sandbox_glob_rg_done', {
+            pattern: req.pattern,
+            path: req.path,
+            rgExitCode: code,
+            resultCount: files.length,
+            truncated,
+            stderrLength: stderrOutput.length,
+            stderrPreview: stderrOutput.substring(0, 200),
+          });
           await providers.audit.log({
             action: 'sandbox_glob',
             sessionId: ctx.sessionId,
@@ -466,6 +503,11 @@ export function createSandboxToolHandlers(providers: ProviderRegistry, opts: San
         });
 
         child.on('error', async (err) => {
+          logger.error('sandbox_glob_rg_error', {
+            pattern: req.pattern,
+            path: req.path,
+            error: (err as Error).message,
+          });
           await providers.audit.log({
             action: 'sandbox_glob',
             sessionId: ctx.sessionId,
