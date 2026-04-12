@@ -60,7 +60,10 @@ function makeErrorMessage(errorText: string): AssistantMessage {
  *   base64-encode, send to Claude).
  */
 export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[]): StreamFn {
-  return async (model: Model<any>, context: Context, options?: SimpleStreamOptions): Promise<AssistantMessageEventStream> => {
+  // Cast needed: pi-agent-core may resolve its own nested pi-ai copy whose
+  // AssistantMessageEventStream has a separate private field declaration,
+  // making the two structurally-identical types incompatible at the type level.
+  return (async (model: Model<any>, context: Context, options?: SimpleStreamOptions): Promise<AssistantMessageEventStream> => {
     const stream = createAssistantMessageEventStream();
 
     const msgCount = context.messages.length;
@@ -211,5 +214,5 @@ export function createIPCStreamFn(client: IPCClient, imageBlocks?: ContentBlock[
     });
 
     return stream;
-  };
+  }) as unknown as StreamFn;
 }
