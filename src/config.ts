@@ -40,33 +40,39 @@ const ConfigSchema = z.strictObject({
   }).optional(),
   profile: z.enum(PROFILE_NAMES),
   providers: z.strictObject({
-    memory: providerEnum('memory'),
-    security: providerEnum('security'),
-    channels: z.array(providerEnum('channel')),
+    memory: providerEnum('memory').optional().default('cortex'),
+    security: providerEnum('security').optional().default('patterns'),
+    channels: z.array(providerEnum('channel')).optional().default([]),
     web: z.strictObject({
-      extract: providerEnum('web_extract'),
-      search: providerEnum('web_search'),
-    }),
-    credentials: z.union([providerEnum('credentials'), z.literal('env')])
-      .transform((val) => {
-        if (val === 'env') {
-          // eslint-disable-next-line no-console
-          console.warn('[ax] Deprecation: credentials: "env" is no longer supported. Remapping to "keychain".');
-          return 'keychain' as const;
-        }
-        return val;
-      }),
-    skills: z.string().optional(), // deprecated — skills are now filesystem-based
-    audit: providerEnum('audit'),
-    sandbox: providerEnum('sandbox'),
-    scheduler: providerEnum('scheduler'),
+      extract: providerEnum('web_extract').optional().default('none'),
+      search: providerEnum('web_search').optional().default('none'),
+    }).optional().default({ extract: 'none', search: 'none' }),
+    credentials: providerEnum('credentials').optional().default('keychain'),
+    audit: providerEnum('audit').optional().default('database'),
+    sandbox: providerEnum('sandbox').optional().default(
+      process.platform === 'darwin' ? 'apple' : 'docker',
+    ),
+    scheduler: providerEnum('scheduler').optional().default('plainjob'),
     database: providerEnum('database').optional().default('sqlite'),
     storage: providerEnum('storage').optional().default('database'),
     eventbus: providerEnum('eventbus').optional().default('inprocess'),
     mcp: providerEnum('mcp').optional(),
     auth: z.array(providerEnum('auth')).optional(),
-    workspace: providerEnum('workspace').optional(),
-  }),
+    workspace: providerEnum('workspace').optional().default('git-local'),
+  }).optional().default({
+    memory: 'cortex',
+    security: 'patterns',
+    channels: [],
+    web: { extract: 'none', search: 'none' },
+    credentials: 'keychain',
+    audit: 'database',
+    sandbox: process.platform === 'darwin' ? 'apple' : 'docker',
+    scheduler: 'plainjob',
+    database: 'sqlite',
+    storage: 'database',
+    eventbus: 'inprocess',
+    workspace: 'git-local',
+  } as any),
   channel_config: z.record(z.string(), ChannelAccessConfigSchema).optional(),
   max_tokens: z.number().int().min(256).max(200_000).optional().default(8192),
   sandbox: z.strictObject({
@@ -74,17 +80,7 @@ const ConfigSchema = z.strictObject({
     idle_timeout_sec: z.number().int().min(60).max(7200).optional(),
     clean_idle_timeout_sec: z.number().int().min(60).max(7200).optional(),
     memory_mb: z.number().int().min(64).max(8192),
-    tiers: z.strictObject({
-      default: z.strictObject({
-        memory_mb: z.number().int().min(64).max(8192).default(256),
-        cpus: z.number().min(0.5).max(16).default(1),
-      }).default({ memory_mb: 256, cpus: 1 }),
-      heavy: z.strictObject({
-        memory_mb: z.number().int().min(64).max(8192).default(2048),
-        cpus: z.number().min(0.5).max(16).default(4),
-      }).default({ memory_mb: 2048, cpus: 4 }),
-    }).optional(),
-  }),
+  }).optional().default({ timeout_sec: 120, memory_mb: 512 }),
   scheduler: z.strictObject({
     active_hours: z.strictObject({
       start: z.string().regex(/^\d{2}:\d{2}$/, 'Must be HH:MM format'),
@@ -111,6 +107,10 @@ const ConfigSchema = z.strictObject({
         }),
       ]).optional(),
     }).optional(),
+  }).optional().default({
+    active_hours: { start: '07:00', end: '23:00', timezone: 'UTC' },
+    max_token_budget: 4096,
+    heartbeat_interval_min: 30,
   }),
   history: z.strictObject({
     max_turns: z.number().int().min(0).max(10000).default(50),

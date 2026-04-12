@@ -9,8 +9,7 @@ providers:
   web:
     extract: none
     search: none
-  credentials: env
-  skills: database
+  credentials: keychain
   audit: database
   sandbox: seatbelt
   scheduler: none

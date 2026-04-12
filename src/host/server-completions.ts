@@ -1068,7 +1068,7 @@ export async function processCompletion(
         ? 86400
         : config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
-      cpus: config.sandbox.tiers?.default?.cpus ?? 1,
+      cpus: 1,
       command: spawnCommand,
       extraEnv: {
         ...deps.extraSandboxEnv,

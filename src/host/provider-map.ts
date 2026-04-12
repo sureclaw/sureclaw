@@ -80,7 +80,8 @@ const _PROVIDER_MAP = {
     'better-auth': '../providers/auth/better-auth.js',
   },
   workspace: {
-    'git-http': '../providers/workspace/git-http.js',
+    'git-http':  '../providers/workspace/git-http.js',
+    'git-local': '../providers/workspace/git-local.js',
   },
 } as const;
 

@@ -1,0 +1,55 @@
+/**
+ * Local git workspace provider.
+ *
+ * Manages bare repos on disk at ~/.ax/repos/<agentId>.
+ * Agents clone and push via file:// URLs — no server needed.
+ */
+
+import { execFileSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import type { WorkspaceProvider } from './types.js';
+import type { Config } from '../../types.js';
+import { axHome } from '../../paths.js';
+import { safePath } from '../../utils/safe-path.js';
+import { getLogger } from '../../logger.js';
+
+const logger = getLogger().child({ component: 'git-local-workspace' });
+
+export async function create(_config: Config): Promise<WorkspaceProvider> {
+  const reposDir = join(axHome(), 'repos');
+
+  return {
+    async getRepoUrl(agentId: string): Promise<string> {
+      // Encode agent ID: user:alice -> user-alice (same as git-http)
+      const repoName = agentId.replace(/:/g, '-');
+
+      // safePath validates the constructed path is within reposDir
+      const repoPath = safePath(reposDir, repoName);
+
+      // Lazily create repos directory and bare repo
+      mkdirSync(reposDir, { recursive: true });
+      try {
+        execFileSync('git', ['init', '--bare', repoPath], {
+          stdio: 'pipe',
+        });
+        logger.debug('repo_initialized', { agentId, repoName, repoPath });
+      } catch (err) {
+        // git init --bare is idempotent — reinitializing is not an error
+        const msg = (err as { stderr?: string }).stderr ?? '';
+        if (!msg.includes('Reinitialized')) {
+          logger.error('repo_init_failed', {
+            agentId,
+            error: (err as Error).message,
+          });
+        }
+      }
+
+      return `file://${repoPath}`;
+    },
+
+    async close(): Promise<void> {
+      // No resources to clean up
+    },
+  };
+}

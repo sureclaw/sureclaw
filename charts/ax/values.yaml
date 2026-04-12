@@ -38,13 +38,13 @@ config:
       extract: none
       search: none
     credentials: database
-    skills: database
     storage: database
     database: postgresql
     eventbus: postgres
     sandbox: k8s
     audit: database
     scheduler: plainjob
+    workspace: git-http
   sandbox:
     timeout_sec: 120
     idle_timeout_sec: 300
@@ -115,24 +115,6 @@ sandbox:
   # Set to "" to disable (for kind/minikube/non-gVisor clusters).
   # null → use preset (gvisor) or default gvisor.
   runtimeClass:
-  # Sandbox tiers — null → use preset or default (light 2-10 + heavy 0-3).
-  tiers:
-    light:
-      minReady: 2
-      maxReady: 10
-      template:
-        command: ["node", "/opt/ax/dist/agent/runner.js"]
-        cpu: "1"
-        memory: "2Gi"
-        workspaceRoot: "/workspace"
-    heavy:
-      minReady: 0
-      maxReady: 3
-      template:
-        command: ["node", "/opt/ax/dist/agent/runner.js"]
-        cpu: "4"
-        memory: "16Gi"
-        workspaceRoot: "/workspace"
 
 # ─── PostgreSQL ───────────────────────────────────────────────────
 # Provide a DATABASE_URL via a k8s Secret. Works with any PostgreSQL:

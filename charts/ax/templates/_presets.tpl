@@ -48,5 +48,3 @@ Preset: small/large=gvisor. Chart default: gvisor.
   {{- .Values.sandbox.runtimeClass -}}
 {{- else -}}gvisor{{- end -}}
 {{- end -}}
-
-{{/* Sandbox worker pod tiers removed — agents execute tools locally */}}

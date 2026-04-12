@@ -22,21 +22,16 @@ describe('Configure UI Helpers', () => {
   test('buildInquirerDefaults returns undefined values when no existing config', () => {
     const defaults = buildInquirerDefaults(null);
     expect(defaults.profile).toBeUndefined();
-    expect(defaults.agent).toBeUndefined();
     expect(defaults.apiKey).toBeUndefined();
-    expect(defaults.channels).toBeUndefined();
+    expect(defaults.model).toBeUndefined();
+    expect(defaults.llmProvider).toBeUndefined();
   });
 
   test('buildInquirerDefaults maps existing config to inquirer defaults', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
-      answers: {
-        profile: 'yolo',
-        apiKey: 'sk-existing',
-        channels: ['cli', 'slack'],
-        skipSkills: true,
-      },
+      answers: { profile: 'yolo', apiKey: 'sk-existing' },
     });
 
     const existing = loadExistingConfig(dir);
@@ -44,91 +39,20 @@ describe('Configure UI Helpers', () => {
 
     expect(defaults.profile).toBe('yolo');
     expect(defaults.apiKey).toBe('sk-existing');
-    expect(defaults.channels).toEqual(['slack']);
   });
 
   test('buildInquirerDefaults masks API key for display', async () => {
     const dir = setup();
     await runOnboarding({
       outputDir: dir,
-      answers: {
-        profile: 'balanced',
-        apiKey: 'sk-ant-api03-longkeyvalue12345',
-        channels: ['cli'],
-        skipSkills: true,
-      },
+      answers: { profile: 'balanced', apiKey: 'sk-ant-api03-longkeyvalue12345' },
     });
 
     const existing = loadExistingConfig(dir);
     const defaults = buildInquirerDefaults(existing);
 
-    // apiKey is the full value (for pre-filling the input),
-    // but apiKeyMasked is a display hint
     expect(defaults.apiKey).toBe('sk-ant-api03-longkeyvalue12345');
     expect(defaults.apiKeyMasked).toMatch(/^sk-\.\.\..+$/);
-  });
-
-  test('buildInquirerDefaults includes tavily key from existing config', async () => {
-    const dir = setup();
-    await runOnboarding({
-      outputDir: dir,
-      answers: {
-        profile: 'yolo',
-        apiKey: 'sk-test-key',
-        channels: ['cli'],
-        skipSkills: true,
-        webSearchApiKey: 'tvly-long-api-key-value',
-      },
-    });
-
-    const existing = loadExistingConfig(dir);
-    const defaults = buildInquirerDefaults(existing);
-
-    expect(defaults.webSearchApiKey).toBe('tvly-long-api-key-value');
-    expect(defaults.webSearchApiKeyMasked).toMatch(/^tvl\.\.\..+$/);
-  });
-
-  test('buildInquirerDefaults includes OAuth token and masked display from existing config', async () => {
-    const dir = setup();
-    await runOnboarding({
-      outputDir: dir,
-      answers: {
-        profile: 'balanced',
-        agent: 'claude-code',
-        apiKey: '',
-        oauthToken: 'sk-ant-oat01-long-token-value',
-        oauthRefreshToken: 'sk-ant-ort01-refresh-value',
-        oauthExpiresAt: 1739200000,
-        channels: ['cli'],
-        skipSkills: true,
-      },
-    });
-
-    const existing = loadExistingConfig(dir);
-    const defaults = buildInquirerDefaults(existing);
-
-    expect(defaults.oauthToken).toBe('sk-ant-oat01-long-token-value');
-    expect(defaults.oauthTokenMasked).toMatch(/^sk-\.\.\..+$/);
-    expect(defaults.authMethod).toBe('oauth');
-  });
-
-  test('buildInquirerDefaults includes agent type from existing config', async () => {
-    const dir = setup();
-    await runOnboarding({
-      outputDir: dir,
-      answers: {
-        profile: 'balanced',
-        agent: 'claude-code',
-        apiKey: 'sk-test-key',
-        channels: ['cli'],
-        skipSkills: true,
-      },
-    });
-
-    const existing = loadExistingConfig(dir);
-    const defaults = buildInquirerDefaults(existing);
-
-    expect(defaults.agent).toBe('claude-code');
   });
 
   test('buildInquirerDefaults includes model and llmProvider from existing config', async () => {
@@ -137,12 +61,9 @@ describe('Configure UI Helpers', () => {
       outputDir: dir,
       answers: {
         profile: 'balanced',
-        agent: 'pi-coding-agent',
         model: 'openrouter/anthropic/claude-sonnet-4',
         llmProvider: 'openrouter',
         apiKey: 'or-key-test-value',
-        channels: [],
-        skipSkills: true,
       },
     });
 

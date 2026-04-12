@@ -17,4 +17,4 @@ export interface WorkspaceProvider {
   close(): Promise<void>;
 }
 
-export type WorkspaceProviderName = 'git-http';
+export type WorkspaceProviderName = 'git-http' | 'git-local';
