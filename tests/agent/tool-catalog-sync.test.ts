@@ -114,7 +114,7 @@ describe('tool-catalog <-> system prompt sync', () => {
     const ctx = makePromptContext({ skills: [{ name: 'Dummy', description: 'dummy', path: 'dummy.md' }] });
     const rendered = mod.render(ctx).join('\n');
     // Should reference filesystem-based skill paths and read_file tool
-    expect(rendered, 'skill path missing from SkillsModule system prompt').toContain('user/skills/');
+    expect(rendered, 'skill path missing from SkillsModule system prompt').toContain('/workspace/skills/');
     expect(rendered, 'read_file tool missing from SkillsModule system prompt').toContain('read_file');
   });
 

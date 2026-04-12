@@ -2,6 +2,12 @@
 
 ## Lessons
 
+### When merging split src/test branches, check 7 common failure patterns
+**Date:** 2026-04-12
+**Context:** Merging workspace-git-ssh-src (source changes) with workspace-git-ssh-tests (test branch) produced 10+ test failures.
+**Lesson:** When source and tests are developed on separate branches, check these patterns: (1) renamed/moved provider directories (scanner -> security), (2) removed type fields (pvcName, workspaceSizeGi), (3) removed provider methods (deletePvc), (4) changed path constants (user/skills/ -> /workspace/skills/), (5) changed function signatures (new params, removed params), (6) changed mock requirements (new imports to mock), (7) source-reading tests that assert on deleted code patterns. Run the full suite first to identify all failures, then fix tests only — never modify source.
+**Tags:** branch-merge, test-sync, provider-rename, path-change
+
 ### Don't call runMigrations() before createStorage() — it runs them internally
 **Date:** 2026-03-31
 **Context:** 20 tests failed with `SqliteError: no such column: "agent_id"` because test setup called `runMigrations(db, storageMigrations('sqlite'))` then `createStorage()` which runs migrations again with a different tracking table name (`storage_migration`). Migration 006 re-ran after 007 had already removed the column.

@@ -301,11 +301,9 @@ describe('DELETE /admin/api/agents/:id', () => {
 
   afterEach(() => { server.close(); });
 
-  it('archives agent and calls deletePvc when sandbox supports it', async () => {
+  it('archives agent (soft delete)', async () => {
     _rateLimits.clear();
     const deps = await mockDeps();
-    const deletePvc = vi.fn().mockResolvedValue(undefined);
-    (deps.providers as any).sandbox = { deletePvc };
     const handler = createAdminHandler(deps);
     const result = await startTestServer(handler);
     server = result.server;
@@ -319,9 +317,6 @@ describe('DELETE /admin/api/agents/:id', () => {
     const data = res.body as { ok: boolean; agentId: string };
     expect(data.ok).toBe(true);
     expect(data.agentId).toBe('main');
-
-    // deletePvc should have been called with the correct PVC name
-    expect(deletePvc).toHaveBeenCalledWith('ax-workspace-main');
   });
 
   it('archives agent without error when sandbox has no deletePvc', async () => {
@@ -342,24 +337,7 @@ describe('DELETE /admin/api/agents/:id', () => {
     expect(data.ok).toBe(true);
   });
 
-  it('succeeds even when deletePvc fails', async () => {
-    _rateLimits.clear();
-    const deps = await mockDeps();
-    const deletePvc = vi.fn().mockRejectedValue(new Error('k8s API down'));
-    (deps.providers as any).sandbox = { deletePvc };
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-
-    const res = await fetchAdmin(port, '/admin/api/agents/main', {
-      token: 'test-secret-token',
-      method: 'DELETE',
-    });
-    // Should still succeed — PVC deletion is fire and forget
-    expect(res.status).toBe(200);
-    expect(deletePvc).toHaveBeenCalledWith('ax-workspace-main');
-  });
+  // deletePvc tests removed — workspace is now git-backed, no PVC cleanup needed
 
   it('returns 404 for unknown agent', async () => {
     _rateLimits.clear();

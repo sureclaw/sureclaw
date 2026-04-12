@@ -425,11 +425,12 @@ describe('/workspace root is read-only', () => {
 // ── Single Workspace Model ─────────────────────────────────────────────
 
 describe('single workspace model', () => {
-  test('SandboxConfig has pvcName for k8s persistent workspace', async () => {
+  test('SandboxConfig uses git-based workspace (no PVC)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/providers/sandbox/types.ts'), 'utf-8');
 
-    expect(source).toContain('pvcName');
+    // Workspace is now git-backed via sidecar — no PVC needed
+    expect(source).not.toContain('pvcName');
     // Old per-tier flags should be removed
     expect(source).not.toContain('agentWorkspaceWritable');
     expect(source).not.toContain('userWorkspaceWritable');

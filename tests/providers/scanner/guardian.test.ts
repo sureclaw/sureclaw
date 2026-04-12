@@ -1,8 +1,8 @@
 import { describe, test, expect, vi } from 'vitest';
 import type { Config } from '../../../src/types.js';
-import type { ScanTarget } from '../../../src/providers/scanner/types.js';
+import type { ScanTarget } from '../../../src/providers/security/types.js';
 import type { LLMProvider, ChatChunk } from '../../../src/providers/llm/types.js';
-import { create } from '../../../src/providers/scanner/guardian.js';
+import { create } from '../../../src/providers/security/guardian.js';
 
 const config = {} as Config;
 

@@ -310,64 +310,15 @@ describe('sandbox-k8s provider', () => {
     expect(reqIdEnv).toEqual({ name: 'AX_IPC_REQUEST_ID', value: 'req-456' });
   });
 
-  test('ensurePvc creates PVC with configured size', async () => {
+  // PVC tests removed — workspace is now git-backed via sidecar, no PVC needed
+
+  test('workspace volume uses emptyDir (git-backed, no PVC)', async () => {
     const { create } = await import('../../../src/providers/sandbox/k8s.js');
     const provider = await create(mockConfig());
-
-    const config: SandboxConfig = {
-      ...mockSandboxConfig(),
-      pvcName: 'ax-workspace-test',
-      workspaceSizeGi: 20,
-    };
-    await provider.spawn(config);
-
-    expect(mockReadNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'ax-workspace-test' }),
-    );
-    expect(mockCreateNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          spec: expect.objectContaining({
-            resources: { requests: { storage: '20Gi' } },
-          }),
-        }),
-      }),
-    );
-  });
-
-  test('ensurePvc defaults to 10Gi when workspaceSizeGi not set', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s.js');
-    const provider = await create(mockConfig());
-
-    const config: SandboxConfig = {
-      ...mockSandboxConfig(),
-      pvcName: 'ax-workspace-default',
-    };
-    await provider.spawn(config);
-
-    expect(mockCreateNamespacedPersistentVolumeClaim).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({
-          spec: expect.objectContaining({
-            resources: { requests: { storage: '10Gi' } },
-          }),
-        }),
-      }),
-    );
-  });
-
-  test('workspace volume uses PVC when pvcName is set', async () => {
-    const { create } = await import('../../../src/providers/sandbox/k8s.js');
-    const provider = await create(mockConfig());
-
-    const config: SandboxConfig = {
-      ...mockSandboxConfig(),
-      pvcName: 'ax-workspace-test',
-    };
-    await provider.spawn(config);
+    await provider.spawn(mockSandboxConfig());
 
     const volumes = mockCreateNamespacedPod.mock.calls[0][0].body.spec.volumes;
     const wsVol = volumes.find((v: any) => v.name === 'workspace');
-    expect(wsVol.persistentVolumeClaim).toEqual({ claimName: 'ax-workspace-test' });
+    expect(wsVol.emptyDir).toBeDefined();
   });
 });

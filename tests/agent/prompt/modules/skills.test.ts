@@ -133,7 +133,7 @@ describe('SkillsModule', () => {
     expect(text).toContain('Available Skills');
     expect(text).toContain('| Daily Standup | Generates daily standup summaries |');
     expect(text).toContain('| Code Review | Reviews pull requests for quality |');
-    expect(text).toContain('user/skills/');
+    expect(text).toContain('/workspace/skills/');
   });
 
   test('priority is 70', () => {

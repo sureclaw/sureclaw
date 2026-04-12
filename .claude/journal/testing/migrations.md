@@ -2,6 +2,20 @@
 
 Kysely migration infrastructure: runner, database factory, store integration, upgrade-path tests.
 
+## [2026-04-12 10:30] — Fix failing tests for workspace-git-ssh branch merge
+
+**Task:** Fix test failures caused by source code changes on workspace-git-ssh-src that weren't reflected in the test files from workspace-git-ssh-tests.
+**What I did:**
+- `tests/providers/scanner/guardian.test.ts` — Updated imports from `scanner/` to `security/` (provider was renamed)
+- `tests/sandbox-isolation.test.ts` — Changed pvcName assertion to verify PVC is NOT present (workspace is now git-backed)
+- `tests/providers/sandbox/k8s.test.ts` — Removed 3 PVC tests (ensurePvc, workspaceSizeGi, PVC volume mount), added emptyDir assertion
+- `tests/host/server-admin.test.ts` — Removed 2 deletePvc tests (agent delete no longer cleans up PVCs)
+- `tests/agent/tool-catalog-sync.test.ts` — Changed `user/skills/` to `/workspace/skills/`
+- `tests/agent/prompt/modules/skills.test.ts` — Changed `user/skills/` to `/workspace/skills/`
+**Files touched:** 6 test files modified
+**Outcome:** Success. All 6 fixed files pass (140 tests). Full suite: 2613 passed, 4 failed (pre-existing server/integration timeouts)
+**Notes:** runner.test.ts and pi-session.test.ts were already passing despite source changes. The 4 remaining failures are flaky timeout-based integration tests unrelated to the git-ssh changes.
+
 ## [2026-04-06 10:25] — Update tests for single workspace model (Phase 5)
 
 **Task:** Update all remaining tests for the single workspace model (PVC workspace plan Phase 5)
