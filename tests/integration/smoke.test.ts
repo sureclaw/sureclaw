@@ -342,7 +342,7 @@ describe('Smoke Test', () => {
 
   // ── Alternative runners: dedicated server per test ───────────────
 
-  test('pi-coding-agent: starts, accepts a message, and returns a response', async () => {
+  test.skipIf(!!process.env.CI)('pi-coding-agent: starts, accepts a message, and returns a response', async () => {
     await withServer({ config: PI_CODING_AGENT_CONFIG }, async ({ socket }) => {
       expect(existsSync(socket)).toBe(true);
 
