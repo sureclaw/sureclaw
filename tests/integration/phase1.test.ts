@@ -42,7 +42,7 @@ function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Con
     providers: {
       memory: 'cortex', security: 'patterns',
       channels: [], web: { extract: 'none', search: 'none' },
-      credentials: 'keychain', audit: 'database',
+      credentials: 'database', audit: 'database',
       sandbox: 'docker', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
@@ -399,7 +399,7 @@ describe('Provider Map', () => {
     expect(PROVIDER_MAP.web_search).toHaveProperty('brave');
 
     // Credential providers
-    expect(PROVIDER_MAP.credentials).toHaveProperty('plaintext');
+    expect(PROVIDER_MAP.credentials).toHaveProperty('database');
 
     // Audit providers
     expect(PROVIDER_MAP.audit).toHaveProperty('database');

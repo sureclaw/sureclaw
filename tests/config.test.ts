@@ -2,6 +2,21 @@ import { describe, test, expect } from 'vitest';
 import { loadConfig } from '../src/config.js';
 import { resolve } from 'node:path';
 
+/** Minimal valid config — providers/sandbox/scheduler all use code defaults. */
+const MINIMAL_CONFIG = `profile: balanced\n`;
+
+/** Helper to write a temp config, run a test, and clean up. */
+async function withTempConfig(yaml: string, fn: (path: string) => void): Promise<void> {
+  const { writeFileSync, rmSync } = await import('node:fs');
+  const tmpPath = resolve(import.meta.dirname, `../ax-test-${Date.now()}-${Math.random().toString(36).slice(2)}.yaml`);
+  writeFileSync(tmpPath, yaml);
+  try {
+    fn(tmpPath);
+  } finally {
+    rmSync(tmpPath);
+  }
+}
+
 describe('Config parser', () => {
   test('loads and validates ax.yaml', () => {
     const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
@@ -16,7 +31,6 @@ describe('Config parser', () => {
   });
 
   test('throws on invalid profile', () => {
-    // We test via a known-good file, so this is just verifying schema enforcement
     const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
     expect(['paranoid', 'balanced', 'yolo']).toContain(config.profile);
   });
@@ -27,119 +41,44 @@ describe('Config parser', () => {
   });
 
   test('accepts valid agent types', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const agents = ['pi-coding-agent', 'claude-code'] as const;
-    for (const agent of agents) {
-      const tmpPath = resolve(import.meta.dirname, `../ax-test-agent-${agent}.yaml`);
-      writeFileSync(tmpPath, `
+    for (const agent of ['pi-coding-agent', 'claude-code'] as const) {
+      await withTempConfig(`
 agent: ${agent}
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-      try {
+`, (tmpPath) => {
         const config = loadConfig(tmpPath);
         expect(config.agent).toBe(agent);
-      } finally {
-        rmSync(tmpPath);
-      }
+      });
     }
   });
 
   test('rejects unknown agent type', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-agent-bad.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 agent: unknown-agent
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
+`, (tmpPath) => {
       expect(() => loadConfig(tmpPath)).toThrow();
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('accepts config with models map (default + fallbacks)', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-model.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 models:
   default:
     - groq/moonshotai/kimi-k2-instruct-0905
     - openrouter/anthropic/claude-sonnet-4
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.models!.default).toEqual([
         'groq/moonshotai/kimi-k2-instruct-0905',
         'openrouter/anthropic/claude-sonnet-4',
       ]);
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('accepts config with all task-type model chains', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-task-models.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 models:
   default:
     - anthropic/claude-sonnet-4-20250514
@@ -150,106 +89,38 @@ models:
   coding:
     - anthropic/claude-sonnet-4-20250514
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.models!.default).toEqual(['anthropic/claude-sonnet-4-20250514']);
       expect(config.models!.fast).toEqual(['anthropic/claude-haiku-4-5-20251001']);
       expect(config.models!.thinking).toEqual(['anthropic/claude-opus-4-20250514']);
       expect(config.models!.coding).toEqual(['anthropic/claude-sonnet-4-20250514']);
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('config without models field still parses', () => {
-    // models is optional in the schema — configs without it should parse fine.
     const config = loadConfig(resolve(import.meta.dirname, '../ax.yaml'));
     expect(config.profile).toBeDefined();
   });
 
   test('accepts valid webhooks config', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 webhooks:
   enabled: true
   token: "test-secret-token"
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.webhooks).toEqual({
         enabled: true,
         token: 'test-secret-token',
       });
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('accepts webhooks config with all optional fields', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks-full.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 webhooks:
   enabled: true
   token: "test-secret-token"
@@ -259,50 +130,23 @@ webhooks:
   allowed_agent_ids:
     - "main"
     - "devops"
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.webhooks?.path).toBe('/hooks');
       expect(config.webhooks?.max_body_bytes).toBe(131072);
       expect(config.webhooks?.model).toBe('claude-haiku-4-5-20251001');
       expect(config.webhooks?.allowed_agent_ids).toEqual(['main', 'devops']);
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('rejects webhooks config without token when enabled', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-webhooks-notoken.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 webhooks:
   enabled: true
-`);
-    try {
+`, (tmpPath) => {
       expect(() => loadConfig(tmpPath)).toThrow();
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('config without webhooks section parses fine', () => {
@@ -319,104 +163,38 @@ webhooks:
   });
 
   test('accepts admin config from YAML', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-admin.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 admin:
   enabled: true
   token: "test-token-123"
   port: 9090
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.admin.enabled).toBe(true);
       expect(config.admin.token).toBe('test-token-123');
       expect(config.admin.port).toBe(9090);
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('invalid provider name produces friendly error message', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-bad-provider.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
 providers:
-  memory: cortex
   security: promptfoo
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: plaintext
-  skills: database
   audit: sqlite
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
+`, (tmpPath) => {
       expect(() => loadConfig(tmpPath)).toThrow(/providers\.security: "promptfoo" is not a valid option/);
       expect(() => loadConfig(tmpPath)).toThrow(/providers\.audit: "sqlite" is not a valid option/);
       expect(() => loadConfig(tmpPath)).toThrow(/Valid values: "patterns", "guardian", "none"/);
       expect(() => loadConfig(tmpPath)).toThrow(/Valid values: "database"/);
       expect(() => loadConfig(tmpPath)).toThrow(/Edit your config:/);
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('accepts config with shared_agents section', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-shared-agents.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 shared_agents:
   - id: backend-bot
     display_name: "Backend Team Bot"
@@ -431,8 +209,7 @@ shared_agents:
     models:
       default:
         - anthropic/claude-sonnet-4-20250514
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.shared_agents).toHaveLength(2);
       expect(config.shared_agents![0].id).toBe('backend-bot');
@@ -440,9 +217,7 @@ shared_agents:
       expect(config.shared_agents![0].admins).toEqual(['U001', 'U002']);
       expect(config.shared_agents![1].id).toBe('devops-bot');
       expect(config.shared_agents![1].agent).toBe('claude-code');
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('config without shared_agents parses fine', () => {
@@ -451,70 +226,59 @@ shared_agents:
   });
 
   test('rejects shared_agents with invalid id characters', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-bad-shared-agent.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 shared_agents:
   - id: "bad id with spaces"
     display_name: "Bad Bot"
-`);
-    try {
+`, (tmpPath) => {
       expect(() => loadConfig(tmpPath)).toThrow();
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
   });
 
   test('accepts config with security provider', async () => {
-    const { writeFileSync, rmSync } = await import('node:fs');
-    const tmpPath = resolve(import.meta.dirname, '../ax-test-security.yaml');
-    writeFileSync(tmpPath, `
+    await withTempConfig(`
 profile: balanced
 providers:
-  memory: cortex
   security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-scheduler:
-  active_hours: { start: "07:00", end: "23:00", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
-`);
-    try {
+`, (tmpPath) => {
       const config = loadConfig(tmpPath);
       expect(config.providers.security).toBe('patterns');
-    } finally {
-      rmSync(tmpPath);
-    }
+    });
+  });
+
+  // ── Provider defaults ──
+
+  test('minimal config gets all provider defaults', async () => {
+    await withTempConfig(MINIMAL_CONFIG, (tmpPath) => {
+      const config = loadConfig(tmpPath);
+      expect(config.providers.memory).toBe('cortex');
+      expect(config.providers.security).toBe('patterns');
+      expect(config.providers.channels).toEqual([]);
+      expect(config.providers.web).toEqual({ extract: 'none', search: 'none' });
+      expect(config.providers.audit).toBe('database');
+      expect(config.providers.scheduler).toBe('plainjob');
+      expect(config.providers.database).toBe('sqlite');
+      expect(config.providers.storage).toBe('database');
+      expect(config.providers.eventbus).toBe('inprocess');
+      expect(config.providers.workspace).toBe('git-local');
+    });
+  });
+
+  test('minimal config gets sandbox defaults', async () => {
+    await withTempConfig(MINIMAL_CONFIG, (tmpPath) => {
+      const config = loadConfig(tmpPath);
+      expect(config.sandbox.timeout_sec).toBe(120);
+      expect(config.sandbox.memory_mb).toBe(512);
+    });
+  });
+
+  test('minimal config gets scheduler defaults', async () => {
+    await withTempConfig(MINIMAL_CONFIG, (tmpPath) => {
+      const config = loadConfig(tmpPath);
+      expect(config.scheduler.active_hours.start).toBe('07:00');
+      expect(config.scheduler.max_token_budget).toBe(4096);
+      expect(config.scheduler.heartbeat_interval_min).toBe(30);
+    });
   });
 });

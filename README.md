@@ -181,18 +181,19 @@ Agents can delegate tasks to specialized subagents. The `claude-code` runner han
 
 ### Kubernetes Deployment
 
-AX ships with a production-ready **Helm chart** for Kubernetes. The architecture splits into multiple pods — host (ingress layer), agent-runtime (conversation layer), and ephemeral sandbox pods — coordinated through HTTP and PostgreSQL.
+AX ships with a production-ready **Helm chart** for Kubernetes. The architecture splits into host pods (HTTP ingress + orchestration) and ephemeral sandbox pods — coordinated through HTTP and PostgreSQL.
 
 ```bash
-helm install ax ./charts/ax -f values.yaml
+npx ax k8s init    # generates values + secrets
+helm install ax ./charts/ax -f ax-values.yaml -n ax
 ```
 
 The chart includes:
-- **Multi-pod architecture** — host and agent-runtime scale independently with HPA
+- **Host pods** — HTTP API, LLM orchestration, sandbox dispatch (scale with HPA)
 - **PostgreSQL** — external or embedded, shared across all providers (event bus via LISTEN/NOTIFY)
+- **Git server** — HTTP git server for workspace persistence across sandbox pods
 - **Network policies** — defense-in-depth isolation for sandbox pods (zero egress, host-only ingress)
-- **Sandbox tiers** — light and heavy pod templates with configurable CPU/memory and gVisor runtime
-- **FluxCD overlays** — staging and production HelmRelease configs with SOPS encryption
+- **Web proxy** — controlled HTTP/HTTPS outbound for sandboxed agents (npm install, git clone)
 
 Works with any Kubernetes: GKE, EKS, AKS, kind, minikube. Zero vendor lock-in.
 
@@ -228,250 +229,209 @@ Every subsystem is a swappable provider. Here's what ships in the box:
 | **EventBus** | inprocess, PostgreSQL (LISTEN/NOTIFY) |
 | **MCP Gateway** | none (disabled), database (per-agent HTTP/SSE MCP servers with circuit breaker) |
 | **Auth** | admin-token, better-auth |
+| **Workspace** | git-local (bare repos on disk), git-http (shared git server for k8s) |
 
-15 provider categories. All swappable.
+16 provider categories. All swappable.
 
 ## Quick Start
 
+### Prerequisites
+
+- **Node.js 24+** and npm
+- **Git** (for workspace persistence)
+- **Docker** (Linux) or **Apple Containers** (macOS) — AX auto-detects your platform
+- An API key from any supported LLM provider (Anthropic, OpenAI, OpenRouter, Groq, DeepInfra)
+
+### 1. Install and Configure
+
 ```bash
-# Install dependencies
+# Clone and install
+git clone https://github.com/project-ax/project-ax.git
+cd project-ax
 npm install
 
-# Set your API key (don't worry, it never enters the sandbox)
-export ANTHROPIC_API_KEY=your-key-here
+# Run the setup wizard — three questions, done
+npx ax configure
+```
 
-# Run AX
+The wizard asks for your **security profile**, **LLM provider**, and **API key**. Everything else — sandbox type, database, event bus, workspace — is auto-configured for your platform. Your API key is stored locally and never enters the sandbox. We're paranoid like that.
+
+### 2. Start AX
+
+```bash
 npm start
+```
 
-# Run tests (210+ test files and counting)
-npm test
+That's it. AX is now listening on a Unix socket at `~/.ax/ax.sock` with an OpenAI-compatible API.
+
+### 3. Chat
+
+```bash
+# Interactive chat
+npx ax chat
+
+# Or send a one-shot message
+npx ax send "What can you help me with?"
+```
+
+### What Just Happened?
+
+The wizard generated a minimal `~/.ax/ax.yaml` that looks something like this:
+
+```yaml
+profile: balanced
+models:
+  default:
+    - anthropic/claude-sonnet-4-20250514
+sandbox:
+  timeout_sec: 120
+  memory_mb: 512
+```
+
+That's the entire config. AX fills in everything else with sensible local-mode defaults:
+
+| Setting | Default |
+|---------|---------|
+| Sandbox | Apple containers (macOS) or Docker (Linux) |
+| Database | SQLite at `~/.ax/data/ax.db` |
+| Event bus | In-process |
+| Workspace | Local git repos at `~/.ax/repos/` |
+| Credentials | Database (SQLite) |
+| Memory | Cortex (vector-backed) |
+| Security | Pattern scanner |
+
+Want to change something? Add it to `ax.yaml`. Only specify what you want to override — the defaults handle the rest.
+
+### Running Tests
+
+```bash
+npm test          # Full suite (vitest, 230+ test files)
+npm run build     # TypeScript compilation
 ```
 
 ## Configuration
 
-Edit `ax.yaml` to configure providers, security profile, and sandbox settings. The defaults are conservative — we'd rather you opt into power than accidentally leave the door open. But opting in is easy, and we won't judge.
+AX has two deployment modes. You don't pick one — the tooling picks for you.
+
+### Local Mode (via `ax configure`)
+
+For development and personal use. Runs as a single process on your machine. The config is minimal by design — you shouldn't need to think about providers, databases, or event buses just to talk to an AI agent.
 
 ```yaml
-# Local development (defaults)
-profile: paranoid
+# This is a complete, valid ax.yaml
+profile: balanced
+models:
+  default:
+    - anthropic/claude-sonnet-4-20250514
+```
+
+Need web search? Add it:
+
+```yaml
+profile: balanced
 models:
   default:
     - anthropic/claude-sonnet-4-20250514
 providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web: none
-  credentials: plaintext
-  audit: database
-  sandbox: docker
-  scheduler: none
-  database: sqlite
-  eventbus: inprocess
+  web:
+    search: tavily
 ```
 
-For Kubernetes production deployments, the Helm chart renders a ConfigMap with production-ready defaults:
+Need Slack? Add it:
 
 ```yaml
-# K8s production (via Helm values)
-profile: paranoid
 providers:
-  sandbox: k8s
-  database: postgresql
-  audit: database
-  eventbus: postgres
-  security: guardian
+  channels:
+    - slack
 ```
 
-See the [architecture doc](docs/plans/ax-architecture-doc.md) for the full details.
+Everything you don't specify uses the local-mode defaults. The full list of providers and their options is in the [architecture doc](docs/plans/ax-architecture-doc.md).
+
+### K8s Mode (via `ax k8s init`)
+
+For production. Runs across multiple pods with PostgreSQL, HTTP IPC, and network-isolated sandbox pods.
+
+```bash
+npx ax k8s init
+```
+
+This asks four questions — **profile**, **model**, **API key**, and **database** (internal or external PostgreSQL) — then generates a `ax-values.yaml` and creates the necessary Kubernetes secrets. Deploy with:
+
+```bash
+helm install ax charts/ax -f ax-values.yaml -n ax
+```
+
+See [Deploying to Kubernetes](#deploying-to-kubernetes) below for the full walkthrough.
 
 ## Deploying to Kubernetes
-
-AX ships with a production-ready Helm chart. Here's how to get it running on your cluster.
 
 ### Prerequisites
 
 - Kubernetes cluster (GKE, EKS, AKS, kind, minikube — we're not picky)
 - Helm 3.x
 - `kubectl` configured for your cluster
-- A PostgreSQL database (Cloud SQL, RDS, self-hosted, whatever you've got)
 - Container images built and pushed to a registry your cluster can pull from
 
 ### 1. Build and Push the Container Image
 
 ```bash
-# Build the project first
 npm run build
-
-# Build the container image
 docker build -f container/Dockerfile -t your-registry/ax:latest .
-
-# Push to your registry
 docker push your-registry/ax:latest
 ```
 
-The same image is used for all pod types — host, agent-runtime, and sandbox workers. The entrypoint is overridden per deployment via the Helm chart.
+The same image is used for host and sandbox pods. The entrypoint is overridden per deployment via the Helm chart.
 
-### 2. Create Kubernetes Secrets
-
-AX needs up to three secrets: a registry pull secret (if your images are in a private registry), a database credential, and your LLM API keys.
-
-#### Registry Pull Secret (Private Registries)
-
-If your container images live in a private registry (GitLab, GitHub Container Registry, AWS ECR, etc.), Kubernetes needs credentials to pull them. For GitLab, create a [deploy token](https://docs.gitlab.com/ee/user/project/deploy_tokens/) with `read_registry` scope, then:
+### 2. Run the K8s Setup Wizard
 
 ```bash
-kubectl create secret docker-registry ax-registry-credentials \
-  --namespace ax \
-  --docker-server=registry.gitlab.com \
-  --docker-username=<deploy-token-name> \
-  --docker-password=<deploy-token-password> \
-  --docker-email=<your-email>
+npx ax k8s init
 ```
 
-For other registries, swap out `--docker-server`:
+This asks four questions:
+1. **Security profile** — paranoid, balanced, or yolo
+2. **Model** — compound provider/model ID (e.g. `anthropic/claude-sonnet-4-20250514`)
+3. **API key** — for your chosen LLM provider
+4. **Database** — internal (chart provisions PostgreSQL) or external (your own)
 
-| Registry | Server |
-|----------|--------|
-| GitLab | `registry.gitlab.com` |
-| GitHub | `ghcr.io` |
-| AWS ECR | `<account-id>.dkr.ecr.<region>.amazonaws.com` |
-| Google GCR | `gcr.io` |
-| Docker Hub | `https://index.docker.io/v1/` |
+The wizard creates the namespace, Kubernetes secrets, and generates an `ax-values.yaml` with K8s-mode providers pre-configured (PostgreSQL, postgres event bus, k8s sandbox, git-http workspace).
 
-Then tell Kubernetes to use it for every pod in the namespace by patching the default service account:
+### 3. Install with Helm
 
 ```bash
-kubectl patch serviceaccount default -n ax \
-  -p '{"imagePullSecrets": [{"name": "ax-registry-credentials"}]}'
+helm install ax ./charts/ax -f ax-values.yaml -n ax
 ```
 
-This way you don't need to add `imagePullSecrets` to every pod spec — any pod in the `ax` namespace will automatically use the credentials. If you're using a public registry, skip this step entirely.
-
-#### Database Credentials
-
-If you're using an **external PostgreSQL** (Cloud SQL, RDS, etc.), create a secret with the connection URL:
+### 4. Verify the Deployment
 
 ```bash
-kubectl create secret generic ax-db-credentials \
-  --namespace ax \
-  --from-literal=url="postgresql://ax:yourpassword@your-db-host:5432/ax"
-```
-
-If you're using the **internal Bitnami PostgreSQL** subchart (`postgresql.internal.enabled: true`), skip this — the chart automatically constructs `DATABASE_URL` from the subchart's generated password secret.
-
-#### API Credentials
-
-```bash
-# Add whichever providers you use — missing keys won't crash pods
-kubectl create secret generic ax-api-credentials \
-  --namespace ax \
-  --from-literal=anthropic-api-key="sk-ant-..." \
-  --from-literal=openrouter-api-key="sk-or-..." \
-  --from-literal=openai-api-key="sk-..."
-```
-
-API credential keys are optional — if you only use Anthropic, you don't need to include the others. Credentials never enter sandbox containers — they're injected server-side into the agent-runtime pods only.
-
-### 3. Create a Values File
-
-Create a `my-values.yaml` to override the defaults. At minimum, point the images at your registry:
-
-```yaml
-# my-values.yaml
-
-# Set image tag once for all components (host, agent-runtime)
-global:
-  imageTag: "latest"
-
-host:
-  image:
-    repository: your-registry/ax
-
-agentRuntime:
-  image:
-    repository: your-registry/ax
-
-sandbox:
-  image:
-    repository: your-registry/ax
-    tag: latest
-  # Set to "" if your cluster doesn't have gVisor (kind, minikube, etc.)
-  runtimeClass: "gvisor"
-
-# AX application config (rendered as ax.yaml ConfigMap)
-config:
-  profile: paranoid
-  models:
-    default: ["anthropic/claude-sonnet-4-20250514"]
-  providers:
-    sandbox: k8s
-    database: postgresql
-    storage: database
-    eventbus: postgres
-    audit: database
-    security: patterns
-
-# PostgreSQL — external database (or set internal.enabled: true for Bitnami subchart)
-postgresql:
-  external:
-    enabled: true
-    existingSecret: "ax-db-credentials"
-    secretKey: "url"
-  internal:
-    enabled: false
-
-# API credentials secret
-apiCredentials:
-  existingSecret: "ax-api-credentials"
-  envVars:
-    ANTHROPIC_API_KEY: "anthropic-api-key"
-```
-
-### 4. Install with Helm
-
-```bash
-# Install
-helm install ax ./charts/ax -f my-values.yaml --namespace ax --create-namespace
-```
-
-### 5. Verify the Deployment
-
-```bash
-# Check that all pods are running
 kubectl get pods -n ax
+# ax-host-xxx    — HTTP ingress + orchestration (x2)
 
-# You should see:
-#   ax-host-xxx          — HTTP ingress (x2)
-#   ax-agent-runtime-xxx — conversation layer (x3)
-
-# Verify the host is healthy
 kubectl port-forward -n ax svc/ax-host 8080:80 &
 curl http://localhost:8080/health
 ```
 
 ### Architecture Overview
 
-The Helm chart deploys a two-layer architecture:
-
 | Layer | Pods | Role |
 |-------|------|------|
-| **Ingress** | `host` | Stateless HTTP API. Routes requests, streams SSE events. No LLM calls, no credentials. |
-| **Conversation** | `agent-runtime` | Runs agent sessions, makes LLM calls, dispatches tools to sandbox pods via HTTP. |
-| **Execution** | `sandbox` (ephemeral) | Isolated tool execution. No network, no credentials, no host filesystem. gVisor runtime. |
+| **Host** | `host` | HTTP API, LLM orchestration, sandbox dispatch. Scales with HPA. |
+| **Sandbox** | ephemeral | Isolated tool execution. No network, no credentials, no host filesystem. gVisor runtime. |
+| **Git Server** | `git-server` | HTTP git repos for workspace persistence across sandbox pods. |
+| **PostgreSQL** | external or internal | Shared state, event bus (LISTEN/NOTIFY), audit logs. |
 
-Communication between layers flows through **HTTP**. PostgreSQL provides shared persistent state and event distribution via LISTEN/NOTIFY.
+Communication flows through **HTTP**. Sandbox pods connect to the host for IPC and to the git server for workspace repos. Network policies enforce zero egress — sandbox pods can only reach the host and git server.
 
 ### Key Configuration
 
 | Value | Default | Description |
 |-------|---------|-------------|
 | `host.replicas` | 2 | Host pod count (stateless, scale freely) |
-| `agentRuntime.replicas` | 3 | Agent runtime pods (each handles multiple sessions) |
 | `sandbox.runtimeClass` | `"gvisor"` | Set to `""` for clusters without gVisor |
 | `networkPolicies.enabled` | true | Enforce zero-egress on sandbox pods |
+| `gitServer.enabled` | false | Enable HTTP git server for workspace persistence |
 | `host.autoscaling.enabled` | false | Enable HPA for host pods |
-| `agentRuntime.autoscaling.enabled` | false | Enable HPA for agent-runtime pods |
 
 ### Exposing AX
 
@@ -615,7 +575,8 @@ The LLM never sees credentials. The credential provider manages them. The host r
 ax serve              # Start the AX server
 ax chat               # Interactive chat session
 ax send "message"     # Send a one-shot message
-ax configure          # Interactive setup wizard
+ax configure          # Setup wizard (profile, LLM provider, API key)
+ax k8s init           # K8s setup wizard (generates Helm values + secrets)
 ax plugin add <pkg>   # Install a provider plugin
 ax plugin list        # List installed plugins
 ax plugin verify      # Check plugin integrity

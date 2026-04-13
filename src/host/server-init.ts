@@ -260,9 +260,9 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   // ── Delegation ──
   async function handleDelegate(req: DelegateRequest, ctx: IPCContext): Promise<string> {
     const tier = req.resourceTier ?? 'default';
-    const tierConfig = config.sandbox.tiers?.[tier] ?? (tier === 'heavy'
+    const tierConfig = tier === 'heavy'
       ? { memory_mb: 2048, cpus: 4 }
-      : { memory_mb: config.sandbox.memory_mb, cpus: 1 });
+      : { memory_mb: config.sandbox.memory_mb, cpus: 1 };
 
     const childConfig = {
       ...config,
@@ -272,10 +272,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
       sandbox: {
         ...config.sandbox,
         memory_mb: tierConfig.memory_mb,
-        tiers: {
-          default: tierConfig,
-          heavy: config.sandbox.tiers?.heavy ?? { memory_mb: 2048, cpus: 4 },
-        },
+        cpus: tierConfig.cpus,
         ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
       },
     };

@@ -40,7 +40,7 @@ function powerUserConfig(): Config {
     providers: {
       memory: 'cortex', security: 'guardian',
       channels: [], web: { extract: 'tavily', search: 'tavily' },
-      credentials: 'keychain', audit: 'database',
+      credentials: 'database', audit: 'database',
       sandbox: 'docker', scheduler: 'plainjob',
     },
     sandbox: { timeout_sec: 60, memory_mb: 512 },
@@ -184,7 +184,7 @@ describe('Phase 2 Provider Map', () => {
     expect(PROVIDER_MAP.web_extract).toHaveProperty('tavily');
     expect(PROVIDER_MAP.web_search).toHaveProperty('tavily');
     expect(PROVIDER_MAP.web_search).toHaveProperty('brave');
-    expect(PROVIDER_MAP.credentials).toHaveProperty('keychain');
+    expect(PROVIDER_MAP.credentials).toHaveProperty('database');
     expect(PROVIDER_MAP.llm).toHaveProperty('router');
   });
 

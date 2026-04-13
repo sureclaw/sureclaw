@@ -19,7 +19,7 @@ describe('scheduler sandbox timeout override', () => {
       providers: {
         memory: 'cortex', security: 'patterns', channels: ['cli'],
         web: { extract: 'none', search: 'none' },
-        credentials: 'keychain', skills: 'database', audit: 'database',
+        credentials: 'database', skills: 'database', audit: 'database',
         sandbox: 'docker', scheduler: 'plainjob',
       },
       sandbox: { timeout_sec: 600, memory_mb: 512 },

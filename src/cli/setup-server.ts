@@ -199,30 +199,6 @@ function buildConfigYaml(profile: string, agentType: string, adminToken: string)
 profile: ${profile}
 agent: ${agentType}
 
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: keychain
-  audit: database
-  sandbox: docker
-  scheduler: none
-
-sandbox:
-  timeout_sec: 120
-  memory_mb: 512
-
-scheduler:
-  active_hours:
-    start: "07:00"
-    end: "23:00"
-    timezone: "UTC"
-  max_token_budget: 50000
-  heartbeat_interval_min: 30
-
 admin:
   enabled: true
   token: "${adminToken}"

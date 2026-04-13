@@ -10,8 +10,7 @@ providers:
   web:
     extract: none
     search: none
-  credentials: env
-  skills: database
+  credentials: database
   audit: database
   sandbox: docker
   scheduler: none

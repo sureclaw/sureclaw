@@ -40,58 +40,6 @@ host:
 
 sandbox:
   runtimeClass: ""
-  tiers:
-    light:
-      minReady: 2
-      maxReady: 5
-      template:
-        command: ["node", "/opt/ax/dist/agent/runner.js"]
-        cpu: "500m"
-        memory: "1Gi"
-        workspaceRoot: "/workspace"
-        extraVolumeMounts:
-          - name: ax-dev-dist
-            mountPath: /opt/ax/dist
-          - name: ax-dev-templates
-            mountPath: /opt/ax/templates
-          - name: ax-dev-skills
-            mountPath: /opt/ax/skills
-        extraVolumes:
-          - name: ax-dev-dist
-            hostPath:
-              path: /ax-dev/dist
-          - name: ax-dev-templates
-            hostPath:
-              path: /ax-dev/templates
-          - name: ax-dev-skills
-            hostPath:
-              path: /ax-dev/skills
-    heavy:
-      minReady: 0
-      maxReady: 1
-      template:
-        command: ["node", "/opt/ax/dist/agent/runner.js"]
-        cpu: "1"
-        memory: "2Gi"
-        workspaceRoot: "/workspace"
-        nodeSelector: {}
-        extraVolumeMounts:
-          - name: ax-dev-dist
-            mountPath: /opt/ax/dist
-          - name: ax-dev-templates
-            mountPath: /opt/ax/templates
-          - name: ax-dev-skills
-            mountPath: /opt/ax/skills
-        extraVolumes:
-          - name: ax-dev-dist
-            hostPath:
-              path: /ax-dev/dist
-          - name: ax-dev-templates
-            hostPath:
-              path: /ax-dev/templates
-          - name: ax-dev-skills
-            hostPath:
-              path: /ax-dev/skills
 
 postgresql:
   external:

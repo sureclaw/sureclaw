@@ -23,7 +23,7 @@ function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
       channels: [],
       web: { extract: 'none', search: 'none' },
      
-      credentials: 'keychain',
+      credentials: 'database',
       audit: 'database',
       sandbox: 'docker',
       scheduler: 'none',

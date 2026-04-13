@@ -19,25 +19,6 @@ describe('history config', () => {
   it('applies default history settings when history section is omitted', () => {
     const p = writeConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 256
-scheduler:
-  active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 `);
     const config = loadConfig(p);
     expect(config.history).toEqual({ max_turns: 50, thread_context_turns: 5, summarize: false, summarize_threshold: 40, summarize_keep_recent: 10, memory_recall: false, memory_recall_limit: 5, memory_recall_scope: '*', embedding_model: 'text-embedding-3-small', embedding_dimensions: 1536 });
@@ -46,25 +27,6 @@ scheduler:
   it('accepts explicit history settings', () => {
     const p = writeConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 256
-scheduler:
-  active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 history:
   max_turns: 100
   thread_context_turns: 10
@@ -77,25 +39,6 @@ history:
   it('rejects max_turns less than 0', () => {
     const p = writeConfig(`
 profile: balanced
-providers:
-  memory: cortex
-  security: patterns
-  channels: []
-  web:
-    extract: none
-    search: none
-  credentials: env
-  skills: database
-  audit: database
-  sandbox: docker
-  scheduler: none
-sandbox:
-  timeout_sec: 120
-  memory_mb: 256
-scheduler:
-  active_hours: { start: "00:00", end: "23:59", timezone: "UTC" }
-  max_token_budget: 4096
-  heartbeat_interval_min: 30
 history:
   max_turns: -1
   thread_context_turns: 5

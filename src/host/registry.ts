@@ -20,12 +20,9 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
     await opts.pluginHost.startAll();
   }
 
-  // When using database credentials, we need the DB connection first.
-  // For other credential providers (plaintext, keychain), keep original order.
+  // Database must load first — credential provider depends on it.
   let database: DatabaseProvider | undefined;
-  const needsDbForCreds = config.providers.credentials === 'database';
-
-  if (needsDbForCreds && config.providers.database) {
+  if (config.providers.database) {
     const dbModPath = resolveProviderPath('database', config.providers.database);
     const dbMod = await import(dbModPath);
     database = await dbMod.create(config);
@@ -34,14 +31,9 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   // Load credential provider and seed process.env.
   // Other providers (e.g. Slack) read tokens from process.env at creation
   // time, so credentials must be available before they are loaded.
-  let credentials;
-  if (needsDbForCreds) {
-    const credModPath = resolveProviderPath('credentials', 'database');
-    const credMod = await import(credModPath);
-    credentials = await credMod.create(config, 'database', { database });
-  } else {
-    credentials = await loadProvider('credentials', config.providers.credentials, config);
-  }
+  const credModPath = resolveProviderPath('credentials', config.providers.credentials);
+  const credMod = await import(credModPath);
+  const credentials = await credMod.create(config, config.providers.credentials, { database });
   const { loadCredentials } = await import('../dotenv.js');
   await loadCredentials(credentials);
 
@@ -53,13 +45,6 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
       if (provider.init) await provider.init();
       authProviders.push(provider);
     }
-  }
-
-  // Load database provider if not already loaded above for credential provider.
-  if (!database && config.providers.database) {
-    const dbModPath = resolveProviderPath('database', config.providers.database);
-    const dbMod = await import(dbModPath);
-    database = await dbMod.create(config);
   }
 
   // Filter out 'cli' — the CLI channel was replaced by the ax chat/send clients.

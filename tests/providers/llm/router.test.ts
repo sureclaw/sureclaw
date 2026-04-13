@@ -18,7 +18,7 @@ function routerConfig(model: string, fallbacks?: string[], extras?: Partial<Mode
     providers: {
       memory: 'cortex', security: 'patterns',
       channels: [], web: { extract: 'none', search: 'none' },
-      credentials: 'keychain', skills: 'database', audit: 'database',
+      credentials: 'database', skills: 'database', audit: 'database',
       sandbox: 'docker', scheduler: 'none',
     },
     sandbox: { timeout_sec: 30, memory_mb: 256 },
