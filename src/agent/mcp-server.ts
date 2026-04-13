@@ -153,7 +153,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         prompt: z.string().optional().describe('The instruction/prompt to execute'),
         maxTokenBudget: z.number().optional().describe('Optional max token budget per execution'),
         datetime: z.string().optional().describe('ISO 8601 datetime string, e.g. "2026-02-21T19:30:00"'),
-        jobId: z.string().optional().describe('The job ID to remove'),
+        id: z.string().optional().describe('The job ID to remove'),
       },
       (args) => {
         const { type, ...rest } = args;

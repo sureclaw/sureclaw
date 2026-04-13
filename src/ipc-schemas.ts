@@ -256,7 +256,7 @@ export const SchedulerRunAtSchema = ipcAction('scheduler_run_at', {
 });
 
 export const SchedulerRemoveCronSchema = ipcAction('scheduler_remove_cron', {
-  jobId: safeString(200),
+  id: safeString(200),
 });
 
 export const SchedulerListJobsSchema = ipcAction('scheduler_list_jobs', {});
