@@ -12,10 +12,10 @@ import type { Config } from '../../../src/types.js';
 import type { InboundMessage } from '../../../src/providers/channel/types.js';
 import type { EventBusProvider, StreamEvent } from '../../../src/providers/eventbus/types.js';
 
-// Default agent_name is 'main', so test jobs use agentId: 'main'
-const AGENT = 'main';
+const AGENT = 'test-agent';
 
 const mockConfig = {
+  agent_name: AGENT,
   profile: 'paranoid',
   providers: { memory: 'cortex', security: 'patterns', channels: ['cli'], web: { extract: 'none', search: 'none' }, credentials: 'database', skills: 'database', audit: 'database', sandbox: 'docker', scheduler: 'plainjob' },
   sandbox: { timeout_sec: 120, memory_mb: 512 },
@@ -259,18 +259,21 @@ describe('scheduler-plainjob', () => {
 
   // ─── Agent filtering ───────────────────────────────
 
-  test('listJobs only returns jobs for this agent', async () => {
+  test('listJobs filters by agentId when provided', async () => {
     const scheduler = await create(mockConfig, { jobStore: new MemoryJobStore() });
 
     await scheduler.addCron!({ id: 'my-job', schedule: '* * * * *', agentId: AGENT, prompt: 'mine' });
     await scheduler.addCron!({ id: 'other-job', schedule: '* * * * *', agentId: 'other-agent', prompt: 'theirs' });
 
-    const jobs = await scheduler.listJobs!();
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0].id).toBe('my-job');
+    const filtered = await scheduler.listJobs!(AGENT);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].id).toBe('my-job');
+
+    const all = await scheduler.listJobs!();
+    expect(all).toHaveLength(2);
   });
 
-  test('checkCronNow only fires jobs for this agent', async () => {
+  test('checkCronNow fires jobs for all agents', async () => {
     const scheduler = await create(mockConfig, { jobStore: new MemoryJobStore() });
     const received: InboundMessage[] = [];
 
@@ -283,26 +286,10 @@ describe('scheduler-plainjob', () => {
     scheduler.checkCronNow!(new Date('2026-03-01T12:05:00Z'));
     await new Promise(r => setTimeout(r, 10));
 
-    expect(received).toHaveLength(1);
-    expect(received[0].sender).toBe('cron:my-job');
-  });
-
-  test('agent_name config overrides default agent filter', async () => {
-    const customConfig = { ...mockConfig, agent_name: 'custom-agent' } as Config;
-    const scheduler = await create(customConfig, { jobStore: new MemoryJobStore() });
-    const received: InboundMessage[] = [];
-
-    await scheduler.addCron!({ id: 'j1', schedule: '* * * * *', agentId: 'custom-agent', prompt: 'match' });
-    await scheduler.addCron!({ id: 'j2', schedule: '* * * * *', agentId: AGENT, prompt: 'no match' });
-
-    await scheduler.start((msg) => received.push(msg));
-    stopFn = () => scheduler.stop();
-
-    scheduler.checkCronNow!(new Date('2026-03-01T12:05:00Z'));
-    await new Promise(r => setTimeout(r, 10));
-
-    expect(received).toHaveLength(1);
-    expect(received[0].sender).toBe('cron:j1');
+    // Scheduler fires all jobs — the callback routes each to the correct agent
+    expect(received).toHaveLength(2);
+    const senders = received.map(m => m.sender).sort();
+    expect(senders).toEqual(['cron:my-job', 'cron:other-job']);
   });
 
   // ─── Heartbeat ─────────────────────────────────────

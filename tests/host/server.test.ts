@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdirSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { createServer, type AxServer } from '../../src/host/server-local.js';
 import { loadConfig } from '../../src/config.js';
-import { workspaceDir, agentSkillsDir } from '../../src/paths.js';
+import { agentSkillsDir } from '../../src/paths.js';
 import type { ChannelProvider, InboundMessage, OutboundMessage, SessionAddress } from '../../src/providers/channel/types.js';
 
 /** Send an HTTP request over a Unix socket */
@@ -307,7 +307,7 @@ describe('Server', () => {
     expect(data.error.message).toContain('session_id');
   });
 
-  it('should derive persistent workspace from user field', async () => {
+  it('should derive session from user field and respond successfully', async () => {
     const config = loadConfig('tests/integration/ax-test.yaml');
     server = await createServer(config, { socketPath });
     await server.start();
@@ -321,13 +321,9 @@ describe('Server', () => {
     });
 
     expect(res.status).toBe(200);
-
-    // Workspace should be created under the derived session ID: main:http:alice:conv-001
-    const wsDir = workspaceDir('main:http:alice:conv-001');
-    expect(existsSync(wsDir)).toBe(true);
   });
 
-  it('should create persistent workspace when session_id is provided', async () => {
+  it('should accept session_id and respond successfully', async () => {
     const config = loadConfig('tests/integration/ax-test.yaml');
     server = await createServer(config, { socketPath });
     await server.start();
@@ -342,46 +338,6 @@ describe('Server', () => {
     });
 
     expect(res.status).toBe(200);
-
-    // Workspace directory should persist after request
-    const wsDir = workspaceDir(sessionId);
-    expect(existsSync(wsDir)).toBe(true);
-  });
-
-  it('should use persistent skills dir (peer of workspace), not copy into workspace', async () => {
-    // Create a skill file in the persistent skills directory (~/.ax/agents/main/agent/skills/)
-    const persistentSkillsDir = agentSkillsDir('main');
-    mkdirSync(persistentSkillsDir, { recursive: true });
-    const testSkillPath = join(persistentSkillsDir, '_test-skill.md');
-    writeFileSync(testSkillPath, '# Test Skill\nThis is a test skill.');
-
-    try {
-      const config = loadConfig('tests/integration/ax-test.yaml');
-      server = await createServer(config, { socketPath });
-      await server.start();
-
-      const sessionId = randomUUID();
-      const res = await sendRequest(socketPath, '/v1/chat/completions', {
-        body: {
-          messages: [{ role: 'user', content: 'hello' }],
-          session_id: sessionId,
-        },
-      });
-
-      expect(res.status).toBe(200);
-
-      // Skills should exist at the persistent location (peer of workspace)
-      expect(existsSync(persistentSkillsDir)).toBe(true);
-      const skills = readdirSync(persistentSkillsDir);
-      expect(skills).toContain('_test-skill.md');
-
-      // Skills should NOT be copied into the session workspace
-      const wsDir = workspaceDir(sessionId);
-      const wsSkillsDir = join(wsDir, 'skills');
-      expect(existsSync(wsSkillsDir)).toBe(false);
-    } finally {
-      // Cleanup handled by afterEach (testAxHome removal)
-    }
   });
 
   // --- Channel Deduplication ---

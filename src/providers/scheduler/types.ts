@@ -55,7 +55,7 @@ export interface SchedulerProvider {
   stop(): Promise<void>;
   addCron?(job: CronJobDef): void | Promise<void>;
   removeCron?(jobId: string): void | Promise<void>;
-  listJobs?(): CronJobDef[] | Promise<CronJobDef[]>;
+  listJobs?(agentId?: string): CronJobDef[] | Promise<CronJobDef[]>;
   /** Schedule a one-shot job at a specific Date via setTimeout (exact timing). */
   scheduleOnce?(job: CronJobDef, fireAt: Date): void | Promise<void>;
   /** Manually trigger cron check at optional Date (for testing). */

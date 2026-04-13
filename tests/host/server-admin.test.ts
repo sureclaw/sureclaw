@@ -16,6 +16,7 @@ initLogger({ file: false, level: 'silent' });
 
 function makeConfig(overrides: Partial<Config['admin']> = {}): Config {
   return {
+    agent_name: 'test-agent',
     profile: 'balanced',
     providers: {
       memory: 'cortex',

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { workspaceDir, agentDir } from '../paths.js';
+import { agentDir, dataDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
 import { isAdmin } from './server-admin-helpers.js';
 import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
@@ -38,6 +38,17 @@ import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
 import type { McpConnectionManager } from '../plugins/mcp-manager.js';
+
+// ── Session ID placeholder rewriting ──
+// HTTP sessions use '_' as the workspace placeholder in the SessionAddress.
+// After the provisioner resolves the agent, replace '_' with the real agent ID.
+// Format: "http:dm:_:userId:threadId" → "http:dm:agentId:userId:threadId"
+const SESSION_PLACEHOLDER = ':_:';
+function rewriteSessionPlaceholder(sessionId: string, agentId: string): string {
+  const idx = sessionId.indexOf(SESSION_PLACEHOLDER);
+  if (idx === -1) return sessionId;
+  return sessionId.slice(0, idx + 1) + agentId + sessionId.slice(idx + 2);
+}
 
 // ── Agent spawn retry ──
 const MAX_AGENT_RETRIES = 2;
@@ -372,6 +383,7 @@ function hostGitCommit(workspace: string, logger: Logger): void {
     if (status.trim()) {
       const timestamp = new Date().toISOString();
       execFileSync('git', ['commit', '-m', `agent-turn: ${timestamp}`], gitOpts);
+      execFileSync('git', ['pull', '--rebase', 'origin', 'main'], gitOpts);
       execFileSync('git', ['push', 'origin', 'main'], gitOpts);
       logger.info('host_git_committed', { workspace });
     }
@@ -392,7 +404,7 @@ export async function processCompletion(
   sessionScope?: 'dm' | 'channel' | 'thread' | 'group',
 ): Promise<CompletionResult> {
   const { config, providers, db, conversationStore, router, taintBudget, sessionCanaries, ipcSocketPath, ipcSocketDir, logger, eventBus } = deps;
-  const sessionId = preProcessed?.sessionId ?? persistentSessionId ?? randomUUID();
+  let sessionId = preProcessed?.sessionId ?? persistentSessionId ?? randomUUID();
   const reqLogger = logger.child({ reqId: requestId.slice(-8) });
 
   // Extract text for scanning/logging; structured content may contain image refs
@@ -494,14 +506,23 @@ export async function processCompletion(
     const resolvedAgent = userId && deps.provisioner
       ? await deps.provisioner.resolveAgent(userId)
       : undefined;
-    const agentName = resolvedAgent?.id ?? config.agent_name ?? 'main';
+    const agentId = resolvedAgent?.id ?? config.agent_name;
+
+    // Rewrite placeholder workspace '_' with the resolved agent ID (same as sandbox path)
+    if (agentId) {
+      sessionId = rewriteSessionPlaceholder(sessionId, agentId);
+      if (persistentSessionId) {
+        persistentSessionId = rewriteSessionPlaceholder(persistentSessionId, agentId);
+      }
+    }
+
     try {
       const fastResult = await runFastPath(
         {
           message: textContent,
           sessionId,
           requestId,
-          agentId: agentName,
+          agentId,
           userId: currentUserId,
           clientHistory: clientMessages,
           persistentSessionId,
@@ -545,7 +566,7 @@ export async function processCompletion(
 
       return {
         responseContent: outbound.content,
-        agentName,
+        agentName: agentId,
         userId: currentUserId,
         finishReason,
       };
@@ -559,7 +580,6 @@ export async function processCompletion(
 
   // ── Sandbox path (existing flow) ──
   let workspace = '';
-  const isPersistent = !!persistentSessionId;
   let proxyCleanup: (() => void) | undefined;
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
@@ -568,24 +588,31 @@ export async function processCompletion(
   const sandboxResolvedAgent = userId && deps.provisioner
     ? await deps.provisioner.resolveAgent(userId)
     : undefined;
-  const agentName = sandboxResolvedAgent?.id ?? config.agent_name ?? 'main';
+  const agentId = sandboxResolvedAgent?.id ?? config.agent_name;
+
+  // Rewrite placeholder workspace '_' with the resolved agent ID.
+  // parseChatRequest uses '_' as workspace; processCompletion replaces it
+  // after the provisioner resolves the actual agent.
+  if (agentId) {
+    sessionId = rewriteSessionPlaceholder(sessionId, agentId);
+    if (persistentSessionId) {
+      persistentSessionId = rewriteSessionPlaceholder(persistentSessionId, agentId);
+    }
+  }
 
   // Register session context so the credential provide endpoint can resolve
-  // agentName/userId from just a sessionId (client doesn't send these).
-  setSessionCredentialContext(sessionId, { agentName, userId: currentUserId });
+  // agentId/userId from just a sessionId (client doesn't send these).
+  setSessionCredentialContext(sessionId, { agentName: agentId, userId: currentUserId });
 
   try {
-    if (persistentSessionId) {
-      workspace = workspaceDir(persistentSessionId);
-      mkdirSync(workspace, { recursive: true });
-    } else {
-      workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
-    }
+    // All workspaces are ephemeral — git repo is the source of truth
+    workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
 
+    // Git repo is the persistence layer — always sync for persistent sessions.
     // For file:// workspace URLs (git-local provider), clone/pull on the host side.
     // Container sandboxes can't access host file paths, so the host manages git.
     if (providers.workspace) {
-      const repoUrl = await providers.workspace.getRepoUrl(agentName);
+      const repoUrl = await providers.workspace.getRepoUrl(agentId);
       if (repoUrl.startsWith('file://')) {
         try {
           hostGitSync(workspace, repoUrl, reqLogger);
@@ -593,6 +620,20 @@ export async function processCompletion(
         } catch (err) {
           reqLogger.warn('host_git_sync_failed', { error: (err as Error).message });
         }
+      }
+    } else if (persistentSessionId) {
+      // No workspace provider — init a bare repo at ~/.ax/data/repos/{agentId}
+      const repoPath = join(dataDir(), 'repos', agentId);
+      const repoUrl = `file://${repoPath}`;
+      if (!existsSync(repoPath)) {
+        mkdirSync(repoPath, { recursive: true });
+        execFileSync('git', ['init', '--bare', '--initial-branch=main'], { cwd: repoPath, stdio: 'pipe' });
+      }
+      try {
+        hostGitSync(workspace, repoUrl, reqLogger);
+        hostManagedGit = true;
+      } catch (err) {
+        reqLogger.warn('host_git_sync_failed', { error: (err as Error).message });
       }
     }
 
@@ -764,7 +805,7 @@ export async function processCompletion(
       };
       // Generate MITM CA — always create it upfront so we can pass it to the proxy.
       // Credentials are registered later (after agentWsPath is set) by reference.
-      const caDir = join(agentDir(agentName), 'ca');
+      const caDir = join(agentDir(agentId), 'ca');
       const ca = await getOrCreateCA(caDir);
       caCertPem = ca.cert;
       const mitmConfig = {
@@ -952,7 +993,7 @@ export async function processCompletion(
     // since there's no proxy to do placeholder replacement.
     // Also check global (unscoped) credentials — catches credentials stored
     // without session context or via process.env fallback in the plaintext provider.
-    for (const scope of [credentialScope(agentName, currentUserId), credentialScope(agentName), undefined]) {
+    for (const scope of [credentialScope(agentId, currentUserId), credentialScope(agentId), undefined]) {
       try {
         const storedNames = await providers.credentials.list(scope);
         for (const envName of storedNames) {
@@ -979,8 +1020,8 @@ export async function processCompletion(
     });
 
     // ── Load identity from DocumentStore ──
-    // Identity files are keyed as <agentName>/<filename> and <agentName>/users/<userId>/<filename>
-    const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentName, currentUserId, reqLogger);
+    // Identity files are keyed as <agentId>/<filename> and <agentId>/users/<userId>/<filename>
+    const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentId, currentUserId, reqLogger);
 
     // ── Load installed skills from DB ──
     // All skills (agent-scoped and user-scoped) are merged into a single array
@@ -990,14 +1031,14 @@ export async function processCompletion(
     if (providers.storage?.documents) {
       try {
         const { listSkills, listUserSkills } = await import('../providers/storage/skills.js');
-        const dbSkills = await listSkills(providers.storage.documents, agentName);
+        const dbSkills = await listSkills(providers.storage.documents, agentId);
         skillsPayload = dbSkills.map(s => ({
           slug: s.id,
           files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
         }));
         // Merge user-scoped skills into the same array (user skills shadow agent by slug)
         if (currentUserId) {
-          const dbUserSkills = await listUserSkills(providers.storage.documents, agentName, currentUserId);
+          const dbUserSkills = await listUserSkills(providers.storage.documents, agentId, currentUserId);
           const agentSlugs = new Set(skillsPayload.map(s => s.slug));
           for (const s of dbUserSkills) {
             const entry = {
@@ -1050,14 +1091,14 @@ export async function processCompletion(
         if (providers.database) {
           try {
             const { listAgentServerNames } = await import('../providers/mcp/database.js');
-            const assigned = await listAgentServerNames(providers.database.db, agentName);
+            const assigned = await listAgentServerNames(providers.database.db, agentId);
             serverFilter = new Set(assigned);
           } catch { /* table may not exist yet — leave filter undefined (all servers) */ }
         }
-        const mcpTools = await deps.mcpManager.discoverAllTools(agentName, { resolveHeaders, authForServer, serverFilter });
+        const mcpTools = await deps.mcpManager.discoverAllTools(agentId, { resolveHeaders, authForServer, serverFilter });
         if (mcpTools.length > 0) {
           const { prepareMcpCLIs } = await import('./capnweb/generate-and-cache.js');
-          const clis = await prepareMcpCLIs({ agentName, tools: mcpTools });
+          const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
           if (clis && clis.length > 0) mcpCLIsPayload = clis;
         }
       } catch (err) {
@@ -1068,7 +1109,7 @@ export async function processCompletion(
       try {
         const { prepareMcpCLIs } = await import('./capnweb/generate-and-cache.js');
         const mcpTools = await providers.mcp.listTools();
-        const clis = await prepareMcpCLIs({ agentName, tools: mcpTools });
+        const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
         if (clis && clis.length > 0) mcpCLIsPayload = clis;
       } catch (err) {
         reqLogger.warn('mcp_cli_generation_failed', { error: (err as Error).message });
@@ -1097,7 +1138,7 @@ export async function processCompletion(
       // Web proxy URL — k8s pods don't have this in their pod spec
       webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
       // Enterprise fields
-      agentId: agentName,
+      agentId,
       // Identity, skills, and tool stubs from DocumentStore
       identity: identityPayload,
       skills: skillsPayload.length > 0 ? skillsPayload : undefined,
@@ -1123,7 +1164,7 @@ export async function processCompletion(
     // Calculate workspace repository URL from config.
     // For file:// URLs (git-local), the host already did clone/pull — don't pass to agent.
     const workspaceRepoUrl = !hostManagedGit && providers.workspace
-      ? await providers.workspace.getRepoUrl(agentName)
+      ? await providers.workspace.getRepoUrl(agentId)
       : undefined;
 
     const sandboxConfig = {
@@ -1284,7 +1325,7 @@ export async function processCompletion(
         });
 
         try {
-          const bridgeCtx = { sessionId, agentId: agentName, userId: currentUserId };
+          const bridgeCtx = { sessionId, agentId, userId: currentUserId };
           bridge = await connectIPCBridge(proc.bridgeSocketPath, deps.ipcHandler, bridgeCtx);
           reqLogger.debug('ipc_bridge_connected', { bridgeSocketPath: proc.bridgeSocketPath });
         } catch (err) {
@@ -1467,7 +1508,7 @@ export async function processCompletion(
         // Register extracted files in the file store for fileId-only lookups
         if (deps.fileStore) {
           for (const ef of extracted.extractedFiles) {
-            await deps.fileStore.register(ef.fileId, agentName, currentUserId, ef.mimeType);
+            await deps.fileStore.register(ef.fileId, agentId, currentUserId, ef.mimeType);
           }
         }
       }
@@ -1579,7 +1620,7 @@ export async function processCompletion(
       timestamp: Date.now(),
       data: { finishReason, responseLength: outbound.content.length, sessionId },
     });
-    return { responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName, userId: currentUserId, finishReason };
+    return { responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName: agentId, userId: currentUserId, finishReason };
 
   } catch (err) {
     reqLogger.error('completion_error', {
@@ -1632,7 +1673,7 @@ export async function processCompletion(
     if (hostManagedGit && workspace) {
       hostGitCommit(workspace, reqLogger);
     }
-    if (workspace && !isPersistent) {
+    if (workspace) {
       try { rmSync(workspace, { recursive: true, force: true }); } catch {
         reqLogger.debug('workspace_cleanup_failed', { workspace });
       }

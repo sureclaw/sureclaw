@@ -131,7 +131,7 @@ async function uploadArtifactIfNeeded(
   const originalFilename = path.split('/').pop() ?? path;
 
   await opts.gcsFileStorage.upload(fileId, buf, mimeType, originalFilename);
-  await opts.fileStore?.register(fileId, opts.agentName ?? 'main', ctx.userId ?? 'unknown', mimeType, originalFilename);
+  await opts.fileStore?.register(fileId, opts.agentId ?? 'system', ctx.userId ?? 'unknown', mimeType, originalFilename);
   opts.onArtifactWritten?.(fileId, mimeType, originalFilename);
 
   return fileId;
@@ -148,8 +148,8 @@ export interface SandboxToolHandlerOptions {
   gcsFileStorage?: GcsFileStorage;
   /** File store for registering file metadata. */
   fileStore?: FileStore;
-  /** Agent name for file store registration. */
-  agentName?: string;
+  /** Agent ID for file store registration. */
+  agentId?: string;
   /** Callback invoked when a file is written and uploaded to GCS. */
   onArtifactWritten?: (fileId: string, mimeType: string, filename: string) => void;
 }

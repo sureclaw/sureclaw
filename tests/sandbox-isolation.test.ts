@@ -18,6 +18,7 @@ import type { Config } from '../src/types.js';
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const mockConfig = {
+  agent_name: 'test-agent',
   profile: 'paranoid',
   providers: {
     memory: 'cortex', security: 'patterns',

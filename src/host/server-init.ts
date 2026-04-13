@@ -58,7 +58,7 @@ export interface HostCore {
   disableAutoState: () => void;
   agentRegistry: AgentRegistry;
   provisioner: AgentProvisioner;
-  agentName: string;
+  agentId: string;
   agentDirVal: string;
   identityFilesDir: string;
   sessionCanaries: Map<string, string>;
@@ -109,10 +109,10 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const router = createRouter(providers, db, { taintBudget });
 
   // ── Agent directory setup ──
-  const agentName = 'main';
-  const agentDirVal = agentDirPath(agentName);
-  const agentConfigDir = agentIdentityDir(agentName);
-  const identityFilesDir = agentIdentityFilesDir(agentName);
+  const agentId = config.agent_name;
+  const agentDirVal = agentDirPath(agentId);
+  const agentConfigDir = agentIdentityDir(agentId);
+  const identityFilesDir = agentIdentityFilesDir(agentId);
   mkdirSync(agentDirVal, { recursive: true });
   mkdirSync(agentConfigDir, { recursive: true });
   mkdirSync(identityFilesDir, { recursive: true });
@@ -129,8 +129,8 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
   let dbBootstrapComplete = false;
   try {
-    const dbSoul = await documents.get('identity', `${agentName}/SOUL.md`);
-    const dbIdentity = await documents.get('identity', `${agentName}/IDENTITY.md`);
+    const dbSoul = await documents.get('identity', `${agentId}/SOUL.md`);
+    const dbIdentity = await documents.get('identity', `${agentId}/IDENTITY.md`);
     dbBootstrapComplete = !!(dbSoul && dbIdentity);
   } catch { /* DocumentStore may not support get-or-null, treat as not complete */ }
   const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
@@ -141,7 +141,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     const src = join(templatesDir, file);
     if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
     if (existsSync(src)) {
-      const key = `${agentName}/${file}`;
+      const key = `${agentId}/${file}`;
       try {
         const existing = await documents.get('identity', key);
         if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
@@ -164,7 +164,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
       const identityDest = join(identityFilesDir, 'BOOTSTRAP.md');
       if (!existsSync(configDest)) copyFileSync(src, configDest);
       if (!existsSync(identityDest)) copyFileSync(src, identityDest);
-      const key = `${agentName}/BOOTSTRAP.md`;
+      const key = `${agentId}/BOOTSTRAP.md`;
       try {
         const existing = await documents.get('identity', key);
         if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
@@ -172,7 +172,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     }
     const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
     if (existsSync(ubSrc)) {
-      const key = `${agentName}/USER_BOOTSTRAP.md`;
+      const key = `${agentId}/USER_BOOTSTRAP.md`;
       try {
         const existing = await documents.get('identity', key);
         if (!existing) await documents.put('identity', key, readFileSync(ubSrc, 'utf-8'));
@@ -181,7 +181,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   }
 
   // Skills seeding
-  const persistentSkillsDir = agentSkillsDir(agentName);
+  const persistentSkillsDir = agentSkillsDir(agentId);
   mkdirSync(persistentSkillsDir, { recursive: true });
   try {
     const existingSkills = readdirSync(persistentSkillsDir).filter(f => f.endsWith('.md'));
@@ -221,7 +221,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     const { generateManifest } = await import('../utils/manifest-generator.js');
     const { listSkills } = await import('../providers/storage/skills.js');
     try {
-      const skills = await listSkills(providers.storage.documents, agentName);
+      const skills = await listSkills(providers.storage.documents, agentId);
       for (const skill of skills) {
         try {
           const parsed = parseAgentSkill(skill.instructions);
@@ -294,7 +294,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
     agentDir: identityFilesDir,
-    agentName,
+    agentId,
     profile: config.profile,
     configModel: config.models?.default?.[0],
     onDelegate: handleDelegate,
@@ -386,7 +386,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     disableAutoState,
     agentRegistry,
     provisioner,
-    agentName,
+    agentId,
     agentDirVal,
     identityFilesDir,
     sessionCanaries,

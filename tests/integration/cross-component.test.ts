@@ -180,7 +180,7 @@ describe('Scheduler Tool → IPC → Provider → Delivery Chain', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-cross-'));
     mocks = createMockProviders(tmpDir);
-    handleIPC = createIPCHandler(mocks.providers, { agentName: 'main' });
+    handleIPC = createIPCHandler(mocks.providers, { agentId: 'test-agent' });
   });
 
   afterEach(() => {
@@ -330,7 +330,7 @@ describe('IPC Schema Validation Rejects Bad Payloads', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-cross-'));
     const mocks = createMockProviders(tmpDir);
-    handleIPC = createIPCHandler(mocks.providers);
+    handleIPC = createIPCHandler(mocks.providers, { agentId: 'test-agent' });
   });
 
   afterEach(() => {
@@ -387,7 +387,7 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
     mkdirSync(workspaceDir, { recursive: true });
     handleIPC = createIPCHandler(mocks.providers, {
       agentDir: join(tmpDir, 'agents', 'main'),
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       workspaceMap: new Map([[ctx.sessionId, workspaceDir]]),
     });
@@ -527,7 +527,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     const mocks = createMockProviders(tmpDir);
     const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -544,7 +544,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     expect(result.file).toBe('SOUL.md');
 
     // Verify document was written to DocumentStore
-    const stored = await docs.get('identity', 'main/SOUL.md');
+    const stored = await docs.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBe('# My Soul\nI am a helpful assistant.');
 
     // Verify audit trail
@@ -558,7 +558,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     const mocks = createMockProviders(tmpDir);
     const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'paranoid',
     });
 
@@ -575,7 +575,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     expect(result.file).toBe('IDENTITY.md');
 
     // Document must NOT be written
-    const stored = await docs.get('identity', 'main/IDENTITY.md');
+    const stored = await docs.get('identity', 'test-agent/IDENTITY.md');
     expect(stored).toBeUndefined();
 
     // Audit should record queued_paranoid decision
@@ -589,7 +589,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     const mocks = createMockProviders(tmpDir, { scannerBlock: true });
     const docs = mocks.providers.storage.documents;
     const handleIPC = createIPCHandler(mocks.providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -605,7 +605,7 @@ describe('Identity Write → DocumentStore → Taint Gate', () => {
     expect(result.error).toContain('blocked by scanner');
 
     // Document must NOT be written
-    const stored = await docs.get('identity', 'main/SOUL.md');
+    const stored = await docs.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBeUndefined();
 
     // Audit should record scanner_blocked decision
@@ -628,7 +628,7 @@ describe('Memory Tool Round-Trip via IPC', () => {
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-cross-'));
     const mocks = createMockProviders(tmpDir);
-    handleIPC = createIPCHandler(mocks.providers);
+    handleIPC = createIPCHandler(mocks.providers, { agentId: 'test-agent' });
   });
 
   afterEach(() => {

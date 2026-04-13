@@ -73,6 +73,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'delegation result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -101,6 +102,7 @@ describe('agent_delegate IPC action', () => {
     );
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 1, maxDepth: 2 },
       onDelegate,
     });
@@ -130,6 +132,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'deep result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -154,6 +157,7 @@ describe('agent_delegate IPC action', () => {
   test('returns error when delegation not configured', async () => {
     const providers = mockProviders();
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       // No onDelegate callback
     });
 
@@ -172,6 +176,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -201,6 +206,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -230,6 +236,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -261,6 +268,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'done');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 1, maxDepth: 2 },
       onDelegate,
     });
@@ -286,6 +294,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => { throw new Error('delegate failed'); });
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 1, maxDepth: 2 },
       onDelegate,
     });
@@ -299,6 +308,7 @@ describe('agent_delegate IPC action', () => {
     // Second delegation should still succeed (active count decremented)
     const onDelegate2 = vi.fn(async () => 'recovered');
     const handler2 = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 1, maxDepth: 2 },
       onDelegate: onDelegate2,
     });
@@ -317,6 +327,7 @@ describe('agent_delegate IPC action', () => {
     const onDelegate = vi.fn(async () => 'result');
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate,
     });
@@ -338,7 +349,7 @@ describe('agent_delegate IPC action', () => {
 
   test('validates schema (rejects invalid requests)', async () => {
     const providers = mockProviders();
-    const handler = createIPCHandler(providers);
+    const handler = createIPCHandler(providers, { agentId: 'test-agent' });
 
     // Missing required 'task' field
     const result = await handler(

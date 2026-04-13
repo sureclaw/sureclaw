@@ -71,8 +71,8 @@ export interface IPCHandlerOptions {
   onDelegate?: (req: DelegateRequest, ctx: IPCContext) => Promise<string>;
   /** Path to identity files directory (~/.ax/agents/{name}/agent/identity/) for governance handler. */
   agentDir?: string;
-  /** Agent name (e.g. 'main') for resolving per-user directories. */
-  agentName?: string;
+  /** Agent identifier for resolving per-user directories. */
+  agentId?: string;
   /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
   profile?: string;
   /** Configured model ID from ax.yaml (e.g. 'anthropic/claude-sonnet-4-20250514'). */
@@ -103,12 +103,12 @@ export interface IPCHandlerOptions {
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
 
   const taintBudget = opts?.taintBudget;
-  const agentName = opts?.agentName ?? 'main';
+  const agentId = opts?.agentId!;
   const profile = opts?.profile ?? 'paranoid';
 
   // Compose handlers from domain modules
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
-    ...createLLMHandlers(providers, opts?.configModel, agentName, opts?.eventBus),
+    ...createLLMHandlers(providers, opts?.configModel, agentId, opts?.eventBus, opts?.workspaceMap),
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
     ...createSkillsHandlers(providers, {
@@ -117,16 +117,16 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       domainList: opts?.domainList,
     }),
     ...createIdentityHandlers(providers, {
-      agentName,
+      agentId,
       profile,
       taintBudget,
     }),
     ...createDelegationHandlers(providers, opts),
-    ...createSchedulerHandlers(providers, agentName),
-    ...createArtifactHandlers(providers, { agentName, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
+    ...createSchedulerHandlers(providers, agentId),
+    ...createArtifactHandlers(providers, { agentId, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
     ...createGovernanceHandlers(providers, {
       agentDir: opts?.agentDir,
-      agentName,
+      agentId,
       profile,
       registry: opts?.agentRegistry,
     }),
@@ -137,7 +137,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       workspaceMap: opts.workspaceMap,
       gcsFileStorage: opts?.gcsFileStorage,
       fileStore: opts?.fileStore,
-      agentName,
+      agentId,
       onArtifactWritten: opts?.onArtifactWritten,
     }) : {}),
     ...(opts?.toolBatchProvider ? createToolBatchHandlers(opts.toolBatchProvider) : {}),

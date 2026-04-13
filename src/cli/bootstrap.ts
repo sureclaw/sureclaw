@@ -48,7 +48,11 @@ export async function resetAgent(agentName: string, templatesDir: string): Promi
 }
 
 export async function runBootstrap(args: string[]): Promise<void> {
-  const agentName = args[0] || 'main';
+  const agentName = args[0];
+  if (!agentName) {
+    console.error('Error: agent name required. Usage: ax bootstrap <agent-name>');
+    process.exit(1);
+  }
   const identityDir = agentIdentityFilesDir(agentName);
   const templatesDir = resolveTemplatesDir();
 

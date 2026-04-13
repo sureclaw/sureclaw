@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { isValidSessionId, workspaceDir, agentDir, agentStateDir, agentUserDir, axHome, composeSessionId, parseSessionId, userSkillsDir, agentSkillsDir, webhooksDir, webhookTransformPath, configPath } from '../src/paths.js';
+import { isValidSessionId, agentDir, agentStateDir, agentUserDir, axHome, composeSessionId, parseSessionId, userSkillsDir, agentSkillsDir, webhooksDir, webhookTransformPath, configPath } from '../src/paths.js';
 
 describe('paths', () => {
   const originalEnv = process.env.AX_HOME;
@@ -37,26 +37,6 @@ describe('paths', () => {
     expect(dataFile('memory.db')).toBe(join(homedir(), '.ax', 'data', 'memory.db'));
     expect(dataFile('audit', 'audit.jsonl')).toBe(
       join(homedir(), '.ax', 'data', 'audit', 'audit.jsonl'),
-    );
-  });
-
-  test('workspaceDir returns flat path for UUIDs', () => {
-    process.env.AX_HOME = '/tmp/sc-test';
-    expect(workspaceDir('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')).toBe(
-      '/tmp/sc-test/data/workspaces/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    );
-  });
-
-  test('workspaceDir returns nested path for colon-separated IDs', () => {
-    process.env.AX_HOME = '/tmp/sc-test';
-    expect(workspaceDir('main:cli:default')).toBe(
-      '/tmp/sc-test/data/workspaces/main/cli/default',
-    );
-    expect(workspaceDir('main:slack:dm:U1234')).toBe(
-      '/tmp/sc-test/data/workspaces/main/slack/dm/U1234',
-    );
-    expect(workspaceDir('main:slack:thread:1234.5')).toBe(
-      '/tmp/sc-test/data/workspaces/main/slack/thread/1234.5',
     );
   });
 
@@ -111,7 +91,7 @@ describe('paths', () => {
     expect(isValidSessionId('main:slack:group:G12345')).toBe(true);
     expect(isValidSessionId('main:cli:project-x')).toBe(true);
     expect(isValidSessionId('agent_2:cli:my.project')).toBe(true);
-    expect(isValidSessionId('main:http:vinay@canopyworks.com:conv-001')).toBe(true);
+    expect(isValidSessionId('http:dm:main:vinay@canopyworks.com:conv-001')).toBe(true);
   });
 
   test('isValidSessionId rejects invalid colon-separated IDs', () => {

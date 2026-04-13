@@ -37,6 +37,7 @@ let testDataDir: string;
 
 function mockConfig(profile: 'paranoid' | 'balanced' | 'yolo' = 'balanced'): Config {
   return {
+    agent_name: 'test-agent',
     profile,
     models: { default: ['mock/default'] },
     providers: {

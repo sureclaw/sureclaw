@@ -6,7 +6,7 @@ import { extname } from 'node:path';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import type { ResolveImageFile } from '../../providers/llm/types.js';
-import { userWorkspaceDir, workspaceDir } from '../../paths.js';
+import { userWorkspaceDir } from '../../paths.js';
 import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
 import type { EventBus } from '../event-bus.js';
@@ -24,13 +24,13 @@ const EXT_TO_MIME: Record<string, string> = {
 };
 
 /** Create a file resolver that reads images from user workspace (primary) or session workspace (fallback). */
-function createImageResolver(ctx: IPCContext, agentName: string): ResolveImageFile {
+function createImageResolver(ctx: IPCContext, agentId: string, workspaceMap?: Map<string, string>): ResolveImageFile {
   return async (fileId: string) => {
     const segments = fileId.split('/').filter(Boolean);
 
     // Primary: check enterprise user workspace using configured agent name
     if (ctx.userId) {
-      const userWsDir = userWorkspaceDir(agentName, ctx.userId);
+      const userWsDir = userWorkspaceDir(agentId, ctx.userId);
       const userPath = safePath(userWsDir, ...segments);
       if (existsSync(userPath)) {
         const ext = extname(userPath).toLowerCase();
@@ -39,8 +39,9 @@ function createImageResolver(ctx: IPCContext, agentName: string): ResolveImageFi
       }
     }
 
-    // Fallback: session workspace (agent sandbox CWD)
-    const wsDir = workspaceDir(ctx.sessionId);
+    // Fallback: ephemeral session workspace (looked up from workspaceMap)
+    const wsDir = workspaceMap?.get(ctx.sessionId);
+    if (!wsDir) return null;
     const filePath = safePath(wsDir, ...segments);
     if (!existsSync(filePath)) return null;
     const ext = extname(filePath).toLowerCase();
@@ -49,8 +50,8 @@ function createImageResolver(ctx: IPCContext, agentName: string): ResolveImageFi
   };
 }
 
-export function createLLMHandlers(providers: ProviderRegistry, configModel?: string, agentName?: string, eventBus?: EventBus) {
-  const resolvedAgentName = agentName ?? 'main';
+export function createLLMHandlers(providers: ProviderRegistry, configModel?: string, agentId?: string, eventBus?: EventBus, workspaceMap?: Map<string, string>) {
+  const resolvedAgentId = agentId!;
   return {
     llm_call: async (req: any, ctx: IPCContext) => {
       const effectiveModel = req.model ?? configModel ?? 'claude-sonnet-4-20250514';
@@ -86,7 +87,7 @@ export function createLLMHandlers(providers: ProviderRegistry, configModel?: str
           contextRemaining,
         },
       });
-      const resolveImageFile = createImageResolver(ctx, resolvedAgentName);
+      const resolveImageFile = createImageResolver(ctx, resolvedAgentId, workspaceMap);
       const chunks: unknown[] = [];
       for await (const chunk of providers.llm.chat({
         model: effectiveModel,

@@ -52,7 +52,7 @@ const useChatThreadRuntime = (transport: AxChatTransport): AssistantRuntime => {
           };
           const ext = attachment.name.split('.').pop()?.toLowerCase() ?? '';
           const mimeType = attachment.contentType || attachment.file.type || EXT_MIME[ext] || 'application/octet-stream';
-          const resp = await fetch(`/v1/files?agent=main&user=chat-ui&filename=${encodeURIComponent(attachment.name)}`, {
+          const resp = await fetch(`/v1/files?agent=default&user=guest&filename=${encodeURIComponent(attachment.name)}`, {
             method: 'POST',
             headers: { 'Content-Type': mimeType },
             body: attachment.file,

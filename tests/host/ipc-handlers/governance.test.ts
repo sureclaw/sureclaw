@@ -82,7 +82,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -108,7 +108,7 @@ describe('Governance IPC handlers', () => {
     (providers.security.scanInput as any).mockResolvedValue({ verdict: 'BLOCK', reason: 'malicious' });
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -126,7 +126,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -148,7 +148,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -172,7 +172,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -199,7 +199,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -222,7 +222,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -250,7 +250,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -274,7 +274,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -287,7 +287,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -302,7 +302,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -328,7 +328,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
@@ -352,7 +352,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
       agentDir: agentDirPath,
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });

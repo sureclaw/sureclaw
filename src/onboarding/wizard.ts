@@ -38,8 +38,17 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   // Ensure output directory exists
   mkdirSync(outputDir, { recursive: true });
 
-  // Build minimal config — code defaults in config.ts handle everything else
+  // Load existing config so non-wizard fields (e.g. agent_name, providers)
+  // are preserved across reconfiguration.
+  const cfgPath = join(outputDir, 'ax.yaml');
+  let existing: Record<string, unknown> = {};
+  if (existsSync(cfgPath)) {
+    try { existing = parseYaml(readFileSync(cfgPath, 'utf-8')) ?? {}; } catch { /* ignore parse errors */ }
+  }
+
+  // Merge wizard answers onto existing config
   const config: Record<string, unknown> = {
+    ...existing,
     profile: answers.profile,
     ...(() => {
       const models: Record<string, string[]> = {};
@@ -47,6 +56,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
       return Object.keys(models).length > 0 ? { models } : {};
     })(),
     sandbox: {
+      ...(typeof existing.sandbox === 'object' && existing.sandbox ? existing.sandbox : {}),
       timeout_sec: defaults.timeoutSec,
       memory_mb: defaults.memoryMb,
     },
@@ -54,7 +64,7 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
 
   // Write ax.yaml
   const yamlContent = yamlStringify(config, { indent: 2, lineWidth: 120 });
-  writeFileSync(join(outputDir, 'ax.yaml'), yamlContent, 'utf-8');
+  writeFileSync(cfgPath, yamlContent, 'utf-8');
 
   // Store credentials in the database
   if (answers.apiKey.trim()) {
@@ -95,6 +105,16 @@ async function openCredentialStore(configDir: string) {
   const Database = req('better-sqlite3');
   const sqliteDb = new Database(dbPath);
   sqliteDb.pragma('journal_mode = WAL');
+
+  // Load sqlite-vec if available — the shared ax.db may contain vec0 virtual
+  // tables from previous server runs, and SQLite errors on open if the
+  // extension isn't loaded.
+  try {
+    const sqliteVec = req('sqlite-vec');
+    sqliteVec.load(sqliteDb);
+  } catch {
+    // sqlite-vec not available — fine as long as no vec0 tables exist yet
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = new Kysely<any>({ dialect: new SqliteDialect({ database: sqliteDb }) });

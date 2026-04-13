@@ -9,13 +9,13 @@
  * so we override processResponseStream to parse OpenAI SSE instead.
  *
  * Session identity: the server derives a deterministic session ID from the
- * `user` field (format: "userId/threadId" → "main:http:userId:threadId").
+ * `user` field (format: "userId/threadId" → "{agentId}:http:userId:threadId").
  * This avoids session_id validation issues and keeps sessions stable per thread.
  */
 
 import { HttpChatTransport, type UIMessage, type UIMessageChunk } from 'ai';
 
-const DEFAULT_USER = 'chat-ui';
+const DEFAULT_USER = 'guest';
 
 export interface CredentialRequiredEvent {
   envName: string;
@@ -63,7 +63,8 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
           model: opts.model ?? 'default',
           stream: true,
           // user format: "userId/threadId" — server derives sessionId from this
-          user: options.id ? `${user}/${options.id}` : user,
+          // Strip assistant-ui's "__LOCALID_" prefix for cleaner session IDs
+          user: options.id ? `${user}/${options.id.replace(/^__LOCALID_/, '')}` : user,
           messages: options.messages.map((m) => {
             const parts: any[] = [];
             const text = extractText(m);

@@ -36,7 +36,7 @@ export const axThreadListAdapter: RemoteThreadListAdapter = {
   async initialize(threadId: string) {
     // Don't pre-create the session — the AX server auto-creates it
     // during the first completion via chatSessions.ensureExists().
-    // The server derives sessionId from the user field: "main:http:chat-ui:{threadId}".
+    // The server derives sessionId from the user field: "{agentId}:http:guest:{threadId}".
     return { remoteId: threadId, externalId: undefined };
   },
 
@@ -51,7 +51,7 @@ export const axThreadListAdapter: RemoteThreadListAdapter = {
         if (res.ok) {
           const { sessions } = await res.json();
           // Match by exact ID or suffix — the server prefixes session IDs
-          // (e.g., "main:http:chat-ui:__LOCALID_xxx" for local ID "__LOCALID_xxx")
+          // (e.g., "http:dm:{agentId}:{userId}:{threadId}")
           const session = sessions.find((s: any) =>
             s.id === remoteId || s.id.endsWith(`:${remoteId}`),
           );

@@ -74,7 +74,7 @@ export async function buildContentWithAttachments(
         const ext = att.filename?.split('.').pop() ?? (isImage ? 'png' : 'bin');
         const fileId = `files/${randomUUID()}.${ext}`;
         await opts.gcsFileStorage.upload(fileId, data, att.mimeType, att.filename ?? fileId);
-        await opts.fileStore?.register(fileId, opts.agentName ?? 'main', opts.userId ?? 'unknown', att.mimeType, att.filename ?? '');
+        await opts.fileStore?.register(fileId, opts.agentName ?? 'system', opts.userId ?? 'unknown', att.mimeType, att.filename ?? '');
 
         if (isImage) {
           blocks.push({ type: 'image', fileId, mimeType: att.mimeType as ImageMimeType });

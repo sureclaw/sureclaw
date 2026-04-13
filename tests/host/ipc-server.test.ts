@@ -104,7 +104,7 @@ describe('IPC Handler', () => {
   let handle: (raw: string, ctx: IPCContext) => Promise<string>;
 
   beforeEach(() => {
-    handle = createIPCHandler(mockRegistry());
+    handle = createIPCHandler(mockRegistry(), { agentId: 'test-agent' });
   });
 
   test('rejects invalid JSON', async () => {
@@ -214,7 +214,7 @@ describe('IPC Handler', () => {
       },
       async models() { return ['mock']; },
     };
-    const handleWithTools = createIPCHandler(registry);
+    const handleWithTools = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const payload = JSON.stringify({
       action: 'llm_call',
@@ -242,7 +242,7 @@ describe('IPC Handler', () => {
       },
       async models() { return ['mock']; },
     };
-    const handleToolUse = createIPCHandler(registry);
+    const handleToolUse = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const payload = JSON.stringify({
       action: 'llm_call',
@@ -272,7 +272,7 @@ describe('IPC Handler', () => {
       },
       async models() { return ['mock']; },
     };
-    const handleStructured = createIPCHandler(registry);
+    const handleStructured = createIPCHandler(registry, { agentId: 'test-agent' });
 
     // Simulate the second LLM call in a tool loop:
     // assistant used tool_use, then user sends tool_result
@@ -312,6 +312,7 @@ describe('unified identity_write', () => {
   test('auto-applies in balanced profile with clean session', async () => {
     const documents = createMockDocumentStore();
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
       // No taint budget → clean session
     });
@@ -326,7 +327,7 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-    const written = await documents.get('identity', 'main/SOUL.md');
+    const written = await documents.get('identity', 'test-agent/SOUL.md');
     expect(written).toBe('# Soul\nI am curious and helpful.');
   });
 
@@ -338,6 +339,7 @@ describe('unified identity_write', () => {
     taintBudget.recordContent('test-session', 'external email content', true);
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
       taintBudget,
     });
@@ -354,12 +356,13 @@ describe('unified identity_write', () => {
     expect(result.queued).toBe(true);
     expect(result.applied).toBeUndefined();
     // Document should NOT have been written
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBeUndefined();
   });
 
   test('always queues in paranoid profile even when clean', async () => {
     const handle = createIPCHandler(mockRegistry(), {
+      agentId: 'test-agent',
       profile: 'paranoid',
     });
 
@@ -381,6 +384,7 @@ describe('unified identity_write', () => {
     taintBudget.recordContent('test-session', 'external content', true);
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'yolo',
       taintBudget,
     });
@@ -400,6 +404,7 @@ describe('unified identity_write', () => {
   test('same rules apply to SOUL.md and IDENTITY.md', async () => {
     const documents = createMockDocumentStore();
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -419,17 +424,18 @@ describe('unified identity_write', () => {
     const savedAxHome = process.env.AX_HOME;
     const axHome = mkdtempSync(join(tmpdir(), 'ax-test-home-'));
     process.env.AX_HOME = axHome;
-    const identityDir = join(axHome, 'agents', 'main', 'agent', 'identity');
-    const configDir = join(axHome, 'agents', 'main', 'agent');
+    const identityDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
+    const configDir = join(axHome, 'agents', 'test-agent', 'agent');
     mkdirSync(identityDir, { recursive: true });
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
 
     const documents = createMockDocumentStore();
     // Seed BOOTSTRAP.md in DocumentStore
-    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
+    await documents.put('identity', 'test-agent/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -444,7 +450,7 @@ describe('unified identity_write', () => {
     // Bootstrap not yet complete — IDENTITY.md still missing in DocumentStore
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
     // SOUL.md was written to DocumentStore
-    const soulContent = await documents.get('identity', 'main/SOUL.md');
+    const soulContent = await documents.get('identity', 'test-agent/SOUL.md');
     expect(soulContent).toBe('# Soul\nI am helpful.');
 
     rmSync(axHome, { recursive: true, force: true });
@@ -456,16 +462,17 @@ describe('unified identity_write', () => {
     const savedAxHome = process.env.AX_HOME;
     const axHome = mkdtempSync(join(tmpdir(), 'ax-test-home-'));
     process.env.AX_HOME = axHome;
-    const identityDir = join(axHome, 'agents', 'main', 'agent', 'identity');
-    const configDir = join(axHome, 'agents', 'main', 'agent');
+    const identityDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
+    const configDir = join(axHome, 'agents', 'test-agent', 'agent');
     mkdirSync(identityDir, { recursive: true });
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap');
 
     const documents = createMockDocumentStore();
-    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap');
+    await documents.put('identity', 'test-agent/BOOTSTRAP.md', '# Bootstrap');
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -480,7 +487,7 @@ describe('unified identity_write', () => {
     // Bootstrap not yet complete — SOUL.md still missing
     expect(existsSync(join(configDir, 'BOOTSTRAP.md'))).toBe(true);
     // BOOTSTRAP.md should still be in DocumentStore (not deleted because SOUL.md missing from DocumentStore)
-    const bootstrapContent = await documents.get('identity', 'main/BOOTSTRAP.md');
+    const bootstrapContent = await documents.get('identity', 'test-agent/BOOTSTRAP.md');
     expect(bootstrapContent).toBe('# Bootstrap');
 
     rmSync(axHome, { recursive: true, force: true });
@@ -492,9 +499,9 @@ describe('unified identity_write', () => {
     const savedAxHome = process.env.AX_HOME;
     const axHome = mkdtempSync(join(tmpdir(), 'ax-test-home-'));
     process.env.AX_HOME = axHome;
-    const topDir = join(axHome, 'agents', 'main');
-    const configDir = join(axHome, 'agents', 'main', 'agent');
-    const identityDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    const topDir = join(axHome, 'agents', 'test-agent');
+    const configDir = join(axHome, 'agents', 'test-agent', 'agent');
+    const identityDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
     mkdirSync(identityDir, { recursive: true });
     writeFileSync(join(configDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
     writeFileSync(join(identityDir, 'BOOTSTRAP.md'), '# Bootstrap\nDiscover yourself.');
@@ -505,11 +512,12 @@ describe('unified identity_write', () => {
     writeFileSync(join(identityDir, 'IDENTITY.md'), '# Identity\nPrevious version.');
 
     const documents = createMockDocumentStore();
-    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
+    await documents.put('identity', 'test-agent/BOOTSTRAP.md', '# Bootstrap\nDiscover yourself.');
     // SOUL.md must be in DocumentStore too — bootstrap completion now checks DocumentStore
-    await documents.put('identity', 'main/SOUL.md', '# Soul\nI am helpful.');
+    await documents.put('identity', 'test-agent/SOUL.md', '# Soul\nI am helpful.');
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -524,10 +532,10 @@ describe('unified identity_write', () => {
     }), ctx);
 
     // BOOTSTRAP.md deleted from DocumentStore
-    const bootstrapContent = await documents.get('identity', 'main/BOOTSTRAP.md');
+    const bootstrapContent = await documents.get('identity', 'test-agent/BOOTSTRAP.md');
     expect(bootstrapContent).toBeUndefined();
     // IDENTITY.md written to DocumentStore
-    const identityContent = await documents.get('identity', 'main/IDENTITY.md');
+    const identityContent = await documents.get('identity', 'test-agent/IDENTITY.md');
     expect(identityContent).toBe('# Identity\nName: Crabby');
 
     rmSync(axHome, { recursive: true, force: true });
@@ -538,13 +546,14 @@ describe('unified identity_write', () => {
   test('bypasses taint gate during bootstrap for SOUL.md/IDENTITY.md', async () => {
     const documents = createMockDocumentStore();
     // Seed BOOTSTRAP.md to indicate bootstrap is active
-    await documents.put('identity', 'main/BOOTSTRAP.md', '# Bootstrap');
+    await documents.put('identity', 'test-agent/BOOTSTRAP.md', '# Bootstrap');
 
     const taintBudget = new TaintBudget({ threshold: 0.30 });
     // Session is 100% tainted — would normally block
     taintBudget.recordContent('test-session', 'external user message', true);
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
       taintBudget,
     });
@@ -577,6 +586,7 @@ describe('unified identity_write', () => {
     taintBudget.recordContent('test-session', 'external content', true);
 
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
       taintBudget,
     });
@@ -601,6 +611,7 @@ describe('unified identity_write', () => {
     } as any;
 
     const handle = createIPCHandler(registry, {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -623,6 +634,7 @@ describe('unified identity_write', () => {
 
   test('rejects invalid file name', async () => {
     const handle = createIPCHandler(mockRegistry(), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -648,6 +660,7 @@ describe('unified identity_write', () => {
     };
 
     const handle = createIPCHandler(registry, {
+      agentId: 'test-agent',
       profile: 'yolo', // Even yolo can't bypass scanner
     });
 
@@ -662,7 +675,7 @@ describe('unified identity_write', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('blocked');
     // Document should NOT have been written
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBeUndefined();
   });
 
@@ -672,6 +685,7 @@ describe('unified identity_write', () => {
     // Mock scanner already returns PASS by default
 
     const handle = createIPCHandler(registry, {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -690,6 +704,7 @@ describe('unified identity_write', () => {
   test('identity_write writes to DocumentStore', async () => {
     const documents = createMockDocumentStore();
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -703,7 +718,7 @@ describe('unified identity_write', () => {
 
     expect(result.ok).toBe(true);
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBe('# Soul\nWritten to document store.');
   });
 });
@@ -712,6 +727,7 @@ describe('user_write', () => {
   test('writes USER.md to DocumentStore', async () => {
     const documents = createMockDocumentStore();
     const handle = createIPCHandler(mockRegistry(documents), {
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -727,15 +743,15 @@ describe('user_write', () => {
     expect(result.applied).toBe(true);
 
     // Verify written to DocumentStore under per-user key
-    const stored = await documents.get('identity', 'main/users/U12345/USER.md');
+    const stored = await documents.get('identity', 'test-agent/users/U12345/USER.md');
     expect(stored).toContain('Likes TypeScript');
   });
 
-  test('uses agentName from options for DocumentStore key', async () => {
+  test('uses agentId from options for DocumentStore key', async () => {
     const documents = createMockDocumentStore();
     const handle = createIPCHandler(mockRegistry(documents), {
       profile: 'balanced',
-      agentName: 'custom-agent',
+      agentId: 'custom-agent',
     });
 
     const result = JSON.parse(await handle(JSON.stringify({
@@ -754,7 +770,7 @@ describe('user_write', () => {
   });
 
   test('fails without userId in payload', async () => {
-    const handle = createIPCHandler(mockRegistry(), { profile: 'balanced' });
+    const handle = createIPCHandler(mockRegistry(), { agentId: 'test-agent', profile: 'balanced' });
 
     // userId is now validated by Zod schema — missing userId fails schema validation
     const result = JSON.parse(await handle(JSON.stringify({
@@ -768,7 +784,7 @@ describe('user_write', () => {
   });
 
   test('queues in paranoid profile', async () => {
-    const handle = createIPCHandler(mockRegistry(), { profile: 'paranoid' });
+    const handle = createIPCHandler(mockRegistry(), { agentId: 'test-agent', profile: 'paranoid' });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'user_write',
@@ -792,6 +808,7 @@ describe('user_write', () => {
     };
 
     const handle = createIPCHandler(registry, {
+      agentId: 'test-agent',
       profile: 'yolo', // Even yolo can't bypass scanner
     });
 
@@ -812,7 +829,7 @@ describe('scheduler IPC handlers', () => {
   let handle: (raw: string, ctx: IPCContext) => Promise<string>;
 
   beforeEach(() => {
-    handle = createIPCHandler(mockRegistry());
+    handle = createIPCHandler(mockRegistry(), { agentId: 'test-agent' });
   });
 
   test('scheduler_add_cron adds a job and returns jobId', async () => {
@@ -871,7 +888,7 @@ describe('scheduler IPC handlers', () => {
 
   test('scheduler_add_cron defaults delivery to channel/last when not specified', async () => {
     const registry = mockRegistry();
-    const handle = createIPCHandler(registry);
+    const handle = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'scheduler_add_cron',
@@ -889,7 +906,7 @@ describe('scheduler IPC handlers', () => {
 
   test('scheduler_add_cron preserves explicit delivery when provided', async () => {
     const registry = mockRegistry();
-    const handle = createIPCHandler(registry);
+    const handle = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'scheduler_add_cron',
@@ -905,27 +922,27 @@ describe('scheduler IPC handlers', () => {
     expect(jobs[0].delivery).toEqual({ mode: 'none' });
   });
 
-  test('scheduler_add_cron uses agentName for job agentId, not ctx.agentId', async () => {
+  test('scheduler_add_cron uses ctx.agentId for job agentId', async () => {
     const registry = mockRegistry();
-    const handle = createIPCHandler(registry, { agentName: 'main' });
+    const handle = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'scheduler_add_cron',
       schedule: '0 9 * * 1',
       prompt: 'Daily standup',
-    }), { sessionId: 'test-session', agentId: 'system' }));
+    }), { sessionId: 'test-session', agentId: 'personal-alice-1234' }));
 
     expect(result.ok).toBe(true);
 
     const jobs = registry.scheduler.listJobs!();
     expect(jobs).toHaveLength(1);
-    // Should use agentName ('main'), not ctx.agentId ('system')
-    expect(jobs[0].agentId).toBe('main');
+    // Should use ctx.agentId (the resolved agent), not the host-level agentName
+    expect(jobs[0].agentId).toBe('personal-alice-1234');
   });
 
   test('scheduler_run_at uses scheduleOnce with correct datetime', async () => {
     const registry = mockRegistry();
-    const handle = createIPCHandler(registry);
+    const handle = createIPCHandler(registry, { agentId: 'test-agent' });
 
     const datetime = '2026-03-01T14:30:00';
     const result = JSON.parse(await handle(JSON.stringify({
@@ -968,7 +985,7 @@ describe('scheduler IPC handlers', () => {
     taintBudget.recordContent('test-session', 'clean', false);
     taintBudget.recordContent('test-session', 'tainted external content', true);
 
-    const handle = createIPCHandler(mockRegistry(), { taintBudget });
+    const handle = createIPCHandler(mockRegistry(), { agentId: 'test-agent', taintBudget });
 
     const result = JSON.parse(await handle(JSON.stringify({
       action: 'scheduler_add_cron',
@@ -1233,7 +1250,7 @@ describe('connectIPCBridge (reverse IPC for Apple containers)', () => {
     const bridgeSessionId = randomUUID(); // Different from requestId (line 359)
     const workspaceMap = new Map([[requestId, workspace]]);
 
-    const handleIPC = createIPCHandler(mockRegistry(), { workspaceMap });
+    const handleIPC = createIPCHandler(mockRegistry(), { agentId: 'test-agent', workspaceMap });
 
     // Agent side: IPCClient in listen mode WITHOUT sessionId (mimics runner.ts line 353)
     const client = new IPCClient({ socketPath, listen: true });
@@ -1268,7 +1285,7 @@ describe('connectIPCBridge (reverse IPC for Apple containers)', () => {
     const bridgeSessionId = randomUUID();
     const workspaceMap = new Map([[requestId, workspace]]);
 
-    const handleIPC = createIPCHandler(mockRegistry(), { workspaceMap });
+    const handleIPC = createIPCHandler(mockRegistry(), { agentId: 'test-agent', workspaceMap });
 
     // Agent side: IPCClient in listen mode WITHOUT sessionId — and NO setContext
     const client = new IPCClient({ socketPath, listen: true });

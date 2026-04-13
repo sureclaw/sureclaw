@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const {
     completionDeps, sessionStore, router, taintBudget, fileStore,
     handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
-    agentRegistry, agentName, agentDirVal, sessionCanaries,
+    agentRegistry, agentId: agentName, agentDirVal, sessionCanaries,
     domainList, defaultUserId, modelId, mcpManager,
   } = core;
 
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     if (isK8s) {
       activeTokens.set(turnToken, {
         handleIPC: wrappedHandleIPC,
-        ctx: { sessionId, agentId: 'main', userId: userId ?? defaultUserId, requestId },
+        ctx: { sessionId, agentId: agentName, userId: userId ?? defaultUserId, requestId },
       });
       logger.info('token_registered', { sessionId, requestId, tokenPresent: true });
     }
@@ -471,13 +471,16 @@ async function main(): Promise<void> {
     channels: providers.channels,
     scheduler: providers.scheduler,
     isBootstrapMode: () => isAgentBootstrapMode(agentName),
-    runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
+    runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed, agentId) => {
+      const schedConfig = {
+        ...config,
+        ...(config.scheduler.timeout_sec ? { sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } : {}),
+        ...(agentId ? { agent_name: agentId } : {}),
+      };
       const deps: CompletionDeps = {
         ...completionDeps,
         singleTurn: true,
-        ...(config.scheduler.timeout_sec
-          ? { config: { ...config, sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } }
-          : {}),
+        config: schedConfig,
       };
       return processCompletionForSession(
         content, requestId,

@@ -27,20 +27,20 @@ function hasAnyAdmin(agentDir: string): boolean {
 }
 
 export interface IdentityHandlerOptions {
-  agentName: string;
+  agentId: string;
   profile: string;
   taintBudget?: TaintBudget;
 }
 
 export function createIdentityHandlers(providers: ProviderRegistry, opts: IdentityHandlerOptions) {
-  const { agentName, profile, taintBudget } = opts;
+  const { agentId, profile, taintBudget } = opts;
 
-  const topDir = agentDirPath(agentName);
+  const topDir = agentDirPath(agentId);
   const documents = providers.storage.documents;
 
   return {
     identity_read: async (req: any, _ctx: IPCContext) => {
-      const key = `${agentName}/${req.file}`;
+      const key = `${agentId}/${req.file}`;
       const content = await documents.get('identity', key);
       return { content: content ?? '', file: req.file };
     },
@@ -78,7 +78,7 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       // bootstrap cannot complete without these files, creating an unrecoverable
       // deadlock when all content is external (taint = 100%).
       const isBootstrapWrite = (req.file === 'SOUL.md' || req.file === 'IDENTITY.md')
-        && !!(await documents.get('identity', `${agentName}/BOOTSTRAP.md`));
+        && !!(await documents.get('identity', `${agentId}/BOOTSTRAP.md`));
       if (profile !== 'yolo' && taintBudget && !isBootstrapWrite) {
         const check = taintBudget.checkAction(ctx.sessionId, 'identity_write');
         if (!check.allowed) {
@@ -102,7 +102,7 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       }
 
       // 3. Auto-apply (balanced + clean, or yolo) — write to DocumentStore
-      const key = `${agentName}/${req.file}`;
+      const key = `${agentId}/${req.file}`;
       await documents.put('identity', key, req.content);
 
       // Bootstrap completion: delete BOOTSTRAP.md once both SOUL.md and IDENTITY.md exist.
@@ -110,14 +110,14 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       // have identity files when using GCS/cloud-backed DocumentStore.
       if (req.file === 'SOUL.md' || req.file === 'IDENTITY.md') {
         const otherFile = req.file === 'SOUL.md' ? 'IDENTITY.md' : 'SOUL.md';
-        const otherKey = `${agentName}/${otherFile}`;
+        const otherKey = `${agentId}/${otherFile}`;
         const otherExists = await documents.get('identity', otherKey);
         if (otherExists) {
           // Both SOUL.md and IDENTITY.md exist in DocumentStore — bootstrap is complete
-          await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
+          await documents.delete('identity', `${agentId}/BOOTSTRAP.md`);
           // Also clean up filesystem BOOTSTRAP.md for isAgentBootstrapMode() compat
-          const configDir = agentIdentityDir(agentName);
-          const idFilesDir = agentIdentityFilesDir(agentName);
+          const configDir = agentIdentityDir(agentId);
+          const idFilesDir = agentIdentityFilesDir(agentId);
           try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
           try { unlinkSync(join(idFilesDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
           try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
@@ -187,7 +187,7 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       }
 
       // 3. Write to DocumentStore under per-user key
-      const key = `${agentName}/users/${req.userId}/USER.md`;
+      const key = `${agentId}/users/${req.userId}/USER.md`;
       await documents.put('identity', key, req.content);
 
       await providers.audit.log({

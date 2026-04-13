@@ -10,8 +10,8 @@ export interface ActiveHours {
   timezone: string;
 }
 
-export function schedulerSession(sender: string): SessionAddress {
-  return { provider: 'scheduler', scope: 'dm', identifiers: { peer: sender } };
+export function schedulerSession(sender: string, agentId?: string): SessionAddress {
+  return { provider: 'scheduler', scope: 'dm', identifiers: { ...(agentId ? { workspace: agentId } : {}), peer: sender } };
 }
 
 export function parseTime(timeStr: string): number {

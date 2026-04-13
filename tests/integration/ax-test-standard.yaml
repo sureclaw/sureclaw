@@ -1,3 +1,4 @@
+agent_name: test-agent
 # Balanced profile test config
 # Uses Phase 1 providers: patterns scanner, file audit, cron scheduler
 # LLM is still mock for testing (no API key needed)

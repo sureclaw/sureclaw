@@ -91,10 +91,10 @@ describe('Identity IPC handlers', () => {
 
   test('identity_read returns file content when document exists', async () => {
     const documents = createMockDocumentStore();
-    await documents.put('identity', 'main/SOUL.md', '# My Soul');
+    await documents.put('identity', 'test-agent/SOUL.md', '# My Soul');
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -107,7 +107,7 @@ describe('Identity IPC handlers', () => {
   test('identity_read returns empty string for missing document', async () => {
     const providers = stubProviders();
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -126,7 +126,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -138,7 +138,7 @@ describe('Identity IPC handlers', () => {
     expect(result.queued).toBe(true);
     expect(result.reason).toContain('Non-admin');
     // Document should NOT be written
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBeUndefined();
   });
 
@@ -149,7 +149,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -159,7 +159,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBe('# My Soul');
   });
 
@@ -172,7 +172,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -182,7 +182,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBe('# My Soul');
   });
 
@@ -191,7 +191,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -201,7 +201,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/IDENTITY.md');
+    const stored = await documents.get('identity', 'test-agent/IDENTITY.md');
     expect(stored).toBe('# My Identity');
   });
 
@@ -209,7 +209,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -222,7 +222,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/SOUL.md');
+    const stored = await documents.get('identity', 'test-agent/SOUL.md');
     expect(stored).toBe('# System Soul');
   });
 
@@ -233,7 +233,7 @@ describe('Identity IPC handlers', () => {
 
     const providers = stubProviders();
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -252,7 +252,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -262,7 +262,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/users/alice/USER.md');
+    const stored = await documents.get('identity', 'test-agent/users/alice/USER.md');
     expect(stored).toBe('# Alice prefs');
   });
 
@@ -272,7 +272,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -282,7 +282,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/users/bob/USER.md');
+    const stored = await documents.get('identity', 'test-agent/users/bob/USER.md');
     expect(stored).toBe('# Bob prefs');
   });
 
@@ -292,7 +292,7 @@ describe('Identity IPC handlers', () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
-      agentName: 'main',
+      agentId: 'test-agent',
       profile: 'balanced',
     });
 
@@ -302,7 +302,7 @@ describe('Identity IPC handlers', () => {
     );
 
     expect(result.applied).toBe(true);
-    const stored = await documents.get('identity', 'main/users/bob/USER.md');
+    const stored = await documents.get('identity', 'test-agent/users/bob/USER.md');
     expect(stored).toBe('# Bob prefs');
   });
 });

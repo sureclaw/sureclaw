@@ -5,14 +5,14 @@ import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 
-export function createSchedulerHandlers(providers: ProviderRegistry, agentName: string) {
+export function createSchedulerHandlers(providers: ProviderRegistry, _agentId: string) {
   return {
     scheduler_add_cron: async (req: any, ctx: IPCContext) => {
       const jobId = randomUUID();
       await providers.scheduler.addCron?.({
         id: jobId,
         schedule: req.schedule,
-        agentId: agentName,
+        agentId: ctx.agentId,
         prompt: req.prompt,
         maxTokenBudget: req.maxTokenBudget,
         delivery: req.delivery ?? { mode: 'channel', target: 'last' },
@@ -39,7 +39,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
       const job = {
         id: jobId,
         schedule,
-        agentId: agentName,
+        agentId: ctx.agentId,
         prompt: req.prompt,
         maxTokenBudget: req.maxTokenBudget,
         delivery: req.delivery ?? { mode: 'channel', target: 'last' },
@@ -64,11 +64,12 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
     },
 
     scheduler_remove_cron: async (req: any, ctx: IPCContext) => {
-      await providers.scheduler.removeCron?.(req.jobId);
+      const jobId = req.jobId ?? req.id;
+      await providers.scheduler.removeCron?.(jobId);
       await providers.audit.log({
         action: 'scheduler_remove_cron',
         sessionId: ctx.sessionId,
-        args: { jobId: req.jobId },
+        args: { jobId },
         result: 'success',
         timestamp: new Date(),
         durationMs: 0,
@@ -76,8 +77,8 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
       return { removed: true };
     },
 
-    scheduler_list_jobs: async () => {
-      const jobs = await providers.scheduler.listJobs?.() ?? [];
+    scheduler_list_jobs: async (_req: any, ctx: IPCContext) => {
+      const jobs = await providers.scheduler.listJobs?.(ctx.agentId) ?? [];
       return { jobs };
     },
   };

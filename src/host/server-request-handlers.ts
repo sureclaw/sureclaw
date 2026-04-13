@@ -14,7 +14,7 @@ import { resolveDelivery } from './delivery.js';
 import type { EventBus, StreamEvent } from './event-bus.js';
 import type { Router } from './router.js';
 import type { Config, ProviderRegistry, ContentBlock } from '../types.js';
-import type { InboundMessage } from '../providers/channel/types.js';
+import { canonicalize, type InboundMessage } from '../providers/channel/types.js';
 import type { AuthProvider, AuthResult } from '../providers/auth/types.js';
 import { handleFileUpload, handleFileDownload } from './server-files.js';
 import type { FileStore } from '../file-store.js';
@@ -78,6 +78,7 @@ export interface CompletionHandlerOpts {
 export function parseChatRequest(
   chatReq: OpenAIChatRequest,
   modelId: string,
+  agentId?: string,
 ): { sessionId: string; userId: string | undefined; content: string | ContentBlock[]; requestModel: string } | { error: string } {
   if (!chatReq.messages?.length) {
     return { error: 'messages array is required' };
@@ -92,9 +93,13 @@ export function parseChatRequest(
   if (!sessionId && chatReq.user) {
     const parts = chatReq.user.split('/');
     if (parts.length >= 2 && parts[0] && parts[1]) {
-      const agentPrefix = chatReq.model?.startsWith('agent:')
-        ? chatReq.model.slice(6) : 'main';
-      const candidate = `${agentPrefix}:http:${parts[0]}:${parts[1]}`;
+      // Use placeholder '_' for workspace — processCompletion rewrites it
+      // after the provisioner resolves the actual agent ID.
+      const candidate = canonicalize({
+        provider: 'http',
+        scope: 'dm',
+        identifiers: { workspace: '_', peer: parts[0], channel: parts[1] },
+      });
       if (isValidSessionId(candidate)) sessionId = candidate;
     }
   }
@@ -102,7 +107,7 @@ export function parseChatRequest(
 
   const lastMsg = chatReq.messages[chatReq.messages.length - 1];
   const content = lastMsg?.content ?? '';
-  const userId = chatReq.user?.split('/')[0] || 'local-user';
+  const userId = chatReq.user?.split('/')[0] || 'guest';
 
   return { sessionId, userId, content, requestModel };
 }
@@ -132,7 +137,7 @@ export async function handleCompletions(
     return;
   }
 
-  const parsed = parseChatRequest(chatReq, opts.modelId);
+  const parsed = parseChatRequest(chatReq, opts.modelId, opts.agentName);
   if ('error' in parsed) {
     sendError(res, 400, parsed.error);
     return;
@@ -364,6 +369,7 @@ export interface SchedulerCallbackOpts {
     sessionId: string,
     userId?: string,
     preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
+    agentId?: string,
   ) => Promise<{ responseContent: string }>;
 }
 
@@ -387,23 +393,9 @@ export function createSchedulerCallback(opts: SchedulerCallbackOpts): (msg: Inbo
 
     sessionCanaries.set(result.sessionId, result.canaryToken);
     const requestId = `sched-${randomUUID().slice(0, 8)}`;
-    const { responseContent } = await opts.runCompletion(
-      msg.content,
-      requestId,
-      [{ role: 'user', content: msg.content }],
-      result.sessionId,
-      undefined,
-      { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
-    );
 
-    if (!responseContent.trim()) {
-      logger.info('scheduler_message_processed', {
-        sender: msg.sender, sessionId: result.sessionId,
-        contentLength: responseContent.length, hasResponse: false,
-      });
-      return;
-    }
-
+    // Resolve job metadata (agentId, delivery) before running completion
+    // so the agent spawns with the correct identity and workspace.
     let delivery: import('../providers/scheduler/types.js').CronDelivery | undefined;
     let jobAgentId = agentName;
 
@@ -419,6 +411,24 @@ export function createSchedulerCallback(opts: SchedulerCallbackOpts): (msg: Inbo
       }
     } else {
       delivery = config.scheduler.defaultDelivery;
+    }
+
+    const { responseContent } = await opts.runCompletion(
+      msg.content,
+      requestId,
+      [{ role: 'user', content: msg.content }],
+      result.sessionId,
+      undefined,
+      { sessionId: result.sessionId, messageId: result.messageId!, canaryToken: result.canaryToken },
+      jobAgentId,
+    );
+
+    if (!responseContent.trim()) {
+      logger.info('scheduler_message_processed', {
+        sender: msg.sender, sessionId: result.sessionId,
+        contentLength: responseContent.length, hasResponse: false,
+      });
+      return;
     }
 
     const resolution = await resolveDelivery(delivery, {

@@ -42,7 +42,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   }
 
   // Ensure synthetic heartbeat row exists for distributed dedup (KyselyJobStore only)
-  const agentName = config.agent_name ?? 'main';
+  const agentName = config.agent_name;
   const HEARTBEAT_JOB_ID = `__heartbeat__:${agentName}`;
   if (jobs instanceof KyselyJobStore) {
     const existing = await jobs.get(HEARTBEAT_JOB_ID);
@@ -109,7 +109,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
 
     onMessageHandler({
       id: randomUUID(),
-      session: schedulerSession(`hint:${hint.kind}`),
+      session: schedulerSession(`hint:${hint.kind}`, agentName),
       sender: `hint:${hint.kind}`,
       content: hint.suggestedPrompt,
       attachments: [],
@@ -158,7 +158,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       result = (onMessageHandler as any)({
         id: randomUUID(),
-        session: schedulerSession('heartbeat'),
+        session: schedulerSession('heartbeat', agentName),
         sender: 'heartbeat',
         content,
         attachments: [],
@@ -230,7 +230,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       result = (onMessageHandler as any)({
         id: randomUUID(),
-        session: schedulerSession(`cron:${job.id}`),
+        session: schedulerSession(`cron:${job.id}`, job.agentId),
         sender: `cron:${job.id}`,
         content: job.prompt,
         attachments: [],
@@ -253,7 +253,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     if (!isWithinActiveHours(activeHours)) return;
     const now = at ?? new Date();
     const mk = minuteKey(now);
-    const jobList = await jobs.list(agentName);
+    const jobList = await jobs.list();
     for (const job of jobList) {
       if (job.id.startsWith('__heartbeat__:')) continue; // synthetic row for heartbeat dedup
       if (!matchesCron(job.schedule, now)) continue;
@@ -277,7 +277,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         result = (onMessageHandler as any)({
           id: randomUUID(),
-          session: schedulerSession(`cron:${job.id}`),
+          session: schedulerSession(`cron:${job.id}`, job.agentId),
           sender: `cron:${job.id}`,
           content: job.prompt,
           attachments: [],
@@ -372,8 +372,8 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       await jobs.delete(jobId);
     },
 
-    async listJobs(): Promise<CronJobDef[]> {
-      const all = await jobs.list(agentName);
+    async listJobs(agentId?: string): Promise<CronJobDef[]> {
+      const all = await jobs.list(agentId);
       return all.filter(j => !j.id.startsWith('__heartbeat__:'));
     },
 

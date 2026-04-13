@@ -1,3 +1,4 @@
+agent_name: test-agent
 # Power user profile test config
 # Uses Phase 2 providers: guardian scanner, search web, cortex memory
 # LLM is still mock for testing (no API key needed)

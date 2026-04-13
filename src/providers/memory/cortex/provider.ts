@@ -535,7 +535,7 @@ export async function create(config: Config, _name?: string, opts?: CreateOption
           if ('actionable' in candidate && candidate.actionable) {
             eventbus.emit({
               type: 'memory.proactive_hint',
-              requestId: config.agent_name ?? 'main',
+              requestId: config.agent_name ?? 'system',
               timestamp: Date.now(),
               data: {
                 source: 'memory',

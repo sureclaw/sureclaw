@@ -1,3 +1,4 @@
+agent_name: test-agent
 profile: paranoid
 models:
   default:

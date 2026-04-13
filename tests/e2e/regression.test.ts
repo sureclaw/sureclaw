@@ -13,7 +13,7 @@ import { describe, test, expect, beforeAll } from 'vitest';
 import { AcceptanceClient, type ChatResponse } from './client.js';
 
 const SERVER_URL = process.env.AX_SERVER_URL ?? 'http://localhost:8080';
-const SESSION_PREFIX = `main:http:e2e-${Date.now()}`;
+const SESSION_PREFIX = `http:dm:main:e2e-${Date.now()}`;
 
 let client: AcceptanceClient;
 

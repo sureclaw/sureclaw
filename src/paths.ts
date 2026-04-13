@@ -13,12 +13,6 @@
  *       ax.db           — shared SQLite database (messages, conversations, sessions, documents, audit)
  *       memory.db       — SQLite memory provider
  *       memory/         — file memory provider
- *       workspaces/     — persistent agent workspaces
- *         <uuid>/                        — legacy flat UUID workspace
- *         main/cli/default/              — default CLI chat session
- *         main/cli/<name>/               — named CLI session
- *         main/slack/dm/<userId>/        — Slack DM
- *         main/slack/channel/<chanId>/   — Slack channel
  *     agents/
  *       <agent-id>/
  *         admins              — admin access control (top-level, NOT in sandbox)
@@ -92,18 +86,6 @@ export function isValidSessionId(id: string): boolean {
   const parts = id.split(':');
   if (parts.length < 3) return false;
   return parts.every(p => p.length > 0 && SEGMENT_RE.test(p));
-}
-
-/**
- * Path to a persistent agent workspace directory for a given session.
- * Colon-separated IDs become nested directories; UUIDs stay flat.
- */
-export function workspaceDir(sessionId: string): string {
-  if (sessionId.includes(':')) {
-    const parts = sessionId.split(':');
-    return join(dataDir(), 'workspaces', ...parts);
-  }
-  return join(dataDir(), 'workspaces', sessionId);
 }
 
 /** Compose a session ID from parts, joining with ':'. Validates each segment. */

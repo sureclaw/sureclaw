@@ -36,6 +36,7 @@ let testDataDir: string;
 
 function powerUserConfig(): Config {
   return {
+    agent_name: 'test-agent',
     profile: 'yolo',
     providers: {
       memory: 'cortex', security: 'guardian',
@@ -286,6 +287,7 @@ describe('Multi-Agent Delegation Integration', () => {
     const delegatedTasks: string[] = [];
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async (req) => {
         delegatedTasks.push(req.task);
@@ -312,6 +314,7 @@ describe('Multi-Agent Delegation Integration', () => {
     const providers = mockProviders();
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 1 },
       onDelegate: async () => 'done',
     });
@@ -331,6 +334,7 @@ describe('Multi-Agent Delegation Integration', () => {
     const providers = mockProviders();
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => 'done',
     });

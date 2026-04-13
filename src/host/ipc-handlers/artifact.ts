@@ -23,7 +23,7 @@ const EXT_TO_MIME: Record<string, string> = {
 };
 
 export interface ArtifactHandlerOptions {
-  agentName: string;
+  agentId: string;
   gcsFileStorage?: GcsFileStorage;
   fileStore?: FileStore;
   /** Callback invoked when a file is written and uploaded, so the response can include it. */
@@ -46,7 +46,7 @@ export function createArtifactHandlers(providers: ProviderRegistry, opts: Artifa
       if (opts.gcsFileStorage) {
         const fileId = `files/${randomUUID()}.${ext}`;
         await opts.gcsFileStorage.upload(fileId, buf, mimeType, originalFilename);
-        await opts.fileStore?.register(fileId, opts.agentName, ctx.userId ?? 'unknown', mimeType, originalFilename);
+        await opts.fileStore?.register(fileId, opts.agentId, ctx.userId ?? 'unknown', mimeType, originalFilename);
         opts.onArtifactWritten?.(fileId, mimeType, originalFilename);
 
         await providers.audit.log({

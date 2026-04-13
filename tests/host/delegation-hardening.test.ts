@@ -110,6 +110,7 @@ describe('IPC handler timeout cleanup', () => {
     });
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => 'done',
     });
@@ -151,6 +152,7 @@ describe('IPC handler timeout cleanup', () => {
     });
 
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => { throw new Error('handler exploded'); },
     });
@@ -344,6 +346,7 @@ describe('delegation error response format', () => {
   test('handler throw returns ok:false with error message', async () => {
     const providers = mockProviders();
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => { throw new Error('something broke'); },
     });
@@ -388,6 +391,7 @@ describe('delegation error response format', () => {
 
     // Now get handler error via IPC handler (no blocking needed)
     const errorHandler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 1, maxDepth: 2 },
       onDelegate: async () => { throw new Error('crash'); },
     });
@@ -410,6 +414,7 @@ describe('delegation error response format', () => {
   test('depth limit returns same error shape as concurrency limit', async () => {
     const providers = mockProviders();
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => 'done',
     });
@@ -830,6 +835,7 @@ describe('delegation audit trail', () => {
   test('successful delegation audits both action and completion', async () => {
     const providers = mockProviders();
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => 'audit test result',
     });
@@ -848,6 +854,7 @@ describe('delegation audit trail', () => {
   test('failed delegation is still audited', async () => {
     const providers = mockProviders();
     const handler = createIPCHandler(providers, {
+      agentId: 'test-agent',
       delegation: { maxConcurrent: 3, maxDepth: 2 },
       onDelegate: async () => { throw new Error('fail'); },
     });

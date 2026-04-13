@@ -66,20 +66,20 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       const manifest = generateManifest(parsed);
 
       // 5. Store skill in DB (primary persistence)
-      const agentName = ctx.agentId ?? 'main';
+      const agentId = ctx.agentId;
       if (!providers.storage?.documents) {
         return { installed: false, reason: 'No storage provider available' };
       }
       const mcpApps = inferMcpApps(skillMd.content);
       await upsertSkill(providers.storage.documents, {
         id: slug,
-        agentId: agentName,
+        agentId,
         version: '1.0.0',
         instructions: skillMd.content,
         files: pkg.files.map(f => ({ path: f.path, content: f.content })),
         mcpApps,
       });
-      logger.info('skill_stored_in_db', { slug, agentId: agentName, mcpApps });
+      logger.info('skill_stored_in_db', { slug, agentId, mcpApps });
 
       // 6. Add domains to proxy allowlist
       if (opts?.domainList && manifest.capabilities.domains.length > 0) {
@@ -112,10 +112,10 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
 
     skill_create: async (req: any, ctx: IPCContext) => {
       if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
-      const agentName = ctx.agentId ?? 'main';
+      const agentId = ctx.agentId;
 
       // Determine scope: only admins get agent-scoped skills, everyone else gets user-scoped.
-      const topDir = agentDirPath(agentName);
+      const topDir = agentDirPath(agentId);
       const userIsAdmin = ctx.userId ? isAdmin(topDir, ctx.userId) : false;
       const scope = userIsAdmin ? 'agent' as const : 'user' as const;
 
@@ -128,7 +128,7 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
 
       await upsertSkill(providers.storage.documents, {
         id: req.slug,
-        agentId: agentName,
+        agentId,
         version: '1.0.0',
         instructions: req.content,
         files: [{ path: 'SKILL.md', content: req.content }],
@@ -168,8 +168,8 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
 
     skill_update: async (req: any, ctx: IPCContext) => {
       if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
-      const agentName = ctx.agentId ?? 'main';
-      const existing = await getSkill(providers.storage.documents, agentName, req.slug, ctx.userId);
+      const agentId = ctx.agentId;
+      const existing = await getSkill(providers.storage.documents, agentId, req.slug, ctx.userId);
       if (!existing) return { ok: false, error: 'Skill not found' };
 
       const files = existing.files ?? [{ path: 'SKILL.md', content: existing.instructions }];
@@ -217,8 +217,8 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
 
     skill_delete: async (req: any, ctx: IPCContext) => {
       if (!providers.storage?.documents) return { ok: false, error: 'No storage provider' };
-      const agentName = ctx.agentId ?? 'main';
-      const deleted = await deleteSkill(providers.storage.documents, agentName, req.slug, ctx.userId);
+      const agentId = ctx.agentId;
+      const deleted = await deleteSkill(providers.storage.documents, agentId, req.slug, ctx.userId);
 
       // Remove skill's domains from proxy allowlist
       if (deleted && opts?.domainList) {
@@ -251,8 +251,8 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       }
 
       // Check if credential is already available (user scope -> agent scope)
-      const agentName = ctx.agentId ?? 'main';
-      const available = (await resolveCredential(providers.credentials, envName, agentName, ctx.userId)) !== null;
+      const agentId = ctx.agentId;
+      const available = (await resolveCredential(providers.credentials, envName, agentId, ctx.userId)) !== null;
 
       // Emit credential.required so the SSE stream notifies the client
       if (!available && opts?.eventBus && ctx.requestId) {
@@ -260,7 +260,7 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
           type: 'credential.required',
           requestId: ctx.requestId,
           timestamp: Date.now(),
-          data: { envName, sessionId: ctx.sessionId, agentName, userId: ctx.userId },
+          data: { envName, sessionId: ctx.sessionId, agentId, userId: ctx.userId },
         });
       }
 

@@ -21,7 +21,6 @@ import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
 
 // Extracted modules
 import { processCompletion, type CompletionDeps } from './server-completions.js';
-import { cleanStaleWorkspaces } from './server-lifecycle.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry, ThreadOwnershipMap } from './server-channels.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 
@@ -110,7 +109,7 @@ export async function createServer(
   const {
     completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore, gcsFileStorage,
     ipcServer, ipcSocketDir, orchestrator, disableAutoState,
-    agentRegistry, agentName, agentDirVal, identityFilesDir, sessionCanaries,
+    agentRegistry, agentId: agentName, agentDirVal, identityFilesDir, sessionCanaries,
     modelId,
   } = core;
 
@@ -277,9 +276,6 @@ export async function createServer(
   // --- Lifecycle ---
 
   async function startServer(): Promise<void> {
-    // Clean up stale persistent workspaces (older than 7 days)
-    cleanStaleWorkspaces(logger);
-
     // Remove stale socket
     if (existsSync(socketPath)) {
       unlinkSync(socketPath);
@@ -343,10 +339,13 @@ export async function createServer(
       channels: providers.channels,
       scheduler: providers.scheduler,
       isBootstrapMode: () => isAgentBootstrapMode(agentName),
-      runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed) => {
-        const deps = config.scheduler.timeout_sec
-          ? { ...completionDeps, config: { ...config, sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } }
-          : completionDeps;
+      runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed, agentId) => {
+        const schedConfig = {
+          ...config,
+          ...(config.scheduler.timeout_sec ? { sandbox: { ...config.sandbox, timeout_sec: config.scheduler.timeout_sec } } : {}),
+          ...(agentId ? { agent_name: agentId } : {}),
+        };
+        const deps = { ...completionDeps, config: schedConfig };
         return processCompletion(deps, content, requestId, messages, sessionId, preProcessed, userId);
       },
     });

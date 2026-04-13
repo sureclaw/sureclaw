@@ -81,8 +81,8 @@ export interface ModelMap {
 
 export interface Config {
   agent?: AgentType;
-  /** Enterprise agent name — used for registry and workspace paths. Defaults to 'main'. */
-  agent_name?: string;
+  /** Agent identifier — used for registry, workspace paths, and IPC routing. Defaults to 'ax'. */
+  agent_name: string;
   models?: ModelMap;
   max_tokens?: number;
   profile: ProfileName;

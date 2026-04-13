@@ -168,7 +168,7 @@ describe('E2E Integration', () => {
     db = storage.messages;
     testProviders = createTestProviders(tmpDir);
     router = createRouter(testProviders.providers, db);
-    handleIPC = createIPCHandler(testProviders.providers);
+    handleIPC = createIPCHandler(testProviders.providers, { agentId: 'test-agent' });
   });
 
   afterEach(async () => {

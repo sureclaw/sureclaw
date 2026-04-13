@@ -56,7 +56,9 @@ function parseAgentFlag(args: string[]): { agentId: string; remaining: string[] 
     const remaining = [...args.slice(0, idx), ...args.slice(idx + 2)];
     return { agentId, remaining };
   }
-  return { agentId: 'main', remaining: args };
+  // No --agent flag: use config.agent_name
+  const config = loadConfig();
+  return { agentId: config.agent_name ?? 'default', remaining: args };
 }
 
 function parseSharedFlag(args: string[]): { shared: boolean; remaining: string[] } {

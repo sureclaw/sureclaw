@@ -14,6 +14,7 @@ import type { Logger } from '../../src/logger.js';
 function stubConfig(overrides: Partial<Config> = {}): Config {
   return {
     agent: 'pi-coding-agent',
+    agent_name: 'test-agent',
     profile: 'balanced',
     providers: { mcp: 'none', ...overrides.providers } as Config['providers'],
     models: { default: ['mock-model'] },

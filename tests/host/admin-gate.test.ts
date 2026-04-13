@@ -373,13 +373,13 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    const agentTopDir = join(axHome, 'agents', 'main');
-    const agentConfigDir = join(axHome, 'agents', 'main', 'agent');
-    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    const agentTopDir = join(axHome, 'agents', 'test-agent');
+    const agentConfigDir = join(axHome, 'agents', 'test-agent', 'agent');
+    const identityFilesDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
 
     // Verify bootstrap mode is active (BOOTSTRAP.md was copied from templates)
     expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(true);
-    expect(isAgentBootstrapMode('main')).toBe(true);
+    expect(isAgentBootstrapMode('test-agent')).toBe(true);
 
     // First user claims admin
     const msg: InboundMessage = {
@@ -398,7 +398,7 @@ describe('bootstrap gate (channel integration)', () => {
     writeFileSync(join(identityFilesDir, 'IDENTITY.md'), '# Identity\nName: Test Agent');
 
     // Bootstrap mode is now complete
-    expect(isAgentBootstrapMode('main')).toBe(false);
+    expect(isAgentBootstrapMode('test-agent')).toBe(false);
   });
 
   test('server restart does not recreate BOOTSTRAP.md after bootstrap completes', async () => {
@@ -420,8 +420,8 @@ describe('bootstrap gate (channel integration)', () => {
     server = await createServer(config, { socketPath, channels: [mockChannel] });
     await server.start();
 
-    const agentConfigDir = join(axHome, 'agents', 'main', 'agent');
-    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    const agentConfigDir = join(axHome, 'agents', 'test-agent', 'agent');
+    const identityFilesDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
 
     // Complete bootstrap: write SOUL.md + IDENTITY.md, delete BOOTSTRAP.md from both locations
     writeFileSync(join(identityFilesDir, 'SOUL.md'), '# Soul\nI am helpful.');
@@ -430,7 +430,7 @@ describe('bootstrap gate (channel integration)', () => {
     try { unlinkSync(join(identityFilesDir, 'BOOTSTRAP.md')); } catch { /* ignore */ }
 
     expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(false);
-    expect(isAgentBootstrapMode('main')).toBe(false);
+    expect(isAgentBootstrapMode('test-agent')).toBe(false);
 
     await server.stop();
 
@@ -440,7 +440,7 @@ describe('bootstrap gate (channel integration)', () => {
     await server.start();
 
     expect(existsSync(join(agentConfigDir, 'BOOTSTRAP.md'))).toBe(false);
-    expect(isAgentBootstrapMode('main')).toBe(false);
+    expect(isAgentBootstrapMode('test-agent')).toBe(false);
 
     // Clean up extra socket
     try { unlinkSync(socketPath2); } catch { /* ignore */ }
@@ -464,7 +464,7 @@ describe('bootstrap gate (channel integration)', () => {
     await server.start();
 
     // Simulate bootstrap completion: write SOUL.md and IDENTITY.md into identity files dir
-    const identityFilesDir = join(axHome, 'agents', 'main', 'agent', 'identity');
+    const identityFilesDir = join(axHome, 'agents', 'test-agent', 'agent', 'identity');
     writeFileSync(join(identityFilesDir, 'SOUL.md'), '# Soul\nI am helpful.');
     writeFileSync(join(identityFilesDir, 'IDENTITY.md'), '# Identity\nName: Test Agent');
 
@@ -516,10 +516,10 @@ describe('bootstrap gate (HTTP integration)', () => {
     server = await createServer(config, { socketPath });
     await server.start();
 
-    const agentTopDir = join(axHome, 'agents', 'main');
+    const agentTopDir = join(axHome, 'agents', 'test-agent');
 
     // Verify bootstrap mode is active
-    expect(isAgentBootstrapMode('main')).toBe(true);
+    expect(isAgentBootstrapMode('test-agent')).toBe(true);
 
     // First HTTP user should be auto-promoted to admin
     const res = await sendRequest(socketPath, '/v1/chat/completions', {

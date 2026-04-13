@@ -18,7 +18,7 @@ import type { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {
   agentDir?: string;
-  agentName: string;
+  agentId: string;
   profile: string;
   registry?: AgentRegistry;
 }
@@ -60,7 +60,7 @@ function saveProposal(proposal: Proposal): void {
 }
 
 export function createGovernanceHandlers(providers: ProviderRegistry, opts: GovernanceHandlerOptions) {
-  const { agentDir, agentName, profile, registry } = opts;
+  const { agentDir, agentId, profile, registry } = opts;
 
   return {
     identity_propose: async (req: any, ctx: IPCContext) => {
@@ -107,7 +107,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
 
     proposal_review: async (req: any, ctx: IPCContext) => {
       // Admin gate — only admins can review proposals
-      const topDir = agentDirPath(agentName);
+      const topDir = agentDirPath(agentId);
       if (ctx.userId && !isAdmin(topDir, ctx.userId)) {
         await providers.audit.log({
           action: 'proposal_review',
@@ -140,7 +140,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
       if (req.decision === 'approved' && proposal.type === 'identity' && proposal.file) {
         // Write to DocumentStore (authoritative source for identity)
         const documents = providers.storage.documents;
-        const docKey = `${agentName}/${proposal.file}`;
+        const docKey = `${agentId}/${proposal.file}`;
         await documents.put('identity', docKey, proposal.content);
 
         // Also write to filesystem for backward compat
@@ -152,14 +152,14 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
         // Bootstrap completion: check DocumentStore for both SOUL.md and IDENTITY.md
         if (proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') {
           const otherFile = proposal.file === 'SOUL.md' ? 'IDENTITY.md' : 'SOUL.md';
-          const otherKey = `${agentName}/${otherFile}`;
+          const otherKey = `${agentId}/${otherFile}`;
           const otherExists = await documents.get('identity', otherKey);
           if (otherExists) {
             // Both exist — bootstrap complete
-            await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
+            await documents.delete('identity', `${agentId}/BOOTSTRAP.md`);
             // Clean up filesystem
-            const configDir = agentIdentityDir(agentName);
-            const topDir = agentDirPath(agentName);
+            const configDir = agentIdentityDir(agentId);
+            const topDir = agentDirPath(agentId);
             try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
             if (agentDir) {
               try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
