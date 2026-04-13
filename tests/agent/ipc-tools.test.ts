@@ -157,14 +157,13 @@ describe('ipc-tools', () => {
     expect(tools.length).toBe(16);
   });
 
-  test('filter excludes scheduler tool when hasHeartbeat is false', () => {
+  test('scheduler tool is always present regardless of hasHeartbeat', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
       filter: { hasHeartbeat: false, skillInstallEnabled: true, hasGovernance: true },
     });
     const names = tools.map((t) => t.name);
-    expect(names).not.toContain('scheduler');
-    // Core tools still present
+    expect(names).toContain('scheduler');
     expect(names).toContain('memory');
     expect(names).toContain('web');
   });
@@ -199,12 +198,13 @@ describe('ipc-tools', () => {
       filter: { hasHeartbeat: false, skillInstallEnabled: false, hasGovernance: false },
     });
     const names = tools.map((t) => t.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + sandbox(6) = 14 tools
+    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + scheduler(1) + sandbox(6) = 15 tools
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('identity');
     expect(names).toContain('agent');
+    expect(names).toContain('scheduler');
 
     expect(names).toContain('request_credential'); // always available
     expect(names).toContain('skill'); // always available — delete/update don't require install intent
@@ -214,6 +214,6 @@ describe('ipc-tools', () => {
     expect(names).toContain('edit_file');
     expect(names).toContain('grep');
     expect(names).toContain('glob');
-    expect(tools.length).toBe(14);
+    expect(tools.length).toBe(15);
   });
 });

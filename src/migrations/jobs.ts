@@ -36,6 +36,34 @@ export function buildJobsMigrations(dbType: DbDialect): MigrationSet {
         await db.schema.dropTable('cron_jobs').execute();
       },
     },
+    jobs_002_last_fired_at: {
+      async up(db: Kysely<any>) {
+        await db.schema
+          .alterTable('cron_jobs')
+          .addColumn('last_fired_at', 'text')
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema
+          .alterTable('cron_jobs')
+          .dropColumn('last_fired_at')
+          .execute();
+      },
+    },
+    jobs_003_creator_session_id: {
+      async up(db: Kysely<any>) {
+        await db.schema
+          .alterTable('cron_jobs')
+          .addColumn('creator_session_id', 'text')
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema
+          .alterTable('cron_jobs')
+          .dropColumn('creator_session_id')
+          .execute();
+      },
+    },
   };
 }
 

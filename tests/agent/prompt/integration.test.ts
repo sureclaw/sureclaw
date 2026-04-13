@@ -60,14 +60,14 @@ describe('PromptBuilder integration', () => {
     expect(content).toContain('ELEVATED');
     expect(content).toContain('15.0%');
 
-    // Verify metadata — 8 modules now (identity, injection, security, tool-style, memory-recall, skills, delegation, runtime)
-    expect(result.metadata.moduleCount).toBe(8);
+    // Verify metadata — 9 modules now (identity, injection, security, tool-style, heartbeat, memory-recall, skills, delegation, runtime)
+    expect(result.metadata.moduleCount).toBe(9);
     expect(result.metadata.estimatedTokens).toBeGreaterThan(100);
     expect(result.metadata.buildTimeMs).toBeLessThan(100);
 
     // Verify per-module token breakdown (Task 16 observability)
     expect(result.metadata.tokensByModule).toBeDefined();
-    expect(Object.keys(result.metadata.tokensByModule).length).toBe(8);
+    expect(Object.keys(result.metadata.tokensByModule).length).toBe(9);
     expect(result.metadata.tokensByModule['identity']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['injection-defense']).toBeGreaterThan(0);
     expect(result.metadata.tokensByModule['security']).toBeGreaterThan(0);

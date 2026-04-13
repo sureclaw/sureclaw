@@ -41,6 +41,21 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     jobs = new KyselyJobStore(db);
   }
 
+  // Ensure synthetic heartbeat row exists for distributed dedup (KyselyJobStore only)
+  const agentName = config.agent_name ?? 'main';
+  const HEARTBEAT_JOB_ID = `__heartbeat__:${agentName}`;
+  if (jobs instanceof KyselyJobStore) {
+    const existing = await jobs.get(HEARTBEAT_JOB_ID);
+    if (!existing) {
+      await jobs.set({
+        id: HEARTBEAT_JOB_ID,
+        schedule: '* * * * *', // not used for matching — heartbeat uses its own interval
+        agentId: agentName,
+        prompt: '', // not used
+      });
+    }
+  }
+
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let cronTimer: ReturnType<typeof setInterval> | null = null;
   let onMessageHandler: ((msg: InboundMessage) => void) | null = null;
@@ -51,6 +66,8 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   const onceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Track in-flight async cleanup promises so stop() can wait for them
   const pendingCleanups = new Set<Promise<void>>();
+  // Track jobs currently executing — skip firing if a previous invocation hasn't finished
+  const inFlight = new Set<string>();
   // Closed flag to guard deferred cleanup against closed DB
   let stopped = false;
 
@@ -62,10 +79,6 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
 
   const heartbeatIntervalMs = config.scheduler.heartbeat_interval_min * 60 * 1000;
   const agentDir = config.scheduler.agent_dir;
-
-  // Filter cron scan to current agent to prevent cross-agent execution
-  // in multi-agent deployments sharing a single scheduler.db
-  const agentName = config.agent_name ?? 'main';
 
   // ─── Proactive hint gating ─────────────────────────
   const confidenceThreshold = config.scheduler.proactive_hint_confidence_threshold ?? 0.7;
@@ -107,6 +120,26 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   function fireHeartbeat(): void {
     if (!onMessageHandler) return;
     if (!isWithinActiveHours(activeHours)) return;
+    // Skip if previous heartbeat is still executing
+    if (inFlight.has(HEARTBEAT_JOB_ID)) return;
+
+    // Distributed dedup: claim the heartbeat slot for this minute
+    if (jobs.tryClaim) {
+      const mk = minuteKey(new Date());
+      const claimed = jobs.tryClaim(HEARTBEAT_JOB_ID, mk);
+      // tryClaim may return a Promise (KyselyJobStore) — handle both
+      if (claimed && typeof (claimed as any).then === 'function') {
+        (claimed as Promise<boolean>).then(ok => { if (ok) emitHeartbeat(); });
+        return;
+      }
+      if (!claimed) return;
+    }
+
+    emitHeartbeat();
+  }
+
+  function emitHeartbeat(): void {
+    if (!onMessageHandler) return;
 
     let content = 'Heartbeat check — review pending tasks and proactive hints.';
     if (agentDir) {
@@ -116,7 +149,9 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       } catch { /* no HEARTBEAT.md — use default */ }
     }
 
-    onMessageHandler({
+    inFlight.add(HEARTBEAT_JOB_ID);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result: any = onMessageHandler({
       id: randomUUID(),
       session: schedulerSession('heartbeat'),
       sender: 'heartbeat',
@@ -124,6 +159,11 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
       attachments: [],
       timestamp: new Date(),
     });
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      (result as Promise<unknown>).finally(() => inFlight.delete(HEARTBEAT_JOB_ID));
+    } else {
+      inFlight.delete(HEARTBEAT_JOB_ID);
+    }
   }
 
   /** Track an async cleanup so stop() can await it before closing the DB. */
@@ -147,6 +187,32 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
 
   function fireOnceJob(job: CronJobDef): void {
     if (!onMessageHandler) return;
+
+    // Distributed dedup: claim via DB before firing
+    if (jobs.tryClaim) {
+      const mk = `once:${job.id}`;
+      const claimed = jobs.tryClaim(job.id, mk);
+      if (claimed && typeof (claimed as any).then === 'function') {
+        (claimed as Promise<boolean>).then(ok => {
+          if (ok) doFireOnce(job);
+          else {
+            // Another replica already fired — just clean up local timer
+            onceTimers.delete(job.id);
+          }
+        });
+        return;
+      }
+      if (!claimed) {
+        onceTimers.delete(job.id);
+        return;
+      }
+    }
+
+    doFireOnce(job);
+  }
+
+  function doFireOnce(job: CronJobDef): void {
+    if (!onMessageHandler) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result: any = onMessageHandler({
       id: randomUUID(),
@@ -169,9 +235,23 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     const mk = minuteKey(now);
     const jobList = await jobs.list(agentName);
     for (const job of jobList) {
+      if (job.id.startsWith('__heartbeat__:')) continue; // synthetic row for heartbeat dedup
       if (!matchesCron(job.schedule, now)) continue;
-      if (lastFiredMinute.get(job.id) === mk) continue; // already fired this minute
-      lastFiredMinute.set(job.id, mk);
+
+      // Skip if this job is still executing from a previous fire
+      if (inFlight.has(job.id)) continue;
+
+      // Distributed dedup: use tryClaim if available (KyselyJobStore),
+      // fall back to in-memory map (MemoryJobStore without tryClaim).
+      if (jobs.tryClaim) {
+        const claimed = await jobs.tryClaim(job.id, mk);
+        if (!claimed) continue;
+      } else {
+        if (lastFiredMinute.get(job.id) === mk) continue;
+        lastFiredMinute.set(job.id, mk);
+      }
+
+      inFlight.add(job.id);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result: any = onMessageHandler({
         id: randomUUID(),
@@ -181,6 +261,12 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
         attachments: [],
         timestamp: now,
       });
+      // Clear in-flight when completion finishes (or immediately if sync)
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        (result as Promise<unknown>).finally(() => inFlight.delete(job.id));
+      } else {
+        inFlight.delete(job.id);
+      }
       if (job.runOnce) {
         deferCleanup(result, () => {
           jobs.delete(job.id);
@@ -261,7 +347,8 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     },
 
     async listJobs(): Promise<CronJobDef[]> {
-      return jobs.list(agentName);
+      const all = await jobs.list(agentName);
+      return all.filter(j => !j.id.startsWith('__heartbeat__:'));
     },
 
     async scheduleOnce(job: CronJobDef, fireAt: Date): Promise<void> {

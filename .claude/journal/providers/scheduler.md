@@ -1,5 +1,29 @@
 # Scheduler Provider Journal
 
+## [2026-04-13 09:55] — Fix "Command failed" false positive for zero-exit-code bash commands
+
+**Task:** Gemini Flash LLM was looping through 44 bash calls in a single cron invocation, trying different approaches to create one file. Root cause: the sandbox bash tool returned "Command failed" for successful commands with no stdout/stderr output.
+**What I did:** Fixed the empty-output fallback in `local-sandbox.ts` line 164: when exit code is 0 and both stdout/stderr are empty, now returns `"(no output)"` instead of `"Command failed"`. The old behavior told the LLM every silent command failed, causing it to retry with different approaches endlessly.
+**Files touched:** `src/agent/local-sandbox.ts`, `tests/agent/local-sandbox.test.ts`
+**Outcome:** Success — 17 sandbox tests pass including 2 new tests for the empty-output case. The LLM will now correctly see `{"output":"(no output)"}` instead of `{"output":"Command failed"}` for successful redirects like `echo hello > file.txt`.
+**Notes:** Secondary issue: the "bash" tool actually uses `sh -c`, not `bash -c`. `$RANDOM` is a bash-ism that doesn't work in POSIX sh. This is a separate issue (tool name is misleading) but contributed to the problem since the cron prompt example used `$RANDOM`.
+
+## [2026-04-13 09:30] — Add in-flight overlap protection for cron/heartbeat jobs
+
+**Task:** Cron jobs that take >60s cause overlapping concurrent invocations because `tryClaim` only deduplicates within the same minute, not across minutes.
+**What I did:** Added `inFlight` Set to track currently-executing job IDs. `checkCronJobs()` and `fireHeartbeat()` skip firing if the job is already in-flight. The in-flight flag is cleared via `.finally()` on the Promise returned by `onMessageHandler`. Also added a test that verifies a slow cron invocation blocks the next fire until it completes.
+**Files touched:** `src/providers/scheduler/plainjob.ts`, `tests/providers/scheduler/plainjob.test.ts`
+**Outcome:** Success — 47 tests pass (new in-flight test included).
+**Notes:** Root cause was that a cron job ("create random file") took 68s due to Gemini Flash looping through 44 bash calls. The next minute's `checkCronJobs()` fired again because `minuteKey` had changed. The in-flight Set is a per-process guard (not distributed), which is correct — each replica should independently decide whether its own previous invocation is still running.
+
+## [2026-04-13 01:00] — Multi-replica dedup for PlainJob scheduler
+
+**Task:** Prevent duplicate cron/heartbeat/one-shot firing when multiple host replicas share the same database
+**What I did:** Added `last_fired_at` column migration, `tryClaim` method to `JobStore`/`KyselyJobStore`/`MemoryJobStore`, wired `tryClaim` into `checkCronJobs`, `fireHeartbeat`, and `fireOnceJob`. Synthetic `__heartbeat__` row inserted for KyselyJobStore only. Added filtering to exclude synthetic rows from `listJobs()` and `checkCronJobs()`.
+**Files touched:** `src/migrations/jobs.ts`, `src/providers/scheduler/types.ts`, `src/job-store.ts`, `src/providers/scheduler/plainjob.ts`, `tests/providers/scheduler/plainjob.test.ts`
+**Outcome:** Success — 46 tests pass + 13 PG tests skipped (no PG_URL). 7 commits across 7 tasks.
+**Notes:** Heartbeat synthetic row caused regressions in existing tests because it appeared in `listJobs()` and `checkCronJobs()`. Fixed by: (1) only inserting for KyselyJobStore (not MemoryJobStore), (2) filtering `__heartbeat__:` prefix from `listJobs()` and `checkCronJobs()`. Had to move `agentName` declaration earlier to avoid duplicate const.
+
 ## [2026-03-17 22:35] — Port scheduler startup to host-process.ts (k8s scheduler never ran)
 
 **Task:** Debug why the scheduler was not working in the k8s cluster

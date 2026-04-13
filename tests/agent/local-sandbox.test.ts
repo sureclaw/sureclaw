@@ -84,6 +84,22 @@ describe('Local sandbox executor', () => {
       expect(result.output).toContain('Exit code 42');
     });
 
+    test('returns "(no output)" for successful command with no stdout/stderr', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      const result = await sandbox.bash('true');
+      expect(result.output).toBe('(no output)');
+    });
+
+    test('does not return "Command failed" for zero exit code', async () => {
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      // Redirect output to file — no stdout/stderr
+      const result = await sandbox.bash('echo hello > /dev/null');
+      expect(result.output).not.toContain('Command failed');
+      expect(result.output).toBe('(no output)');
+    });
+
     test('does not make web_proxy_approve calls (auto-approval is host-side)', async () => {
       const client = mockClient();
       const sandbox = createLocalSandbox({ client, workspace });

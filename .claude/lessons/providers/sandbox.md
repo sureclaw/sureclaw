@@ -47,3 +47,15 @@
 **Context:** Diagnosing agent delegation failures — tsx wrapper caused EPERM, orphaned processes, and corrupted exit codes
 **Lesson:** The tsx binary (`node_modules/.bin/tsx`) spawns a child Node.js process and relays signals via `relaySignalToChild`. On macOS, this relay fails with EPERM, and tsx has no error handling for it. Always use `node --import <absolute-path-to-tsx/dist/esm/index.mjs>` instead — single process, no signal relay issues. The absolute path is mandatory because agents run with cwd=workspace (temp dir with no node_modules).
 **Tags:** tsx, process management, macOS, signal handling, EPERM, sandbox
+
+### Agent-side code changes require container image rebuild
+**Date:** 2026-04-13
+**Context:** Spent hours debugging why scheduler tools weren't visible to the agent. Source changes were correct, `filterTools` returned the right tools, unit tests passed. But the agent subprocess runs inside an Apple Container (macOS) or Docker container — both use a baked-in `/opt/ax/dist/` from the container image. Source/dist changes on the host are NOT picked up until the image is rebuilt.
+**Lesson:** After modifying any code under `src/agent/` or `src/providers/` that runs in the agent subprocess (tool-catalog, prompt modules, runners, IPC client), you MUST rebuild the container image: `make build-local`. The host process (`src/host/`, `src/cli/`) runs directly on the host via tsx — no image rebuild needed. Apple Container has a SEPARATE image store from Docker — `docker build` and `docker tag` do NOT affect Apple Container images. Use `container build` on macOS.
+**Tags:** sandbox, apple-container, docker, container-image, development-workflow, debugging
+
+### Sandbox "bash" tool returns "Command failed" for successful commands with no output
+**Date:** 2026-04-13
+**Context:** Cron job agent (Gemini Flash) looped through 44 bash calls trying to create one file. Each `echo $RANDOM > file.txt` command succeeded (exit code 0) but produced no stdout/stderr because output was redirected. The fallback `|| 'Command failed'` in local-sandbox.ts fired for all zero-output success cases, telling the LLM the command failed.
+**Lesson:** In `local-sandbox.ts`, the bash empty-output fallback must distinguish exit code 0 from non-zero. Use `exitCode === 0 ? '(no output)' : 'Command failed'` instead of unconditional `'Command failed'`. Additionally, the "bash" tool actually spawns `sh -c` (POSIX shell), not `bash` — bash-isms like `$RANDOM` silently expand to empty strings.
+**Tags:** sandbox, bash, local-sandbox, sh, POSIX, tool-result, LLM-confusion

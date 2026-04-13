@@ -79,7 +79,7 @@
 **Tags:** skills, proxy, domains, allowlist, manifest-generator, SKILL.md
 
 ### Tool filtering must align with prompt module shouldInclude()
-**Date:** 2026-02-26
-**Context:** Added context-aware tool filtering — scheduler tools excluded when no heartbeat. Pi-session test broke because it expected scheduler tools without providing a HEARTBEAT.md file.
-**Lesson:** When adding tool filtering by category, ensure the filter flags derive from the same data that prompt modules use in `shouldInclude()`. If HeartbeatModule checks `identityFiles.heartbeat?.trim()`, the scheduler filter must check the same thing. Test fixtures must provide the relevant identity files (e.g., HEARTBEAT.md in agentDir) when expecting those tools to be present.
+**Date:** 2026-02-26 (updated 2026-04-13)
+**Context:** Added context-aware tool filtering — scheduler tools were initially excluded when no heartbeat, but this was wrong. HEARTBEAT.md controls heartbeat content, not whether the agent can schedule tasks. Scheduler tools are now always available.
+**Lesson:** When adding tool filtering by category, don't gate tool availability on content configuration — the ability to use a feature (scheduling) should not depend on having configured a specific feature detail (heartbeat content). Only gate on true capability flags like `hasGovernance`.
 **Tags:** tools, filtering, prompt-modules, testing, heartbeat

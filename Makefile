@@ -21,6 +21,9 @@ help:
 	@echo "  make build-git-server   Build git-server Docker image"
 	@echo "  make deploy-git-server  Build git-server, load into kind, and helm upgrade"
 	@echo ""
+	@echo "Local Development:"
+	@echo "  make build-local        Compile + build agent image for local sandbox"
+	@echo ""
 	@echo "Utility:"
 	@echo "  make clean              Remove built images from local Docker"
 	@echo "  make rebuild            Quick iteration (compile + build + helm upgrade)"
@@ -110,6 +113,19 @@ logs-host:
 
 logs-sandbox:
 	kubectl logs -n $(NAMESPACE) -l app=ax-sandbox --tail=50 -f
+
+# Local development — build agent image for the local sandbox runtime.
+# On macOS with Apple Container: uses `container build` (separate image store from Docker).
+# On Linux/Docker: uses `docker build` and tags as ax/agent:latest.
+build-local: compile-code
+	@if command -v container >/dev/null 2>&1 && [ "$$(uname)" = "Darwin" ]; then \
+		echo "Building agent image for Apple Container..."; \
+		container build -t ax/agent:latest -f container/agent/Dockerfile .; \
+	else \
+		echo "Building agent image for Docker..."; \
+		docker build -t ax/agent:latest -f container/agent/Dockerfile .; \
+	fi
+	@echo "✓ Agent image built: ax/agent:latest"
 
 # Development shortcuts — compile, build, load, helm upgrade
 dev-cycle: build load-image helm-upgrade

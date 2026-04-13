@@ -240,29 +240,23 @@ describe('filterTools', () => {
 
   test('all flags false returns only always-on categories', () => {
     const result = filterTools(NO_FLAGS);
-    // scheduler/workspace/governance are excluded when their flags are false
-    // skill is always included (delete/update shouldn't require install intent)
+    // governance is excluded when its flag is false
+    // scheduler and skill are always included
     const alwaysOn = TOOL_CATALOG.filter(s =>
-      !['scheduler', 'governance'].includes(s.category)
+      !['governance'].includes(s.category)
     );
     expect(result.length).toBe(alwaysOn.length);
 
     // Verify excluded categories
     for (const spec of result) {
-      expect(['scheduler', 'governance']).not.toContain(spec.category);
+      expect(['governance']).not.toContain(spec.category);
     }
   });
 
-  test('hasHeartbeat includes scheduler tool', () => {
-    const result = filterTools({ ...NO_FLAGS, hasHeartbeat: true });
+  test('scheduler tool is always present regardless of hasHeartbeat', () => {
+    const result = filterTools(NO_FLAGS);
     const names = result.map(s => s.name);
     expect(names).toContain('scheduler');
-  });
-
-  test('hasHeartbeat=false excludes scheduler tool', () => {
-    const result = filterTools({ ...ALL_FLAGS, hasHeartbeat: false });
-    const names = result.map(s => s.name);
-    expect(names).not.toContain('scheduler');
   });
 
   test('skillInstallEnabled=true includes skill tool with install action', () => {

@@ -130,7 +130,7 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
       const MAX_BUFFER = 1024 * 1024;
       return new Promise<{ output: string }>((resolve) => {
         // nosemgrep: javascript.lang.security.detect-child-process — sandbox tool
-        const child = spawn('sh', ['-c', command], {
+        const child = spawn('bash', ['-c', command], {
           cwd: workspace,
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true,  // own process group so we can kill the entire tree
@@ -161,8 +161,9 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
 
         child.on('close', (code) => {
           clearTimeout(timer);
-          const output = [stdout, stderr].filter(Boolean).join('\n') || (killed ? 'Command timed out' : 'Command failed');
           const exitCode = code ?? (killed ? 124 : 1);
+          const combined = [stdout, stderr].filter(Boolean).join('\n');
+          const output = combined || (killed ? 'Command timed out' : exitCode === 0 ? '(no output)' : 'Command failed');
           report({ operation: 'bash', command, output: output.slice(0, 500_000), exitCode });
           resolve(exitCode !== 0 ? { output: `Exit code ${exitCode}\n${output}` } : { output });
         });

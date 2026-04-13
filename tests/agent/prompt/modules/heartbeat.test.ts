@@ -39,15 +39,15 @@ describe('HeartbeatModule', () => {
     expect(mod.shouldInclude(ctx)).toBe(true);
   });
 
-  test('shouldInclude returns false when heartbeat is empty', () => {
-    expect(mod.shouldInclude(makeContext())).toBe(false);
+  test('shouldInclude returns true when heartbeat is empty (scheduling tools always available)', () => {
+    expect(mod.shouldInclude(makeContext())).toBe(true);
   });
 
-  test('shouldInclude returns false when heartbeat is whitespace only', () => {
+  test('shouldInclude returns true when heartbeat is whitespace only', () => {
     const ctx = makeContext({
       identityFiles: { agents: '', soul: 'I am me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '   \n  ' },
     });
-    expect(mod.shouldInclude(ctx)).toBe(false);
+    expect(mod.shouldInclude(ctx)).toBe(true);
   });
 
   test('shouldInclude returns false in bootstrap mode', () => {
@@ -69,6 +69,24 @@ describe('HeartbeatModule', () => {
     expect(text).toContain('remove');
     expect(text).toContain('list');
     expect(text).toContain('review emails');
+  });
+
+  test('render without heartbeat content includes scheduling tools but not heartbeat checklist', () => {
+    const ctx = makeContext();
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('## Scheduling');
+    expect(text).toContain('scheduler');
+    expect(text).toContain('add_cron');
+    expect(text).toContain('run_at');
+    expect(text).not.toContain('HEARTBEAT_OK');
+    expect(text).not.toContain('Heartbeat Checklist');
+  });
+
+  test('renderMinimal without heartbeat content includes scheduling tools', () => {
+    const ctx = makeContext();
+    const text = mod.renderMinimal!(ctx).join('\n');
+    expect(text).toContain('scheduler');
+    expect(text).not.toContain('HEARTBEAT_OK');
   });
 
   test('renderMinimal includes HEARTBEAT_OK and checklist', () => {

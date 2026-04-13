@@ -24,6 +24,18 @@
 **Lesson:** The `JobStore` interface and its implementations (MemoryJobStore, SQLiteJobStore) live in `src/providers/scheduler/types.ts`. New JobStore implementations should be added there to keep them reusable across scheduler tiers. The SQLiteJobStore uses INSERT OR REPLACE for upsert and COUNT query for delete return value.
 **Tags:** scheduler, sqlite, job-store, types
 
+### Synthetic DB rows for distributed dedup pollute job listings
+**Date:** 2026-04-13
+**Context:** Inserting a `__heartbeat__:agentName` synthetic row into `cron_jobs` for heartbeat dedup caused the row to appear in `listJobs()` and `checkCronJobs()`, breaking 12 existing tests.
+**Lesson:** When inserting synthetic/internal rows into a shared table for distributed coordination, filter them out in ALL query paths that surface data to callers. Use a consistent prefix convention (e.g., `__heartbeat__:`) and check `instanceof KyselyJobStore` rather than `jobs.tryClaim` to avoid inserting synthetic rows for in-memory stores that don't need them.
+**Tags:** scheduler, multi-replica, dedup, synthetic-rows, heartbeat
+
+### tryClaim minuteKey dedup is insufficient — need in-flight tracking for long-running jobs
+**Date:** 2026-04-13
+**Context:** A "create random file" cron job took 68 seconds (LLM looped through 44 bash calls). The next minute's `checkCronJobs()` fired a second concurrent invocation because `minuteKey` had changed, doubling LLM calls and costs.
+**Lesson:** `tryClaim(jobId, minuteKey)` only prevents duplicate fires within the *same* minute. For long-running jobs (>60s), you also need per-process in-flight tracking: `if (inFlight.has(job.id)) continue` before firing, `inFlight.add(job.id)` before calling `onMessageHandler`, and `.finally(() => inFlight.delete(job.id))` on the returned Promise. This is a per-process guard (not distributed), which is correct — each replica independently decides whether its own previous invocation is still running.
+**Tags:** scheduler, cron, overlap, in-flight, dedup, plainjob
+
 ### Pre-existing provider-map path regex failures
 **Date:** 2026-03-03
 **Context:** Running full test suite after adding plainjob to provider-map

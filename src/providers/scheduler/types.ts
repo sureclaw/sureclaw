@@ -14,6 +14,8 @@ export interface CronJobDef {
   maxTokenBudget?: number;
   delivery?: CronDelivery;
   runOnce?: boolean;
+  /** Session ID of the user who created this job — used to share workspace. */
+  creatorSessionId?: string;
 }
 
 export interface JobStore {
@@ -22,11 +24,14 @@ export interface JobStore {
   delete(jobId: string): boolean | Promise<boolean>;
   list(agentId?: string): CronJobDef[] | Promise<CronJobDef[]>;
   close(): void | Promise<void>;
+  /** Atomically claim a job for a given minute key. Returns true if this caller won the claim. */
+  tryClaim?(jobId: string, minuteKey: string): boolean | Promise<boolean>;
 }
 
 /** In-memory JobStore backed by a Map. Used by tests and the none scheduler. */
 export class MemoryJobStore implements JobStore {
   private jobs = new Map<string, CronJobDef>();
+  private lastFired = new Map<string, string>();
   get(jobId: string): CronJobDef | undefined { return this.jobs.get(jobId); }
   set(job: CronJobDef): void { this.jobs.set(job.id, job); }
   delete(jobId: string): boolean { return this.jobs.delete(jobId); }
@@ -34,7 +39,12 @@ export class MemoryJobStore implements JobStore {
     const all = [...this.jobs.values()];
     return agentId ? all.filter(j => j.agentId === agentId) : all;
   }
-  close(): void { this.jobs.clear(); }
+  tryClaim(jobId: string, minuteKey: string): boolean {
+    if (this.lastFired.get(jobId) === minuteKey) return false;
+    this.lastFired.set(jobId, minuteKey);
+    return true;
+  }
+  close(): void { this.jobs.clear(); this.lastFired.clear(); }
 }
 
 export interface SchedulerProvider {

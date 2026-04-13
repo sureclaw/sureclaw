@@ -55,7 +55,8 @@ export class RuntimeModule extends BasePromptModule {
       `**Agent Type**: ${ctx.agentType}`,
       `**Sandbox**: ${ctx.sandboxType}`,
       `**Security Profile**: ${ctx.profile}`,
-      `**Working Directory**: /workspace`,
+      `**Working Directory**: /workspace (persists across turns via git)`,
+      `  - Use /tmp for temporary files that should not persist`,
       ...(ctx.hasWorkspace ? [
         `  - /workspace/skills/ \u2014 installed skills`,
         ...(ctx.mcpCLIs?.length ? [

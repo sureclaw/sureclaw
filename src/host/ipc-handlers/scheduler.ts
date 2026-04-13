@@ -16,6 +16,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
         prompt: req.prompt,
         maxTokenBudget: req.maxTokenBudget,
         delivery: req.delivery ?? { mode: 'channel', target: 'last' },
+        creatorSessionId: ctx.sessionId,
       });
       await providers.audit.log({
         action: 'scheduler_add_cron',
@@ -43,6 +44,7 @@ export function createSchedulerHandlers(providers: ProviderRegistry, agentName: 
         maxTokenBudget: req.maxTokenBudget,
         delivery: req.delivery ?? { mode: 'channel', target: 'last' },
         runOnce: true,
+        creatorSessionId: ctx.sessionId,
       };
       // Use setTimeout-based scheduleOnce for precise timing; fall back to cron
       if (providers.scheduler.scheduleOnce) {

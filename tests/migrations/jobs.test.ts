@@ -16,7 +16,7 @@ describe('jobs migrations', () => {
     db = createTestDb();
     const result = await runMigrations(db, jobsMigrations);
     expect(result.error).toBeUndefined();
-    expect(result.applied).toBe(1);
+    expect(result.applied).toBe(3);
 
     // Insert a row and verify table structure
     const rows = await sql`
@@ -34,6 +34,7 @@ describe('jobs migrations', () => {
     expect(row.delivery).toBeNull();
     expect(row.run_once).toBe(0);
     expect(row.created_at).toBeDefined();
+    expect(row.last_fired_at).toBeNull();
   });
 
   it('is idempotent (ifNotExists)', async () => {

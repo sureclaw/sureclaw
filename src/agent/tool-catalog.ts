@@ -486,11 +486,10 @@ export function getToolParamKeys(name: string): string[] {
 //
 // Runners pass a ToolFilterContext derived from the same data the prompt
 // builder uses. Categories excluded here match prompt modules excluded by
-// their shouldInclude() — e.g., no heartbeat content → no scheduler tools
-// AND no HeartbeatModule in the system prompt.
+// their shouldInclude() — e.g., no governance config → no governance tools.
 
 export interface ToolFilterContext {
-  /** identityFiles.heartbeat is non-empty */
+  /** identityFiles.heartbeat is non-empty (used by prompt modules, not tool filtering) */
   hasHeartbeat: boolean;
   /** Enterprise governance enabled */
   hasGovernance: boolean;
@@ -509,7 +508,7 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
   return TOOL_CATALOG
     .filter(spec => {
       switch (spec.category) {
-        case 'scheduler':  return ctx.hasHeartbeat;
+        case 'scheduler':  return true;  // always available — HEARTBEAT.md controls heartbeat content, not tool visibility
         case 'skill':      return true;  // always available — delete/update shouldn't require install intent
         case 'governance': return ctx.hasGovernance;
         default:           return true;

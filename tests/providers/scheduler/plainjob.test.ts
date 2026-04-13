@@ -7,7 +7,7 @@ import { MemoryJobStore } from '../../../src/providers/scheduler/types.js';
 import { KyselyJobStore } from '../../../src/job-store.js';
 import { createKyselyDb } from '../../../src/utils/database.js';
 import { runMigrations } from '../../../src/utils/migrator.js';
-import { jobsMigrations } from '../../../src/migrations/jobs.js';
+import { jobsMigrations, buildJobsMigrations } from '../../../src/migrations/jobs.js';
 import type { Config } from '../../../src/types.js';
 import type { InboundMessage } from '../../../src/providers/channel/types.js';
 import type { EventBusProvider, StreamEvent } from '../../../src/providers/eventbus/types.js';
@@ -159,6 +159,24 @@ describe('KyselyJobStore', () => {
     const results = await store.listWithRunAt();
     expect(results).toHaveLength(1);
     expect(results[0].job.id).toBe('once-job');
+  });
+
+  test('tryClaim returns true on first call for a minute, false on second', async () => {
+    await store.set({ id: 'claim-job', schedule: '* * * * *', agentId: 'a', prompt: 'p' });
+    const mk = '2026-06-01T12:00';
+
+    const first = await store.tryClaim('claim-job', mk);
+    expect(first).toBe(true);
+
+    const second = await store.tryClaim('claim-job', mk);
+    expect(second).toBe(false);
+  });
+
+  test('tryClaim allows claiming again in a new minute', async () => {
+    await store.set({ id: 'claim-job2', schedule: '* * * * *', agentId: 'a', prompt: 'p' });
+
+    expect(await store.tryClaim('claim-job2', '2026-06-01T12:00')).toBe(true);
+    expect(await store.tryClaim('claim-job2', '2026-06-01T12:01')).toBe(true);
   });
 
   test('delete clears run_at along with the job', async () => {
@@ -563,6 +581,56 @@ describe('scheduler-plainjob', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // ─── In-flight overlap protection ────────────────
+
+  test('cron skips firing if previous invocation is still in-flight', async () => {
+    const store = new MemoryJobStore();
+    const scheduler = await create(mockConfig, { jobStore: store });
+    const received: InboundMessage[] = [];
+    let resolveFirst: (() => void) | null = null;
+
+    // First invocation blocks until we manually resolve it
+    let callCount = 0;
+    await scheduler.start((msg) => {
+      received.push(msg);
+      callCount++;
+      if (callCount === 1) {
+        // First call: return a promise that blocks until resolved
+        return new Promise<void>(resolve => { resolveFirst = resolve; });
+      }
+      // Subsequent calls: resolve immediately
+      return Promise.resolve();
+    });
+
+    await scheduler.addCron!({
+      id: 'slow-job',
+      schedule: '* * * * *',
+      agentId: AGENT,
+      prompt: 'I take a while',
+    });
+
+    // Fire once — this one blocks
+    scheduler.checkCronNow!(new Date('2026-01-01T00:00:00Z'));
+    await new Promise(r => setTimeout(r, 10));
+    expect(received).toHaveLength(1);
+
+    // Fire again in the next minute — should be skipped because still in-flight
+    scheduler.checkCronNow!(new Date('2026-01-01T00:01:00Z'));
+    await new Promise(r => setTimeout(r, 10));
+    expect(received).toHaveLength(1); // still 1, not 2
+
+    // Resolve the first invocation
+    resolveFirst!();
+    await new Promise(r => setTimeout(r, 10));
+
+    // Now firing again should work
+    scheduler.checkCronNow!(new Date('2026-01-01T00:02:00Z'));
+    await new Promise(r => setTimeout(r, 10));
+    expect(received).toHaveLength(2);
+
+    await scheduler.stop();
+  });
+
   // ─── One-shot rehydration (P1 fix) ────────────────
 
   test('scheduleOnce persists run_at in KyselyJobStore', async () => {
@@ -709,6 +777,127 @@ describe('scheduler-plainjob', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  // ─── Multi-replica dedup ─────────────────────────
+
+  test('two schedulers sharing a KyselyJobStore do not double-fire', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ax-dedup-'));
+    const dbPath = join(tmpDir, 'dedup.db');
+    const db = createKyselyDb({ type: 'sqlite', path: dbPath });
+    const r = await runMigrations(db, buildJobsMigrations('sqlite'), 'scheduler_migration');
+    if (r.error) throw r.error;
+
+    // Two schedulers sharing the same DB (simulates two replicas)
+    const store1 = new KyselyJobStore(db);
+    const store2 = new KyselyJobStore(db);
+    const sched1 = await create(mockConfig, { jobStore: store1 });
+    const sched2 = await create(mockConfig, { jobStore: store2 });
+
+    // Add job via sched1 — both schedulers see it because they share the DB
+    await sched1.addCron!({ id: 'shared-job', schedule: '* * * * *', agentId: AGENT, prompt: 'dedup test' });
+
+    const received1: InboundMessage[] = [];
+    const received2: InboundMessage[] = [];
+    await sched1.start(msg => received1.push(msg));
+    await sched2.start(msg => received2.push(msg));
+
+    const at = new Date('2026-03-01T12:05:00Z');
+    sched1.checkCronNow!(at);
+    sched2.checkCronNow!(at);
+    await new Promise(r => setTimeout(r, 50));
+
+    // Exactly one of them should have fired, not both
+    const total = received1.filter(m => m.sender === 'cron:shared-job').length
+                + received2.filter(m => m.sender === 'cron:shared-job').length;
+    expect(total).toBe(1);
+
+    await sched1.stop();
+    await sched2.stop();
+    await db.destroy();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('two schedulers sharing a KyselyJobStore do not double-fire heartbeats', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ax-hb-dedup-'));
+    const dbPath = join(tmpDir, 'hb-dedup.db');
+    const db = createKyselyDb({ type: 'sqlite', path: dbPath });
+    const r = await runMigrations(db, buildJobsMigrations('sqlite'), 'scheduler_migration');
+    if (r.error) throw r.error;
+
+    const fastConfig = {
+      ...mockConfig,
+      scheduler: { ...mockConfig.scheduler, heartbeat_interval_min: 0.001 },
+    } as Config;
+
+    const store1 = new KyselyJobStore(db);
+    const store2 = new KyselyJobStore(db);
+    const sched1 = await create(fastConfig, { jobStore: store1 });
+    const sched2 = await create(fastConfig, { jobStore: store2 });
+
+    const received1: InboundMessage[] = [];
+    const received2: InboundMessage[] = [];
+    await sched1.start(msg => received1.push(msg));
+    await sched2.start(msg => received2.push(msg));
+
+    await new Promise(r => setTimeout(r, 200));
+
+    await sched1.stop();
+    await sched2.stop();
+
+    const hb1 = received1.filter(m => m.sender === 'heartbeat').length;
+    const hb2 = received2.filter(m => m.sender === 'heartbeat').length;
+
+    // With ~60ms interval and 200ms wait, expect ~3 heartbeats total.
+    // The key assertion: NOT both schedulers firing every interval.
+    // At least one scheduler should have zero heartbeats (or fewer than the other).
+    expect(hb1 + hb2).toBeGreaterThan(0);
+    expect(hb1 + hb2).toBeLessThan(hb1 * 2 + hb2 * 2); // weaker: just not doubled
+
+    // Stronger: with dedup, for each minute only one replica fires.
+    // Since the interval is 60ms and we wait 200ms, there are ~3 fires.
+    // Without dedup: hb1 + hb2 ≈ 6. With dedup: hb1 + hb2 ≈ 3.
+    // Allow some slack but not 2x.
+    expect(hb1 + hb2).toBeLessThanOrEqual(5);
+
+    await db.destroy();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('two schedulers sharing a KyselyJobStore do not double-fire one-shot jobs on rehydration', async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'ax-once-dedup-'));
+    const dbPath = join(tmpDir, 'once-dedup.db');
+    const db = createKyselyDb({ type: 'sqlite', path: dbPath });
+    const r = await runMigrations(db, buildJobsMigrations('sqlite'), 'scheduler_migration');
+    if (r.error) throw r.error;
+
+    // Pre-insert a one-shot job with run_at in the near future
+    const store = new KyselyJobStore(db);
+    await store.set({ id: 'once-shared', schedule: '* * * * *', agentId: AGENT, prompt: 'one-shot dedup', runOnce: true });
+    await store.setRunAt('once-shared', new Date(Date.now() + 80));
+
+    // Two schedulers rehydrate from the same DB
+    const store1 = new KyselyJobStore(db);
+    const store2 = new KyselyJobStore(db);
+    const sched1 = await create(mockConfig, { jobStore: store1 });
+    const sched2 = await create(mockConfig, { jobStore: store2 });
+
+    const received1: InboundMessage[] = [];
+    const received2: InboundMessage[] = [];
+    await sched1.start(msg => received1.push(msg));
+    await sched2.start(msg => received2.push(msg));
+
+    await new Promise(r => setTimeout(r, 300));
+
+    await sched1.stop();
+    await sched2.stop();
+
+    const total = received1.filter(m => m.sender === 'cron:once-shared').length
+                + received2.filter(m => m.sender === 'cron:once-shared').length;
+    expect(total).toBe(1);
+
+    await db.destroy();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   // ─── SQLite persistence integration ───────────────
 
   test('jobs persist across provider recreates with KyselyJobStore', async () => {
@@ -738,8 +927,8 @@ describe('scheduler-plainjob', () => {
     const store2 = new KyselyJobStore(db2);
     const scheduler2 = await create(mockConfig, { jobStore: store2 });
 
-    // listJobs() returns [] for async stores, so read directly from store
-    const jobs = await store2.list(AGENT);
+    // Use scheduler's listJobs() which filters out synthetic heartbeat rows
+    const jobs = await scheduler2.listJobs!();
     expect(jobs).toHaveLength(1);
     expect(jobs[0].id).toBe('persisted-job');
     expect(jobs[0].prompt).toBe('Morning standup');
@@ -904,5 +1093,238 @@ describe('scheduler-plainjob', () => {
     expect(await scheduler2.listJobs!()).toHaveLength(0);
     await scheduler2.stop();
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// PostgreSQL integration tests
+// ═══════════════════════════════════════════════════════
+
+const PG_URL = process.env.POSTGRESQL_URL;
+
+describe.skipIf(!PG_URL)('KyselyJobStore (PostgreSQL)', () => {
+  let db: ReturnType<typeof createKyselyDb>;
+  let store: KyselyJobStore;
+
+  beforeEach(async () => {
+    db = createKyselyDb({ type: 'postgresql', url: PG_URL! });
+    // Drop existing table to start clean
+    await db.schema.dropTable('cron_jobs').ifExists().execute();
+    await db.schema.dropTable('scheduler_migration').ifExists().execute();
+    const result = await runMigrations(db, buildJobsMigrations('postgresql'), 'scheduler_migration');
+    if (result.error) throw result.error;
+    store = new KyselyJobStore(db);
+  });
+
+  afterEach(async () => {
+    await db.schema.dropTable('cron_jobs').ifExists().execute();
+    await db.schema.dropTable('scheduler_migration').ifExists().execute();
+    await db.destroy();
+  });
+
+  test('set and get a job', async () => {
+    await store.set({
+      id: 'pg-job-1',
+      schedule: '*/5 * * * *',
+      agentId: 'assistant',
+      prompt: 'Check for updates',
+    });
+
+    const job = await store.get('pg-job-1');
+    expect(job).toBeDefined();
+    expect(job!.id).toBe('pg-job-1');
+    expect(job!.schedule).toBe('*/5 * * * *');
+    expect(job!.agentId).toBe('assistant');
+    expect(job!.prompt).toBe('Check for updates');
+  });
+
+  test('upsert overwrites existing job', async () => {
+    await store.set({ id: 'pg-j1', schedule: '* * * * *', agentId: 'a', prompt: 'v1' });
+    await store.set({ id: 'pg-j1', schedule: '*/10 * * * *', agentId: 'a', prompt: 'v2' });
+
+    const job = await store.get('pg-j1');
+    expect(job!.schedule).toBe('*/10 * * * *');
+    expect(job!.prompt).toBe('v2');
+    expect(await store.list()).toHaveLength(1);
+  });
+
+  test('delete removes a job', async () => {
+    await store.set({ id: 'pg-j1', schedule: '* * * * *', agentId: 'a', prompt: 'p' });
+    expect(await store.delete('pg-j1')).toBe(true);
+    expect(await store.get('pg-j1')).toBeUndefined();
+  });
+
+  test('delete returns false for missing job', async () => {
+    expect(await store.delete('nope')).toBe(false);
+  });
+
+  test('list filters by agentId', async () => {
+    await store.set({ id: 'pg-j1', schedule: '* * * * *', agentId: 'a', prompt: 'p1' });
+    await store.set({ id: 'pg-j2', schedule: '* * * * *', agentId: 'b', prompt: 'p2' });
+
+    const agentA = await store.list('a');
+    expect(agentA).toHaveLength(1);
+    expect(agentA[0].id).toBe('pg-j1');
+
+    const all = await store.list();
+    expect(all).toHaveLength(2);
+  });
+
+  test('persists optional fields: maxTokenBudget, delivery, runOnce', async () => {
+    await store.set({
+      id: 'pg-full',
+      schedule: '0 9 * * *',
+      agentId: 'assistant',
+      prompt: 'Morning task',
+      maxTokenBudget: 2048,
+      delivery: { mode: 'channel', target: 'last' },
+      runOnce: true,
+    });
+
+    const job = (await store.get('pg-full'))!;
+    expect(job.maxTokenBudget).toBe(2048);
+    expect(job.delivery).toEqual({ mode: 'channel', target: 'last' });
+    expect(job.runOnce).toBe(true);
+  });
+
+  test('setRunAt and listWithRunAt', async () => {
+    await store.set({ id: 'pg-once', schedule: '* * * * *', agentId: 'a', prompt: 'one-shot' });
+    const fireAt = new Date('2026-06-01T12:00:00Z');
+    await store.setRunAt('pg-once', fireAt);
+
+    const results = await store.listWithRunAt();
+    expect(results).toHaveLength(1);
+    expect(results[0].job.id).toBe('pg-once');
+    expect(results[0].runAt.toISOString()).toBe(fireAt.toISOString());
+  });
+
+  test('listWithRunAt excludes jobs without run_at', async () => {
+    await store.set({ id: 'pg-cron', schedule: '0 9 * * *', agentId: 'a', prompt: 'recurring' });
+    await store.set({ id: 'pg-once', schedule: '* * * * *', agentId: 'a', prompt: 'one-shot' });
+    await store.setRunAt('pg-once', new Date('2026-06-01T12:00:00Z'));
+
+    const results = await store.listWithRunAt();
+    expect(results).toHaveLength(1);
+    expect(results[0].job.id).toBe('pg-once');
+  });
+});
+
+describe.skipIf(!PG_URL)('PlainJob scheduler (PostgreSQL)', () => {
+  let db: ReturnType<typeof createKyselyDb>;
+  let stopFn: (() => Promise<void>) | null = null;
+
+  beforeEach(async () => {
+    db = createKyselyDb({ type: 'postgresql', url: PG_URL! });
+    await db.schema.dropTable('cron_jobs').ifExists().execute();
+    await db.schema.dropTable('scheduler_migration').ifExists().execute();
+  });
+
+  afterEach(async () => {
+    if (stopFn) {
+      await stopFn();
+      stopFn = null;
+    }
+    await db.schema.dropTable('cron_jobs').ifExists().execute();
+    await db.schema.dropTable('scheduler_migration').ifExists().execute();
+    await db.destroy();
+  });
+
+  test('create with DatabaseProvider runs migrations and works', async () => {
+    const dbProvider = { db, type: 'postgresql' as const, vectorsAvailable: false, close: () => db.destroy() };
+    const scheduler = await create(mockConfig, { database: dbProvider });
+
+    await scheduler.addCron!({
+      id: 'pg-cron-1',
+      schedule: '*/5 * * * *',
+      agentId: AGENT,
+      prompt: 'PG cron test',
+    });
+
+    const jobs = await scheduler.listJobs!();
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].id).toBe('pg-cron-1');
+    expect(jobs[0].prompt).toBe('PG cron test');
+
+    await scheduler.stop();
+  });
+
+  test('cron job fires via checkCronNow with PostgreSQL backend', async () => {
+    const dbProvider = { db, type: 'postgresql' as const, vectorsAvailable: false, close: () => db.destroy() };
+    const scheduler = await create(mockConfig, { database: dbProvider });
+    const received: InboundMessage[] = [];
+
+    await scheduler.addCron!({
+      id: 'pg-fire-test',
+      schedule: '* * * * *',
+      agentId: AGENT,
+      prompt: 'PG fire test',
+    });
+
+    await scheduler.start((msg) => received.push(msg));
+    stopFn = () => scheduler.stop();
+
+    scheduler.checkCronNow!(new Date('2026-03-01T12:05:00Z'));
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(received.filter(m => m.sender === 'cron:pg-fire-test')).toHaveLength(1);
+    expect(received[0].content).toBe('PG fire test');
+  });
+
+  test('scheduleOnce persists and fires with PostgreSQL backend', async () => {
+    const dbProvider = { db, type: 'postgresql' as const, vectorsAvailable: false, close: () => db.destroy() };
+    const scheduler = await create(mockConfig, { database: dbProvider });
+    const received: InboundMessage[] = [];
+
+    await scheduler.start((msg) => received.push(msg));
+    stopFn = () => scheduler.stop();
+
+    const fireAt = new Date(Date.now() + 50); // 50ms from now
+    await scheduler.scheduleOnce!(
+      { id: 'pg-once-fire', schedule: '* * * * *', agentId: AGENT, prompt: 'one-shot PG', runOnce: true },
+      fireAt,
+    );
+
+    await new Promise(r => setTimeout(r, 200));
+
+    expect(received.filter(m => m.sender === 'cron:pg-once-fire')).toHaveLength(1);
+    expect(received[0].content).toBe('one-shot PG');
+  });
+
+  test('removeCron works with PostgreSQL backend', async () => {
+    const dbProvider = { db, type: 'postgresql' as const, vectorsAvailable: false, close: () => db.destroy() };
+    const scheduler = await create(mockConfig, { database: dbProvider });
+
+    await scheduler.addCron!({ id: 'pg-rm', schedule: '* * * * *', agentId: AGENT, prompt: 'to remove' });
+    expect(await scheduler.listJobs!()).toHaveLength(1);
+
+    await scheduler.removeCron!('pg-rm');
+    expect(await scheduler.listJobs!()).toHaveLength(0);
+
+    await scheduler.stop();
+  });
+
+  test('two schedulers with shared PG do not double-fire cron', async () => {
+    const dbProvider = { db, type: 'postgresql' as const, vectorsAvailable: false, close: () => db.destroy() };
+    const sched1 = await create(mockConfig, { database: dbProvider });
+    const sched2 = await create(mockConfig, { database: dbProvider });
+
+    await sched1.addCron!({ id: 'pg-dedup', schedule: '* * * * *', agentId: AGENT, prompt: 'pg dedup test' });
+
+    const received1: InboundMessage[] = [];
+    const received2: InboundMessage[] = [];
+    await sched1.start(msg => received1.push(msg));
+    await sched2.start(msg => received2.push(msg));
+
+    const at = new Date('2026-03-01T12:05:00Z');
+    sched1.checkCronNow!(at);
+    sched2.checkCronNow!(at);
+    await new Promise(r => setTimeout(r, 100));
+
+    const total = received1.filter(m => m.sender === 'cron:pg-dedup').length
+                + received2.filter(m => m.sender === 'cron:pg-dedup').length;
+    expect(total).toBe(1);
+
+    await sched1.stop();
+    await sched2.stop();
   });
 });

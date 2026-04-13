@@ -4,9 +4,10 @@ import { isBootstrapMode } from '../types.js';
 import type { PromptContext } from '../types.js';
 
 /**
- * Heartbeat module: tells the agent how to handle heartbeat messages
- * and how to use scheduler tools. Priority 80 — after skills, before runtime.
- * Optional — only included when HEARTBEAT.md has content.
+ * Heartbeat module: tells the agent how to use scheduler tools and,
+ * when HEARTBEAT.md is present, how to handle heartbeat messages.
+ * Priority 80 — after skills, before runtime. Always included (scheduling
+ * tools are always available); heartbeat checklist is conditional.
  */
 export class HeartbeatModule extends BasePromptModule {
   readonly name = 'heartbeat';
@@ -15,26 +16,36 @@ export class HeartbeatModule extends BasePromptModule {
 
   shouldInclude(ctx: PromptContext): boolean {
     if (isBootstrapMode(ctx)) return false;
-    return !!ctx.identityFiles.heartbeat?.trim();
+    return true;
   }
 
   render(ctx: PromptContext): string[] {
-    return [
-      '## Heartbeat & Scheduling',
-      '',
-      'You receive periodic **heartbeat** messages. When one arrives:',
-      '1. Review the checklist below',
-      '2. For each overdue item, take the appropriate action',
-      '3. If nothing needs attention, respond with exactly: `HEARTBEAT_OK`',
-      '',
-      'If you take an action via a channel tool during the heartbeat (e.g. send a',
-      'message, post a notification), respond with `SILENT_REPLY` instead of',
-      '`HEARTBEAT_OK` to suppress duplicate output.',
-      '',
-      '### Your Heartbeat Checklist',
-      '',
-      ctx.identityFiles.heartbeat,
-      '',
+    const lines: string[] = [];
+    const hasHeartbeat = !!ctx.identityFiles.heartbeat?.trim();
+
+    if (hasHeartbeat) {
+      lines.push(
+        '## Heartbeat & Scheduling',
+        '',
+        'You receive periodic **heartbeat** messages. When one arrives:',
+        '1. Review the checklist below',
+        '2. For each overdue item, take the appropriate action',
+        '3. If nothing needs attention, respond with exactly: `HEARTBEAT_OK`',
+        '',
+        'If you take an action via a channel tool during the heartbeat (e.g. send a',
+        'message, post a notification), respond with `SILENT_REPLY` instead of',
+        '`HEARTBEAT_OK` to suppress duplicate output.',
+        '',
+        '### Your Heartbeat Checklist',
+        '',
+        ctx.identityFiles.heartbeat,
+        '',
+      );
+    } else {
+      lines.push('## Scheduling', '');
+    }
+
+    lines.push(
       '### Scheduling Tools',
       '',
       'You can manage scheduled tasks using the `scheduler` tool with a `type` parameter:',
@@ -46,15 +57,30 @@ export class HeartbeatModule extends BasePromptModule {
       'Examples:',
       '- Recurring: `scheduler({ type: "add_cron", schedule: "0 9 * * 1-5", prompt: "Check and summarize new emails" })`',
       '- One-shot: `scheduler({ type: "run_at", datetime: "2026-02-21T19:30:00", prompt: "Remind user about the meeting" })`',
-    ];
+    );
+
+    return lines;
   }
 
   renderMinimal(ctx: PromptContext): string[] {
-    return [
-      '## Heartbeat',
-      'On heartbeat messages: check the list, act on overdue items, respond HEARTBEAT_OK if nothing needed.',
-      'If you act via a channel tool, respond SILENT_REPLY instead.',
-      ctx.identityFiles.heartbeat,
-    ];
+    const lines: string[] = [];
+    const hasHeartbeat = !!ctx.identityFiles.heartbeat?.trim();
+
+    if (hasHeartbeat) {
+      lines.push(
+        '## Heartbeat & Scheduling',
+        'On heartbeat messages: check the list, act on overdue items, respond HEARTBEAT_OK if nothing needed.',
+        'If you act via a channel tool, respond SILENT_REPLY instead.',
+        ctx.identityFiles.heartbeat,
+      );
+    } else {
+      lines.push('## Scheduling');
+    }
+
+    lines.push(
+      'Use `scheduler` tool: add_cron (recurring), run_at (one-shot), remove, list.',
+    );
+
+    return lines;
   }
 }

@@ -10,6 +10,8 @@ type JobRow = {
   delivery: string | null;
   run_once: number;
   run_at: string | null;
+  last_fired_at: string | null;
+  creator_session_id: string | null;
 };
 
 export class KyselyJobStore implements JobStore {
@@ -21,7 +23,7 @@ export class KyselyJobStore implements JobStore {
 
   async get(jobId: string): Promise<CronJobDef | undefined> {
     const row = await this.db.selectFrom('cron_jobs')
-      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at'])
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at', 'creator_session_id'])
       .where('id', '=', jobId)
       .executeTakeFirst();
     if (!row) return undefined;
@@ -38,6 +40,7 @@ export class KyselyJobStore implements JobStore {
         max_token_budget: job.maxTokenBudget ?? null,
         delivery: job.delivery ? JSON.stringify(job.delivery) : null,
         run_once: job.runOnce ? 1 : 0,
+        creator_session_id: job.creatorSessionId ?? null,
       })
       .onConflict(oc => oc.column('id').doUpdateSet({
         agent_id: job.agentId,
@@ -46,6 +49,7 @@ export class KyselyJobStore implements JobStore {
         max_token_budget: job.maxTokenBudget ?? null,
         delivery: job.delivery ? JSON.stringify(job.delivery) : null,
         run_once: job.runOnce ? 1 : 0,
+        creator_session_id: job.creatorSessionId ?? null,
       }))
       .execute();
   }
@@ -59,7 +63,7 @@ export class KyselyJobStore implements JobStore {
 
   async list(agentId?: string): Promise<CronJobDef[]> {
     let query = this.db.selectFrom('cron_jobs')
-      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at']);
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at', 'creator_session_id']);
     if (agentId) {
       query = query.where('agent_id', '=', agentId);
     }
@@ -78,13 +82,34 @@ export class KyselyJobStore implements JobStore {
   /** Return all jobs that have a persisted run_at (one-shot jobs awaiting rehydration). */
   async listWithRunAt(): Promise<Array<{ job: CronJobDef; runAt: Date }>> {
     const rows = await this.db.selectFrom('cron_jobs')
-      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at'])
+      .select(['id', 'agent_id', 'schedule', 'prompt', 'max_token_budget', 'delivery', 'run_once', 'run_at', 'creator_session_id'])
       .where('run_at', 'is not', null)
       .execute();
     return rows.map(r => ({
       job: this.rowToJob(r as JobRow),
       runAt: new Date(r.run_at as string),
     }));
+  }
+
+  /**
+   * Atomically claim a job for firing in the given minute.
+   * Returns true if this process won the claim (last_fired_at was updated).
+   * Uses a simple UPDATE WHERE to ensure only one caller wins per minute.
+   * On PostgreSQL with multiple replicas, the row-level lock from UPDATE
+   * serializes concurrent claims naturally.
+   */
+  async tryClaim(jobId: string, minuteKey: string): Promise<boolean> {
+    // Attempt to set last_fired_at to minuteKey only if it's currently
+    // NULL or a different (earlier) minute.
+    const result = await this.db.updateTable('cron_jobs')
+      .set({ last_fired_at: minuteKey })
+      .where('id', '=', jobId)
+      .where(eb => eb.or([
+        eb('last_fired_at', 'is', null),
+        eb('last_fired_at', '!=', minuteKey),
+      ]))
+      .executeTakeFirst();
+    return BigInt(result.numUpdatedRows) > 0n;
   }
 
   async close(): Promise<void> {
@@ -101,6 +126,7 @@ export class KyselyJobStore implements JobStore {
     if (row.max_token_budget !== null) job.maxTokenBudget = row.max_token_budget;
     if (row.delivery) job.delivery = JSON.parse(row.delivery) as CronDelivery;
     if (row.run_once) job.runOnce = true;
+    if (row.creator_session_id) job.creatorSessionId = row.creator_session_id;
     return job;
   }
 }
