@@ -29,8 +29,8 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
 
   return {
     async getRepoUrl(agentId: string): Promise<string> {
-      // Encode agent ID: user:alice -> user-alice
-      const repoName = agentId.replace(/:/g, '-');
+      // Lossless encoding — prevents aliasing (e.g. user:alice vs user-alice)
+      const repoName = encodeURIComponent(agentId);
 
       // Retry with backoff on HTTP failures
       for (let attempt = 0; attempt < MAX_REPO_CREATION_RETRIES; attempt++) {

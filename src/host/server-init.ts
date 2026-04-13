@@ -272,6 +272,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
       sandbox: {
         ...config.sandbox,
         memory_mb: tierConfig.memory_mb,
+        cpus: tierConfig.cpus,
         ...(req.timeoutSec ? { timeout_sec: req.timeoutSec } : {}),
       },
     };

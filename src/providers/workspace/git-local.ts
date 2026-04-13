@@ -21,8 +21,8 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
 
   return {
     async getRepoUrl(agentId: string): Promise<string> {
-      // Encode agent ID: user:alice -> user-alice (same as git-http)
-      const repoName = agentId.replace(/:/g, '-');
+      // Lossless encoding — prevents aliasing (e.g. user:alice vs user-alice)
+      const repoName = encodeURIComponent(agentId);
 
       // safePath validates the constructed path is within reposDir
       const repoPath = safePath(reposDir, repoName);
@@ -41,14 +41,13 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
         } catch { /* old git — leave as system default */ }
         logger.debug('repo_initialized', { agentId, repoName, repoPath });
       } catch (err) {
-        // git init --bare is idempotent — reinitializing is not an error
-        const msg = (err as { stderr?: string }).stderr ?? '';
-        if (!msg.includes('Reinitialized')) {
-          logger.error('repo_init_failed', {
-            agentId,
-            error: (err as Error).message,
-          });
-        }
+        // git init --bare on an existing repo prints "Reinitialized" and
+        // exits 0, so it never reaches here. Any error here is real.
+        logger.error('repo_init_failed', {
+          agentId,
+          error: (err as Error).message,
+        });
+        throw err;
       }
 
       return `file://${repoPath}`;

@@ -296,7 +296,7 @@ That's the entire config. AX fills in everything else with sensible local-mode d
 | Database | SQLite at `~/.ax/data/ax.db` |
 | Event bus | In-process |
 | Workspace | Local git repos at `~/.ax/repos/` |
-| Credentials | OS keychain |
+| Credentials | Database (SQLite) |
 | Memory | Cortex (vector-backed) |
 | Security | Pattern scanner |
 

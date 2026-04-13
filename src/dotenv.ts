@@ -20,7 +20,7 @@ import type { CredentialProvider } from './providers/credentials/types.js';
 /**
  * Load ~/.ax/.env into process.env (simple key=value loader).
  * Still needed for backward compat with existing .env installs
- * that haven't migrated to credentials.yaml.
+ * that predate the database-backed credential provider.
  */
 export async function loadDotEnv(): Promise<void> {
   const envPathResolved = envPath();

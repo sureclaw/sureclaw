@@ -341,17 +341,17 @@ function hostGitSync(workspace: string, repoUrl: string, logger: Logger): void {
     try {
       execFileSync('git', ['clone', repoUrl, '.'], gitOpts);
       // Ensure we're on 'main' regardless of system default
-      try { execFileSync('git', ['branch', '-M', 'main'], gitOpts); } catch { /* no commits yet */ }
+      try { execFileSync('git', ['branch', '-M', 'main'], gitOpts); } catch (e) { logger.debug('branch_rename_skip', { reason: (e as Error).message }); }
     } catch {
       // Clone fails on empty bare repos (no commits yet) — init and add remote
       execFileSync('git', ['init'], gitOpts);
       execFileSync('git', ['remote', 'add', 'origin', repoUrl], gitOpts);
-      try { execFileSync('git', ['checkout', '-b', 'main'], gitOpts); } catch { /* already on main */ }
+      try { execFileSync('git', ['checkout', '-b', 'main'], gitOpts); } catch (e) { logger.debug('checkout_skip', { reason: (e as Error).message }); }
     }
   } else {
     try {
       execFileSync('git', ['pull', 'origin', 'main'], gitOpts);
-    } catch { /* may fail on empty repo or no remote changes */ }
+    } catch (e) { logger.debug('pull_skip', { reason: (e as Error).message }); }
   }
 
   execFileSync('git', ['config', 'user.name', 'agent'], gitOpts);

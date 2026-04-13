@@ -170,7 +170,7 @@ apiCredentials:
 # When enabled, each agent gets a bare repo on the git-server pod.
 # Agents clone and push via smart HTTP protocol — no SSH or credentials needed.
 gitServer:
-  enabled: false
+  enabled: true
   replicas: 1
   image:
     repository: "ax/git-server"

@@ -228,7 +228,8 @@ export async function runK8sInit(args: string[]): Promise<void> {
     }
 
     // 2. Model (compound provider/model ID)
-    const model = opts.model ?? await ask(rl, '\nModel (provider/model, e.g. anthropic/claude-sonnet-4-20250514): ');
+    const defaultModel = 'anthropic/claude-sonnet-4-20250514';
+    const model = opts.model ?? (await ask(rl, `\nModel (provider/model) [${defaultModel}]: `) || defaultModel);
     if (!model || !model.includes('/')) {
       console.error(`Invalid model: "${model}". Must be a compound provider/model ID (e.g. "anthropic/claude-sonnet-4-20250514")`);
       process.exit(1);
