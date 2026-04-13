@@ -186,7 +186,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       }),
       Type.Object({
         type: Type.Literal('remove'),
-        id: Type.String({ description: 'The job ID to remove (from list results)' }),
+        jobId: Type.String({ description: 'The job ID to remove' }),
       }),
       Type.Object({
         type: Type.Literal('list'),

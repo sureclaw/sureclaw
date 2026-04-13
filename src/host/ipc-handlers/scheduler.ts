@@ -64,12 +64,11 @@ export function createSchedulerHandlers(providers: ProviderRegistry, _agentId: s
     },
 
     scheduler_remove_cron: async (req: any, ctx: IPCContext) => {
-      const jobId = req.jobId ?? req.id;
-      await providers.scheduler.removeCron?.(jobId);
+      await providers.scheduler.removeCron?.(req.jobId);
       await providers.audit.log({
         action: 'scheduler_remove_cron',
         sessionId: ctx.sessionId,
-        args: { jobId },
+        args: { jobId: req.jobId },
         result: 'success',
         timestamp: new Date(),
         durationMs: 0,
