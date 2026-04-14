@@ -18,7 +18,7 @@ import { getLogger } from '../logger.js';
 import { loadConfig } from '../config.js';
 import { loadProviders } from './registry.js';
 import { sendError, readBody } from './server-http.js';
-import { agentDir as agentDirPath } from '../paths.js';
+import { dataDir } from '../paths.js';
 import type { IPCContext } from './ipc-server.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
@@ -33,7 +33,7 @@ import {
   createSchedulerCallback,
 } from './server-request-handlers.js';
 import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
-import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
+import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin, type AdminContext } from './server-admin-helpers.js';
 import { createSessionPodManager } from './session-pod-manager.js';
 
 const logger = getLogger().child({ component: 'host-process' });
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
   const {
     completionDeps, sessionStore, router, taintBudget, fileStore,
     handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
-    agentRegistry, agentId: agentName, agentDirVal, sessionCanaries,
+    agentRegistry, agentId: agentName, adminCtx, sessionCanaries,
     domainList, defaultUserId, modelId, mcpManager,
   } = core;
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
 
     // MITM config for credential injection — shared across all sessions.
     const { getOrCreateCA } = await import('./proxy-ca.js');
-    const caDir = join(agentDirPath(agentName), 'ca');
+    const caDir = join(dataDir(), 'ca');
     const ca = await getOrCreateCA(caDir);
 
     webProxy = await startWebProxy({
@@ -414,7 +414,7 @@ async function main(): Promise<void> {
   const handleRequest = createRequestHandler({
     modelId,
     agentName,
-    agentDirVal,
+    adminCtx,
     eventBus,
     providers,
     fileStore: core.fileStore,
@@ -423,14 +423,14 @@ async function main(): Promise<void> {
     completionOpts: {
       modelId,
       agentName,
-      agentDirVal,
+      adminCtx,
       eventBus,
       runCompletion: async (content, requestId, messages, sessionId, userId) => {
         return processCompletionForSession(content, requestId, messages, sessionId, userId, agentType);
       },
-      preFlightCheck: (sessionId: string, userId: string | undefined) => {
-        if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
-          if (claimBootstrapAdmin(agentDirVal, userId)) {
+      preFlightCheck: async (sessionId: string, userId: string | undefined) => {
+        if (userId && await isAgentBootstrapMode(adminCtx) && !(await isAdmin(adminCtx, userId))) {
+          if (await claimBootstrapAdmin(adminCtx, userId)) {
             logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
             return undefined;
           }
@@ -470,7 +470,7 @@ async function main(): Promise<void> {
     agentName,
     channels: providers.channels,
     scheduler: providers.scheduler,
-    isBootstrapMode: () => isAgentBootstrapMode(agentName),
+    isBootstrapMode: () => isAgentBootstrapMode(adminCtx),
     runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed, agentId) => {
       const schedConfig = {
         ...config,

@@ -8,35 +8,11 @@
  *   ~/.ax/
  *     ax.yaml           — main config
  *     .env              — API keys
- *     registry.json     — agent registry (enterprise)
  *     data/
  *       ax.db           — shared SQLite database (messages, conversations, sessions, documents, audit)
  *       memory.db       — SQLite memory provider
  *       memory/         — file memory provider
- *     agents/
- *       <agent-id>/
- *         admins              — admin access control (top-level, NOT in sandbox)
- *         .bootstrap-admin-claimed — bootstrap state (top-level, NOT in sandbox)
- *         agent/              — agent config dir (NOT directly mounted)
- *           BOOTSTRAP.md      — bootstrap detection (server-side checks)
- *           USER_BOOTSTRAP.md — first-contact prompt
- *           capabilities.yaml — capability declarations
- *           identity/         — → /workspace/identity (ro mount in sandbox)
- *             AGENTS.md       — operating instructions
- *             SOUL.md         — personality, tone, boundaries
- *             IDENTITY.md     — name, role, capabilities
- *             HEARTBEAT.md    — scheduled task checklist
- *             BOOTSTRAP.md    — copy for agent-side reading
- *             USER_BOOTSTRAP.md — copy for agent-side reading
- *           workspace/        — shared code, docs
- *             repo/
- *             docs/
- *           skills/           — agent-level skills (shared across users)
- *         users/
- *           <userId>/         — per-user state (isolated per user)
- *             USER.md         — user preferences, style, context
- *             workspace/      — user's persistent files
- *             skills/         — user-level skills (private to this user)
+ *       ca/             — MITM proxy CA keypair
  */
 
 import { join } from 'node:path';
@@ -125,68 +101,11 @@ export function agentDir(agentName: string): string {
   return join(axHome(), 'agents', agentName);
 }
 
-/** @deprecated Use agentDir instead. */
-export const agentStateDir = agentDir;
-
 /** Path to a per-user directory within an agent's state: ~/.ax/agents/<name>/users/<userId>/ */
 export function agentUserDir(agentName: string, userId: string): string {
   validatePathSegment(agentName, 'agent name');
   validatePathSegment(userId, 'userId');
   return join(agentDir(agentName), 'users', userId);
-}
-
-// ═══════════════════════════════════════════════════════
-// Enterprise Agent Architecture — multi-agent paths
-// ═══════════════════════════════════════════════════════
-
-/**
- * Path to an agent's config directory:
- * ~/.ax/agents/<agentId>/agent/
- *
- * @deprecated Identity files are now stored in DocumentStore and sent via stdin payload.
- * This path helper remains for governance handler backward compatibility only.
- */
-export function agentIdentityDir(agentId: string): string {
-  validatePathSegment(agentId, 'agent ID');
-  return join(axHome(), 'agents', agentId, 'agent');
-}
-
-/**
- * Path to an agent's identity files directory:
- * ~/.ax/agents/<agentId>/agent/identity/
- *
- * @deprecated Identity files are now stored in DocumentStore and sent via stdin payload.
- * This path helper remains for governance handler backward compatibility only.
- */
-export function agentIdentityFilesDir(agentId: string): string {
-  return join(agentIdentityDir(agentId), 'identity');
-}
-
-/**
- * @deprecated No longer used — single workspace model (/workspace in sandbox).
- * Path to an agent's shared workspace: ~/.ax/agents/<agentId>/agent/workspace/
- */
-export function agentWorkspaceDir(agentId: string): string {
-  return join(agentIdentityDir(agentId), 'workspace');
-}
-
-/**
- * @deprecated Skills are now stored in DocumentStore and sent via stdin payload.
- * Path to an agent's skills directory (agent-level, shared): ~/.ax/agents/<agentId>/agent/skills/
- */
-export function agentSkillsDir(agentId: string): string {
-  return join(agentIdentityDir(agentId), 'skills');
-}
-
-/**
- * @deprecated Skills are now stored in DocumentStore and sent via stdin payload.
- * Path to a user's skills directory (user-level, private):
- * ~/.ax/agents/<agentId>/users/<userId>/skills/
- */
-export function userSkillsDir(agentId: string, userId: string): string {
-  validatePathSegment(agentId, 'agent ID');
-  validatePathSegment(userId, 'userId');
-  return join(axHome(), 'agents', agentId, 'users', userId, 'skills');
 }
 
 /**

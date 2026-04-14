@@ -1,50 +1,31 @@
-import { existsSync, unlinkSync, copyFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir } from '../paths.js';
 import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
+import type { DocumentStore } from '../providers/storage/types.js';
 
 const EVOLVABLE_FILES = ['SOUL.md', 'IDENTITY.md'];
 
-/** Reset an agent's identity by deleting evolvable files and copying a fresh BOOTSTRAP.md. */
-export async function resetAgent(agentName: string, templatesDir: string): Promise<void> {
-  const topDir = agentDirPath(agentName);
-  const configDir = agentIdentityDir(agentName);
-  const identityFilesDir = agentIdentityFilesDir(agentName);
-
-  // Delete evolvable identity files from identityFilesDir
+/** Reset an agent's identity by deleting evolvable files and seeding BOOTSTRAP.md in DocumentStore. */
+export async function resetAgent(agentName: string, templatesDir: string, documents: DocumentStore): Promise<void> {
+  // Delete evolvable identity files from DocumentStore
   for (const file of EVOLVABLE_FILES) {
-    try { unlinkSync(join(identityFilesDir, file)); } catch { /* may not exist */ }
+    await documents.delete('identity', `${agentName}/${file}`);
   }
 
-  // Delete BOOTSTRAP.md from both configDir (authoritative) and identityFilesDir (agent-readable copy)
-  try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-  try { unlinkSync(join(identityFilesDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
+  // Delete BOOTSTRAP.md (will be re-seeded below)
+  await documents.delete('identity', `${agentName}/BOOTSTRAP.md`);
 
-  // Delete bootstrap admin claim so a new first-user can claim during re-bootstrap
-  try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
-
-  mkdirSync(configDir, { recursive: true });
-  mkdirSync(identityFilesDir, { recursive: true });
-
-  // BOOTSTRAP.md → both configDir (authoritative) and identityFilesDir (agent-readable copy)
-  {
-    const src = join(templatesDir, 'BOOTSTRAP.md');
-    if (existsSync(src)) {
-      copyFileSync(src, join(configDir, 'BOOTSTRAP.md'));
-      copyFileSync(src, join(identityFilesDir, 'BOOTSTRAP.md'));
-    }
+  // Seed BOOTSTRAP.md from templates
+  const src = join(templatesDir, 'BOOTSTRAP.md');
+  if (existsSync(src)) {
+    await documents.put('identity', `${agentName}/BOOTSTRAP.md`, readFileSync(src, 'utf-8'));
   }
 
-  // USER_BOOTSTRAP.md → configDir only (passed to agent via stdin payload, not mounted)
-  {
-    const src = join(templatesDir, 'USER_BOOTSTRAP.md');
-    if (existsSync(src)) {
-      copyFileSync(src, join(configDir, 'USER_BOOTSTRAP.md'));
-    }
+  // Seed USER_BOOTSTRAP.md from templates
+  const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
+  if (existsSync(ubSrc)) {
+    await documents.put('identity', `${agentName}/USER_BOOTSTRAP.md`, readFileSync(ubSrc, 'utf-8'));
   }
-
-  // Note: per-user USER.md files and the admins file are NOT deleted during bootstrap.
-  // They represent learned user preferences and access control that persist across agent resets.
 }
 
 export async function runBootstrap(args: string[]): Promise<void> {
@@ -53,7 +34,6 @@ export async function runBootstrap(args: string[]): Promise<void> {
     console.error('Error: agent name required. Usage: ax bootstrap <agent-name>');
     process.exit(1);
   }
-  const identityDir = agentIdentityFilesDir(agentName);
   const templatesDir = resolveTemplatesDir();
 
   if (!existsSync(templatesDir)) {
@@ -61,24 +41,35 @@ export async function runBootstrap(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const hasSoul = existsSync(join(identityDir, 'SOUL.md'));
-  if (hasSoul) {
-    const readline = await import('node:readline');
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const answer = await new Promise<string>(resolve => {
-      rl.question(
-        `This will erase ${agentName}'s personality and start fresh. Continue? (y/N) `,
-        resolve,
-      );
-    });
-    rl.close();
+  // Open a lightweight DocumentStore to check/modify identity
+  const { loadConfig } = await import('../config.js');
+  const { loadProviders } = await import('../host/registry.js');
+  const config = loadConfig();
+  const providers = await loadProviders(config);
+  const documents = providers.storage.documents;
 
-    if (answer.toLowerCase() !== 'y') {
-      console.log('Cancelled.');
-      return;
+  try {
+    const hasSoul = await documents.get('identity', `${agentName}/SOUL.md`);
+    if (hasSoul) {
+      const readline = await import('node:readline');
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await new Promise<string>(resolve => {
+        rl.question(
+          `This will erase ${agentName}'s personality and start fresh. Continue? (y/N) `,
+          resolve,
+        );
+      });
+      rl.close();
+
+      if (answer.toLowerCase() !== 'y') {
+        console.log('Cancelled.');
+        return;
+      }
     }
-  }
 
-  await resetAgent(agentName, templatesDir);
-  console.log(`[bootstrap] Reset complete. Run 'ax serve' and open the admin dashboard to begin the bootstrap ritual.`);
+    await resetAgent(agentName, templatesDir, documents);
+    console.log(`[bootstrap] Reset complete. Run 'ax serve' and open the admin dashboard to begin the bootstrap ritual.`);
+  } finally {
+    try { providers.storage.close(); } catch { /* ignore */ }
+  }
 }

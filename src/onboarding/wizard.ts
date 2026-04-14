@@ -12,8 +12,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml, stringify as yamlStringify } from 'yaml';
-import { PROFILE_DEFAULTS } from './prompts.js';
-import type { ProfileName } from './prompts.js';
+import { PROFILE_NAMES, type ProfileName } from './prompts.js';
 
 export interface OnboardingAnswers {
   profile: ProfileName;
@@ -29,9 +28,8 @@ export interface OnboardingOptions {
 
 export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
   const { outputDir, answers } = opts;
-  const defaults = PROFILE_DEFAULTS[answers.profile];
 
-  if (!defaults) {
+  if (!PROFILE_NAMES.includes(answers.profile)) {
     throw new Error(`Unknown profile: "${answers.profile}"`);
   }
 
@@ -60,11 +58,6 @@ export async function runOnboarding(opts: OnboardingOptions): Promise<void> {
       if (answers.model) models.default = [answers.model];
       return Object.keys(models).length > 0 ? { models } : {};
     })(),
-    sandbox: {
-      ...(typeof existing.sandbox === 'object' && existing.sandbox ? existing.sandbox : {}),
-      timeout_sec: defaults.timeoutSec,
-      memory_mb: defaults.memoryMb,
-    },
   };
 
   // Write ax.yaml

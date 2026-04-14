@@ -290,12 +290,9 @@ export interface ChannelHandlerDeps {
   sessionCanaries: Map<string, string>;
   router: Router;
   agentName: string;
-  agentDir: string;
+  adminCtx: import('./server-admin-helpers.js').AdminContext;
   deduplicator: ChannelDeduplicator;
   logger: Logger;
-  isAgentBootstrapMode: (agentName: string) => boolean;
-  isAdmin: (agentDir: string, userId: string) => boolean;
-  claimBootstrapAdmin: (agentDir: string, userId: string) => boolean;
   /** Dynamic agent provisioner for per-message routing. */
   provisioner?: AgentProvisioner;
   /** Agent registry for looking up agent metadata. */
@@ -317,9 +314,7 @@ export function registerChannelHandler(
 ): void {
   const {
     completionDeps, conversationStore, sessionStore, sessionCanaries,
-    router, agentName, agentDir, deduplicator, logger,
-    isAgentBootstrapMode: isBootstrap, isAdmin: isAdminFn,
-    claimBootstrapAdmin: claimBootstrapAdminFn,
+    router, agentName, adminCtx, deduplicator, logger,
     provisioner, agentRegistry, threadOwners, boundAgentId,
   } = deps;
 
@@ -370,15 +365,28 @@ export function registerChannelHandler(
 
     // Bootstrap gate: only admins can interact while the agent is being set up.
     // The first channel user to message during bootstrap is auto-promoted to admin.
-    if (isBootstrap(agentName) && !isAdminFn(agentDir, msg.sender)) {
-      if (claimBootstrapAdminFn(agentDir, msg.sender)) {
-        logger.info('bootstrap_admin_claimed', { provider: channel.name, sender: msg.sender });
-      } else {
-        logger.info('bootstrap_gate_blocked', { provider: channel.name, sender: msg.sender });
-        await channel.send(msg.session, {
-          content: 'This agent is still being set up. Only admins can interact during bootstrap.',
-        });
-        return;
+    {
+      const bootstrap = await adminCtx.documents.get('identity', `${agentName}/BOOTSTRAP.md`);
+      if (bootstrap) {
+        const soul = await adminCtx.documents.get('identity', `${agentName}/SOUL.md`);
+        const identity = await adminCtx.documents.get('identity', `${agentName}/IDENTITY.md`);
+        const isBootstrap = !soul || !identity;
+        if (isBootstrap) {
+          const entry = await adminCtx.registry.get(adminCtx.agentId);
+          const userIsAdmin = entry?.admins.includes(msg.sender) ?? false;
+          if (!userIsAdmin) {
+            const claimed = await adminCtx.registry.claimBootstrapAdmin(adminCtx.agentId, msg.sender);
+            if (claimed) {
+              logger.info('bootstrap_admin_claimed', { provider: channel.name, sender: msg.sender });
+            } else {
+              logger.info('bootstrap_gate_blocked', { provider: channel.name, sender: msg.sender });
+              await channel.send(msg.session, {
+                content: 'This agent is still being set up. Only admins can interact during bootstrap.',
+              });
+              return;
+            }
+          }
+        }
       }
     }
 

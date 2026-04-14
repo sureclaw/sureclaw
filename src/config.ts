@@ -91,7 +91,6 @@ const ConfigSchema = z.strictObject({
     max_token_budget: z.number().int().min(1),
     heartbeat_interval_min: z.number().int().min(1),
     timeout_sec: z.number().int().min(1).max(3600).optional(),
-    agent_dir: z.string().optional(),
     defaultDelivery: z.strictObject({
       mode: z.enum(['channel', 'none']),
       target: z.union([

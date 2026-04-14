@@ -7,17 +7,17 @@
  * agent_registry_list — lists registered agents.
  * agent_registry_get — gets a single agent's details.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, unlinkSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
-import { agentDir as agentDirPath, agentIdentityDir, proposalsDir } from '../../paths.js';
-import { isAdmin } from '../server-admin-helpers.js';
+import { proposalsDir } from '../../paths.js';
+import { isAdmin, type AdminContext } from '../server-admin-helpers.js';
 import type { AgentRegistry } from '../agent-registry.js';
 
 export interface GovernanceHandlerOptions {
-  agentDir?: string;
+  adminCtx?: AdminContext;
   agentId: string;
   profile: string;
   registry?: AgentRegistry;
@@ -60,7 +60,7 @@ function saveProposal(proposal: Proposal): void {
 }
 
 export function createGovernanceHandlers(providers: ProviderRegistry, opts: GovernanceHandlerOptions) {
-  const { agentDir, agentId, registry } = opts;
+  const { adminCtx, agentId, registry } = opts;
 
   return {
     identity_propose: async (req: any, ctx: IPCContext) => {
@@ -107,8 +107,7 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
 
     proposal_review: async (req: any, ctx: IPCContext) => {
       // Admin gate — only admins can review proposals
-      const topDir = agentDirPath(agentId);
-      if (ctx.userId && !isAdmin(topDir, ctx.userId)) {
+      if (adminCtx && ctx.userId && !(await isAdmin(adminCtx, ctx.userId))) {
         await providers.audit.log({
           action: 'proposal_review',
           sessionId: ctx.sessionId,
@@ -136,18 +135,11 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
 
       saveProposal(proposal);
 
-      // If approved and it's an identity proposal, apply it to both DocumentStore and filesystem
+      // If approved and it's an identity proposal, apply to DocumentStore
       if (req.decision === 'approved' && proposal.type === 'identity' && proposal.file) {
-        // Write to DocumentStore (authoritative source for identity)
         const documents = providers.storage.documents;
         const docKey = `${agentId}/${proposal.file}`;
         await documents.put('identity', docKey, proposal.content);
-
-        // Also write to filesystem for backward compat
-        if (agentDir) {
-          mkdirSync(agentDir, { recursive: true });
-          writeFileSync(join(agentDir, proposal.file), proposal.content, 'utf-8');
-        }
 
         // Bootstrap completion: check DocumentStore for both SOUL.md and IDENTITY.md
         if (proposal.file === 'SOUL.md' || proposal.file === 'IDENTITY.md') {
@@ -157,14 +149,6 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
           if (otherExists) {
             // Both exist — bootstrap complete
             await documents.delete('identity', `${agentId}/BOOTSTRAP.md`);
-            // Clean up filesystem
-            const configDir = agentIdentityDir(agentId);
-            const topDir = agentDirPath(agentId);
-            try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-            if (agentDir) {
-              try { unlinkSync(join(agentDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-            }
-            try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
           }
         }
       }

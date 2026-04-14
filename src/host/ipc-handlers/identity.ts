@@ -3,40 +3,31 @@
  * These have custom taint handling (queues instead of hard-blocking).
  *
  * All identity/user data is stored via DocumentStore (providers.storage.documents).
+ * Admin checks use the AgentRegistry (DB-backed).
  */
 import type { ProviderRegistry } from '../../types.js';
 import type { TaintBudget } from '../taint-budget.js';
 import type { IPCContext } from '../ipc-server.js';
-import { join } from 'node:path';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir } from '../../paths.js';
-import { isAdmin } from '../server-admin-helpers.js';
-
-/**
- * Returns true when the admins file exists and contains at least one entry.
- * In k8s, the agent-runtime pod creates an empty admins file at startup but
- * never populates it (admin claims happen on the host pod with a separate
- * filesystem). When no admins are configured locally, the admin gate is
- * meaningless and should be skipped — access control is handled at the host layer.
- */
-function hasAnyAdmin(agentDir: string): boolean {
-  const adminsPath = join(agentDir, 'admins');
-  if (!existsSync(adminsPath)) return false;
-  const lines = readFileSync(adminsPath, 'utf-8').split('\n').map(l => l.trim()).filter(Boolean);
-  return lines.length > 0;
-}
+import { isAdmin, type AdminContext } from '../server-admin-helpers.js';
 
 export interface IdentityHandlerOptions {
   agentId: string;
   profile: string;
   taintBudget?: TaintBudget;
+  adminCtx?: AdminContext;
 }
 
 export function createIdentityHandlers(providers: ProviderRegistry, opts: IdentityHandlerOptions) {
-  const { agentId, profile, taintBudget } = opts;
+  const { agentId, profile, taintBudget, adminCtx } = opts;
 
-  const topDir = agentDirPath(agentId);
   const documents = providers.storage.documents;
+
+  /** Check if the agent has any admins configured in the registry. */
+  async function hasAnyAdmin(): Promise<boolean> {
+    if (!adminCtx) return false;
+    const entry = await adminCtx.registry.get(agentId);
+    return !!entry && entry.admins.length > 0;
+  }
 
   return {
     identity_read: async (req: any, _ctx: IPCContext) => {
@@ -47,9 +38,9 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
 
     identity_write: async (req: any, ctx: IPCContext) => {
       // 0a. Admin gate — non-admin users cannot directly modify identity files.
-      // Skip when no admins are configured locally (e.g. k8s agent-runtime where
-      // admin state lives on the host pod's filesystem, not here).
-      if (ctx.userId && !isAdmin(topDir, ctx.userId) && hasAnyAdmin(topDir)) {
+      // Skip when no admins are configured (e.g. k8s agent-runtime where
+      // admin state lives on the host pod, not here).
+      if (adminCtx && ctx.userId && !(await isAdmin(adminCtx, ctx.userId)) && await hasAnyAdmin()) {
         await providers.audit.log({
           action: 'identity_write',
           sessionId: ctx.sessionId,
@@ -106,21 +97,12 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       await documents.put('identity', key, req.content);
 
       // Bootstrap completion: delete BOOTSTRAP.md once both SOUL.md and IDENTITY.md exist.
-      // Check DocumentStore (authoritative) rather than filesystem — filesystem may not
-      // have identity files when using GCS/cloud-backed DocumentStore.
       if (req.file === 'SOUL.md' || req.file === 'IDENTITY.md') {
         const otherFile = req.file === 'SOUL.md' ? 'IDENTITY.md' : 'SOUL.md';
         const otherKey = `${agentId}/${otherFile}`;
         const otherExists = await documents.get('identity', otherKey);
         if (otherExists) {
-          // Both SOUL.md and IDENTITY.md exist in DocumentStore — bootstrap is complete
           await documents.delete('identity', `${agentId}/BOOTSTRAP.md`);
-          // Also clean up filesystem BOOTSTRAP.md for isAgentBootstrapMode() compat
-          const configDir = agentIdentityDir(agentId);
-          const idFilesDir = agentIdentityFilesDir(agentId);
-          try { unlinkSync(join(configDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-          try { unlinkSync(join(idFilesDir, 'BOOTSTRAP.md')); } catch { /* may not exist */ }
-          try { unlinkSync(join(topDir, '.bootstrap-admin-claimed')); } catch { /* may not exist */ }
         }
       }
 
@@ -138,8 +120,8 @@ export function createIdentityHandlers(providers: ProviderRegistry, opts: Identi
       }
 
       // 0a. Admin gate — non-admins can only write their own user file.
-      // Skip when no admins are configured locally (k8s agent-runtime compat).
-      if (ctx.userId && ctx.userId !== req.userId && !isAdmin(topDir, ctx.userId) && hasAnyAdmin(topDir)) {
+      // Skip when no admins are configured (k8s agent-runtime compat).
+      if (adminCtx && ctx.userId && ctx.userId !== req.userId && !(await isAdmin(adminCtx, ctx.userId)) && await hasAnyAdmin()) {
         await providers.audit.log({
           action: 'user_write',
           sessionId: ctx.sessionId,

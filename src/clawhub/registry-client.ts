@@ -2,17 +2,13 @@
  * ClawHub registry client — fetches and caches skills from clawhub.ai.
  *
  * Not a provider (no create() pattern). Utility class used by IPC handlers.
- * All file paths use safePath(). Cache TTL 1 hour.
+ * In-memory cache with 1 hour TTL.
  *
  * API base: https://clawhub.ai/api/v1 (discovered via /.well-known/clawhub.json)
  * Skills are distributed as ZIP files; SKILL.md is extracted from the archive.
  */
 
-import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
-import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
-import { safePath } from '../utils/safe-path.js';
-import { axHome } from '../paths.js';
 
 function clawHubApi(): string {
   return process.env.CLAWHUB_API_URL || 'https://clawhub.ai/api/v1';
@@ -40,36 +36,20 @@ export interface ClawHubSkillDetail {
   skillMd: string;
 }
 
-function cacheDir(): string {
-  return join(axHome(), 'cache', 'clawhub');
-}
+const memoryCache = new Map<string, { data: string; timestamp: number }>();
 
-async function ensureCacheDir(): Promise<string> {
-  const dir = cacheDir();
-  await mkdir(dir, { recursive: true });
-  return dir;
-}
-
-async function readCached(key: string): Promise<string | null> {
-  try {
-    const dir = cacheDir();
-    const path = safePath(dir, `${key}.json`);
-    const meta = await stat(path);
-    if (Date.now() - meta.mtimeMs > CACHE_TTL_MS) return null;
-    return await readFile(path, 'utf-8');
-  } catch {
+function readCached(key: string): string | null {
+  const entry = memoryCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    memoryCache.delete(key);
     return null;
   }
+  return entry.data;
 }
 
-async function writeCache(key: string, data: string): Promise<void> {
-  try {
-    const dir = await ensureCacheDir();
-    const path = safePath(dir, `${key}.json`);
-    await writeFile(path, data, 'utf-8');
-  } catch {
-    // Cache write failures are non-fatal
-  }
+function writeCache(key: string, data: string): void {
+  memoryCache.set(key, { data, timestamp: Date.now() });
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -214,12 +194,12 @@ export function extractFileFromZip(buf: Buffer, targetName: string): string | nu
  */
 export async function search(query: string, limit = 20): Promise<ClawHubSkillEntry[]> {
   const cacheKey = `search-${query.replace(/[^a-zA-Z0-9-]/g, '_')}-${limit}`;
-  const cached = await readCached(cacheKey);
+  const cached = readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
   const url = `${clawHubApi()}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
   const response = await fetchJson<{ results: ClawHubSkillEntry[] }>(url);
-  await writeCache(cacheKey, JSON.stringify(response.results));
+  writeCache(cacheKey, JSON.stringify(response.results));
   return response.results;
 }
 
@@ -228,7 +208,7 @@ export async function search(query: string, limit = 20): Promise<ClawHubSkillEnt
  */
 export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
   const cacheKey = `skill-${slug.replace(/[^a-zA-Z0-9-]/g, '_')}`;
-  const cached = await readCached(cacheKey);
+  const cached = readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
   // Download ZIP and search for metadata concurrently.
@@ -267,7 +247,7 @@ export async function fetchSkill(slug: string): Promise<ClawHubSkillDetail> {
     skillMd,
   };
 
-  await writeCache(cacheKey, JSON.stringify(detail));
+  writeCache(cacheKey, JSON.stringify(detail));
   return detail;
 }
 
@@ -343,7 +323,7 @@ export async function fetchSkillPackage(slug: string): Promise<ClawHubSkillPacka
  */
 export async function listPopular(limit = 20): Promise<ClawHubSkillEntry[]> {
   const cacheKey = `popular-${limit}`;
-  const cached = await readCached(cacheKey);
+  const cached = readCached(cacheKey);
   if (cached) return JSON.parse(cached);
 
   const url = `${clawHubApi()}/skills?sort=downloads&limit=${limit}`;
@@ -363,7 +343,7 @@ export async function listPopular(limit = 20): Promise<ClawHubSkillEntry[]> {
     version: item.latestVersion?.version ?? null,
   }));
 
-  await writeCache(cacheKey, JSON.stringify(entries));
+  writeCache(cacheKey, JSON.stringify(entries));
   return entries;
 }
 
@@ -371,13 +351,7 @@ export async function listPopular(limit = 20): Promise<ClawHubSkillEntry[]> {
  * List all cached skills (available offline).
  */
 export async function listCached(): Promise<string[]> {
-  try {
-    const dir = cacheDir();
-    const files = await readdir(dir);
-    return files
-      .filter(f => f.startsWith('skill-') && f.endsWith('.json'))
-      .map(f => f.slice('skill-'.length, -'.json'.length));
-  } catch {
-    return [];
-  }
+  return [...memoryCache.keys()]
+    .filter(k => k.startsWith('skill-'))
+    .map(k => k.slice('skill-'.length));
 }

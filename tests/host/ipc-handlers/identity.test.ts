@@ -1,32 +1,13 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createIdentityHandlers } from '../../../src/host/ipc-handlers/identity.js';
 import type { IPCContext } from '../../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../../src/types.js';
 import type { DocumentStore } from '../../../src/providers/storage/types.js';
-
-let tmpDir: string;
-let agentTopDirPath: string;
-
-vi.mock('../../../src/paths.js', () => ({
-  agentDir: () => agentTopDirPath,
-}));
-
-vi.mock('../../../src/host/server.js', async () => {
-  const { existsSync: ex, readFileSync: rf } = await import('node:fs');
-  const { join: j } = await import('node:path');
-  return {
-    isAgentBootstrapMode: () => false,
-    isAdmin: (dir: string, userId: string) => {
-      const adminsPath = j(dir, 'admins');
-      if (!ex(adminsPath)) return false;
-      const lines = rf(adminsPath, 'utf-8').split('\n').map((l: string) => l.trim()).filter(Boolean);
-      return lines.includes(userId);
-    },
-  };
-});
+import { createSqliteRegistry } from '../../../src/host/agent-registry-db.js';
+import type { AdminContext } from '../../../src/host/server-admin-helpers.js';
 
 /** In-memory DocumentStore for testing. */
 function createMockDocumentStore(): DocumentStore {
@@ -72,14 +53,13 @@ function stubProviders(documents?: DocumentStore): ProviderRegistry {
   } as any;
 }
 
+let tmpDir: string;
+
 describe('Identity IPC handlers', () => {
   let ctx: IPCContext;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-id-test-'));
-    agentTopDirPath = join(tmpDir, 'top');
-    mkdirSync(agentTopDirPath, { recursive: true });
-
     ctx = { sessionId: 'sess-1', agentId: 'main', userId: 'alice' };
   });
 
@@ -120,14 +100,17 @@ describe('Identity IPC handlers', () => {
   // ── identity_write admin gate ──
 
   test('identity_write rejects non-admin users', async () => {
-    // Create admins file WITHOUT alice
-    writeFileSync(join(agentTopDirPath, 'admins'), 'bob\n', 'utf-8');
-
+    // Registry has bob as admin, not alice
+    const registry = await createSqliteRegistry(join(tmpDir, 'reg.db'));
+    await registry.register({ id: 'test-agent', name: 'test', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'system', admins: ['bob'] });
     const documents = createMockDocumentStore();
+    const adminCtx: AdminContext = { registry, documents, agentId: 'test-agent' };
+
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      adminCtx,
     });
 
     const result = await handlers.identity_write(
@@ -143,14 +126,17 @@ describe('Identity IPC handlers', () => {
   });
 
   test('identity_write allows admin users', async () => {
-    // Create admins file WITH alice
-    writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
-
+    // Registry has alice as admin
+    const registry = await createSqliteRegistry(join(tmpDir, 'reg2.db'));
+    await registry.register({ id: 'test-agent', name: 'test', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'system', admins: ['alice'] });
     const documents = createMockDocumentStore();
+    const adminCtx: AdminContext = { registry, documents, agentId: 'test-agent' };
+
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      adminCtx,
     });
 
     const result = await handlers.identity_write(
@@ -163,17 +149,15 @@ describe('Identity IPC handlers', () => {
     expect(stored).toBe('# My Soul');
   });
 
-  test('identity_write allows when admins file is empty (k8s agent-runtime)', async () => {
-    // In k8s, the agent-runtime pod creates an empty admins file at startup.
-    // Admin claims happen on the host pod (separate filesystem).
-    // The admin gate should be skipped when no admins are configured.
-    writeFileSync(join(agentTopDirPath, 'admins'), '', 'utf-8');
-
+  test('identity_write allows when no admins configured (k8s agent-runtime)', async () => {
+    // In k8s, admin state lives on the host pod. When no adminCtx is provided,
+    // the admin gate should be skipped.
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      // no adminCtx — skips admin gate
     });
 
     const result = await handlers.identity_write(
@@ -186,8 +170,8 @@ describe('Identity IPC handlers', () => {
     expect(stored).toBe('# My Soul');
   });
 
-  test('identity_write allows when no admins file exists (fresh install)', async () => {
-    // No admins file at all — should allow writes (bootstrap scenario)
+  test('identity_write allows when no adminCtx (fresh install)', async () => {
+    // No adminCtx — should allow writes (bootstrap scenario)
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
@@ -229,12 +213,16 @@ describe('Identity IPC handlers', () => {
   // ── user_write admin gate ──
 
   test('user_write rejects non-admin writing another user file', async () => {
-    writeFileSync(join(agentTopDirPath, 'admins'), 'bob\n', 'utf-8');
+    const registry = await createSqliteRegistry(join(tmpDir, 'reg3.db'));
+    await registry.register({ id: 'test-agent', name: 'test', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'system', admins: ['bob'] });
+    const documents = createMockDocumentStore();
+    const adminCtx: AdminContext = { registry, documents, agentId: 'test-agent' };
 
-    const providers = stubProviders();
+    const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      adminCtx,
     });
 
     const result = await handlers.user_write(
@@ -247,13 +235,16 @@ describe('Identity IPC handlers', () => {
   });
 
   test('user_write allows non-admin writing their own user file', async () => {
-    writeFileSync(join(agentTopDirPath, 'admins'), 'bob\n', 'utf-8');
-
+    const registry = await createSqliteRegistry(join(tmpDir, 'reg4.db'));
+    await registry.register({ id: 'test-agent', name: 'test', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'system', admins: ['bob'] });
     const documents = createMockDocumentStore();
+    const adminCtx: AdminContext = { registry, documents, agentId: 'test-agent' };
+
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      adminCtx,
     });
 
     const result = await handlers.user_write(
@@ -266,19 +257,18 @@ describe('Identity IPC handlers', () => {
     expect(stored).toBe('# Alice prefs');
   });
 
-  test('user_write allows writing other user file when admins file is empty (k8s)', async () => {
-    writeFileSync(join(agentTopDirPath, 'admins'), '', 'utf-8');
-
+  test('user_write allows writing other user file when no adminCtx (k8s)', async () => {
     const documents = createMockDocumentStore();
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      // no adminCtx — skips admin gate
     });
 
     const result = await handlers.user_write(
       { userId: 'bob', content: '# Bob prefs', reason: 'test', origin: 'user_request' },
-      ctx, // alice writing bob's file — allowed because no admins configured
+      ctx, // alice writing bob's file — allowed because no adminCtx
     );
 
     expect(result.applied).toBe(true);
@@ -287,13 +277,16 @@ describe('Identity IPC handlers', () => {
   });
 
   test('user_write allows admin writing another user file', async () => {
-    writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
-
+    const registry = await createSqliteRegistry(join(tmpDir, 'reg5.db'));
+    await registry.register({ id: 'test-agent', name: 'test', status: 'active', parentId: null, agentType: 'pi-coding-agent', capabilities: [], createdBy: 'system', admins: ['alice'] });
     const documents = createMockDocumentStore();
+    const adminCtx: AdminContext = { registry, documents, agentId: 'test-agent' };
+
     const providers = stubProviders(documents);
     const handlers = createIdentityHandlers(providers, {
       agentId: 'test-agent',
       profile: 'balanced',
+      adminCtx,
     });
 
     const result = await handlers.user_write(

@@ -69,8 +69,8 @@ export interface IPCHandlerOptions {
   delegation?: DelegationConfig;
   /** Called when an agent_delegate request is received. Returns agent response. */
   onDelegate?: (req: DelegateRequest, ctx: IPCContext) => Promise<string>;
-  /** Path to identity files directory (~/.ax/agents/{name}/agent/identity/) for governance handler. */
-  agentDir?: string;
+  /** DB-backed admin context for governance handler. */
+  adminCtx?: import('./server-admin-helpers.js').AdminContext;
   /** Agent identifier for resolving per-user directories. */
   agentId?: string;
   /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
@@ -115,17 +115,19 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       requestedCredentials: opts?.requestedCredentials,
       eventBus: opts?.eventBus,
       domainList: opts?.domainList,
+      adminCtx: opts?.adminCtx,
     }),
     ...createIdentityHandlers(providers, {
       agentId,
       profile,
       taintBudget,
+      adminCtx: opts?.adminCtx,
     }),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentId),
     ...createArtifactHandlers(providers, { agentId, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
     ...createGovernanceHandlers(providers, {
-      agentDir: opts?.agentDir,
+      adminCtx: opts?.adminCtx,
       agentId,
       profile,
       registry: opts?.agentRegistry,
