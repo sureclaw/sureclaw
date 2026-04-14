@@ -71,6 +71,10 @@ export interface AgentRegistry {
   findByAdmin(userId: string): Promise<AgentRegistryEntry[]>;
   findByKind(kind: AgentKind): Promise<AgentRegistryEntry[]>;
   children(parentId: string): Promise<AgentRegistryEntry[]>;
+  /** Add a userId to the agent's admins list. No-op if already present. */
+  addAdmin(agentId: string, userId: string): Promise<void>;
+  /** Atomically claim bootstrap admin. Returns true if this user is the first non-default admin. */
+  claimBootstrapAdmin(agentId: string, userId: string): Promise<boolean>;
 }
 
 // ═══════════════════════════════════════════════════════

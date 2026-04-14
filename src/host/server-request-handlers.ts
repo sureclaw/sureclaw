@@ -57,7 +57,7 @@ export function handleModels(res: ServerResponse, modelId: string): void {
 export interface CompletionHandlerOpts {
   modelId: string;
   agentName: string;
-  agentDirVal: string;
+  adminCtx: import('./server-admin-helpers.js').AdminContext;
   eventBus: EventBus;
   /** Called to run the completion. Allows callers to wrap with custom dispatch logic. */
   runCompletion: (
@@ -67,8 +67,8 @@ export interface CompletionHandlerOpts {
     sessionId: string,
     userId?: string,
   ) => Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter'; contentBlocks?: ContentBlock[] }>;
-  /** Optional pre-flight check (e.g. bootstrap gate). Return error string to reject, undefined to proceed. */
-  preFlightCheck?: (sessionId: string, userId: string | undefined) => string | undefined;
+  /** Optional pre-flight check (e.g. bootstrap gate). Return error string or undefined to proceed. */
+  preFlightCheck?: (sessionId: string, userId: string | undefined) => string | undefined | Promise<string | undefined>;
 }
 
 /**
@@ -148,7 +148,7 @@ export async function handleCompletions(
 
   // Optional pre-flight (bootstrap gate, etc.)
   if (opts.preFlightCheck) {
-    const rejection = opts.preFlightCheck(sessionId, userId);
+    const rejection = await opts.preFlightCheck(sessionId, userId);
     if (rejection) {
       sendError(res, 403, rejection);
       return;
@@ -361,7 +361,7 @@ export interface SchedulerCallbackOpts {
   agentName: string;
   channels: ProviderRegistry['channels'];
   scheduler: ProviderRegistry['scheduler'];
-  isBootstrapMode?: () => boolean;
+  isBootstrapMode?: () => boolean | Promise<boolean>;
   runCompletion: (
     content: string,
     requestId: string,
@@ -383,7 +383,7 @@ export function createSchedulerCallback(opts: SchedulerCallbackOpts): (msg: Inbo
     // Intentionally dropped (not deferred): cron will fire again on its
     // next interval once bootstrap completes, and heartbeat ticks carry
     // no unique payload worth replaying.
-    if (opts.isBootstrapMode?.()) {
+    if (await opts.isBootstrapMode?.()) {
       logger.info('scheduler_skip_bootstrap', { sender: msg.sender });
       return;
     }
@@ -474,7 +474,7 @@ export interface RequestHandlerOpts {
   // Core dependencies
   modelId: string;
   agentName: string;
-  agentDirVal: string;
+  adminCtx: import('./server-admin-helpers.js').AdminContext;
   eventBus: EventBus;
   providers: ProviderRegistry;
   fileStore: FileStore;

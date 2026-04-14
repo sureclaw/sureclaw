@@ -2,6 +2,22 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-14 06:20] — Replace ClawHub filesystem cache with in-memory cache
+
+**Task:** Remove filesystem cache from ClawHub registry client (part of removing ~/.ax/cache/ directory)
+**What I did:** Replaced `cacheDir()`, `ensureCacheDir()`, and fs-based `readCached()`/`writeCache()` with a module-level `Map<string, { data: string; timestamp: number }>`. Removed imports of `mkdir`, `readFile`, `writeFile`, `readdir`, `stat`, `safePath`, `axHome`, and `join`. Made `readCached` synchronous. Updated `listCached()` to query the Map. Updated test to remove AX_HOME temp dir setup and afterAll cleanup.
+**Files touched:** `src/clawhub/registry-client.ts`, `tests/clawhub/registry-client.test.ts`
+**Outcome:** Success — all 11 tests pass
+**Notes:** The in-memory cache has same 1-hour TTL semantics. Cache is per-process and resets on restart, which is acceptable for this use case.
+
+## [2026-04-14 00:00] — Move MITM CA from agents/ to data/ directory
+
+**Task:** Task 6 of plan to remove ~/.ax/agents/ directory — move MITM CA directory from per-agent path to shared data directory
+**What I did:** Changed `const caDir = join(agentDir(agentId), 'ca')` to `const caDir = join(dataDir(), 'ca')` in server-completions.ts line 820. Removed unused `agentDir` from the import statement.
+**Files touched:** `src/host/server-completions.ts`
+**Outcome:** Success. Build compiles cleanly (pre-existing tsc errors in clawhub unrelated).
+**Notes:** The CA is now shared across all agents at `~/.ax/data/ca/` instead of per-agent at `~/.ax/agents/{id}/ca/`.
+
 ## [2026-04-06 14:00] — PVC Workspace Phase 2: Update host and agent code for single workspace
 
 **Task:** Fix all host-side and agent-side code to use the single /workspace model (Phase 1 simplified sandbox providers)

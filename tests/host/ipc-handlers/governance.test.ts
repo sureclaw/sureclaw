@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGovernanceHandlers } from '../../../src/host/ipc-handlers/governance.js';
@@ -7,33 +7,15 @@ import type { AgentRegistry } from '../../../src/host/agent-registry.js';
 import { createSqliteRegistry } from '../../../src/host/agent-registry-db.js';
 import type { IPCContext } from '../../../src/host/ipc-server.js';
 import type { ProviderRegistry } from '../../../src/types.js';
+import type { AdminContext } from '../../../src/host/server-admin-helpers.js';
 
 let tmpDir: string;
 let proposalsDirPath: string;
-let agentDirPath: string;
-let agentConfigDirPath: string;
-let agentTopDirPath: string;
+let adminCtx: AdminContext;
 
 vi.mock('../../../src/paths.js', () => ({
   proposalsDir: () => proposalsDirPath,
-  agentDir: () => agentTopDirPath,
-  agentIdentityDir: () => agentConfigDirPath,
-  agentIdentityFilesDir: () => agentDirPath,
 }));
-
-vi.mock('../../../src/host/server.js', async () => {
-  const { existsSync: ex, readFileSync: rf } = await import('node:fs');
-  const { join: j } = await import('node:path');
-  return {
-    isAgentBootstrapMode: () => false,
-    isAdmin: (dir: string, userId: string) => {
-      const adminsPath = j(dir, 'admins');
-      if (!ex(adminsPath)) return false;
-      const lines = rf(adminsPath, 'utf-8').split('\n').map((l: string) => l.trim()).filter(Boolean);
-      return lines.includes(userId);
-    },
-  };
-});
 
 function createInMemoryDocuments(): any {
   const store = new Map<string, string>();
@@ -60,17 +42,21 @@ describe('Governance IPC handlers', () => {
   beforeEach(async () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'ax-gov-test-'));
     proposalsDirPath = join(tmpDir, 'proposals');
-    agentTopDirPath = join(tmpDir, 'top');
-    agentConfigDirPath = join(tmpDir, 'config');
-    agentDirPath = join(tmpDir, 'agent');
-    mkdirSync(agentDirPath, { recursive: true });
-    mkdirSync(agentConfigDirPath, { recursive: true });
-    mkdirSync(agentTopDirPath, { recursive: true });
-
-    // Seed admins file so existing tests (which use alice) pass admin gate
-    writeFileSync(join(agentTopDirPath, 'admins'), 'alice\n', 'utf-8');
 
     registry = await createSqliteRegistry(join(tmpDir, 'registry.db'));
+    await registry.register({
+      id: 'test-agent',
+      name: 'test-agent',
+      status: 'active',
+      parentId: null,
+      agentType: 'pi-coding-agent',
+      capabilities: [],
+      createdBy: 'system',
+      admins: ['alice'],
+    });
+
+    const documents = createInMemoryDocuments();
+    adminCtx = { registry, documents, agentId: 'test-agent' };
     ctx = { sessionId: 'sess-1', agentId: 'main', userId: 'alice' };
   });
 
@@ -81,7 +67,7 @@ describe('Governance IPC handlers', () => {
   test('identity_propose creates a pending proposal', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -107,7 +93,7 @@ describe('Governance IPC handlers', () => {
     const providers = stubProviders();
     (providers.security.scanInput as any).mockResolvedValue({ verdict: 'BLOCK', reason: 'malicious' });
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -125,7 +111,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_list returns all proposals', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -147,7 +133,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_list filters by status', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -171,7 +157,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_review approves and applies identity change', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -190,15 +176,15 @@ describe('Governance IPC handlers', () => {
     expect(result.reviewed).toBe(true);
     expect(result.decision).toBe('approved');
 
-    // Verify SOUL.md was written to agentDir
-    const soulContent = readFileSync(join(agentDirPath, 'SOUL.md'), 'utf-8');
+    // Verify SOUL.md was written to DocumentStore
+    const soulContent = await providers.storage.documents.get('identity', 'test-agent/SOUL.md');
     expect(soulContent).toBe('I am a soul');
   });
 
   test('proposal_review rejects a proposal without applying', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -215,13 +201,15 @@ describe('Governance IPC handlers', () => {
     );
 
     expect(result.decision).toBe('rejected');
-    expect(existsSync(join(agentDirPath, 'SOUL.md'))).toBe(false);
+    // SOUL.md should NOT be in DocumentStore after rejection
+    const soul = await providers.storage.documents.get('identity', 'test-agent/SOUL.md');
+    expect(soul).toBeFalsy();
   });
 
   test('proposal_review returns error for unknown proposal', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -249,15 +237,16 @@ describe('Governance IPC handlers', () => {
 
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
     });
 
     const result = await handlers.agent_registry_list({});
-    expect(result.agents).toHaveLength(1);
-    expect(result.agents[0].id).toBe('test-bot');
+    // test-agent from beforeEach + test-bot registered above
+    expect(result.agents).toHaveLength(2);
+    expect(result.agents.map((a: any) => a.id)).toContain('test-bot');
   });
 
   test('agent_registry_get returns specific agent', async () => {
@@ -273,7 +262,7 @@ describe('Governance IPC handlers', () => {
 
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -286,7 +275,7 @@ describe('Governance IPC handlers', () => {
   test('agent_registry_get returns error for unknown agent', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -301,7 +290,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_review rejects non-admin users', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -327,7 +316,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_review allows admin users', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,
@@ -351,7 +340,7 @@ describe('Governance IPC handlers', () => {
   test('proposal_review allows when no userId (system context)', async () => {
     const providers = stubProviders();
     const handlers = createGovernanceHandlers(providers, {
-      agentDir: agentDirPath,
+      adminCtx,
       agentId: 'test-agent',
       profile: 'balanced',
       registry,

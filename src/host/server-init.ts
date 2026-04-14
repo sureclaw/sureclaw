@@ -1,23 +1,23 @@
 // src/host/server-init.ts — Shared host initialization for both server-local.ts and server-k8s.ts.
 //
-// Encapsulates the duplicated setup: storage → routing → taint budget → agent dir →
-// template seeding → skills seeding → admins → IPC socket → CompletionDeps → delegation →
+// Encapsulates the duplicated setup: storage → routing → taint budget →
+// template seeding → IPC socket → CompletionDeps → delegation →
 // orchestrator → agent registry → createIPCHandler.
 
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, copyFileSync, cpSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { getLogger } from '../logger.js';
 import type { Config, ProviderRegistry } from '../types.js';
-import { dataDir, agentDir as agentDirPath, agentIdentityDir, agentIdentityFilesDir, agentSkillsDir } from '../paths.js';
+import { dataDir } from '../paths.js';
 import { createRouter, type Router } from './router.js';
 import { createIPCHandler, createIPCServer, type DelegateRequest, type IPCContext } from './ipc-server.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { createOrchestrator, type Orchestrator } from './orchestration/orchestrator.js';
 import { FileStore } from '../file-store.js';
-import { templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
+import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
 import type { EventBus } from './event-bus.js';
 import type { MessageQueueStore, ConversationStoreProvider } from '../providers/storage/types.js';
 import { createAgentRegistry, type AgentRegistry } from './agent-registry.js';
@@ -26,6 +26,7 @@ import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
 import { reloadPluginMcpServers, loadDatabaseMcpServers } from '../plugins/startup.js';
+import type { AdminContext } from './server-admin-helpers.js';
 
 const logger = getLogger();
 
@@ -59,8 +60,7 @@ export interface HostCore {
   agentRegistry: AgentRegistry;
   provisioner: AgentProvisioner;
   agentId: string;
-  agentDirVal: string;
-  identityFilesDir: string;
+  adminCtx: AdminContext;
   sessionCanaries: Map<string, string>;
   workspaceMap: Map<string, string>;
   requestedCredentials: Map<string, Set<string>>;
@@ -108,38 +108,24 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const taintBudget = new TaintBudget({ threshold: thresholdForProfile(config.profile) });
   const router = createRouter(providers, db, { taintBudget });
 
-  // ── Agent directory setup ──
+  // ── Agent identity ──
   const agentId = config.agent_name;
-  const agentDirVal = agentDirPath(agentId);
-  const agentConfigDir = agentIdentityDir(agentId);
-  const identityFilesDir = agentIdentityFilesDir(agentId);
-  mkdirSync(agentDirVal, { recursive: true });
-  mkdirSync(agentConfigDir, { recursive: true });
-  mkdirSync(identityFilesDir, { recursive: true });
 
-  // Let scheduler know where the identity files dir is (for HEARTBEAT.md loading)
-  config.scheduler.agent_dir = identityFilesDir;
-
-  // ── Template seeding — seed to both filesystem and DocumentStore ──
+  // ── Template seeding — seed to DocumentStore only ──
   const templatesDir = resolveTemplatesDir();
   const documents = providers.storage.documents;
 
-  // Check both filesystem AND DocumentStore for bootstrap completion
-  const fsBootstrapComplete =
-    existsSync(join(identityFilesDir, 'SOUL.md')) && existsSync(join(identityFilesDir, 'IDENTITY.md'));
-  let dbBootstrapComplete = false;
+  // Check DocumentStore for bootstrap completion
+  let bootstrapAlreadyComplete = false;
   try {
     const dbSoul = await documents.get('identity', `${agentId}/SOUL.md`);
     const dbIdentity = await documents.get('identity', `${agentId}/IDENTITY.md`);
-    dbBootstrapComplete = !!(dbSoul && dbIdentity);
+    bootstrapAlreadyComplete = !!(dbSoul && dbIdentity);
   } catch { /* DocumentStore may not support get-or-null, treat as not complete */ }
-  const bootstrapAlreadyComplete = fsBootstrapComplete || dbBootstrapComplete;
 
-  // Identity files → identityFilesDir + DocumentStore
+  // Identity files → DocumentStore
   for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
-    const dest = join(identityFilesDir, file);
     const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
     if (existsSync(src)) {
       const key = `${agentId}/${file}`;
       try {
@@ -149,66 +135,67 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     }
   }
 
-  // Config files → agentConfigDir
-  for (const file of ['capabilities.yaml']) {
-    const dest = join(agentConfigDir, file);
-    const src = join(templatesDir, file);
-    if (!existsSync(dest) && existsSync(src)) copyFileSync(src, dest);
-  }
-
-  // BOOTSTRAP.md → both agentConfigDir and identityFilesDir + DocumentStore
+  // BOOTSTRAP.md + USER_BOOTSTRAP.md → DocumentStore
+  // Always overwrite with latest template so stale instructions are refreshed.
   if (!bootstrapAlreadyComplete) {
     const src = join(templatesDir, 'BOOTSTRAP.md');
     if (existsSync(src)) {
-      const configDest = join(agentConfigDir, 'BOOTSTRAP.md');
-      const identityDest = join(identityFilesDir, 'BOOTSTRAP.md');
-      if (!existsSync(configDest)) copyFileSync(src, configDest);
-      if (!existsSync(identityDest)) copyFileSync(src, identityDest);
-      const key = `${agentId}/BOOTSTRAP.md`;
       try {
-        const existing = await documents.get('identity', key);
-        if (!existing) await documents.put('identity', key, readFileSync(src, 'utf-8'));
+        await documents.put('identity', `${agentId}/BOOTSTRAP.md`, readFileSync(src, 'utf-8'));
       } catch { /* non-fatal */ }
     }
     const ubSrc = join(templatesDir, 'USER_BOOTSTRAP.md');
     if (existsSync(ubSrc)) {
-      const key = `${agentId}/USER_BOOTSTRAP.md`;
       try {
-        const existing = await documents.get('identity', key);
-        if (!existing) await documents.put('identity', key, readFileSync(ubSrc, 'utf-8'));
+        await documents.put('identity', `${agentId}/USER_BOOTSTRAP.md`, readFileSync(ubSrc, 'utf-8'));
       } catch { /* non-fatal */ }
     }
   }
 
-  // Skills seeding
-  const persistentSkillsDir = agentSkillsDir(agentId);
-  mkdirSync(persistentSkillsDir, { recursive: true });
+  // Skills seeding — seed to DocumentStore if no skills exist yet
   try {
-    const existingSkills = readdirSync(persistentSkillsDir).filter(f => f.endsWith('.md'));
-    const existingDirs = readdirSync(persistentSkillsDir, { withFileTypes: true })
-      .filter(d => d.isDirectory() && existsSync(join(persistentSkillsDir, d.name, 'SKILL.md')));
-    if (existingSkills.length === 0 && existingDirs.length === 0) {
+    const { listSkills, upsertSkill } = await import('../providers/storage/skills.js');
+    const existingSkills = await listSkills(documents, agentId);
+    if (existingSkills.length === 0) {
+      const { seedSkillsDir: resolveSeedSkillsDir } = await import('../utils/assets.js');
       const seedDir = resolveSeedSkillsDir();
       if (existsSync(seedDir)) {
+        const { readdirSync } = await import('node:fs');
         const seedEntries = readdirSync(seedDir, { withFileTypes: true });
         for (const entry of seedEntries) {
+          let skillName: string | undefined;
+          let content: string | undefined;
           if (entry.isFile() && entry.name.endsWith('.md')) {
-            copyFileSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name));
+            content = readFileSync(join(seedDir, entry.name), 'utf-8');
+            skillName = entry.name.replace(/\.md$/, '');
           } else if (entry.isDirectory()) {
-            cpSync(join(seedDir, entry.name), join(persistentSkillsDir, entry.name), { recursive: true });
+            const skillMdPath = join(seedDir, entry.name, 'SKILL.md');
+            if (existsSync(skillMdPath)) {
+              content = readFileSync(skillMdPath, 'utf-8');
+              skillName = entry.name;
+            }
+          }
+          if (skillName && content) {
+            await upsertSkill(documents, {
+              id: skillName,
+              agentId,
+              version: '0.0.0',
+              instructions: content,
+              mcpApps: [],
+            });
           }
         }
       }
     }
   } catch { /* non-fatal */ }
 
-  // Admins file
   const defaultUserId = process.env.USER ?? 'default';
-  const adminsPath = join(agentDirVal, 'admins');
-  if (!existsSync(adminsPath)) writeFileSync(adminsPath, '', 'utf-8');
 
   // ── IPC socket ──
-  const ipcSocketDir = mkdtempSync(join(tmpdir(), 'ax-'));
+  // Use dataDir() on macOS so Docker Desktop can mount it (VirtioFS doesn't
+  // support Unix sockets under /var/folders). On Linux, tmpdir() is fine.
+  const ipcSocketBase = process.platform === 'darwin' ? dataDir() : tmpdir();
+  const ipcSocketDir = mkdtempSync(join(ipcSocketBase, 'ax-'));
   const ipcSocketPath = join(ipcSocketDir, 'proxy.sock');
   const sessionCanaries = new Map<string, string>();
   const workspaceMap = new Map<string, string>();
@@ -290,10 +277,27 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const provisioner = new AgentProvisioner(agentRegistry, providers.storage?.documents);
   completionDeps.provisioner = provisioner;
 
+  // ── Ensure agent exists in registry ──
+  const existingAgent = await agentRegistry.get(agentId);
+  if (!existingAgent) {
+    await agentRegistry.register({
+      id: agentId,
+      name: agentId,
+      status: 'active',
+      parentId: null,
+      agentType: config.agent ?? 'pi-coding-agent',
+      capabilities: [],
+      createdBy: 'system',
+      admins: [defaultUserId],
+    });
+  }
+
+  // ── Admin context (DB-backed) ──
+  const adminCtx: AdminContext = { registry: agentRegistry, documents, agentId };
+
   // ── IPC handler ──
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
-    agentDir: identityFilesDir,
     agentId,
     profile: config.profile,
     configModel: config.models?.default?.[0],
@@ -308,6 +312,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     workspaceMap,
     requestedCredentials,
     domainList,
+    adminCtx,
     // Legacy: providers.mcp (database MCP provider) is kept as fallback for
     // tool batching. When all callers migrate to McpConnectionManager, remove
     // providers.mcp and the legacy fallback paths in tool-router.ts,
@@ -350,10 +355,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   completionDeps.ipcHandler = handleIPC;
 
   // ── Load MCP servers into the manager from plugins and database ──
-  // Database MCP servers and plugin servers are loaded into McpConnectionManager,
-  // which provides unified tool discovery and routing via discoverAllTools() and
-  // getToolServerUrl(). The legacy providers.mcp path remains as a fallback
-  // until the unified manager fully replaces it.
   if (mcpManager && providers.storage?.documents) {
     await reloadPluginMcpServers(providers.storage.documents, mcpManager);
   }
@@ -387,8 +388,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     agentRegistry,
     provisioner,
     agentId,
-    agentDirVal,
-    identityFilesDir,
+    adminCtx,
     sessionCanaries,
     workspaceMap,
     requestedCredentials,

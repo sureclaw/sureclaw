@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { isValidSessionId, agentDir, agentStateDir, agentUserDir, axHome, composeSessionId, parseSessionId, userSkillsDir, agentSkillsDir, webhooksDir, webhookTransformPath, configPath } from '../src/paths.js';
+import { isValidSessionId, agentDir, agentUserDir, axHome, composeSessionId, parseSessionId, webhooksDir, webhookTransformPath, configPath } from '../src/paths.js';
 
 describe('paths', () => {
   const originalEnv = process.env.AX_HOME;
@@ -108,10 +108,6 @@ describe('paths', () => {
     expect(agentDir('assistant')).toBe(join(axHome(), 'agents', 'assistant'));
   });
 
-  test('agentStateDir is a deprecated alias for agentDir', () => {
-    expect(agentStateDir('assistant')).toBe(agentDir('assistant'));
-  });
-
   test('agentUserDir returns ~/.ax/agents/<name>/users/<userId>', () => {
     expect(agentUserDir('assistant', 'U12345')).toBe(
       join(axHome(), 'agents', 'assistant', 'users', 'U12345'),
@@ -132,24 +128,6 @@ describe('paths', () => {
 
   test('agentDir rejects path traversal in agent name', () => {
     expect(() => agentDir('../etc')).toThrow();
-  });
-
-  test('userSkillsDir returns path under agent users dir', () => {
-    expect(userSkillsDir('main', 'alice')).toBe(
-      join(axHome(), 'agents', 'main', 'users', 'alice', 'skills'),
-    );
-  });
-
-  test('userSkillsDir rejects path traversal', () => {
-    expect(() => userSkillsDir('../etc', 'alice')).toThrow();
-    expect(() => userSkillsDir('main', '../etc')).toThrow();
-    expect(() => userSkillsDir('main', '')).toThrow();
-  });
-
-  test('agentSkillsDir returns path under agent identity dir', () => {
-    expect(agentSkillsDir('main')).toBe(
-      join(axHome(), 'agents', 'main', 'agent', 'skills'),
-    );
   });
 
   test('webhooksDir returns ~/.ax/webhooks/', () => {

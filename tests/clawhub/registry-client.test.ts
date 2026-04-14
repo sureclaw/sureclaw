@@ -1,12 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, test, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
-
-// Must be set before importing registry-client so axHome() resolves to the temp dir
-let tmpHome: string;
-tmpHome = mkdtempSync(join(tmpdir(), 'ax-clawhub-test-'));
-process.env.AX_HOME = tmpHome;
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import * as client from '../../src/clawhub/registry-client.js';
 
@@ -81,10 +73,6 @@ describe('clawhub-registry-client', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  afterAll(() => {
-    try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 
   function mockJsonResponse(data: unknown, ok = true) {

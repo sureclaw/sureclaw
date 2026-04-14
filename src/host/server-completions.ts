@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { agentDir, dataDir } from '../paths.js';
+import { dataDir } from '../paths.js';
 import { createCanonicalSymlinks } from '../providers/sandbox/canonical-paths.js';
 import { isAdmin } from './server-admin-helpers.js';
 import type { Config, ProviderRegistry, ContentBlock, ImageMimeType } from '../types.js';
@@ -817,7 +817,7 @@ export async function processCompletion(
       };
       // Generate MITM CA — always create it upfront so we can pass it to the proxy.
       // Credentials are registered later (after agentWsPath is set) by reference.
-      const caDir = join(agentDir(agentId), 'ca');
+      const caDir = join(dataDir(), 'ca');
       const ca = await getOrCreateCA(caDir);
       caCertPem = ca.cert;
       const mitmConfig = {
@@ -1312,8 +1312,8 @@ export async function processCompletion(
               const tagMatch = line.match(/^\[([\w-]+)\]\s*(.*)/);
               if (tagMatch) {
                 reqLogger.debug(`agent_${tagMatch[1]}`, { message: tagMatch[2] });
-              } else {
-                reqLogger.info('agent_stderr', { line });
+              } else if (!line.trimStart().startsWith('{')) {
+                reqLogger.debug('agent_stderr', { line });
               }
             }
           }
@@ -1475,7 +1475,8 @@ export async function processCompletion(
         const tagMatch = line.trimStart().match(/^\[([\w-]+)\]\s*(.*)/);
         if (tagMatch) {
           reqLogger.debug(`agent_${tagMatch[1]}`, { message: tagMatch[2] });
-        } else if (line.trim()) {
+        } else if (line.trim() && !line.trimStart().startsWith('{')) {
+          // Skip structured JSON logs (agent pino output) — only collect unstructured stderr
           nonDiagLines.push(line);
         }
       }

@@ -9,13 +9,11 @@
  */
 
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import { existsSync, copyFileSync, renameSync, rmSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-import { axHome, agentIdentityDir } from '../paths.js';
+import { existsSync, rmSync, unlinkSync } from 'node:fs';
+import { axHome } from '../paths.js';
 import type { Config } from '../types.js';
 import { loadProviders } from './registry.js';
 import { getLogger } from '../logger.js';
-import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
 import type { EventBus } from './event-bus.js';
 import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
 
@@ -31,6 +29,7 @@ import {
   createSchedulerCallback,
 } from './server-request-handlers.js';
 import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
+import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
 
 // =====================================================
 // Types
@@ -60,8 +59,7 @@ export interface AxServer {
 // Helpers (re-exported from server-admin-helpers.ts)
 // =====================================================
 
-import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
-export { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
+export { isAgentBootstrapMode, isAdmin, addAdmin, claimBootstrapAdmin, type AdminContext } from './server-admin-helpers.js';
 
 // =====================================================
 // Server Factory
@@ -71,7 +69,7 @@ export async function createServer(
   config: Config,
   opts: ServerOptions = {},
 ): Promise<AxServer> {
-  const socketPath = opts.socketPath ?? join(axHome(), 'ax.sock');
+  const socketPath = opts.socketPath ?? `${axHome()}/ax.sock`;
 
   // Use the singleton logger
   const logger = getLogger();
@@ -109,46 +107,9 @@ export async function createServer(
   const {
     completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore, gcsFileStorage,
     ipcServer, ipcSocketDir, orchestrator, disableAutoState,
-    agentRegistry, agentId: agentName, agentDirVal, identityFilesDir, sessionCanaries,
+    agentRegistry, agentId: agentName, adminCtx, sessionCanaries,
     modelId,
   } = core;
-
-  // ── Legacy migration (server.ts-only): move files from flat layout to subdirectories ──
-  const agentConfigDir = agentIdentityDir(agentName);
-  const legacyIdentityFiles = ['AGENTS.md', 'SOUL.md', 'IDENTITY.md', 'HEARTBEAT.md'];
-  for (const file of legacyIdentityFiles) {
-    const legacySrc = join(agentDirVal, file);
-    const newDest = join(identityFilesDir, file);
-    if (existsSync(legacySrc) && !existsSync(newDest)) {
-      renameSync(legacySrc, newDest);
-    }
-  }
-  const legacyConfigFiles = ['BOOTSTRAP.md', 'USER_BOOTSTRAP.md', 'capabilities.yaml'];
-  for (const file of legacyConfigFiles) {
-    const legacySrc = join(agentDirVal, file);
-    const newDest = join(agentConfigDir, file);
-    if (existsSync(legacySrc) && !existsSync(newDest)) {
-      renameSync(legacySrc, newDest);
-    }
-  }
-  // Cleanup: USER_BOOTSTRAP.md should NOT be in identityFilesDir (it's passed via stdin).
-  try {
-    unlinkSync(join(identityFilesDir, 'USER_BOOTSTRAP.md'));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      logger.debug('user_bootstrap_cleanup_failed', { error: (err as Error).message });
-    }
-  }
-
-  // USER_BOOTSTRAP.md → agentConfigDir (filesystem copy, server.ts-specific)
-  {
-    const templatesDir = resolveTemplatesDir();
-    const src = join(templatesDir, 'USER_BOOTSTRAP.md');
-    if (existsSync(src)) {
-      const configDest = join(agentConfigDir, 'USER_BOOTSTRAP.md');
-      if (!existsSync(configDest)) copyFileSync(src, configDest);
-    }
-  }
 
   // ── Deduplication (server.ts-only) ──
   const deduplicator = new ChannelDeduplicator({
@@ -239,7 +200,7 @@ export async function createServer(
   const handleRequest = createRequestHandler({
     modelId,
     agentName,
-    agentDirVal,
+    adminCtx,
     eventBus,
     providers,
     fileStore,
@@ -248,18 +209,21 @@ export async function createServer(
     completionOpts: {
       modelId,
       agentName,
-      agentDirVal,
+      adminCtx,
       eventBus,
       runCompletion: async (content, requestId, messages, sessionId, userId) => {
         return processCompletion(completionDeps, content, requestId, messages, sessionId, undefined, userId);
       },
-      preFlightCheck: (sessionId: string, userId: string | undefined) => {
-        if (userId && isAgentBootstrapMode(agentName) && !isAdmin(agentDirVal, userId)) {
-          if (claimBootstrapAdmin(agentDirVal, userId)) {
-            logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
-            return undefined;
+      preFlightCheck: async (_sessionId: string, userId: string | undefined) => {
+        if (userId && await isAgentBootstrapMode(core.adminCtx)) {
+          if (!(await isAdmin(core.adminCtx, userId))) {
+            const claimed = await claimBootstrapAdmin(core.adminCtx, userId);
+            if (claimed) {
+              logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+              return undefined;
+            }
+            return 'This agent is still being set up. Only admins can interact during bootstrap.';
           }
-          return 'This agent is still being set up. Only admins can interact during bootstrap.';
         }
         return undefined;
       },
@@ -338,7 +302,7 @@ export async function createServer(
       agentName,
       channels: providers.channels,
       scheduler: providers.scheduler,
-      isBootstrapMode: () => isAgentBootstrapMode(agentName),
+      isBootstrapMode: () => isAgentBootstrapMode(adminCtx),
       runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed, agentId) => {
         const schedConfig = {
           ...config,
@@ -363,12 +327,9 @@ export async function createServer(
         sessionCanaries,
         router,
         agentName,
-        agentDir: agentDirVal,
+        adminCtx,
         deduplicator,
         logger,
-        isAgentBootstrapMode: (name: string) => isAgentBootstrapMode(name),
-        isAdmin,
-        claimBootstrapAdmin,
         provisioner: core.provisioner,
         agentRegistry: core.agentRegistry,
         threadOwners,
@@ -377,9 +338,6 @@ export async function createServer(
     }
 
     // ── Shared agent startup ──
-    // Each shared_agents entry in config gets its own Slack provider with
-    // separate bot/app tokens. They register in the agent registry as 'shared'
-    // agents and get their own channel handler with boundAgentId.
     if (config.shared_agents?.length) {
       for (const sa of config.shared_agents) {
         try {
@@ -421,6 +379,9 @@ export async function createServer(
           const { createWithTokens } = await import('../providers/channel/slack.js');
           const slackChannel = await createWithTokens(config, { botToken, appToken }, `slack:${sa.id}`);
 
+          // Shared agent admin context
+          const saAdminCtx = { ...adminCtx, agentId: sa.id };
+
           // Register channel handler bound to this shared agent
           registerChannelHandler(slackChannel, {
             completionDeps,
@@ -429,12 +390,9 @@ export async function createServer(
             sessionCanaries,
             router,
             agentName: sa.id,
-            agentDir: agentDirVal,
+            adminCtx: saAdminCtx,
             deduplicator,
             logger,
-            isAgentBootstrapMode: (name: string) => isAgentBootstrapMode(name),
-            isAdmin,
-            claimBootstrapAdmin,
             provisioner: core.provisioner,
             agentRegistry: core.agentRegistry,
             threadOwners,

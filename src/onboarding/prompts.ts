@@ -2,28 +2,6 @@
  * Profile-based provider defaults for onboarding.
  */
 
-export interface ProfileDefaults {
-  timeoutSec: number;
-  memoryMb: number;
-}
-
-const defaultSandbox = process.platform === 'darwin' ? 'apple' : 'docker';
-
-export const PROFILE_DEFAULTS: Record<string, ProfileDefaults> = {
-  paranoid: {
-    timeoutSec: 60,
-    memoryMb: 256,
-  },
-  balanced: {
-    timeoutSec: 120,
-    memoryMb: 512,
-  },
-  yolo: {
-    timeoutSec: 300,
-    memoryMb: 1024,
-  },
-};
-
 export const PROFILE_NAMES = ['paranoid', 'balanced', 'yolo'] as const;
 
 export type ProfileName = (typeof PROFILE_NAMES)[number];

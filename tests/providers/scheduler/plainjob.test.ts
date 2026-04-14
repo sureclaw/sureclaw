@@ -340,20 +340,27 @@ describe('scheduler-plainjob', () => {
     expect(hbMsg!.content).toContain('Heartbeat check');
   });
 
-  test('heartbeat message includes HEARTBEAT.md content when file exists', async () => {
-    const agentDir = mkdtempSync(join(tmpdir(), 'hb-plainjob-'));
-    writeFileSync(join(agentDir, 'HEARTBEAT.md'), '# My Checks\n- check emails (every 2h)');
+  test('heartbeat message includes HEARTBEAT.md content from DocumentStore', async () => {
+    const memDocs = {
+      _store: new Map<string, string>(),
+      async get(collection: string, key: string) { return this._store.get(`${collection}:${key}`); },
+      async put(collection: string, key: string, content: string) { this._store.set(`${collection}:${key}`, content); },
+      async delete(collection: string, key: string) { return this._store.delete(`${collection}:${key}`); },
+      async list(collection: string) {
+        return [...this._store.keys()].filter(k => k.startsWith(`${collection}:`)).map(k => k.slice(collection.length + 1));
+      },
+    };
+    await memDocs.put('identity', `${mockConfig.agent_name}/HEARTBEAT.md`, '# My Checks\n- check emails (every 2h)');
 
     const config = {
       ...mockConfig,
       scheduler: {
         ...mockConfig.scheduler,
-        agent_dir: agentDir,
         heartbeat_interval_min: 0.001,
       },
     } as Config;
 
-    const scheduler = await create(config, { jobStore: new MemoryJobStore() });
+    const scheduler = await create(config, { jobStore: new MemoryJobStore(), documents: memDocs });
     const received: InboundMessage[] = [];
 
     await scheduler.start(msg => received.push(msg));
@@ -364,8 +371,6 @@ describe('scheduler-plainjob', () => {
     expect(hbMsg).toBeTruthy();
     expect(hbMsg!.content).toContain('# My Checks');
     expect(hbMsg!.content).toContain('check emails');
-
-    rmSync(agentDir, { recursive: true, force: true });
   });
 
   // ─── Cron matching ─────────────────────────────────

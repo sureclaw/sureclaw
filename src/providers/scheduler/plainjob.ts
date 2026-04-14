@@ -1,6 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { readFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
 import type { SchedulerProvider, CronJobDef, JobStore } from './types.js';
 import { KyselyJobStore } from '../../job-store.js';
 import type { InboundMessage } from '../shared-types.js';
@@ -21,6 +20,7 @@ interface PlainJobSchedulerDeps {
   jobStore?: JobStore;
   database?: DatabaseProvider;
   eventbus?: EventBusProvider;
+  documents?: import('../storage/types.js').DocumentStore;
 }
 
 export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): Promise<SchedulerProvider> {
@@ -78,7 +78,7 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   };
 
   const heartbeatIntervalMs = config.scheduler.heartbeat_interval_min * 60 * 1000;
-  const agentDir = config.scheduler.agent_dir;
+  const documents = deps.documents;
 
   // ─── Proactive hint gating ─────────────────────────
   const confidenceThreshold = config.scheduler.proactive_hint_confidence_threshold ?? 0.7;
@@ -141,18 +141,18 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
     emitHeartbeat();
   }
 
-  function emitHeartbeat(): void {
+  async function emitHeartbeat(): Promise<void> {
     if (!onMessageHandler) return;
 
+    inFlight.add(HEARTBEAT_JOB_ID);
+
     let content = 'Heartbeat check — review pending tasks and proactive hints.';
-    if (agentDir) {
+    if (documents) {
       try {
-        const md = readFileSync(join(agentDir, 'HEARTBEAT.md'), 'utf-8');
-        if (md.trim()) content = md;
+        const md = await documents.get('identity', `${agentName}/HEARTBEAT.md`);
+        if (md?.trim()) content = md;
       } catch { /* no HEARTBEAT.md — use default */ }
     }
-
-    inFlight.add(HEARTBEAT_JOB_ID);
     let result: unknown;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

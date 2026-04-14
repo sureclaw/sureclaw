@@ -17,11 +17,11 @@ Don't interrogate. Don't run through a checklist. Just talk.
 
 ## Next Steps
 
-When you feel you have a clear picture, use your identity tools to write:
+When you feel you have a clear picture, use the `identity` tool to write:
 
-- **SOUL.md** — your values, philosophy, and behavioral boundaries (use `identity_write`)
-- **IDENTITY.md** — your name, emoji, vibe, how you present yourself (use `identity_write`)
-- **USER.md** — what you've learned about your user (use `user_write`)
+- **SOUL.md** — your values, philosophy, and behavioral boundaries: `identity({ type: "write", file: "SOUL.md", content: "...", reason: "...", origin: "agent_initiated" })`
+- **IDENTITY.md** — your name, emoji, vibe, how you present yourself: `identity({ type: "write", file: "IDENTITY.md", content: "...", reason: "...", origin: "agent_initiated" })`
+- **USER.md** — what you've learned about your user: `identity({ type: "user_write", content: "...", reason: "...", origin: "agent_initiated" })`
 
 ## Then
 

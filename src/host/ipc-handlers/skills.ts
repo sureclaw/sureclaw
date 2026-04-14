@@ -17,8 +17,7 @@ import * as clawhub from '../../clawhub/registry-client.js';
 import { parseAgentSkill } from '../../utils/skill-format-parser.js';
 import { generateManifest } from '../../utils/manifest-generator.js';
 import { resolveCredential } from '../credential-scopes.js';
-import { isAdmin } from '../server-admin-helpers.js';
-import { agentDir as agentDirPath } from '../../paths.js';
+import { isAdmin, type AdminContext } from '../server-admin-helpers.js';
 import { getLogger } from '../../logger.js';
 import { upsertSkill, getSkill, deleteSkill, inferMcpApps } from '../../providers/storage/skills.js';
 
@@ -28,6 +27,7 @@ export interface SkillsHandlerOptions {
   requestedCredentials?: Map<string, Set<string>>;
   eventBus?: EventBus;
   domainList?: ProxyDomainList;
+  adminCtx?: AdminContext;
 }
 
 export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsHandlerOptions) {
@@ -115,8 +115,7 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       const agentId = ctx.agentId;
 
       // Determine scope: only admins get agent-scoped skills, everyone else gets user-scoped.
-      const topDir = agentDirPath(agentId);
-      const userIsAdmin = ctx.userId ? isAdmin(topDir, ctx.userId) : false;
+      const userIsAdmin = ctx.userId && opts?.adminCtx ? await isAdmin({ ...opts.adminCtx, agentId }, ctx.userId) : false;
       const scope = userIsAdmin ? 'agent' as const : 'user' as const;
 
       if (scope === 'user' && !ctx.userId) {
