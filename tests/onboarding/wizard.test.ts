@@ -33,8 +33,8 @@ describe('Onboarding Wizard', () => {
 
     const config = parseYaml(readFileSync(configPath, 'utf-8'));
     expect(config.profile).toBe('paranoid');
-    expect(config.sandbox.timeout_sec).toBe(60);
-    expect(config.sandbox.memory_mb).toBe(256);
+    // Sandbox config is no longer written to ax.yaml — Zod defaults apply at load time
+    expect(config.sandbox).toBeUndefined();
   });
 
   test('generates valid ax.yaml for balanced profile', async () => {
@@ -46,8 +46,7 @@ describe('Onboarding Wizard', () => {
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('balanced');
-    expect(config.sandbox.timeout_sec).toBe(120);
-    expect(config.sandbox.memory_mb).toBe(512);
+    expect(config.sandbox).toBeUndefined();
   });
 
   test('generates valid ax.yaml for yolo profile', async () => {
@@ -59,8 +58,7 @@ describe('Onboarding Wizard', () => {
 
     const config = parseYaml(readFileSync(join(dir, 'ax.yaml'), 'utf-8'));
     expect(config.profile).toBe('yolo');
-    expect(config.sandbox.timeout_sec).toBe(300);
-    expect(config.sandbox.memory_mb).toBe(1024);
+    expect(config.sandbox).toBeUndefined();
   });
 
   // ── Minimal config — no providers block ──
