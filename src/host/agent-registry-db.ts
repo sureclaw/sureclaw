@@ -257,39 +257,43 @@ export class DatabaseAgentRegistry implements AgentRegistry {
   }
 
   async addAdmin(agentId: string, userId: string): Promise<void> {
-    const row = await this.db.selectFrom('agent_registry')
-      .select('admins')
-      .where('id', '=', agentId)
-      .executeTakeFirst() as { admins: string } | undefined;
-    if (!row) return;
-    const admins: string[] = JSON.parse(row.admins || '[]');
-    if (admins.includes(userId)) return;
-    admins.push(userId);
-    await this.db.updateTable('agent_registry')
-      .set({ admins: JSON.stringify(admins), updated_at: new Date().toISOString() })
-      .where('id', '=', agentId)
-      .execute();
-  }
-
-  async claimBootstrapAdmin(agentId: string, userId: string): Promise<boolean> {
-    const row = await this.db.selectFrom('agent_registry')
-      .select('admins')
-      .where('id', '=', agentId)
-      .executeTakeFirst() as { admins: string } | undefined;
-    if (!row) return false;
-    const admins: string[] = JSON.parse(row.admins || '[]');
-    // Default admin is the OS user or 'default' — anyone beyond that means already claimed
-    const defaultUser = process.env.USER ?? 'default';
-    const nonDefaultAdmins = admins.filter(a => a !== defaultUser && a !== 'system');
-    if (nonDefaultAdmins.length > 0) return false;
-    if (!admins.includes(userId)) {
+    await this.db.transaction().execute(async (trx) => {
+      const row = await trx.selectFrom('agent_registry')
+        .select('admins')
+        .where('id', '=', agentId)
+        .executeTakeFirst() as { admins: string } | undefined;
+      if (!row) return;
+      const admins: string[] = JSON.parse(row.admins || '[]');
+      if (admins.includes(userId)) return;
       admins.push(userId);
-      await this.db.updateTable('agent_registry')
+      await trx.updateTable('agent_registry')
         .set({ admins: JSON.stringify(admins), updated_at: new Date().toISOString() })
         .where('id', '=', agentId)
         .execute();
-    }
-    return true;
+    });
+  }
+
+  async claimBootstrapAdmin(agentId: string, userId: string): Promise<boolean> {
+    return this.db.transaction().execute(async (trx) => {
+      const row = await trx.selectFrom('agent_registry')
+        .select('admins')
+        .where('id', '=', agentId)
+        .executeTakeFirst() as { admins: string } | undefined;
+      if (!row) return false;
+      const admins: string[] = JSON.parse(row.admins || '[]');
+      // Default admin is the OS user or 'default' — anyone beyond that means already claimed
+      const defaultUser = process.env.USER ?? 'default';
+      const nonDefaultAdmins = admins.filter(a => a !== defaultUser && a !== 'system');
+      if (nonDefaultAdmins.length > 0) return false;
+      if (!admins.includes(userId)) {
+        admins.push(userId);
+        await trx.updateTable('agent_registry')
+          .set({ admins: JSON.stringify(admins), updated_at: new Date().toISOString() })
+          .where('id', '=', agentId)
+          .execute();
+      }
+      return true;
+    });
   }
 
 }

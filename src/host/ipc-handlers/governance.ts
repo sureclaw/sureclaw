@@ -106,7 +106,8 @@ export function createGovernanceHandlers(providers: ProviderRegistry, opts: Gove
     },
 
     proposal_review: async (req: any, ctx: IPCContext) => {
-      // Admin gate — only admins can review proposals
+      // Admin gate — only admins can review proposals.
+      // System context (no userId) bypasses — trusted IPC callers are allowed.
       if (adminCtx && ctx.userId && !(await isAdmin(adminCtx, ctx.userId))) {
         await providers.audit.log({
           action: 'proposal_review',

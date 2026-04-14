@@ -144,6 +144,8 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
   async function emitHeartbeat(): Promise<void> {
     if (!onMessageHandler) return;
 
+    inFlight.add(HEARTBEAT_JOB_ID);
+
     let content = 'Heartbeat check — review pending tasks and proactive hints.';
     if (documents) {
       try {
@@ -151,8 +153,6 @@ export async function create(config: Config, deps: PlainJobSchedulerDeps = {}): 
         if (md?.trim()) content = md;
       } catch { /* no HEARTBEAT.md — use default */ }
     }
-
-    inFlight.add(HEARTBEAT_JOB_ID);
     let result: unknown;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

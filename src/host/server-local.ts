@@ -29,6 +29,7 @@ import {
   createSchedulerCallback,
 } from './server-request-handlers.js';
 import { setupWebhookHandler, setupAdminHandler } from './server-webhook-admin.js';
+import { isAgentBootstrapMode, isAdmin, claimBootstrapAdmin } from './server-admin-helpers.js';
 
 // =====================================================
 // Types
@@ -213,21 +214,15 @@ export async function createServer(
       runCompletion: async (content, requestId, messages, sessionId, userId) => {
         return processCompletion(completionDeps, content, requestId, messages, sessionId, undefined, userId);
       },
-      preFlightCheck: async (sessionId: string, userId: string | undefined) => {
-        if (userId && (await core.adminCtx.documents.get('identity', `${agentName}/BOOTSTRAP.md`))) {
-          const isBootstrap = !(await core.adminCtx.documents.get('identity', `${agentName}/SOUL.md`)) ||
-                              !(await core.adminCtx.documents.get('identity', `${agentName}/IDENTITY.md`));
-          if (isBootstrap) {
-            const entry = await agentRegistry.get(agentName);
-            const userIsAdmin = entry?.admins.includes(userId) ?? false;
-            if (!userIsAdmin) {
-              const claimed = await agentRegistry.claimBootstrapAdmin(agentName, userId);
-              if (claimed) {
-                logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
-                return undefined;
-              }
-              return 'This agent is still being set up. Only admins can interact during bootstrap.';
+      preFlightCheck: async (_sessionId: string, userId: string | undefined) => {
+        if (userId && await isAgentBootstrapMode(core.adminCtx)) {
+          if (!(await isAdmin(core.adminCtx, userId))) {
+            const claimed = await claimBootstrapAdmin(core.adminCtx, userId);
+            if (claimed) {
+              logger.info('bootstrap_admin_claimed', { provider: 'http', sender: userId });
+              return undefined;
             }
+            return 'This agent is still being set up. Only admins can interact during bootstrap.';
           }
         }
         return undefined;
@@ -307,13 +302,7 @@ export async function createServer(
       agentName,
       channels: providers.channels,
       scheduler: providers.scheduler,
-      isBootstrapMode: async () => {
-        const bootstrap = await adminCtx.documents.get('identity', `${agentName}/BOOTSTRAP.md`);
-        if (!bootstrap) return false;
-        const soul = await adminCtx.documents.get('identity', `${agentName}/SOUL.md`);
-        const identity = await adminCtx.documents.get('identity', `${agentName}/IDENTITY.md`);
-        return !soul || !identity;
-      },
+      isBootstrapMode: () => isAgentBootstrapMode(adminCtx),
       runCompletion: async (content, requestId, messages, sessionId, userId, preProcessed, agentId) => {
         const schedConfig = {
           ...config,

@@ -154,7 +154,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
 
   // Skills seeding — seed to DocumentStore if no skills exist yet
   try {
-    const { listSkills } = await import('../providers/storage/skills.js');
+    const { listSkills, upsertSkill } = await import('../providers/storage/skills.js');
     const existingSkills = await listSkills(documents, agentId);
     if (existingSkills.length === 0) {
       const { seedSkillsDir: resolveSeedSkillsDir } = await import('../utils/assets.js');
@@ -163,16 +163,26 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
         const { readdirSync } = await import('node:fs');
         const seedEntries = readdirSync(seedDir, { withFileTypes: true });
         for (const entry of seedEntries) {
+          let skillName: string | undefined;
+          let content: string | undefined;
           if (entry.isFile() && entry.name.endsWith('.md')) {
-            const content = readFileSync(join(seedDir, entry.name), 'utf-8');
-            const skillName = entry.name.replace(/\.md$/, '');
-            await documents.put('skills', `${agentId}/${skillName}`, content);
+            content = readFileSync(join(seedDir, entry.name), 'utf-8');
+            skillName = entry.name.replace(/\.md$/, '');
           } else if (entry.isDirectory()) {
             const skillMdPath = join(seedDir, entry.name, 'SKILL.md');
             if (existsSync(skillMdPath)) {
-              const content = readFileSync(skillMdPath, 'utf-8');
-              await documents.put('skills', `${agentId}/${entry.name}`, content);
+              content = readFileSync(skillMdPath, 'utf-8');
+              skillName = entry.name;
             }
+          }
+          if (skillName && content) {
+            await upsertSkill(documents, {
+              id: skillName,
+              agentId,
+              version: '0.0.0',
+              instructions: content,
+              mcpApps: [],
+            });
           }
         }
       }
