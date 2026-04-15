@@ -45,10 +45,13 @@ describe('agent-runner', () => {
     workspace = join(tmpDir, 'workspace');
     socketPath = join(tmpDir, 'test.sock');
     mkdirSync(workspace);
+    // Signal IPC response mode so agent_response is sent via IPC (not stdout)
+    process.env.AX_IPC_LISTEN = '1';
   });
 
   afterEach(() => {
     server?.close();
+    delete process.env.AX_IPC_LISTEN;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
