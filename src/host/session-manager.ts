@@ -71,7 +71,9 @@ export function createSessionManager(opts: SessionManagerOptions) {
     if (entry.killTimer) clearTimeout(entry.killTimer);
 
     const effectiveTimeout = entry.dirty ? opts.idleTimeoutMs : cleanTimeout;
-    const warningDelay = effectiveTimeout - opts.warningLeadMs;
+    // Clamp warning lead to the effective timeout so the total never exceeds it
+    const leadMs = Math.min(opts.warningLeadMs, effectiveTimeout);
+    const warningDelay = Math.max(effectiveTimeout - leadMs, 0);
 
     entry.warningTimer = setTimeout(async () => {
       logger.info('session_expiring_warning', { sessionId, podName: entry.podName });
@@ -85,9 +87,9 @@ export function createSessionManager(opts: SessionManagerOptions) {
         entry.kill();
         teardown(sessionId);
         opts.onKill?.(sessionId, entry);
-      }, opts.warningLeadMs);
+      }, leadMs);
       if (entry.killTimer.unref) entry.killTimer.unref();
-    }, Math.max(warningDelay, 0));
+    }, warningDelay);
     if (entry.warningTimer.unref) entry.warningTimer.unref();
   }
 

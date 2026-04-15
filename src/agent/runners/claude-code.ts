@@ -256,7 +256,9 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     fullPrompt = userMessage;
   }
 
-  // Always buffer text — response goes back to host via agent_response IPC action
+  // Buffer text when response goes via IPC (k8s HTTP or Apple Container bridge).
+  // For Docker/subprocess, stream to stdout — the host reads from stdout.
+  const useIPCResponse = !!process.env.AX_HOST_URL || process.env.AX_IPC_LISTEN === '1';
   const textBuffer: string[] = [];
 
   try {
@@ -309,14 +311,19 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
       },
     });
 
-    // 7. Stream output — buffer text for agent_response IPC
+    // 7. Stream output — buffer for IPC or write to stdout
     let hasOutput = false;
     for await (const msg of result) {
       if (msg.type === 'assistant') {
         for (const block of msg.message.content) {
           if (block.type === 'text') {
-            if (hasOutput) textBuffer.push('\n\n');
-            textBuffer.push(block.text);
+            if (useIPCResponse) {
+              if (hasOutput) textBuffer.push('\n\n');
+              textBuffer.push(block.text);
+            } else {
+              if (hasOutput) process.stdout.write('\n\n');
+              process.stdout.write(block.text);
+            }
             hasOutput = true;
           }
         }
@@ -351,17 +358,17 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
       }
     }
 
-    // Send response back to host via agent_response IPC action.
-    // Short timeout (5s) — the host handler just resolves a promise and returns {ok: true}.
-    // If the bridge is already closed (host killed the process), fail fast instead of
-    // waiting the full 30s heartbeat timeout.
-    const buffered = textBuffer.join('');
-    logger.debug('agent_response', { contentLength: buffered.length });
-    try {
-      await client.call({ action: 'agent_response', content: buffered }, 5000);
-    } catch (err) {
-      logger.error('agent_response_failed', { error: (err as Error).message });
-      process.stderr.write(`Failed to send agent_response: ${(err as Error).message}\n`);
+    // Send response back to host via agent_response IPC action (k8s/bridge only).
+    // Docker/subprocess response goes via stdout — no IPC needed.
+    if (useIPCResponse) {
+      const buffered = textBuffer.join('');
+      logger.debug('agent_response', { contentLength: buffered.length });
+      try {
+        await client.call({ action: 'agent_response', content: buffered }, 5000);
+      } catch (err) {
+        logger.error('agent_response_failed', { error: (err as Error).message });
+        process.stderr.write(`Failed to send agent_response: ${(err as Error).message}\n`);
+      }
     }
   } catch (err) {
     // Surface the error clearly — expired OAuth, network failures, etc.

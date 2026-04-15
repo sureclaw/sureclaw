@@ -183,10 +183,13 @@ describe('pi-session (IPC mode — no proxy)', () => {
     mkdirSync(workspace, { recursive: true });
     mkdirSync(skillsDir, { recursive: true });
     mockServer = createMockIPCServer(socketPath);
+    // Signal IPC response mode so agent_response is sent via IPC (not stdout)
+    process.env.AX_IPC_LISTEN = '1';
   });
 
   afterEach(() => {
     mockServer.close();
+    delete process.env.AX_IPC_LISTEN;
     try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
   });
 
@@ -416,11 +419,14 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
 
     // Mock IPC server for non-LLM tools (memory, web, audit)
     mockIPC = createMockIPCServer(ipcSocketPath);
+    // Signal IPC response mode so agent_response is sent via IPC (not stdout)
+    process.env.AX_IPC_LISTEN = '1';
   });
 
   afterEach(() => {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
+    delete process.env.AX_IPC_LISTEN;
     mockIPC?.close();
     proxyResult?.stop();
     mockApi?.close();

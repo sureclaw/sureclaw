@@ -1317,9 +1317,9 @@ export async function processCompletion(
       });
 
       // Apple containers use an IPC bridge via --publish-socket / virtio-vsock.
-      // Bridge is per-turn: created, used for IPC during the turn, then closed.
+      // Bridge is per-turn: created, used for IPC during the turn, then
+      // cleaned up when the container exits (no explicit close needed).
       // The workspace directory persists across turns (stored in session entry).
-      let bridge: { close: () => void } | undefined;
 
       // Set up per-turn promise for agent_response (bridge or k8s mode).
       let bridgeResponseResolve: ((content: string) => void) | undefined;
@@ -1386,7 +1386,7 @@ export async function processCompletion(
             } catch { /* fall through to real handler */ }
             return deps.ipcHandler!(raw, ctx);
           };
-          bridge = await connectIPCBridge(proc.bridgeSocketPath, bridgeHandler, bridgeCtx);
+          await connectIPCBridge(proc.bridgeSocketPath, bridgeHandler, bridgeCtx);
           reqLogger.debug('ipc_bridge_connected', { bridgeSocketPath: proc.bridgeSocketPath });
         } catch (err) {
           reqLogger.error('ipc_bridge_failed', {

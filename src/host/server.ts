@@ -129,9 +129,9 @@ export async function createServer(
   const core = await initHostCore({ config, providers, eventBus, verbose: opts.verbose });
   const {
     completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore, gcsFileStorage,
-    handleIPC, ipcServer, ipcSocketPath, ipcSocketDir, orchestrator, disableAutoState,
+    handleIPC, ipcServer, ipcSocketDir, orchestrator, disableAutoState,
     agentRegistry, agentId: agentName, adminCtx, sessionCanaries,
-    domainList, defaultUserId, modelId, mcpManager,
+    domainList, defaultUserId, modelId,
   } = core;
 
   const isK8s = config.providers.sandbox === 'k8s';
