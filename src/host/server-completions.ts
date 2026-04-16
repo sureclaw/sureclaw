@@ -4,7 +4,7 @@
  * agent spawning, outbound scanning, and memory persistence.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
@@ -485,13 +485,11 @@ function seedAxDirectory(workspace: string, gitDir: string, logger: Logger): voi
             logger.debug('ax_seed_skill', { skill: skillName });
           }
         } else if (entry.isDirectory()) {
-          // Directory-based skill: deploy/SKILL.md → .ax/skills/deploy/SKILL.md
-          const skillMd = join(sDir, entry.name, 'SKILL.md');
+          // Directory-based skill: copy entire directory (preserves companion files)
+          const srcDir = join(sDir, entry.name);
           const destDir = join(workspace, '.ax', 'skills', entry.name);
-          const destPath = join(destDir, 'SKILL.md');
-          if (existsSync(skillMd) && !existsSync(destPath)) {
-            mkdirSync(destDir, { recursive: true });
-            writeFileSync(destPath, readFileSync(skillMd, 'utf-8'));
+          if (existsSync(join(srcDir, 'SKILL.md')) && !existsSync(destDir)) {
+            cpSync(srcDir, destDir, { recursive: true });
             logger.debug('ax_seed_skill', { skill: entry.name });
           }
         }
@@ -1927,10 +1925,10 @@ export async function processCompletion(
       hostGitCommit(workspace, gitDir, reqLogger);
     }
 
-    // Sync identity files from git to DocumentStore so admin helpers
-    // (isAgentBootstrapMode, dashboard) reflect the latest state.
-    // For http:// repos, re-fetch from remote (sidecar may have pushed new identity).
-    // For file:// repos, read from the local clone (just committed by host).
+    // TRANSITIONAL: Sync identity from git → DocumentStore.
+    // Several consumers (isAgentBootstrapMode, admin API, channels, scheduler)
+    // still read identity from DocumentStore. This bridge keeps them working
+    // until they're migrated to read from git directly.
     try {
       let updatedIdentity: IdentityPayload;
       if (!hostOwnsGitCommit && providers.workspace) {
@@ -1954,9 +1952,8 @@ export async function processCompletion(
         ];
         for (const { field, key } of syncPairs) {
           const val = updatedIdentity[field];
-          if (val) {
-            await docs.put('identity', key, val);
-          }
+          // Write current value or clear stale entry when file deleted from git
+          await docs.put('identity', key, val ?? '');
         }
       }
     } catch (err) {

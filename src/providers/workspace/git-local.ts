@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkspaceProvider } from './types.js';
 import type { Config } from '../../types.js';
@@ -27,9 +27,14 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
       // safePath validates the constructed path is within reposDir
       const repoPath = safePath(reposDir, repoName);
 
-      // Lazily create repos directory and bare repo
+      // Lazily create repos directory and bare repo.
+      // Atomic mkdir (no recursive) detects new vs existing — avoids race
+      // where concurrent callers both see "not exists" before git init.
       mkdirSync(reposDir, { recursive: true });
-      const created = !existsSync(join(repoPath, 'HEAD'));
+      let created = false;
+      try { mkdirSync(repoPath); created = true; } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      }
       try {
         execFileSync('git', ['init', '--bare', repoPath], {
           stdio: 'pipe',

@@ -73,6 +73,10 @@ async function callHostValidateCommit(diff: string): Promise<{ ok: boolean; reas
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'validate_commit', diff }),
     });
+    if (!resp.ok) {
+      logger.warn('validate_commit_http_error', { status: resp.status });
+      return { ok: true }; // Fail open on HTTP errors
+    }
     const result = await resp.json() as { ok: boolean; reason?: string };
     return result;
   } catch (err) {
