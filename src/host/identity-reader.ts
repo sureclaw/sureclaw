@@ -9,7 +9,7 @@
  * For http:// repos: shallow bare fetch, read, cleanup.
  *
  * Cache: identity payloads are cached per agentId with a 30s TTL.
- * No explicit invalidation — TTL-only is safe across multiple host replicas.
+ * Cache is invalidated after identity writes (hostGitCommit, seedRemoteRepo).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -50,7 +50,7 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 
-/** Clear the entire identity cache. Useful for tests. */
+/** Clear the entire identity cache. Called after identity writes and in tests. */
 export function clearIdentityCache(): void {
   cache.clear();
 }

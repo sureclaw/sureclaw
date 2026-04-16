@@ -154,7 +154,7 @@ export interface IdentityPayload {
 /** Paths to identity files in the git tree. */
 // Re-export for backward compatibility (tests import from here)
 export { loadIdentityFromGit, fetchIdentityFromRemote } from './identity-reader.js';
-import { loadIdentityFromGit, fetchIdentityFromRemote } from './identity-reader.js';
+import { loadIdentityFromGit, fetchIdentityFromRemote, clearIdentityCache } from './identity-reader.js';
 
 /**
  * Try to parse structured agent output.
@@ -765,6 +765,7 @@ export async function processCompletion(
         try {
           if (repoCreated) {
             seedRemoteRepo(repoUrl, reqLogger);
+            clearIdentityCache();
           }
           const result = fetchIdentityFromRemote(repoUrl);
           // Fallback: seed if identity is empty (handles retry race where
@@ -772,6 +773,7 @@ export async function processCompletion(
           if (!repoCreated && Object.keys(result.identity).length === 0) {
             try { rmSync(result.gitDir, { recursive: true, force: true }); } catch { /* best effort */ }
             seedRemoteRepo(repoUrl, reqLogger);
+            clearIdentityCache();
             const seeded = fetchIdentityFromRemote(repoUrl);
             identityGitDir = seeded.gitDir;
           } else {
@@ -1859,6 +1861,7 @@ export async function processCompletion(
     if (hostOwnsGitCommit && hostManagedGit && workspace && gitDir) {
       // file:// repos: host commits+pushes, then resets working tree.
       hostGitCommit(workspace, gitDir, reqLogger);
+      clearIdentityCache();
     }
 
     // Clean up workspace/gitDir temp directories.

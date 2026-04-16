@@ -60,6 +60,9 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
               logger.info('repo_created', { agentId, repoName, path: result.path });
               created = true;
             } else {
+              // 409 = repo exists. This includes the case where a prior attempt
+              // created it but the response timed out. Callers should not rely
+              // solely on `created` for seeding — check repo content as fallback.
               logger.debug('repo_exists', { agentId, repoName });
             }
             break;

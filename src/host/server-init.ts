@@ -4,7 +4,7 @@
 // template seeding → IPC socket → CompletionDeps → delegation →
 // orchestrator → agent registry → createIPCHandler.
 
-import { existsSync, readFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -17,7 +17,7 @@ import { TaintBudget, thresholdForProfile } from './taint-budget.js';
 import { processCompletion, type CompletionDeps } from './server-completions.js';
 import { createOrchestrator, type Orchestrator } from './orchestration/orchestrator.js';
 import { FileStore } from '../file-store.js';
-import { templatesDir as resolveTemplatesDir } from '../utils/assets.js';
+import { templatesDir as resolveTemplatesDir, seedSkillsDir } from '../utils/assets.js';
 import type { EventBus } from './event-bus.js';
 import type { MessageQueueStore, ConversationStoreProvider } from '../providers/storage/types.js';
 import { createAgentRegistry, type AgentRegistry } from './agent-registry.js';
@@ -150,6 +150,47 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
       }
     } catch { /* documents not available */ }
   }
+
+  // ── Domain allowlist for proxy — populated from git-native seed skills ──
+  // Skills seeded into .ax/skills/ by seedAxDirectory() are the canonical
+  // source for git-native skills. Parse them here so their domains are in the
+  // proxy allowlist from the start (the DB block above only covers DB-stored
+  // skills, not filesystem-seeded ones).
+  try {
+    const sDir = seedSkillsDir();
+    if (existsSync(sDir)) {
+      const { parseAgentSkill } = await import('../utils/skill-format-parser.js');
+      const { generateManifest } = await import('../utils/manifest-generator.js');
+      const entries = readdirSync(sDir, { withFileTypes: true });
+      for (const entry of entries) {
+        try {
+          let skillContent: string | undefined;
+          let skillName: string;
+          if (entry.isFile() && entry.name.endsWith('.md')) {
+            // File-based skill: default.md
+            skillName = entry.name.replace(/\.md$/, '');
+            skillContent = readFileSync(join(sDir, entry.name), 'utf-8');
+          } else if (entry.isDirectory()) {
+            // Directory-based skill: deploy/SKILL.md
+            skillName = entry.name;
+            const skillPath = join(sDir, entry.name, 'SKILL.md');
+            if (existsSync(skillPath)) {
+              skillContent = readFileSync(skillPath, 'utf-8');
+            }
+          } else {
+            continue;
+          }
+          if (skillContent) {
+            const parsed = parseAgentSkill(skillContent);
+            const manifest = generateManifest(parsed);
+            if (manifest.capabilities.domains.length > 0) {
+              domainList.addSkillDomains(parsed.name || skillName, manifest.capabilities.domains);
+            }
+          }
+        } catch { /* skip unparseable skill */ }
+      }
+    }
+  } catch { /* seed skills dir not available */ }
 
   // ── CompletionDeps ──
   const completionDeps: CompletionDeps = {
