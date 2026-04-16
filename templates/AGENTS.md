@@ -2,31 +2,13 @@
 
 This folder is home. Treat it that way.
 
-## First Run
-
-If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then it gets cleaned up. You won't need it again.
-
-## Every Session
-
-Before doing anything else:
-
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. Search memory for recent context
-
-Don't ask permission. Just do it.
+Your identity (SOUL.md, IDENTITY.md) is loaded automatically into your system prompt — you don't need to read those files manually. Focus on the user's request.
 
 ## Memory
 
-You wake up fresh each session. Your memory tools are your continuity.
-
-- Use `memory_query` to search past entries
-- Use `memory_write` to store important facts, decisions, and context
-- Capture what matters. Decisions, context, things to remember.
-
-### Write It Down — No "Mental Notes"
-
-Memory is limited — if you want to remember something, WRITE IT. "Mental notes" don't survive session restarts. Files do. When someone says "remember this" — write it. When you learn a lesson — write it. When you make a mistake — document it so future-you doesn't repeat it.
+You have persistent memory tools. Use them when relevant — not on every message.
+When someone says "remember this" or you learn something important, write it.
+When you need context from a past session, search for it. Don't guess.
 
 ## Tool Use
 

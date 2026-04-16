@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.30,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+    identityFiles: { agents: '', soul: 'Test soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
     contextWindow: 200000,
     historyTokens: 0,
@@ -37,7 +37,7 @@ describe('ToolStyleModule', () => {
 
   test('excluded in bootstrap mode', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Boot...', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: '', identity: '', bootstrap: 'Boot...', userBootstrap: '', heartbeat: '' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });

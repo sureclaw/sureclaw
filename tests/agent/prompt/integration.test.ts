@@ -87,7 +87,7 @@ describe('PromptBuilder integration', () => {
       sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: 'Bot.', soul: 'Soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
       contextWindow: 2000, // Very tight
       historyTokens: 500,
       // Available: 2000 - 500 - 4096 = negative! Required modules only.

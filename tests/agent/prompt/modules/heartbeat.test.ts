@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: 'I am me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+    identityFiles: { agents: '', soul: 'I am me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
     contextWindow: 200000,
     historyTokens: 0,
@@ -34,7 +34,7 @@ describe('HeartbeatModule', () => {
 
   test('shouldInclude returns true when heartbeat content exists', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: 'I am me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- stuff' },
+      identityFiles: { agents: '', soul: 'I am me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- stuff' },
     });
     expect(mod.shouldInclude(ctx)).toBe(true);
   });
@@ -45,21 +45,21 @@ describe('HeartbeatModule', () => {
 
   test('shouldInclude returns true when heartbeat is whitespace only', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: 'I am me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '   \n  ' },
+      identityFiles: { agents: '', soul: 'I am me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '   \n  ' },
     });
     expect(mod.shouldInclude(ctx)).toBe(true);
   });
 
   test('shouldInclude returns false in bootstrap mode', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'bootstrap instructions', userBootstrap: '', heartbeat: '# Checks' },
+      identityFiles: { agents: '', soul: '', identity: '', bootstrap: 'bootstrap instructions', userBootstrap: '', heartbeat: '# Checks' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });
 
   test('render includes heartbeat instructions and HEARTBEAT_OK', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: 'me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- review emails (every 2h)' },
+      identityFiles: { agents: '', soul: 'me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- review emails (every 2h)' },
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('HEARTBEAT_OK');
@@ -91,7 +91,7 @@ describe('HeartbeatModule', () => {
 
   test('renderMinimal includes HEARTBEAT_OK and checklist', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: 'me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- review' },
+      identityFiles: { agents: '', soul: 'me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- review' },
     });
     const text = mod.renderMinimal!(ctx).join('\n');
     expect(text).toContain('HEARTBEAT_OK');
@@ -100,7 +100,7 @@ describe('HeartbeatModule', () => {
 
   test('estimateTokens returns a positive number', () => {
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: 'me', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- stuff' },
+      identityFiles: { agents: '', soul: 'me', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '# Checks\n- stuff' },
     });
     expect(mod.estimateTokens(ctx)).toBeGreaterThan(0);
   });

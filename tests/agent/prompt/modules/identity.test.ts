@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+    identityFiles: { agents: '', soul: '', identity: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
     contextWindow: 200000,
     historyTokens: 0,
@@ -31,201 +31,128 @@ describe('IdentityModule', () => {
     expect(mod.priority).toBe(0);
   });
 
-  test('bootstrap mode: returns only BOOTSTRAP.md when soul is absent', () => {
+  // ── Bootstrap mode (missing soul or identity) ──
+
+  test('bootstrap mode: returns ONLY BOOTSTRAP.md content (no evolution guidance)', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agents: '', soul: '', identity: '', user: '',
+        agents: '', soul: '', identity: '',
         bootstrap: 'You are bootstrapping. Discover your identity.', userBootstrap: '', heartbeat: '',
       },
     });
-    const lines = mod.render(ctx);
-    const text = lines.join('\n');
+    const text = mod.render(ctx).join('\n');
     expect(text).toContain('bootstrapping');
+    expect(text).not.toContain('Identity Evolution');
     expect(text).not.toContain('## Soul');
   });
 
-  test('normal mode: includes AGENT.md + identity files', () => {
+  test('bootstrap mode activates when soul is missing (even without BOOTSTRAP.md)', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: 'Custom agent.', soul: '', identity: '',
+        bootstrap: '', userBootstrap: '', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    // No soul + no identity = bootstrap mode, even with empty bootstrap content
+    expect(text).not.toContain('Custom agent.');
+    expect(text).not.toContain('Identity Evolution');
+  });
+
+  test('bootstrap mode activates when only identity is missing', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: '', soul: 'Soul content.', identity: '',
+        bootstrap: 'Discover yourself.', userBootstrap: '', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('Discover yourself.');
+    expect(text).not.toContain('Soul content.');
+    expect(text).not.toContain('Identity Evolution');
+  });
+
+  test('bootstrap mode excludes evolution guidance to prevent premature file writes', () => {
+    const mod = new IdentityModule();
+    const ctx = makeContext({
+      identityFiles: {
+        agents: '', soul: '', identity: '',
+        bootstrap: 'Discover your identity.', userBootstrap: '', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('Discover your identity.');
+    expect(text).not.toContain('Identity Evolution');
+    expect(text).not.toContain('How to Modify Identity');
+    expect(text).not.toContain('When to Evolve');
+  });
+
+  // ── Normal mode (both soul and identity present) ──
+
+  test('normal mode: includes AGENTS.md + identity files', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
         agents: 'You are TestBot.',
         soul: 'I am curious and helpful.',
         identity: 'Name: TestBot',
-        user: 'User prefers short answers.',
         bootstrap: '', userBootstrap: '', heartbeat: '',
       },
     });
-    const lines = mod.render(ctx);
-    const text = lines.join('\n');
+    const text = mod.render(ctx).join('\n');
     expect(text).toContain('You are TestBot.');
     expect(text).toContain('## Soul');
     expect(text).toContain('curious and helpful');
     expect(text).toContain('## Identity');
-    expect(text).toContain('## User');
   });
 
-  test('default agent instruction when AGENT.md is empty', () => {
+  test('default agent instruction when AGENTS.md is empty', () => {
     const mod = new IdentityModule();
-    const ctx = makeContext();
-    const lines = mod.render(ctx);
-    const text = lines.join('\n');
+    const ctx = makeContext({
+      identityFiles: {
+        agents: '', soul: 'Soul.', identity: 'Identity.',
+        bootstrap: '', userBootstrap: '', heartbeat: '',
+      },
+    });
+    const text = mod.render(ctx).join('\n');
     expect(text).toContain('security-first AI agent');
     expect(text).toContain('canary tokens');
   });
 
-  test('skips empty identity sections', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      identityFiles: { agents: 'Custom agent.', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
-    });
-    const lines = mod.render(ctx);
-    const text = lines.join('\n');
-    expect(text).toContain('Custom agent.');
-    // Identity file h2 headers should not appear when files are empty
-    // (## Identity Evolution is fine — it's the evolution guidance, not a file section)
-    expect(text).not.toContain('## Soul\n');
-    expect(text).not.toContain('## Identity\n');
-    expect(text).not.toContain('## User\n');
-  });
-
-  test('tells agent about identity tool write and user_write operations', () => {
+  test('tells agent about write_file-based identity evolution', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
         agents: 'You are TestBot.',
         soul: 'I am curious.',
         identity: 'Name: TestBot',
-        user: '',
         bootstrap: '', userBootstrap: '', heartbeat: '',
       },
     });
     const text = mod.render(ctx).join('\n');
-    // Should reference the consolidated identity tool with type operations
-    expect(text).toContain('identity');
-    expect(text).toContain('write');
-    expect(text).toContain('user_write');
-    expect(text).toContain('per-user');
     expect(text).toContain('Identity Evolution');
+    expect(text).toContain('.ax/identity/SOUL.md');
+    expect(text).toContain('.ax/identity/IDENTITY.md');
+    expect(text).toContain('write_file');
+    expect(text).not.toContain('git add');
+    expect(text).not.toContain('git commit');
+    expect(text).toContain('do not run git commands');
   });
 
-  test('explains paranoid profile: always queued', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      profile: 'paranoid',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('paranoid');
-    expect(text).toContain('queued');
-    expect(text).toContain('user');
-  });
-
-  test('explains balanced profile: taint-aware auto-apply', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      profile: 'balanced',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('auto-applied');
-    expect(text).toContain('taint');
-    expect(text).toContain('queued');
-  });
-
-  test('explains yolo profile: full autonomy', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      profile: 'yolo',
-      identityFiles: { agents: '', soul: 'Soul.', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('auto-applied');
-    expect(text).toContain('full autonomy');
-  });
-
-  test('shows user bootstrap when USER.md is absent but USER_BOOTSTRAP.md exists', () => {
+  test('mentions When to Evolve section', () => {
     const mod = new IdentityModule();
     const ctx = makeContext({
       identityFiles: {
-        agents: 'You are TestBot.',
-        soul: 'Curious.',
-        identity: '',
-        user: '',
-        bootstrap: '',
-        userBootstrap: 'You are meeting a new user. Learn their preferences.',
-        heartbeat: '',
+        agents: '', soul: 'Soul.', identity: 'Identity.',
+        bootstrap: '', userBootstrap: '', heartbeat: '',
       },
     });
     const text = mod.render(ctx).join('\n');
-    expect(text).toContain('## User Discovery');
-    expect(text).toContain('Learn their preferences');
-    expect(text).not.toContain('## User\n');
-  });
-
-  test('skips user bootstrap when USER.md exists', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      identityFiles: {
-        agents: 'Bot.',
-        soul: 'Soul.',
-        identity: '',
-        user: 'Prefers concise answers.',
-        bootstrap: '',
-        userBootstrap: 'You are meeting a new user.',
-        heartbeat: '',
-      },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('## User');
-    expect(text).toContain('Prefers concise answers');
-    expect(text).not.toContain('User Discovery');
-    expect(text).not.toContain('meeting a new user');
-  });
-
-  test('includes evolution guidance in bootstrap mode', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      identityFiles: {
-        agents: '', soul: '', identity: '', user: '',
-        bootstrap: 'Discover your identity.', userBootstrap: '', heartbeat: '',
-      },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('Identity Evolution');
-    // References the consolidated identity tool with write and user_write type values
-    expect(text).toContain('identity');
-    expect(text).toContain('write');
-    expect(text).toContain('user_write');
-  });
-
-  test('bootstrap mode: includes USER.md when it exists', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      identityFiles: {
-        agents: '', soul: '', identity: '',
-        user: 'Name: Alice. Prefers concise answers.',
-        bootstrap: 'Discover your identity.', userBootstrap: '', heartbeat: '',
-      },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('Discover your identity.');
-    expect(text).toContain('## User');
-    expect(text).toContain('Alice');
-  });
-
-  test('bootstrap mode: includes USER_BOOTSTRAP.md when USER.md absent', () => {
-    const mod = new IdentityModule();
-    const ctx = makeContext({
-      identityFiles: {
-        agents: '', soul: '', identity: '', user: '',
-        bootstrap: 'Discover your identity.',
-        userBootstrap: 'Learn their preferences.', heartbeat: '',
-      },
-    });
-    const text = mod.render(ctx).join('\n');
-    expect(text).toContain('Discover your identity.');
-    expect(text).toContain('## User Discovery');
-    expect(text).toContain('Learn their preferences');
+    expect(text).toContain('When to Evolve');
+    expect(text).toContain('meaningful interaction');
+    expect(text).toContain('git history');
   });
 });

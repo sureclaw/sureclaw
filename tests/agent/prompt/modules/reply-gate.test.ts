@@ -11,7 +11,7 @@ function makeCtx(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.3,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+    identityFiles: { agents: '', soul: 'Test soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
     contextWindow: 200000,
     historyTokens: 0,
@@ -34,7 +34,7 @@ describe('ReplyGateModule', () => {
   test('not included during bootstrap mode even when replyOptional is true', () => {
     const ctx = makeCtx({
       replyOptional: true,
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '# Bootstrap', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: '', identity: '', bootstrap: '# Bootstrap', userBootstrap: '', heartbeat: '' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });
