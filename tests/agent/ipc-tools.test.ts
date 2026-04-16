@@ -25,9 +25,7 @@ describe('ipc-tools', () => {
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
-    expect(names).toContain('identity');
     expect(names).toContain('agent');
-
   });
 
   test('memory write sends IPC call with correct action', async () => {
@@ -89,60 +87,6 @@ describe('ipc-tools', () => {
     expect(text).toMatch(/error|failed/i);
   });
 
-  test('exports identity tool', () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any);
-    const names = tools.map((t) => t.name);
-    expect(names).toContain('identity');
-  });
-
-  test('identity write sends IPC call with correct action', async () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'identity');
-    await tool.execute('tc7', {
-      type: 'write',
-      file: 'SOUL.md',
-      content: '# Soul\nI am helpful.',
-      reason: 'User asked',
-      origin: 'user_request',
-    });
-    expect(client.call).toHaveBeenCalledWith({
-      action: 'identity_write',
-      file: 'SOUL.md',
-      content: '# Soul\nI am helpful.',
-      reason: 'User asked',
-      origin: 'user_request',
-    }, undefined);
-  });
-
-  test('identity tool has description mentioning identity files', () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any);
-    const tool = findTool(tools, 'identity');
-    expect(tool.description).toContain('SOUL.md');
-    expect(tool.description).toContain('IDENTITY.md');
-  });
-
-  test('identity user_write sends IPC call with userId from options', async () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any, { userId: 'U12345' });
-    const tool = findTool(tools, 'identity');
-    await tool.execute('tc8', {
-      type: 'user_write',
-      content: '# User prefs\nLikes dark mode',
-      reason: 'Observed preference',
-      origin: 'agent_initiated',
-    });
-    expect(client.call).toHaveBeenCalledWith({
-      action: 'user_write',
-      content: '# User prefs\nLikes dark mode',
-      reason: 'Observed preference',
-      origin: 'agent_initiated',
-      userId: 'U12345',
-    }, undefined);
-  });
-
   test('includes scheduler tool', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
@@ -151,33 +95,21 @@ describe('ipc-tools', () => {
     expect(tool!.description).toContain('cron');
   });
 
-  test('total tool count is 20 without filter', () => {
+  test('total tool count is 14 without filter', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(16);
+    expect(tools.length).toBe(14);
   });
 
   test('scheduler tool is always present regardless of hasHeartbeat', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: true, hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: true },
     });
     const names = tools.map((t) => t.name);
     expect(names).toContain('scheduler');
     expect(names).toContain('memory');
     expect(names).toContain('web');
-  });
-
-  test('filter excludes enterprise tools when flags are false', () => {
-    const client = createMockClient();
-    const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: true, skillInstallEnabled: true, hasGovernance: false },
-    });
-    const names = tools.map((t) => t.name);
-    expect(names).not.toContain('governance');
-    // Core tools still present
-    expect(names).toContain('memory');
-    expect(names).toContain('identity');
   });
 
   test('delegate uses default timeout (heartbeat-based)', async () => {
@@ -191,29 +123,25 @@ describe('ipc-tools', () => {
     );
   });
 
-
   test('filter with all flags false returns only core tools', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false, hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false },
     });
     const names = tools.map((t) => t.name);
-    // memory(1) + web(1) + audit(1) + identity(1) + agent(1) + image(1) + credential(1) + scheduler(1) + sandbox(6) = 15 tools
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
-    expect(names).toContain('identity');
     expect(names).toContain('agent');
     expect(names).toContain('scheduler');
-
-    expect(names).toContain('request_credential'); // always available
-    expect(names).toContain('skill'); // always available — delete/update don't require install intent
+    expect(names).toContain('request_credential');
+    expect(names).toContain('skill');
     expect(names).toContain('bash');
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
     expect(names).toContain('edit_file');
     expect(names).toContain('grep');
     expect(names).toContain('glob');
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(14);
   });
 });

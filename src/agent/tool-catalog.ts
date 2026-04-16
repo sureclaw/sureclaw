@@ -13,9 +13,9 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
-  | 'memory' | 'web' | 'audit' | 'identity'
+  | 'memory' | 'web' | 'audit'
   | 'scheduler' | 'skill' | 'credential' | 'delegation'
-  | 'workspace' | 'governance' | 'sandbox';
+  | 'workspace' | 'sandbox';
 
 export interface ToolSpec {
   name: string;
@@ -121,43 +121,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       fetch: 'web_fetch',
       extract: 'web_extract',
       search: 'web_search',
-    },
-  },
-
-  // ── Identity ──
-  {
-    name: 'identity',
-    label: 'Identity',
-    description:
-      'Read, write, or update identity files and user preferences.\n\nUse `type` to select:\n' +
-      '- read: Read the current content of an identity file (SOUL.md or IDENTITY.md)\n' +
-      '- write: Write or update a shared identity file (SOUL.md or IDENTITY.md)\n' +
-      '- user_write: Write or update what you have learned about the current user (USER.md). Per-user scoped.',
-    parameters: Type.Union([
-      Type.Object({
-        type: Type.Literal('read'),
-        file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
-      }),
-      Type.Object({
-        type: Type.Literal('write'),
-        file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
-        content: Type.String(),
-        reason: Type.String(),
-        origin: Type.String({ description: 'Either "user_request" or "agent_initiated"' }),
-      }),
-      Type.Object({
-        type: Type.Literal('user_write'),
-        content: Type.String(),
-        reason: Type.String(),
-        origin: Type.String({ description: 'Either "user_request" or "agent_initiated"' }),
-      }),
-    ]),
-    category: 'identity',
-    injectUserId: true,
-    actionMap: {
-      read: 'identity_read',
-      write: 'identity_write',
-      user_write: 'user_write',
     },
   },
 
@@ -281,40 +244,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     singletonAction: 'save_artifact',
   },
 
-
-  // ── Governance ──
-  {
-    name: 'governance',
-    label: 'Governance',
-    description:
-      'Enterprise governance: propose identity changes, list proposals, list agents.\n\nUse `type` to select:\n' +
-      '- propose: Propose a change to a shared identity file for governance review\n' +
-      '- list_proposals: List governance proposals, optionally filtered by status\n' +
-      '- list_agents: List all registered agents in the enterprise registry',
-    parameters: Type.Union([
-      Type.Object({
-        type: Type.Literal('propose'),
-        file: Type.String({ description: 'File name: "SOUL.md" or "IDENTITY.md"' }),
-        content: Type.String(),
-        reason: Type.String(),
-        origin: Type.String({ description: 'Either "user_request" or "agent_initiated"' }),
-      }),
-      Type.Object({
-        type: Type.Literal('list_proposals'),
-        status: Type.Optional(Type.String({ description: '"pending", "approved", or "rejected"' })),
-      }),
-      Type.Object({
-        type: Type.Literal('list_agents'),
-        status: Type.Optional(Type.String({ description: 'Filter by status: "active", "suspended", or "archived"' })),
-      }),
-    ]),
-    category: 'governance',
-    actionMap: {
-      propose: 'identity_propose',
-      list_proposals: 'proposal_list',
-      list_agents: 'agent_registry_list',
-    },
-  },
 
   // ── Audit (singleton) ──
   {
@@ -491,8 +420,6 @@ export function getToolParamKeys(name: string): string[] {
 export interface ToolFilterContext {
   /** identityFiles.heartbeat is non-empty (used by prompt modules, not tool filtering) */
   hasHeartbeat: boolean;
-  /** Enterprise governance enabled */
-  hasGovernance: boolean;
   /** User message indicates skill install intent — show install tool */
   skillInstallEnabled?: boolean;
 }
@@ -510,7 +437,6 @@ export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
       switch (spec.category) {
         case 'scheduler':  return true;  // always available — HEARTBEAT.md controls heartbeat content, not tool visibility
         case 'skill':      return true;  // always available — delete/update shouldn't require install intent
-        case 'governance': return ctx.hasGovernance;
         default:           return true;
       }
     })
@@ -545,33 +471,3 @@ function stripSkillInstall(spec: ToolSpec): ToolSpec {
   };
 }
 
-// ── Parameter normalization for weaker models ────────────────────────
-//
-// Models like Gemini/Kimi send free-text strings for enum fields.
-// These normalizers coerce to the strict values the IPC schema expects.
-
-const ORIGIN_VALUES = ['user_request', 'agent_initiated'] as const;
-
-/** Normalize an origin value to a valid enum. Defaults to 'user_request'. */
-export function normalizeOrigin(raw: unknown): 'user_request' | 'agent_initiated' {
-  if (typeof raw === 'string') {
-    const lower = raw.toLowerCase().replace(/[\s-]/g, '_');
-    for (const v of ORIGIN_VALUES) {
-      if (lower === v || lower.includes(v)) return v;
-    }
-  }
-  return 'user_request';
-}
-
-const IDENTITY_FILE_MAP: Record<string, string> = {
-  'soul.md': 'SOUL.md', 'soul': 'SOUL.md',
-  'identity.md': 'IDENTITY.md', 'identity': 'IDENTITY.md',
-};
-
-/** Normalize a file name to 'SOUL.md' or 'IDENTITY.md'. Returns raw value if unrecognized. */
-export function normalizeIdentityFile(raw: unknown): string {
-  if (typeof raw === 'string') {
-    return IDENTITY_FILE_MAP[raw.toLowerCase()] ?? raw;
-  }
-  return String(raw);
-}

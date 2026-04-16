@@ -299,7 +299,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const handleIPC = createIPCHandler(providers, {
     taintBudget,
     agentId,
-    profile: config.profile,
     configModel: config.models?.default?.[0],
     onDelegate: handleDelegate,
     delegation: config.delegation ? {
@@ -308,7 +307,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     } : undefined,
     eventBus,
     orchestrator,
-    agentRegistry,
     workspaceMap,
     requestedCredentials,
     domainList,

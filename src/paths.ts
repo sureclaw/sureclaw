@@ -124,11 +124,6 @@ export function registryPath(): string {
   return join(axHome(), 'registry.json');
 }
 
-/** Path to the proposals directory for governance: ~/.ax/data/proposals/ */
-export function proposalsDir(): string {
-  return join(dataDir(), 'proposals');
-}
-
 /** Directory for webhook transform files: ~/.ax/webhooks/ */
 export function webhooksDir(): string {
   return join(axHome(), 'webhooks');

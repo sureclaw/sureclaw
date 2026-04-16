@@ -171,44 +171,6 @@ export const AgentCollectSchema = ipcAction('agent_collect', {
   timeoutMs: z.number().int().min(1000).max(600_000).optional(),
 });
 
-// ── Identity ────────────────────────────────────────
-
-export const IDENTITY_FILES = ['SOUL.md', 'IDENTITY.md'] as const;
-
-export const IDENTITY_ORIGINS = ['user_request', 'agent_initiated'] as const;
-
-export const IdentityReadSchema = ipcAction('identity_read', {
-  file: z.enum(IDENTITY_FILES),
-});
-
-export const IdentityWriteSchema = ipcAction('identity_write', {
-  file: z.enum(IDENTITY_FILES),
-  content: safeString(32_768),
-  reason: safeString(512),
-  origin: z.enum(IDENTITY_ORIGINS),
-});
-
-export const UserWriteSchema = ipcAction('user_write', {
-  userId: safeString(200),
-  content: safeString(32_768),
-  reason: safeString(512),
-  origin: z.enum(IDENTITY_ORIGINS),
-});
-
-// ── Company Identity ──────────────────────────────────
-
-export const COMPANY_IDENTITY_FILES = ['AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'HEARTBEAT.md'] as const;
-
-export const CompanyIdentityReadSchema = ipcAction('company_identity_read', {
-  file: z.enum(COMPANY_IDENTITY_FILES),
-});
-
-export const CompanyIdentityWriteSchema = ipcAction('company_identity_write', {
-  file: z.enum(COMPANY_IDENTITY_FILES),
-  content: safeString(32_768),
-  reason: safeString(512),
-});
-
 // ── Scheduler ──────────────────────────────────────────
 
 export const SchedulerAddCronSchema = ipcAction('scheduler_add_cron', {
@@ -274,38 +236,6 @@ export const SaveArtifactSchema = ipcAction('save_artifact', {
 export const SessionExpiringSchema = ipcAction('session_expiring', {
   secondsRemaining: z.number().int().min(0).max(600),
   reason: z.enum(['idle_timeout', 'shutdown']),
-});
-
-// ── Enterprise: Governance ─────────────────────────────
-
-export const PROPOSAL_TYPES = ['identity', 'capability', 'config'] as const;
-export const PROPOSAL_STATUSES = ['pending', 'approved', 'rejected'] as const;
-
-export const IdentityProposeSchema = ipcAction('identity_propose', {
-  file: z.enum(IDENTITY_FILES),
-  content: safeString(32_768),
-  reason: safeString(512),
-  origin: z.enum(IDENTITY_ORIGINS),
-});
-
-export const ProposalListSchema = ipcAction('proposal_list', {
-  status: z.enum(PROPOSAL_STATUSES).optional(),
-});
-
-export const ProposalReviewSchema = ipcAction('proposal_review', {
-  proposalId: uuid,
-  decision: z.enum(['approved', 'rejected']),
-  reason: safeString(512).optional(),
-});
-
-// ── Enterprise: Agent Registry ─────────────────────────
-
-export const AgentRegistryListSchema = ipcAction('agent_registry_list', {
-  status: z.enum(['active', 'suspended', 'archived']).optional(),
-});
-
-export const AgentRegistryGetSchema = ipcAction('agent_registry_get', {
-  agentId: safeString(100),
 });
 
 // ── Agent Orchestration ────────────────────────────────
@@ -439,6 +369,12 @@ export const PluginListSchema = ipcAction('plugin_list', {});
 
 export const PluginStatusSchema = ipcAction('plugin_status', {
   packageName: safeString(214),
+});
+
+// ── Commit Validation ────────────────────────────────
+
+export const ValidateCommitSchema = ipcAction('validate_commit', {
+  diff: safeString(262_144), // 256KB max diff
 });
 
 // ═══════════════════════════════════════════════════════

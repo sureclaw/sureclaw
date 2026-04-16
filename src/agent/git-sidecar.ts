@@ -30,7 +30,7 @@
 
 import { createServer } from 'node:http';
 import { getLogger } from '../logger.js';
-import { gitFetch, gitResetHard, gitClean, gitAdd, gitStatus, gitCommit, gitPush } from './git-cli.js';
+import { gitExec, gitFetch, gitResetHard, gitClean, gitAdd, gitStatus, gitCommit, gitPush } from './git-cli.js';
 
 const logger = getLogger().child({ component: 'git-sidecar' });
 
@@ -55,11 +55,58 @@ async function forcePull(workspaceDir: string, gitDir: string): Promise<void> {
   logger.info('force_pull_complete');
 }
 
+/**
+ * Call the host's validate_commit endpoint to validate .ax/ diffs.
+ * Returns { ok: true } if valid or host is unreachable, { ok: false, reason } if rejected.
+ */
+async function callHostValidateCommit(diff: string): Promise<{ ok: boolean; reason?: string }> {
+  const hostUrl = process.env.AX_HOST_URL;
+  if (!hostUrl) {
+    logger.debug('validate_commit_skip', { reason: 'AX_HOST_URL not set' });
+    return { ok: true };
+  }
+
+  try {
+    const resp = await fetch(`${hostUrl}/ipc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'validate_commit', diff }),
+    });
+    const result = await resp.json() as { ok: boolean; reason?: string };
+    return result;
+  } catch (err) {
+    logger.warn('validate_commit_call_failed', { error: (err as Error).message });
+    // Fail open — if we can't reach the host, allow the commit
+    return { ok: true };
+  }
+}
+
 async function commitAndPush(workspaceDir: string, gitDir: string): Promise<CommitResult> {
   const opts = { gitDir, workTree: workspaceDir };
 
   // git add -A handles adds, modifications, AND deletions in one command
   await gitAdd(opts);
+
+  // Validate .ax/ changes before committing
+  try {
+    const axDiff = (await gitExec(['diff', '--cached', '--',
+      '.ax/identity/', '.ax/skills/', '.ax/policy/', '.ax/AGENTS.md', '.ax/HEARTBEAT.md',
+    ], opts)).trim();
+
+    if (axDiff) {
+      const validation = await callHostValidateCommit(axDiff);
+      if (!validation.ok) {
+        logger.warn('ax_commit_rejected', { reason: validation.reason });
+        // Revert .ax/ changes — unstage and checkout
+        try { await gitExec(['reset', 'HEAD', '--', '.ax/'], opts); } catch { /* no .ax/ staged */ }
+        try { await gitExec(['checkout', '--', '.ax/'], opts); } catch { /* no .ax/ to restore */ }
+        // Re-stage remaining (non-.ax/) changes
+        await gitAdd(opts);
+      }
+    }
+  } catch (err) {
+    logger.debug('ax_diff_check_skip', { error: (err as Error).message });
+  }
 
   const changed = await gitStatus(opts);
   if (changed.length === 0) {

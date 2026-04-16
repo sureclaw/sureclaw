@@ -28,9 +28,10 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
   const gitHttpPort = config.gitServer?.httpPort || 8000;
 
   return {
-    async getRepoUrl(agentId: string): Promise<string> {
+    async getRepoUrl(agentId: string): Promise<{ url: string; created: boolean }> {
       // Lossless encoding — prevents aliasing (e.g. user:alice vs user-alice)
       const repoName = encodeURIComponent(agentId);
+      let created = false;
 
       // Retry with backoff on HTTP failures
       for (let attempt = 0; attempt < MAX_REPO_CREATION_RETRIES; attempt++) {
@@ -57,6 +58,7 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
             if (response.ok) {
               const result = await response.json();
               logger.info('repo_created', { agentId, repoName, path: result.path });
+              created = true;
             } else {
               logger.debug('repo_exists', { agentId, repoName });
             }
@@ -100,7 +102,7 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
         }
       }
 
-      return `http://${gitHost}:${gitHttpPort}/${repoName}.git`;
+      return { url: `http://${gitHost}:${gitHttpPort}/${repoName}.git`, created };
     },
 
     async close(): Promise<void> {

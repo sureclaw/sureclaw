@@ -59,15 +59,13 @@ export interface IdentityFiles {
   agents: string;         // AGENTS.md
   soul: string;           // SOUL.md
   identity: string;       // IDENTITY.md
-  user: string;           // USER.md
   bootstrap: string;      // BOOTSTRAP.md
-  userBootstrap: string;  // USER_BOOTSTRAP.md (shown when USER.md is absent)
+  userBootstrap: string;  // USER_BOOTSTRAP.md
   heartbeat: string;      // HEARTBEAT.md
 }
 
-/** Bootstrap mode: soul or identity is absent while bootstrap instructions exist. */
+/** Bootstrap mode: agent has no SOUL.md or IDENTITY.md yet. */
 export function isBootstrapMode(ctx: PromptContext): boolean {
-  if (!ctx.identityFiles.bootstrap) return false;
   return !ctx.identityFiles.soul || !ctx.identityFiles.identity;
 }
 

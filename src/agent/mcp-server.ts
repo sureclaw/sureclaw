@@ -10,7 +10,7 @@ import { z } from 'zod/v4';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { IIPCClient } from './runner.js';
-import { normalizeOrigin, filterTools, getToolDescription } from './tool-catalog.js';
+import { filterTools, getToolDescription } from './tool-catalog.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 import { createLocalSandbox } from './local-sandbox.js';
 
@@ -41,7 +41,7 @@ function errorResult(err: unknown) {
 }
 
 export interface MCPServerOptions {
-  /** Current user ID — included in user_write calls for per-user scoping. */
+  /** Current user ID (kept for backward compatibility). */
   userId?: string;
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
@@ -55,12 +55,6 @@ const SCHEDULER_ACTIONS: Record<string, string> = {
   run_at: 'scheduler_run_at',
   remove: 'scheduler_remove_cron',
   list: 'scheduler_list_jobs',
-};
-
-const GOVERNANCE_ACTIONS: Record<string, string> = {
-  propose: 'identity_propose',
-  list_proposals: 'proposal_list',
-  list_agents: 'agent_registry_list',
 };
 
 export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions): McpSdkServerConfigWithInstance {
@@ -118,30 +112,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         const { type, ...rest } = args;
         const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
         return ipcCall(`web_${type}`, params);
-      },
-    ),
-
-    // ── Identity ──
-    tool('identity', getToolDescription('identity'),
-      {
-        type: z.enum(['read', 'write', 'user_write']),
-        file: z.enum(['SOUL.md', 'IDENTITY.md']).optional(),
-        content: z.string().optional(),
-        reason: z.string().optional(),
-        origin: z.string().optional().describe('"user_request" or "agent_initiated"'),
-      },
-      (args) => {
-        const { type, ...rest } = args;
-        const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
-        if (type === 'read') {
-          return ipcCall('identity_read', params);
-        }
-        const action = type === 'write' ? 'identity_write' : 'user_write';
-        const normalized = { ...params, origin: normalizeOrigin(params.origin) };
-        if (type === 'user_write') {
-          return ipcCall(action, { ...normalized, userId: opts?.userId ?? '' });
-        }
-        return ipcCall(action, normalized);
       },
     ),
 
@@ -211,26 +181,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       (args) => ipcCall('save_artifact', args),
     ),
 
-
-    // ── Governance ──
-    tool('governance', getToolDescription('governance'),
-      {
-        type: z.enum(['propose', 'list_proposals', 'list_agents']),
-        file: z.string().optional().describe('"SOUL.md" or "IDENTITY.md"'),
-        content: z.string().optional(),
-        reason: z.string().optional(),
-        origin: z.string().optional().describe('"user_request" or "agent_initiated"'),
-        status: z.string().optional().describe('"pending", "approved", "rejected", "active", "suspended", or "archived"'),
-      },
-      (args) => {
-        const { type, ...rest } = args;
-        const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
-        if (type === 'propose') {
-          return ipcCall(GOVERNANCE_ACTIONS[type], { ...params, origin: normalizeOrigin(params.origin) });
-        }
-        return ipcCall(GOVERNANCE_ACTIONS[type], params);
-      },
-    ),
 
     // ── Audit (singleton) ──
     tool('audit', getToolDescription('audit'), {

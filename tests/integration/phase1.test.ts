@@ -212,7 +212,7 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(100), false); // user
 
     // Taint ratio = 400/500 = 80% > 10% threshold
-    const check = taintBudget.checkAction(sessionId, 'identity_write');
+    const check = taintBudget.checkAction(sessionId, 'scheduler_add_cron');
     expect(check.allowed).toBe(false);
     expect(check.reason).toContain('80.0%');
     expect(check.reason).toContain('10%');
@@ -230,7 +230,7 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(400), false); // user
 
     // Taint ratio = 100/500 = 20% < 30% threshold
-    const check = taintBudget.checkAction(sessionId, 'identity_write');
+    const check = taintBudget.checkAction(sessionId, 'scheduler_add_cron');
     expect(check.allowed).toBe(true);
   });
 
@@ -242,11 +242,11 @@ describe('Taint Budget E2E', () => {
     taintBudget.recordContent(sessionId, 'b'.repeat(100), false);
 
     // Initially blocked
-    expect(taintBudget.checkAction(sessionId, 'identity_write').allowed).toBe(false);
+    expect(taintBudget.checkAction(sessionId, 'scheduler_add_cron').allowed).toBe(false);
 
     // User override
-    taintBudget.addUserOverride(sessionId, 'identity_write');
-    expect(taintBudget.checkAction(sessionId, 'identity_write').allowed).toBe(true);
+    taintBudget.addUserOverride(sessionId, 'scheduler_add_cron');
+    expect(taintBudget.checkAction(sessionId, 'scheduler_add_cron').allowed).toBe(true);
 
     // Other sensitive actions are still blocked
     expect(taintBudget.checkAction(sessionId, 'oauth_call').allowed).toBe(false);

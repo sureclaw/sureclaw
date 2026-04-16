@@ -237,7 +237,7 @@ function makeErrorMessage(errorText: string, api = 'ax-ipc'): AssistantMessage {
 
 // ── IPC tools as pi-coding-agent ToolDefinitions ────────────────────
 
-import { TOOL_CATALOG, filterTools, normalizeOrigin, normalizeIdentityFile } from '../tool-catalog.js';
+import { TOOL_CATALOG, filterTools } from '../tool-catalog.js';
 import type { ToolFilterContext } from '../tool-catalog.js';
 import { createLocalSandbox } from '../local-sandbox.js';
 
@@ -273,7 +273,7 @@ function isFailureResult(resultStr: string): boolean {
 }
 
 interface IPCToolDefsOptions {
-  /** Current user ID — included in user_write calls for per-user scoping. */
+  /** Current user ID (kept for backward compatibility). */
   userId?: string;
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
@@ -302,7 +302,6 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
   // resolve to unknown in this context but IPC just forwards them as-is.
   const p = (v: unknown) => v as Record<string, unknown>;
 
-  const TOOLS_WITH_ORIGIN = new Set(['identity_write', 'user_write', 'identity_propose']);
   const catalog = opts?.filter ? filterTools(opts.filter) : TOOL_CATALOG;
   let toolCallCount = 0;
 
@@ -378,19 +377,6 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
               },
             )));
         }
-      }
-
-      // Inject userId only for user_write action
-      if (spec.injectUserId && action === 'user_write') {
-        callParams = { ...callParams, userId: opts?.userId ?? '' };
-      }
-
-      // Normalize enum-like fields for weaker models that send free text
-      if (TOOLS_WITH_ORIGIN.has(action) && 'origin' in callParams) {
-        callParams = { ...callParams, origin: normalizeOrigin(callParams.origin) };
-      }
-      if (action === 'identity_write' && 'file' in callParams) {
-        callParams = { ...callParams, file: normalizeIdentityFile(callParams.file) };
       }
 
       const result = await ipcCall(action, callParams, spec.timeoutMs);

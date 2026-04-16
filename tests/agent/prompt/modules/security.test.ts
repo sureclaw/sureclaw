@@ -12,7 +12,7 @@ function makeContext(overrides: Partial<PromptContext> = {}): PromptContext {
     sandboxType: 'docker',
     taintRatio: 0,
     taintThreshold: 0.10,
-    identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+    identityFiles: { agents: '', soul: 'Test soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
     contextWindow: 200000,
     historyTokens: 0,
@@ -49,7 +49,7 @@ describe('SecurityModule', () => {
   test('not included in bootstrap mode', () => {
     const mod = new SecurityModule();
     const ctx = makeContext({
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: '', identity: '', bootstrap: 'Bootstrap...', userBootstrap: '', heartbeat: '' },
     });
     expect(mod.shouldInclude(ctx)).toBe(false);
   });
@@ -65,7 +65,7 @@ describe('SecurityModule', () => {
     const mod = new SecurityModule();
     const text = mod.render(makeContext()).join('\n');
     expect(text).toContain('Identity Ownership');
-    expect(text).toContain('audited');
+    expect(text).toContain('git history');
   });
 
   test('renderMinimal produces compact output with sandbox type', () => {

@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkspaceProvider } from './types.js';
 import type { Config } from '../../types.js';
@@ -20,7 +20,7 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
   const reposDir = join(axHome(), 'repos');
 
   return {
-    async getRepoUrl(agentId: string): Promise<string> {
+    async getRepoUrl(agentId: string): Promise<{ url: string; created: boolean }> {
       // Lossless encoding — prevents aliasing (e.g. user:alice vs user-alice)
       const repoName = encodeURIComponent(agentId);
 
@@ -29,6 +29,7 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
 
       // Lazily create repos directory and bare repo
       mkdirSync(reposDir, { recursive: true });
+      const created = !existsSync(join(repoPath, 'HEAD'));
       try {
         execFileSync('git', ['init', '--bare', repoPath], {
           stdio: 'pipe',
@@ -50,7 +51,7 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
         throw err;
       }
 
-      return `file://${repoPath}`;
+      return { url: `file://${repoPath}`, created };
     },
 
     async close(): Promise<void> {

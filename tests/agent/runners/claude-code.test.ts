@@ -135,7 +135,7 @@ describe('claude-code identity file loading', () => {
 
   test('system prompt includes identity files from agentDir', async () => {
     // Regression: claude-code runner previously hardcoded empty identity files,
-    // so SOUL.md/IDENTITY.md written by identity_write were never loaded.
+    // so SOUL.md/IDENTITY.md from the workspace were never loaded.
     agentDir = mkdtempSync(join(tmpdir(), 'cc-identity-'));
     writeFileSync(join(agentDir, 'SOUL.md'), '# Soul\nI am curious and kind.');
     writeFileSync(join(agentDir, 'IDENTITY.md'), '# Identity\n**Name**: Connie');
@@ -174,10 +174,10 @@ describe('claude-code identity file loading', () => {
     expect(result.content).toContain('Connie');
   });
 
-  test('system prompt falls back to default when agentDir has no identity files', async () => {
+  test('system prompt enters bootstrap mode when agentDir has no identity files', async () => {
     agentDir = mkdtempSync(join(tmpdir(), 'cc-identity-empty-'));
 
-    const identityFiles = { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '' };
+    const identityFiles = { agents: '', soul: '', identity: '', bootstrap: '', userBootstrap: '', heartbeat: '' };
 
     const builder = new PromptBuilder();
     const result = builder.build({
@@ -194,9 +194,10 @@ describe('claude-code identity file loading', () => {
       historyTokens: 0,
     });
 
-    // Falls back to default identity
-    expect(result.content).toContain('You are AX');
+    // No soul/identity = bootstrap mode; normal mode content is excluded
     expect(result.content).not.toContain('Connie');
+    expect(result.content).not.toContain('Security Boundaries');
+    expect(result.content).not.toContain('Injection Defense');
   });
 });
 

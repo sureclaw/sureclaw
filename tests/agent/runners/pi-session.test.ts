@@ -530,7 +530,7 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
     expect(output).toContain('Hello from mock LLM via proxy!');
   }, 30_000);
 
-  test('LLM request includes scheduler, identity, and user_write tools', async () => {
+  test('LLM request includes scheduler and core tools', async () => {
     const port = nextPort++;
 
     // Provide identity with HEARTBEAT.md so scheduler tools are included
@@ -560,7 +560,7 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         proxySocket: proxySocketPath,
         workspace,
         identity: {
-          agents: '', soul: '', identity: '', user: '',
+          agents: '', soul: '', identity: '',
           bootstrap: '', userBootstrap: '',
           heartbeat: heartbeatContent,
         },
@@ -577,9 +577,8 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
 
     // Scheduler tool must be present (HEARTBEAT.md exists)
     expect(toolNames).toContain('scheduler');
-
-    // Identity tool must be present (consolidated from identity_write + user_write)
-    expect(toolNames).toContain('identity');
+    // Memory tool must be present
+    expect(toolNames).toContain('memory');
   }, 30_000);
 
   test('proxy stream function handles tool_use responses', async () => {

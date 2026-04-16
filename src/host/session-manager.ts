@@ -9,6 +9,7 @@
  * or GET /internal/work (k8s HTTP fallback).
  */
 
+import { rmSync } from 'node:fs';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger().child({ component: 'session-manager' });
@@ -60,6 +61,13 @@ export function createSessionManager(opts: SessionManagerOptions) {
     if (entry.killTimer) clearTimeout(entry.killTimer);
     pendingWork.delete(sessionId);
     if (entry.authToken) tokenToSession.delete(entry.authToken);
+    // Clean up host-side workspace and gitDir temp directories.
+    if (entry.workspace) {
+      try { rmSync(entry.workspace, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
+    if (entry.gitDir) {
+      try { rmSync(entry.gitDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    }
     sessions.delete(sessionId);
   }
 

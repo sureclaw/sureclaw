@@ -23,7 +23,7 @@ export function safePath(baseDir: string, ...segments: string[]): string {
       .replace(/\0/g, '')              // null bytes -> remove
       .replace(/\.\./g, '_')           // .. sequences -> underscore
       .replace(/:/g, '_')              // colons -> underscore (Windows ADS)
-      .replace(/^[\s.]+|[\s.]+$/g, '') // trim leading/trailing dots and spaces
+      .replace(/^[\s]+|[\s.]+$/g, '')  // trim leading whitespace + trailing dots/spaces (preserve leading dot for hidden dirs like .ax)
       ;
 
     if (clean.length === 0) clean = '_empty_';

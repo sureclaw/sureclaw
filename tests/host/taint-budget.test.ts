@@ -55,7 +55,7 @@ describe('TaintBudget', () => {
     });
 
     test('allows sensitive actions when no taint recorded', () => {
-      const result = budget.checkAction('s1', 'identity_write');
+      const result = budget.checkAction('s1', 'scheduler_add_cron');
       expect(result.allowed).toBe(true);
     });
 
@@ -64,7 +64,7 @@ describe('TaintBudget', () => {
       budget.recordContent('s1', 'x'.repeat(800), false);
       budget.recordContent('s1', 'x'.repeat(200), true);
 
-      const result = budget.checkAction('s1', 'identity_write');
+      const result = budget.checkAction('s1', 'scheduler_add_cron');
       expect(result.allowed).toBe(true);
     });
 
@@ -73,10 +73,10 @@ describe('TaintBudget', () => {
       budget.recordContent('s1', 'x'.repeat(200), false);
       budget.recordContent('s1', 'x'.repeat(800), true);
 
-      const result = budget.checkAction('s1', 'identity_write');
+      const result = budget.checkAction('s1', 'scheduler_add_cron');
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('taint ratio');
-      expect(result.reason).toContain('identity_write');
+      expect(result.reason).toContain('scheduler_add_cron');
       expect(result.taintRatio).toBeGreaterThan(0.30);
       expect(result.threshold).toBe(0.30);
     });
@@ -84,7 +84,7 @@ describe('TaintBudget', () => {
     test('blocks all default sensitive actions', () => {
       budget.recordContent('s1', 'x'.repeat(100), true); // 100% tainted
 
-      for (const action of ['identity_write', 'user_write', 'oauth_call', 'scheduler_add_cron']) {
+      for (const action of ['oauth_call', 'scheduler_add_cron']) {
         expect(budget.checkAction('s1', action).allowed).toBe(false);
       }
     });
@@ -93,21 +93,21 @@ describe('TaintBudget', () => {
       budget.recordContent('s1', 'x'.repeat(1000), true); // 100% tainted
 
       // Should be blocked
-      expect(budget.checkAction('s1', 'identity_write').allowed).toBe(false);
+      expect(budget.checkAction('s1', 'scheduler_add_cron').allowed).toBe(false);
 
       // Add override
-      budget.addUserOverride('s1', 'identity_write');
+      budget.addUserOverride('s1', 'scheduler_add_cron');
 
       // Now allowed
-      expect(budget.checkAction('s1', 'identity_write').allowed).toBe(true);
+      expect(budget.checkAction('s1', 'scheduler_add_cron').allowed).toBe(true);
     });
 
     test('override is per-action', () => {
       budget.recordContent('s1', 'x'.repeat(1000), true);
 
-      budget.addUserOverride('s1', 'identity_write');
+      budget.addUserOverride('s1', 'scheduler_add_cron');
 
-      expect(budget.checkAction('s1', 'identity_write').allowed).toBe(true);
+      expect(budget.checkAction('s1', 'scheduler_add_cron').allowed).toBe(true);
       expect(budget.checkAction('s1', 'oauth_call').allowed).toBe(false);
     });
 
@@ -115,10 +115,10 @@ describe('TaintBudget', () => {
       budget.recordContent('s1', 'x'.repeat(1000), true);
       budget.recordContent('s2', 'x'.repeat(1000), true);
 
-      budget.addUserOverride('s1', 'identity_write');
+      budget.addUserOverride('s1', 'scheduler_add_cron');
 
-      expect(budget.checkAction('s1', 'identity_write').allowed).toBe(true);
-      expect(budget.checkAction('s2', 'identity_write').allowed).toBe(false);
+      expect(budget.checkAction('s1', 'scheduler_add_cron').allowed).toBe(true);
+      expect(budget.checkAction('s2', 'scheduler_add_cron').allowed).toBe(false);
     });
   });
 
@@ -144,7 +144,7 @@ describe('TaintBudget', () => {
       paranoid.recordContent('s1', 'x'.repeat(850), false);
       paranoid.recordContent('s1', 'x'.repeat(150), true);
 
-      expect(paranoid.checkAction('s1', 'identity_write').allowed).toBe(false);
+      expect(paranoid.checkAction('s1', 'scheduler_add_cron').allowed).toBe(false);
     });
   });
 
@@ -156,7 +156,7 @@ describe('TaintBudget', () => {
       power.recordContent('s1', 'x'.repeat(500), false);
       power.recordContent('s1', 'x'.repeat(500), true);
 
-      expect(power.checkAction('s1', 'identity_write').allowed).toBe(true);
+      expect(power.checkAction('s1', 'scheduler_add_cron').allowed).toBe(true);
     });
 
     test('blocks when majority is tainted', () => {
@@ -166,7 +166,7 @@ describe('TaintBudget', () => {
       power.recordContent('s1', 'x'.repeat(200), false);
       power.recordContent('s1', 'x'.repeat(800), true);
 
-      expect(power.checkAction('s1', 'identity_write').allowed).toBe(false);
+      expect(power.checkAction('s1', 'scheduler_add_cron').allowed).toBe(false);
     });
   });
 
@@ -180,7 +180,7 @@ describe('TaintBudget', () => {
       custom.recordContent('s1', 'x'.repeat(1000), true);
 
       // Default actions should pass
-      expect(custom.checkAction('s1', 'identity_write').allowed).toBe(true);
+      expect(custom.checkAction('s1', 'scheduler_add_cron').allowed).toBe(true);
       // Custom action should block
       expect(custom.checkAction('s1', 'my_action').allowed).toBe(false);
     });

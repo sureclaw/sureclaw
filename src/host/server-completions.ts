@@ -27,7 +27,7 @@ import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
-import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode } from '../utils/assets.js';
+import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
 import type { GcsFileStorage } from './gcs-file-storage.js';
@@ -38,6 +38,7 @@ import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
 import type { McpConnectionManager } from '../plugins/mcp-manager.js';
+import { validateCommit } from './validate-commit.js';
 
 // ── Session ID placeholder rewriting ──
 // HTTP sessions use '_' as the workspace placeholder in the SessionAddress.
@@ -129,28 +130,15 @@ const MIME_TO_EXT: Record<string, string> = {
 
 // ── Identity/Skills types for stdin payload ──
 
-/** Identity fields loaded from DocumentStore, keyed by filename. */
+/** Identity fields loaded from git, keyed by filename. */
 export interface IdentityPayload {
   agents?: string;
   soul?: string;
   identity?: string;
-  user?: string;
   bootstrap?: string;
   userBootstrap?: string;
   heartbeat?: string;
 }
-
-/** Map from identity filename (without .md) to the corresponding IdentityPayload field. */
-const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
-  'AGENTS.md': 'agents',
-  'SOUL.md': 'soul',
-  'IDENTITY.md': 'identity',
-  'USER.md': 'user',
-  'BOOTSTRAP.md': 'bootstrap',
-  'USER_BOOTSTRAP.md': 'userBootstrap',
-  'HEARTBEAT.md': 'heartbeat',
-};
-
 
 /**
  * Resolve the GCS object-key prefixes used for in-pod workspace provisioning.
@@ -162,69 +150,84 @@ const IDENTITY_FILE_MAP: Record<string, keyof IdentityPayload> = {
  *  - Empty-string prefix is valid (files live at bucket root) — mirrors gcs.ts default.
  *  - Trailing slash is normalised the same way as buildGcsPrefix in gcs.ts.
  */
+
+/** Paths to identity files in the git tree. */
+/** Identity files loaded from git (agent-written, evolving). */
+const IDENTITY_FILE_MAP: Array<{ gitPath: string; field: keyof IdentityPayload }> = [
+  { gitPath: '.ax/AGENTS.md', field: 'agents' },
+  { gitPath: '.ax/HEARTBEAT.md', field: 'heartbeat' },
+  { gitPath: '.ax/identity/SOUL.md', field: 'soul' },
+  { gitPath: '.ax/identity/IDENTITY.md', field: 'identity' },
+  // BOOTSTRAP.md and USER_BOOTSTRAP.md are always loaded from templates/ (static).
+];
+
 /**
- * Load identity files from DocumentStore for a given agent and user.
- * Returns an IdentityPayload with fields populated from matching documents.
+ * Load identity files from committed git state in a local clone.
+ * Uses `git show HEAD:<path>` — only needs GIT_DIR, no working tree.
  */
-async function loadIdentityFromDB(
-  documents: DocumentStore,
-  agentName: string,
-  userId: string,
-  logger: Logger,
-): Promise<IdentityPayload> {
+export function loadIdentityFromGit(workspace: string, gitDir: string): IdentityPayload {
   const identity: IdentityPayload = {};
+  const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
+  const opts = { cwd: workspace, encoding: 'utf-8' as const, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
 
-  try {
-    const allKeys = await documents.list('identity');
-
-    // 1. Load company base identity first
-    const companyPrefix = 'company/';
-    for (const key of allKeys) {
-      if (!key.startsWith(companyPrefix)) continue;
-      if (key.includes('/users/')) continue;
-      const filename = key.slice(companyPrefix.length);
-      const field = IDENTITY_FILE_MAP[filename];
-      if (field) {
-        const content = await documents.get('identity', key);
-        if (content) identity[field] = content;
-      }
+  for (const { gitPath, field } of IDENTITY_FILE_MAP) {
+    try {
+      const content = execFileSync('git', ['show', `HEAD:${gitPath}`], opts).toString();
+      if (content) identity[field] = content;
+    } catch {
+      // File doesn't exist in git — leave as undefined (empty)
     }
-
-    // 2. Load agent-level identity files (appended to company base)
-    const agentPrefix = `${agentName}/`;
-    for (const key of allKeys) {
-      if (!key.startsWith(agentPrefix)) continue;
-      if (key.includes('/users/')) continue;
-
-      const filename = key.slice(agentPrefix.length);
-      const field = IDENTITY_FILE_MAP[filename];
-      if (field) {
-        const content = await documents.get('identity', key);
-        if (content) {
-          identity[field] = identity[field] ? `${identity[field]}\n\n---\n\n${content}` : content;
-        }
-      }
-    }
-
-    // 3. Load user-level identity files (e.g. USER.md)
-    const userPrefix = `${agentName}/users/${userId}/`;
-    for (const key of allKeys) {
-      if (!key.startsWith(userPrefix)) continue;
-
-      const filename = key.slice(userPrefix.length);
-      const field = IDENTITY_FILE_MAP[filename];
-      if (field) {
-        const content = await documents.get('identity', key);
-        if (content) {
-          identity[field] = content;
-        }
-      }
-    }
-  } catch (err) {
-    logger.warn('identity_load_failed', { error: (err as Error).message });
   }
 
   return identity;
+}
+
+/**
+ * Fetch identity files from a remote git repo without cloning the full workspace.
+ * Uses a shallow bare fetch (depth 1) — only downloads the latest commit's tree.
+ * Ideal for HTTP repos in k8s where the host only needs to read identity, not
+ * manage the working tree (the sidecar handles workspace persistence).
+ *
+ * Returns the bare gitDir path for later cleanup, plus the identity payload.
+ */
+export function fetchIdentityFromRemote(
+  repoUrl: string, logger: Logger,
+): { gitDir: string; identity: IdentityPayload } {
+  // Partial clone: --filter=blob:none downloads only tree objects (directory listings).
+  // Individual file blobs are lazily fetched on demand by `git show`.
+  // Combined with --depth 1, this means only the ~6 identity file blobs are ever
+  // downloaded — not the entire workspace. Falls back to full shallow fetch if
+  // the server doesn't support partial clone.
+  const gitDir = mkdtempSync(join(tmpdir(), 'ax-id-'));
+  const barOpts = { cwd: gitDir, encoding: 'utf-8' as const, stdio: 'pipe' as const };
+  execFileSync('git', ['init', '--bare'], { cwd: gitDir, stdio: 'pipe' });
+  execFileSync('git', ['remote', 'add', 'origin', repoUrl], { cwd: gitDir, stdio: 'pipe' });
+  try {
+    execFileSync('git', ['fetch', '--depth', '1', '--filter=blob:none', 'origin', 'main'], { cwd: gitDir, stdio: 'pipe' });
+    execFileSync('git', ['update-ref', 'HEAD', 'FETCH_HEAD'], { cwd: gitDir, stdio: 'pipe' });
+  } catch {
+    // Partial clone not supported or empty repo — try plain shallow fetch
+    try {
+      execFileSync('git', ['fetch', '--depth', '1', 'origin', 'main'], { cwd: gitDir, stdio: 'pipe' });
+      execFileSync('git', ['update-ref', 'HEAD', 'FETCH_HEAD'], { cwd: gitDir, stdio: 'pipe' });
+    } catch {
+      logger.debug('identity_fetch_empty_repo', { repoUrl });
+      return { gitDir, identity: {} };
+    }
+  }
+
+  // Read identity files via git show — each triggers a lazy blob fetch for just that file
+  const identity: IdentityPayload = {};
+  for (const { gitPath, field } of IDENTITY_FILE_MAP) {
+    try {
+      const content = execFileSync('git', ['show', `HEAD:${gitPath}`], barOpts).toString();
+      if (content) identity[field] = content;
+    } catch {
+      // File doesn't exist — leave as undefined
+    }
+  }
+
+  return { gitDir, identity };
 }
 
 /**
@@ -334,12 +337,12 @@ export async function extractImageDataBlocks(
 }
 
 /**
- * Clone or pull a workspace from a file:// bare repo on the host side.
- * Container sandboxes can't access file:// URLs — the host must do git ops.
+ * Clone or pull a workspace repo on the host side (file:// or http://).
+ * The host must manage a local clone to read identity files for the
+ * agent's system prompt and to commit changes after each turn.
  *
  * Uses --separate-git-dir to keep .git metadata outside the workspace,
  * mirroring the k8s git-init approach. The agent only sees working-tree files.
- * Returns the gitdir path for use in hostGitCommit.
  */
 function hostGitSync(workspace: string, gitDir: string, repoUrl: string, logger: Logger): void {
   const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
@@ -352,8 +355,9 @@ function hostGitSync(workspace: string, gitDir: string, repoUrl: string, logger:
       try { unlinkSync(join(workspace, '.git')); } catch { /* already absent */ }
       // Ensure we're on 'main' regardless of system default
       try { execFileSync('git', ['branch', '-M', 'main'], gitOpts); } catch (e) { logger.debug('branch_rename_skip', { reason: (e as Error).message }); }
-    } catch {
+    } catch (cloneErr) {
       // Clone fails on empty bare repos (no commits yet) — init with separate gitdir
+      logger.debug('git_clone_fallback_init', { repoUrl, error: (cloneErr as Error).message });
       mkdirSync(gitDir, { recursive: true });
       execFileSync('git', ['init'], gitOpts);
       execFileSync('git', ['remote', 'add', 'origin', repoUrl], gitOpts);
@@ -371,7 +375,7 @@ function hostGitSync(workspace: string, gitDir: string, repoUrl: string, logger:
 }
 
 /**
- * Commit and push workspace changes to the file:// bare repo from the host.
+ * Commit and push workspace changes to the bare repo from the host.
  * Uses GIT_DIR/GIT_WORK_TREE to operate on the separated git metadata.
  */
 function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void {
@@ -380,6 +384,24 @@ function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void 
   const textOpts = { cwd: workspace, encoding: 'utf-8' as const, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
   try {
     execFileSync('git', ['add', '.'], gitOpts);
+
+    // Validate .ax/ changes before committing
+    const axDiff = execFileSync('git', ['diff', '--cached', '--',
+      '.ax/identity/', '.ax/skills/', '.ax/policy/', '.ax/AGENTS.md', '.ax/HEARTBEAT.md',
+    ], textOpts).trim();
+
+    if (axDiff) {
+      const validation = validateCommit(axDiff);
+      if (!validation.ok) {
+        logger.warn('ax_commit_rejected', { reason: validation.reason });
+        // Revert .ax/ changes — unstage and checkout
+        try { execFileSync('git', ['reset', 'HEAD', '--', '.ax/'], gitOpts); } catch { /* no .ax/ staged */ }
+        try { execFileSync('git', ['checkout', '--', '.ax/'], gitOpts); } catch { /* no .ax/ to restore */ }
+        // Re-stage remaining (non-.ax/) changes
+        execFileSync('git', ['add', '.'], gitOpts);
+      }
+    }
+
     const status = execFileSync('git', ['status', '--porcelain'], textOpts);
     if (status.trim()) {
       // Detect current branch. On a fresh repo with no commits, HEAD doesn't exist yet —
@@ -411,6 +433,105 @@ function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void 
     execFileSync('git', ['clean', '-fd'], gitOpts);
   } catch (err) {
     logger.warn('host_git_commit_failed', { error: (err as Error).message });
+  }
+}
+
+/**
+ * Ensure the .ax/ directory structure and template files exist in the workspace.
+ * Creates directories, copies template identity/config files, and commits if new.
+ * Works with any repo that has a local working tree + separate gitDir.
+ */
+function seedAxDirectory(workspace: string, gitDir: string, logger: Logger): void {
+  const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
+  const gitOpts = { cwd: workspace, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
+
+  const dirs = [
+    join(workspace, '.ax', 'identity'),
+    join(workspace, '.ax', 'skills'),
+    join(workspace, '.ax', 'policy'),
+  ];
+
+  for (const dir of dirs) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  // Seed template files into .ax/ if they don't already exist in the workspace.
+  // These are the identity/config files the agent needs on first run.
+  let tDir: string;
+  try { tDir = resolveTemplatesDir(); } catch { tDir = ''; }
+  if (tDir && existsSync(tDir)) {
+    // Only seed AGENTS.md and HEARTBEAT.md into the workspace git repo.
+    // BOOTSTRAP.md and USER_BOOTSTRAP.md are static templates loaded directly
+    // into the identity payload — they don't need to be in git.
+    const templateMap: Array<{ src: string; dest: string }> = [
+      { src: 'AGENTS.md', dest: join('.ax', 'AGENTS.md') },
+      { src: 'HEARTBEAT.md', dest: join('.ax', 'HEARTBEAT.md') },
+    ];
+    for (const { src, dest } of templateMap) {
+      const srcPath = join(tDir, src);
+      const destPath = join(workspace, dest);
+      if (existsSync(srcPath) && !existsSync(destPath)) {
+        try {
+          writeFileSync(destPath, readFileSync(srcPath, 'utf-8'));
+        } catch (err) {
+          logger.debug('ax_seed_template_failed', { file: src, error: (err as Error).message });
+        }
+      }
+    }
+  }
+
+  // Commit the directory structure and templates if new
+  try {
+    execFileSync('git', ['add', '.ax/'], gitOpts);
+    const status = execFileSync('git', ['status', '--porcelain', '--', '.ax/'],
+      { ...gitOpts, encoding: 'utf-8' }).trim();
+    if (status) {
+      execFileSync('git', ['commit', '-m', 'init: seed .ax/ directory structure and templates'], gitOpts);
+    }
+  } catch (err) {
+    logger.debug('ax_seed_skip', { reason: (err as Error).message });
+  }
+}
+
+/**
+ * Seed .ax/ templates into a remote (HTTP) repo.
+ * Used for k8s mode where the host doesn't maintain a persistent working tree.
+ * Creates a temporary clone, seeds templates, commits, and pushes.
+ * No-op if the repo already has .ax/ content.
+ */
+function seedRemoteRepo(repoUrl: string, logger: Logger): void {
+  const tmpWs = mkdtempSync(join(tmpdir(), 'ax-seed-ws-'));
+  const tmpGit = mkdtempSync(join(tmpdir(), 'ax-seed-git-'));
+  try { rmSync(tmpGit, { recursive: true }); } catch { /* git clone needs non-existent target */ }
+  try {
+    // Clone with separate gitdir (same pattern as hostGitSync)
+    execFileSync('git', [
+      'clone', '--separate-git-dir', tmpGit, repoUrl, tmpWs,
+    ], { stdio: 'pipe' });
+    // Ensure main branch
+    const gitEnv = { GIT_DIR: tmpGit, GIT_WORK_TREE: tmpWs };
+    const gitOpts = { cwd: tmpWs, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
+    try { execFileSync('git', ['checkout', 'main'], gitOpts); } catch {
+      try { execFileSync('git', ['checkout', '-b', 'main'], gitOpts); } catch { /* already on main */ }
+    }
+    execFileSync('git', ['config', 'user.email', 'ax-host@ax.local'], gitOpts);
+    execFileSync('git', ['config', 'user.name', 'ax-host'], gitOpts);
+
+    // Seed templates + commit (reuses seedAxDirectory logic)
+    seedAxDirectory(tmpWs, tmpGit, logger);
+
+    // Push to remote (only if there's a new commit)
+    try {
+      execFileSync('git', ['push', '-u', 'origin', 'main'], gitOpts);
+      logger.info('seed_remote_pushed', { repoUrl });
+    } catch {
+      logger.debug('seed_remote_push_skip', { repoUrl, reason: 'nothing to push or push failed' });
+    }
+  } catch (err) {
+    logger.debug('seed_remote_failed', { repoUrl, error: (err as Error).message });
+  } finally {
+    try { rmSync(tmpWs, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { rmSync(tmpGit, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
 
@@ -606,6 +727,11 @@ export async function processCompletion(
   let webProxyCleanup: (() => void) | undefined;
   let toolMountRoot: { mountRoot: string; cleanup: () => void } | undefined;
   let hostManagedGit = false;
+  // Host-owned git: host commits+pushes agent changes (file:// repos with shared FS).
+  // Host-readonly git: host clones for identity reading only; agent owns commit+push (http:// repos).
+  let hostOwnsGitCommit = false;
+  // Bare gitDir for identity-only fetch (http:// repos). Cleaned up in finally block.
+  let identityGitDir = '';
   let gitDir = '';
   const currentUserId = userId ?? 'anonymous';
   const sandboxResolvedAgent = userId && deps.provisioner
@@ -638,30 +764,68 @@ export async function processCompletion(
       workspace = prevSession.workspace;
       gitDir = prevSession.gitDir;
       reqLogger.debug('workspace_reuse', { workspace, gitDir, sessionId });
-      // Pull latest from the repo (another turn may have pushed)
+      // Pull latest from the repo (another turn may have pushed).
+      // Only needed for file:// repos where the host owns the working tree.
       if (existsSync(join(gitDir, 'HEAD'))) {
         const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
         const gitOpts = { cwd: workspace, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
-        try { execFileSync('git', ['pull', '--rebase', 'origin', 'main'], gitOpts); } catch { /* first push or no remote */ }
+        // Determine if host owns commits from the remote URL type.
+        try {
+          const remote = execFileSync('git', ['remote', 'get-url', 'origin'], { ...gitOpts, encoding: 'utf-8' }).trim();
+          hostOwnsGitCommit = remote.startsWith('file://') || remote.startsWith('/');
+        } catch { hostOwnsGitCommit = true; /* no remote = local repo */ }
+        if (hostOwnsGitCommit) {
+          try { execFileSync('git', ['pull', '--rebase', 'origin', 'main'], gitOpts); } catch { /* first push or no remote */ }
+        } else if (providers.workspace) {
+          // HTTP repo reuse — lightweight fetch for identity reading
+          try {
+            const { url: repoUrl } = await providers.workspace.getRepoUrl(agentId);
+            const result = fetchIdentityFromRemote(repoUrl, reqLogger);
+            identityGitDir = result.gitDir;
+          } catch { /* identity fetch failed — will use empty */ }
+        }
         hostManagedGit = true;
       }
     } else {
       workspace = mkdtempSync(join(tmpdir(), 'ax-ws-'));
-      // Separate gitdir keeps .git metadata outside workspace (agent can't see it)
+      // Separate gitdir keeps .git metadata outside workspace (agent can't see it).
+      // Use mkdtempSync to get a unique path, then remove it — git clone
+      // --separate-git-dir needs the target to NOT exist (it creates it itself).
       gitDir = mkdtempSync(join(tmpdir(), 'ax-git-'));
+      try { rmSync(gitDir, { recursive: true }); } catch { /* best effort */ }
     }
 
     // Git repo is the persistence layer — always sync for persistent sessions.
-    // For file:// workspace URLs (git-local provider), clone/pull on the host side.
-    // Container sandboxes can't access host file paths, so the host manages git.
+    // Two strategies based on URL scheme:
+    //  - file:// (local/subprocess): Full clone+checkout. Host manages workspace,
+    //    commits agent changes, seeds templates. Shared filesystem with agent.
+    //  - http:// (k8s): Lightweight bare fetch (depth 1). Host only reads identity
+    //    files — no working tree checkout. The sidecar in the sandbox pod owns
+    //    the full workspace clone, commit, and push lifecycle.
     if (!hostManagedGit && providers.workspace) {
-      const repoUrl = await providers.workspace.getRepoUrl(agentId);
+      const { url: repoUrl, created: repoCreated } = await providers.workspace.getRepoUrl(agentId);
       if (repoUrl.startsWith('file://')) {
+        // file:// — full clone, host owns commit+push
         try {
           hostGitSync(workspace, gitDir, repoUrl, reqLogger);
+          seedAxDirectory(workspace, gitDir, reqLogger);
           hostManagedGit = true;
+          hostOwnsGitCommit = true;
         } catch (err) {
           reqLogger.warn('host_git_sync_failed', { error: (err as Error).message });
+        }
+      } else {
+        // http:// — seed templates on first creation, then fetch identity
+        if (repoCreated) {
+          seedRemoteRepo(repoUrl, reqLogger);
+        }
+        try {
+          const result = fetchIdentityFromRemote(repoUrl, reqLogger);
+          identityGitDir = result.gitDir;
+          hostManagedGit = true;
+          hostOwnsGitCommit = false;
+        } catch (err) {
+          reqLogger.warn('host_identity_fetch_failed', { error: (err as Error).message });
         }
       }
     } else if (!hostManagedGit && persistentSessionId) {
@@ -674,7 +838,9 @@ export async function processCompletion(
       }
       try {
         hostGitSync(workspace, gitDir, repoUrl, reqLogger);
+        seedAxDirectory(workspace, gitDir, reqLogger);
         hostManagedGit = true;
+        hostOwnsGitCommit = true;
       } catch (err) {
         reqLogger.warn('host_git_sync_failed', { error: (err as Error).message });
       }
@@ -1064,9 +1230,42 @@ export async function processCompletion(
       command: [],
     });
 
-    // ── Load identity from DocumentStore ──
-    // Identity files are keyed as <agentId>/<filename> and <agentId>/users/<userId>/<filename>
-    const identityPayload = await loadIdentityFromDB(providers.storage.documents, agentId, currentUserId, reqLogger);
+    // ── Load identity from committed git state ──
+    // For http:// repos, identity was already fetched into identityGitDir (bare repo).
+    // For file:// repos, read from the full clone's gitDir.
+    let identityPayload: IdentityPayload;
+    if (identityGitDir) {
+      // Bare fetch — read directly, no workspace needed
+      identityPayload = loadIdentityFromGit(identityGitDir, identityGitDir);
+    } else if (workspace && gitDir) {
+      identityPayload = loadIdentityFromGit(workspace, gitDir);
+    } else {
+      identityPayload = {} as IdentityPayload;
+    }
+
+    // Load static templates from disk.
+    // BOOTSTRAP.md and USER_BOOTSTRAP.md always come from templates/ (not git).
+    // AGENTS.md and HEARTBEAT.md fall back to templates/ if not in git.
+    {
+      let tDir: string;
+      try { tDir = resolveTemplatesDir(); } catch { tDir = ''; }
+      if (tDir && existsSync(tDir)) {
+        // Always from templates — static bootstrap instructions
+        const bootstrapSrc = join(tDir, 'BOOTSTRAP.md');
+        if (existsSync(bootstrapSrc)) identityPayload.bootstrap = readFileSync(bootstrapSrc, 'utf-8');
+        const ubSrc = join(tDir, 'USER_BOOTSTRAP.md');
+        if (existsSync(ubSrc)) identityPayload.userBootstrap = readFileSync(ubSrc, 'utf-8');
+        // Fallback from templates — only if not already in git
+        if (!identityPayload.agents) {
+          const src = join(tDir, 'AGENTS.md');
+          if (existsSync(src)) identityPayload.agents = readFileSync(src, 'utf-8');
+        }
+        if (!identityPayload.heartbeat) {
+          const src = join(tDir, 'HEARTBEAT.md');
+          if (existsSync(src)) identityPayload.heartbeat = readFileSync(src, 'utf-8');
+        }
+      }
+    }
 
     // ── Load installed skills from DB ──
     // All skills (agent-scoped and user-scoped) are merged into a single array
@@ -1205,11 +1404,18 @@ export async function processCompletion(
     // Transient: OOM kill (137), segfault (139), generic crash with retryable stderr.
     // Permanent: auth failures, bad config, content filter blocks.
 
-    // Calculate workspace repository URL from config.
-    // For file:// URLs (git-local), the host already did clone/pull — don't pass to agent.
-    const workspaceRepoUrl = !hostManagedGit && providers.workspace
-      ? await providers.workspace.getRepoUrl(agentId)
-      : undefined;
+    // Calculate workspace repository URL for the agent's sandbox.
+    // For file:// URLs (git-local with subprocess sandbox), the host manages git on a
+    // shared filesystem — don't pass URL to agent.
+    // For http:// URLs (k8s), the host clones for identity reading but the agent ALSO
+    // needs its own clone in the sandbox pod for file persistence (commit+push at turn end).
+    let workspaceRepoUrl: string | undefined;
+    if (providers.workspace) {
+      const { url: repoUrl } = await providers.workspace.getRepoUrl(agentId);
+      if (!repoUrl.startsWith('file://')) {
+        workspaceRepoUrl = repoUrl;
+      }
+    }
 
     const sandboxConfig = {
       workspace,
@@ -1726,14 +1932,50 @@ export async function processCompletion(
     if (deps.sharedCredentialRegistry) {
       deps.sharedCredentialRegistry.deregister(sessionId);
     }
-    // Commit workspace changes to the bare repo.
-    // git reset --hard + git clean -fd happens inside hostGitCommit to prevent
-    // prompt-injected files from persisting to the next turn.
-    if (hostManagedGit && workspace && gitDir) {
+    // Post-turn git handling depends on who owns the commit lifecycle.
+    if (hostOwnsGitCommit && hostManagedGit && workspace && gitDir) {
+      // file:// repos: host commits+pushes, then resets working tree.
       hostGitCommit(workspace, gitDir, reqLogger);
     }
-    // Only clean up workspace/gitDir if session manager is NOT tracking this session.
-    // When tracked, the workspace persists for the next turn (git clone reuse).
+
+    // Sync identity files from git to DocumentStore so admin helpers
+    // (isAgentBootstrapMode, dashboard) reflect the latest state.
+    // For http:// repos, re-fetch from remote (sidecar may have pushed new identity).
+    // For file:// repos, read from the local clone (just committed by host).
+    try {
+      let updatedIdentity: IdentityPayload;
+      if (!hostOwnsGitCommit && providers.workspace) {
+        // Lightweight re-fetch — only downloads the latest commit
+        const { url: repoUrl } = await providers.workspace.getRepoUrl(agentId);
+        const { gitDir: fetchDir, identity } = fetchIdentityFromRemote(repoUrl, reqLogger);
+        updatedIdentity = identity;
+        try { rmSync(fetchDir, { recursive: true, force: true }); } catch { /* best effort */ }
+      } else if (workspace && gitDir) {
+        updatedIdentity = loadIdentityFromGit(workspace, gitDir);
+      } else {
+        updatedIdentity = {};
+      }
+      const docs = deps.providers.storage?.documents;
+      if (docs) {
+        const syncPairs: Array<{ field: keyof IdentityPayload; key: string }> = [
+          { field: 'soul', key: `${agentId}/SOUL.md` },
+          { field: 'identity', key: `${agentId}/IDENTITY.md` },
+          { field: 'agents', key: `${agentId}/AGENTS.md` },
+          { field: 'heartbeat', key: `${agentId}/HEARTBEAT.md` },
+        ];
+        for (const { field, key } of syncPairs) {
+          const val = updatedIdentity[field];
+          if (val) {
+            await docs.put('identity', key, val);
+          }
+        }
+      }
+    } catch (err) {
+      reqLogger.debug('identity_sync_to_docstore_failed', { error: (err as Error).message });
+    }
+
+    // Clean up workspace/gitDir temp directories.
+    // Skip if session manager is tracking (persists for next turn).
     if (!deps.sessionManager?.has(sessionId)) {
       if (workspace) {
         try { rmSync(workspace, { recursive: true, force: true }); } catch {
@@ -1745,6 +1987,10 @@ export async function processCompletion(
           reqLogger.debug('gitdir_cleanup_failed', { gitDir });
         }
       }
+    }
+    // Always clean up identity-only bare fetch dir (not tracked by session manager).
+    if (identityGitDir) {
+      try { rmSync(identityGitDir, { recursive: true, force: true }); } catch { /* best effort */ }
     }
   }
 }

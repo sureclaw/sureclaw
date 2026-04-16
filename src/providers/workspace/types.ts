@@ -6,10 +6,11 @@
 export interface WorkspaceProvider {
   /**
    * Get the clone URL for an agent's workspace repository.
+   * Creates the repo if it doesn't exist.
    * @param agentId — Agent identifier (e.g., "agent-123", "user:alice")
-   * @returns Full clone URL (e.g., "http://git-server:8000/agent-123.git")
+   * @returns Clone URL and whether the repo was just created
    */
-  getRepoUrl(agentId: string): Promise<string>;
+  getRepoUrl(agentId: string): Promise<{ url: string; created: boolean }>;
 
   /**
    * Close the provider (cleanup resources if needed).

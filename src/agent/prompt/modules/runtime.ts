@@ -73,13 +73,6 @@ export class RuntimeModule extends BasePromptModule {
     if (ctx.agentId) {
       lines.push(`**Agent ID**: ${ctx.agentId}`);
     }
-    if (ctx.hasGovernance) {
-      lines.push('', '### Governance',
-        'Identity changes go through a proposal system. Use `governance({ type: "propose" })` to suggest changes.',
-        'Use `governance({ type: "list_proposals" })` to check pending proposals.',
-      );
-    }
-
     return lines;
   }
 }

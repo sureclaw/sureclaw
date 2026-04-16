@@ -9,7 +9,7 @@ function text(t: string) {
 }
 
 export interface IPCToolsOptions {
-  /** Current user ID — included in user_write calls for per-user scoping. */
+  /** Current user ID (kept for backward compatibility). */
   userId?: string;
   /** Tool filter context — excludes tools irrelevant to the current session. */
   filter?: ToolFilterContext;
@@ -88,11 +88,6 @@ export function createIPCTools(client: IIPCClient, opts?: IPCToolsOptions): Agen
               },
             )));
         }
-      }
-
-      // Inject userId only for identity tool's user_write type
-      if (spec.injectUserId && (p.type === 'user_write' || !spec.actionMap)) {
-        callParams = { ...callParams, userId: opts?.userId ?? '' };
       }
 
       return ipcCall(action, callParams, spec.timeoutMs);

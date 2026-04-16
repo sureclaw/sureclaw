@@ -81,7 +81,7 @@ function makePromptContext(overrides: Partial<PromptContext> = {}): PromptContex
     taintRatio: 0,
     taintThreshold: 0.10,
     identityFiles: {
-      agents: '', soul: 'I am a test agent', identity: '', user: '',
+      agents: '', soul: 'I am a test agent', identity: 'Test identity.',
       bootstrap: '', userBootstrap: '',
       heartbeat: '# Test Checks\n- check stuff',
     },
@@ -129,16 +129,16 @@ describe('tool-catalog <-> system prompt sync', () => {
     expect(rendered, 'DelegationModule should warn against dumping full identity').toContain('Do NOT paste');
   });
 
-  test('identity tool operations are documented in IdentityModule', () => {
+  test('identity evolution is documented in IdentityModule', () => {
     const mod = new IdentityModule();
     const ctx = makePromptContext();
     const rendered = mod.render(ctx).join('\n');
 
-    // Should reference the consolidated identity tool
-    expect(rendered, 'identity tool missing from IdentityModule system prompt').toContain('identity');
-    // Should document both write and user_write operations
-    expect(rendered, 'write operation missing from IdentityModule').toContain('write');
-    expect(rendered, 'user_write operation missing from IdentityModule').toContain('user_write');
+    // Should reference git-based identity files
+    expect(rendered, '.ax/identity/ path missing from IdentityModule').toContain('.ax/identity/');
+    // Should document git commit workflow
+    expect(rendered, 'git commit missing from IdentityModule').toContain('git');
+    expect(rendered, 'Identity Evolution heading missing').toContain('Identity Evolution');
   });
 });
 
@@ -185,8 +185,6 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'llm_call',
       'browser_launch', 'browser_navigate', 'browser_snapshot',
       'browser_click', 'browser_type', 'browser_screenshot', 'browser_close',
-      // Enterprise admin-only actions (not in tool catalog, used via direct IPC)
-      'proposal_review', 'agent_registry_get',
       // workspace_write kept as backward-compat alias (save_artifact is the catalog name)
       'workspace_write',
       // Plugin management (host-internal, not agent-facing)
@@ -204,10 +202,10 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'session_expiring',
       // Tool batch (scripted tool execution with __batchRef pipelining, not agent-facing tool)
       'tool_batch',
-      // Company identity management (read/write via IPC, admin-only writes)
-      'company_identity_read', 'company_identity_write',
       // Agent work loop (multi-turn sessions — agent polls for queued work)
       'fetch_work',
+      // Commit validation (git sidecar → host, validates .ax/ diffs before committing)
+      'validate_commit',
     ]);
 
     for (const action of schemaActions) {

@@ -413,7 +413,7 @@ describe('Power User Profile', () => {
     budget.recordContent(sessionId, 'a'.repeat(500), true);
     budget.recordContent(sessionId, 'b'.repeat(500), false);
 
-    const check = budget.checkAction(sessionId, 'identity_write');
+    const check = budget.checkAction(sessionId, 'scheduler_add_cron');
     expect(check.allowed).toBe(true);
   });
 
@@ -425,7 +425,7 @@ describe('Power User Profile', () => {
     budget.recordContent(sessionId, 'a'.repeat(700), true);
     budget.recordContent(sessionId, 'b'.repeat(300), false);
 
-    const check = budget.checkAction(sessionId, 'identity_write');
+    const check = budget.checkAction(sessionId, 'scheduler_add_cron');
     expect(check.allowed).toBe(false);
   });
 });
@@ -474,7 +474,6 @@ describe('Architectural Invariants', () => {
     expect(VALID_ACTIONS).toContain('llm_call');
     expect(VALID_ACTIONS).toContain('memory_write');
     expect(VALID_ACTIONS).toContain('web_fetch');
-    expect(VALID_ACTIONS).toContain('identity_write');
     expect(VALID_ACTIONS).toContain('audit_query');
 
     // Phase 2 additions

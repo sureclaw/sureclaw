@@ -80,7 +80,7 @@ function buildPodSpec(
           ...(process.env.K8S_IMAGE_PULL_POLICY ? { imagePullPolicy: process.env.K8S_IMAGE_PULL_POLICY } : {}),
           command: [
             'sh', '-c',
-            'git clone --separate-git-dir=/gitdir/repo "$WORKSPACE_REPO_URL" /workspace && rm -f /workspace/.git',
+            'git clone --separate-git-dir=/gitdir/repo "$WORKSPACE_REPO_URL" /workspace && rm -f /workspace/.git && mkdir -p /workspace/.ax/identity /workspace/.ax/skills /workspace/.ax/policy',
           ],
           env: [
             { name: 'WORKSPACE_REPO_URL', value: config.extraEnv.WORKSPACE_REPO_URL },

@@ -10,17 +10,14 @@ import { createLLMHandlers } from './ipc-handlers/llm.js';
 import { createMemoryHandlers } from './ipc-handlers/memory.js';
 import { createWebHandlers } from './ipc-handlers/web.js';
 import { createSkillsHandlers } from './ipc-handlers/skills.js';
-import { createIdentityHandlers } from './ipc-handlers/identity.js';
 import { createDelegationHandlers } from './ipc-handlers/delegation.js';
 import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
 import { createArtifactHandlers } from './ipc-handlers/artifact.js';
-import { createGovernanceHandlers } from './ipc-handlers/governance.js';
 import { createPluginHandlers } from './ipc-handlers/plugin.js';
 import { createOrchestrationHandlers } from './ipc-handlers/orchestration.js';
 import { createSandboxToolHandlers } from './ipc-handlers/sandbox-tools.js';
 import { createToolBatchHandlers, type ToolBatchProvider, type ToolBatchOptions } from './ipc-handlers/tool-batch.js';
-import { createCompanyHandlers } from './ipc-handlers/company.js';
-import type { AgentRegistry } from './agent-registry.js';
+import { validateCommit } from './validate-commit.js';
 import type { Orchestrator } from './orchestration/orchestrator.js';
 
 const logger = getLogger().child({ component: 'ipc' });
@@ -73,12 +70,8 @@ export interface IPCHandlerOptions {
   adminCtx?: import('./server-admin-helpers.js').AdminContext;
   /** Agent identifier for resolving per-user directories. */
   agentId?: string;
-  /** Security profile name (paranoid, balanced, yolo). Gates identity mutations. */
-  profile?: string;
   /** Configured model ID from ax.yaml (e.g. 'anthropic/claude-sonnet-4-20250514'). */
   configModel?: string;
-  /** Enterprise agent registry instance. */
-  agentRegistry?: AgentRegistry;
   /** Streaming event bus for real-time observability. */
   eventBus?: EventBus;
   /** Orchestrator instance for agent orchestration IPC actions. */
@@ -106,7 +99,6 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
 
   const taintBudget = opts?.taintBudget;
   const agentId = opts?.agentId!;
-  const profile = opts?.profile ?? 'paranoid';
 
   // Compose handlers from domain modules
   const handlers: Record<string, (req: any, ctx: IPCContext) => Promise<any>> = {
@@ -119,23 +111,10 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       domainList: opts?.domainList,
       adminCtx: opts?.adminCtx,
     }),
-    ...createIdentityHandlers(providers, {
-      agentId,
-      profile,
-      taintBudget,
-      adminCtx: opts?.adminCtx,
-    }),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentId),
     ...createArtifactHandlers(providers, { agentId, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),
-    ...createGovernanceHandlers(providers, {
-      adminCtx: opts?.adminCtx,
-      agentId,
-      profile,
-      registry: opts?.agentRegistry,
-    }),
     ...createPluginHandlers(providers),
-    ...(providers.storage?.documents ? createCompanyHandlers(providers.storage.documents, providers.audit) : {}),
     ...(opts?.orchestrator ? createOrchestrationHandlers(opts.orchestrator) : {}),
     ...(opts?.workspaceMap ? createSandboxToolHandlers(providers, {
       workspaceMap: opts.workspaceMap,
@@ -152,6 +131,10 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
         return { ok: true, payload: payload ?? null };
       },
     } : {}),
+    // Commit validation — git sidecar sends diff for .ax/ file validation
+    validate_commit: async (req: any) => {
+      return validateCommit(req.diff);
+    },
   };
 
   return async function handleIPC(raw: string, ctx: IPCContext): Promise<string> {
@@ -252,8 +235,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     }
 
     // Step 3.5: Taint budget check (SC-SEC-003)
-    // identity_write has custom taint handling (queues instead of hard-blocking)
-    if (taintBudget && actionName !== 'identity_read' && actionName !== 'identity_write' && actionName !== 'user_write' && actionName !== 'identity_propose') {
+    if (taintBudget) {
       const taintCheck = taintBudget.checkAction(effectiveCtx.sessionId, actionName);
       if (!taintCheck.allowed) {
         logger.debug('taint_blocked', { action: actionName, taintRatio: taintCheck.taintRatio });

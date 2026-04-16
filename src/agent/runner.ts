@@ -519,7 +519,6 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       agents: payload.identity.agents ?? '',
       soul: payload.identity.soul ?? '',
       identity: payload.identity.identity ?? '',
-      user: payload.identity.user ?? '',
       bootstrap: payload.identity.bootstrap ?? '',
       userBootstrap: payload.identity.userBootstrap ?? '',
       heartbeat: payload.identity.heartbeat ?? '',

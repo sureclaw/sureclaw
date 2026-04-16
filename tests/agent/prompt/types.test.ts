@@ -13,7 +13,7 @@ describe('PromptContext', () => {
       sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: '', identity: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
       contextWindow: 200000,
       historyTokens: 0,
@@ -24,7 +24,7 @@ describe('PromptContext', () => {
 });
 
 describe('isBootstrapMode', () => {
-  test('returns true when soul is empty and bootstrap is present', () => {
+  test('returns true when soul is empty (regardless of bootstrap)', () => {
     const ctx: PromptContext = {
       agentType: 'pi-coding-agent',
       workspace: '/tmp',
@@ -33,7 +33,7 @@ describe('isBootstrapMode', () => {
       sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: 'Bootstrap...', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: '', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
       contextWindow: 200000,
       historyTokens: 0,
@@ -41,7 +41,7 @@ describe('isBootstrapMode', () => {
     expect(isBootstrapMode(ctx)).toBe(true);
   });
 
-  test('returns false when soul is present', () => {
+  test('returns true when identity is empty', () => {
     const ctx: PromptContext = {
       agentType: 'pi-coding-agent',
       workspace: '/tmp',
@@ -50,15 +50,15 @@ describe('isBootstrapMode', () => {
       sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: '', soul: 'I have a soul', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: 'I have a soul', identity: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
       contextWindow: 200000,
       historyTokens: 0,
     };
-    expect(isBootstrapMode(ctx)).toBe(false);
+    expect(isBootstrapMode(ctx)).toBe(true);
   });
 
-  test('returns false when both soul and bootstrap are empty', () => {
+  test('returns false when BOTH soul AND identity are present', () => {
     const ctx: PromptContext = {
       agentType: 'pi-coding-agent',
       workspace: '/tmp',
@@ -67,7 +67,7 @@ describe('isBootstrapMode', () => {
       sandboxType: 'docker',
       taintRatio: 0,
       taintThreshold: 0.10,
-      identityFiles: { agents: '', soul: '', identity: '', user: '', bootstrap: '', userBootstrap: '', heartbeat: '' },
+      identityFiles: { agents: '', soul: 'I have a soul', identity: 'I have identity', bootstrap: '', userBootstrap: '', heartbeat: '' },
 
       contextWindow: 200000,
       historyTokens: 0,

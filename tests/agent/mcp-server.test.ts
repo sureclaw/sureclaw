@@ -144,35 +144,13 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('request_credential');
   });
 
-  test('identity write calls IPC client with correct action', async () => {
-    const client = createMockClient({ ok: true, queued: false });
-    const server = createIPCMcpServer(client);
-    const tools = getTools(server);
-
-    expect(tools['identity']).toBeDefined();
-
-    const result = await tools['identity'].handler(
-      { type: 'write', file: 'SOUL.md', content: '# Witty Bot', reason: 'User asked to be more witty', origin: 'user_request' },
-      {},
-    );
-
-    expect(client.call).toHaveBeenCalledWith({
-      action: 'identity_write',
-      file: 'SOUL.md',
-      content: '# Witty Bot',
-      reason: 'User asked to be more witty',
-      origin: 'user_request',
-    });
-    expect(result.content[0].text).toContain('"ok":true');
-  });
-
-  test('all 20 tools are registered without filter', () => {
+  test('all 14 tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expectedTools = [
-      'memory', 'web', 'audit', 'identity',
+      'memory', 'web', 'audit',
       'scheduler', 'skill', 'request_credential',
       'agent',
       'save_artifact',
@@ -184,45 +162,40 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(16);
+    expect(registeredNames.length).toBe(14);
   });
 
   test('scheduler is always present regardless of hasHeartbeat', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false,  hasGovernance: true },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    expect(names).toContain('scheduler'); // always available
-    expect(names).toContain('skill'); // always available — delete/update don't require install intent
-    expect(names).toContain('request_credential'); // always available
-    // Core tools present
+    expect(names).toContain('scheduler');
+    expect(names).toContain('skill');
+    expect(names).toContain('request_credential');
     expect(names).toContain('memory');
     expect(names).toContain('web');
-    expect(names).toContain('identity');
     expect(names).toContain('save_artifact');
   });
 
-  test('filter with all flags false returns only core tools', () => {
+  test('filter with all flags false returns all tools (no governance to exclude)', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false,  hasGovernance: false },
+      filter: { hasHeartbeat: false, skillInstallEnabled: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    // Core: memory(1) + web(1) + audit(1) + identity(1) + delegation(1) + image(1) + credential(1) + scheduler(1) = 8
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
-    expect(names).toContain('identity');
     expect(names).toContain('agent');
-    expect(names).toContain('request_credential'); // always available
-    expect(names).toContain('skill'); // always available — delete/update don't require install intent
-    expect(names).toContain('scheduler'); // always available
-    expect(names).not.toContain('governance');
+    expect(names).toContain('request_credential');
+    expect(names).toContain('skill');
+    expect(names).toContain('scheduler');
   });
 
   test('includes scheduler tool', () => {
@@ -232,27 +205,5 @@ describe('IPC MCP Server', () => {
     const toolNames = Object.keys(tools);
 
     expect(toolNames).toContain('scheduler');
-  });
-
-  test('user_write calls IPC client with userId from options', async () => {
-    const client = createMockClient({ ok: true, applied: true });
-    const server = createIPCMcpServer(client, { userId: 'U12345' });
-    const tools = getTools(server);
-
-    expect(tools['identity']).toBeDefined();
-
-    const result = await tools['identity'].handler(
-      { type: 'user_write', content: '# User prefs', reason: 'Learned from chat', origin: 'agent_initiated' },
-      {},
-    );
-
-    expect(client.call).toHaveBeenCalledWith({
-      action: 'user_write',
-      content: '# User prefs',
-      reason: 'Learned from chat',
-      origin: 'agent_initiated',
-      userId: 'U12345',
-    });
-    expect(result.content[0].text).toContain('"ok":true');
   });
 });

@@ -52,6 +52,17 @@ describe('safePath (SC-SEC-004)', () => {
     expect(result.startsWith(resolve(BASE))).toBe(true);
   });
 
+  // ── Hidden directories ──
+  test('preserves leading dot for hidden directories like .ax', () => {
+    const result = safePath(BASE, '.ax', 'identity', 'SOUL.md');
+    expect(result).toBe(resolve(BASE, '.ax', 'identity', 'SOUL.md'));
+  });
+
+  test('preserves dotfile names', () => {
+    const result = safePath(BASE, '.gitignore');
+    expect(result).toBe(resolve(BASE, '.gitignore'));
+  });
+
   // ── Edge cases ──
   test('handles empty segment', () => {
     const result = safePath(BASE, '');
