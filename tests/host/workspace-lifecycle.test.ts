@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { initLogger } from '../../src/logger.js';
+import { validateCommit } from '../../src/host/validate-commit.js';
 
 // We test the git sync/commit helpers indirectly by replicating the
 // same git operations that processCompletion performs.
@@ -75,6 +76,42 @@ function gitCommit(workspace: string, gitDir: string): void {
     execFileSync('git', ['commit', '-m', 'agent-turn'], gitOpts);
     execFileSync('git', ['push', 'origin', 'main'], gitOpts);
   }
+}
+
+/**
+ * Commit with .ax/ validation (mirrors hostGitCommit from server-completions.ts).
+ * Returns list of files in the final commit (empty if nothing committed).
+ */
+function gitCommitWithValidation(workspace: string, gitDir: string): string[] {
+  const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
+  const gitOpts = { cwd: workspace, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
+  const textOpts = { cwd: workspace, encoding: 'utf-8' as const, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
+
+  execFileSync('git', ['add', '.'], gitOpts);
+
+  // Validate .ax/ changes before committing (same as hostGitCommit)
+  const axDiff = execFileSync('git', ['diff', '--cached', '--', '.ax/'], textOpts).trim();
+  if (axDiff) {
+    const validation = validateCommit(axDiff);
+    if (!validation.ok) {
+      // Revert .ax/ changes — unstage, checkout, and clean untracked
+      try { execFileSync('git', ['reset', 'HEAD', '--', '.ax/'], gitOpts); } catch { /* no .ax/ staged */ }
+      try { execFileSync('git', ['checkout', '--', '.ax/'], gitOpts); } catch { /* no tracked .ax/ to restore */ }
+      try { execFileSync('git', ['clean', '-fd', '--', '.ax/'], gitOpts); } catch { /* no untracked .ax/ files */ }
+      // Re-stage remaining (non-.ax/) changes
+      execFileSync('git', ['add', '.'], gitOpts);
+    }
+  }
+
+  const status = execFileSync('git', ['status', '--porcelain'], textOpts);
+  if (status.trim()) {
+    execFileSync('git', ['commit', '-m', 'agent-turn'], gitOpts);
+    execFileSync('git', ['push', 'origin', 'main'], gitOpts);
+    // Return committed files
+    return execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], textOpts)
+      .trim().split('\n').filter(Boolean);
+  }
+  return [];
 }
 
 describe('ephemeral workspace lifecycle', () => {
@@ -175,6 +212,39 @@ describe('ephemeral workspace lifecycle', () => {
     expect(readFileSync(join(ws3, 'data.txt'), 'utf-8')).toBe('version 2');
     rmSync(ws3, { recursive: true, force: true });
     rmSync(gd3, { recursive: true, force: true });
+  });
+
+  it('new untracked .ax/ files are cleaned when validation rejects them', () => {
+    const bareRepoPath = join(testDir, 'repo.git');
+    const repoUrl = `file://${bareRepoPath}`;
+    createBareRepo(bareRepoPath);
+
+    const ws = join(testDir, 'ws-ax-clean');
+    const gd = join(testDir, 'gd-ax-clean');
+    mkdirSync(ws, { recursive: true });
+    gitSync(ws, gd, repoUrl);
+
+    // Seed the repo with an initial commit so diff-tree works
+    writeFileSync(join(ws, 'init.txt'), 'seed');
+    gitCommit(ws, gd);
+
+    // Now create a legitimate file AND a disallowed new .ax/ file
+    writeFileSync(join(ws, 'legit.txt'), 'allowed content');
+    mkdirSync(join(ws, '.ax'), { recursive: true });
+    writeFileSync(join(ws, '.ax', 'secrets.txt'), 'disallowed file');
+
+    // Commit with validation — disallowed .ax/ file should be rejected AND cleaned
+    const committed = gitCommitWithValidation(ws, gd);
+
+    // The legitimate file should be committed
+    expect(committed).toContain('legit.txt');
+    // The disallowed .ax/ file must NOT appear in the commit
+    expect(committed).not.toContain('.ax/secrets.txt');
+    // The disallowed .ax/ file must not exist on disk (cleaned, not just unstaged)
+    expect(existsSync(join(ws, '.ax', 'secrets.txt'))).toBe(false);
+
+    rmSync(ws, { recursive: true, force: true });
+    rmSync(gd, { recursive: true, force: true });
   });
 
   it('bare repo is initialized correctly for new agents', () => {

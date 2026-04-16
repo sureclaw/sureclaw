@@ -321,7 +321,8 @@ function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void 
         logger.warn('ax_commit_rejected', { reason: validation.reason });
         // Revert .ax/ changes — unstage and checkout
         try { execFileSync('git', ['reset', 'HEAD', '--', '.ax/'], gitOpts); } catch { /* no .ax/ staged */ }
-        try { execFileSync('git', ['checkout', '--', '.ax/'], gitOpts); } catch { /* no .ax/ to restore */ }
+        try { execFileSync('git', ['checkout', '--', '.ax/'], gitOpts); } catch { /* no tracked .ax/ to restore */ }
+        try { execFileSync('git', ['clean', '-fd', '--', '.ax/'], gitOpts); } catch { /* no untracked .ax/ files */ }
         // Re-stage remaining (non-.ax/) changes
         execFileSync('git', ['add', '.'], gitOpts);
       }
