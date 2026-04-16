@@ -1227,8 +1227,9 @@ export async function processCompletion(
     // Skills live in the git workspace at .ax/skills/ — no DB loading needed.
     // The agent reads them directly from the workspace filesystem.
 
-    // ── Generate MCP CLI tools ──
+    // ── Generate MCP CLI tools + tool modules ──
     let mcpCLIsPayload: Array<{ path: string; content: string }> | undefined;
+    let toolModuleIndex: string | undefined;
     if (deps.mcpManager) {
       try {
         const resolveHeaders = providers.credentials
@@ -1267,9 +1268,14 @@ export async function processCompletion(
         }
         const mcpTools = await deps.mcpManager.discoverAllTools(agentId, { resolveHeaders, authForServer, serverFilter });
         if (mcpTools.length > 0) {
-          const { prepareMcpCLIs } = await import('./capnweb/generate-and-cache.js');
+          const { prepareMcpCLIs, prepareToolModules } = await import('./toolgen/generate-and-cache.js');
           const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
           if (clis && clis.length > 0) mcpCLIsPayload = clis;
+          const modules = await prepareToolModules({ agentName: agentId, tools: mcpTools });
+          if (modules) {
+            mcpCLIsPayload = [...(mcpCLIsPayload ?? []), ...modules.files];
+            toolModuleIndex = modules.compactIndex;
+          }
         }
       } catch (err) {
         reqLogger.warn('mcp_cli_generation_failed', { error: (err as Error).message });
@@ -1277,10 +1283,15 @@ export async function processCompletion(
     } else if (providers.mcp && providers.mcp.listTools) {
       // @deprecated Legacy fallback: no manager, use providers.mcp directly.
       try {
-        const { prepareMcpCLIs } = await import('./capnweb/generate-and-cache.js');
+        const { prepareMcpCLIs, prepareToolModules } = await import('./toolgen/generate-and-cache.js');
         const mcpTools = await providers.mcp.listTools();
         const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
         if (clis && clis.length > 0) mcpCLIsPayload = clis;
+        const modules = await prepareToolModules({ agentName: agentId, tools: mcpTools });
+        if (modules) {
+          mcpCLIsPayload = [...(mcpCLIsPayload ?? []), ...modules.files];
+          toolModuleIndex = modules.compactIndex;
+        }
       } catch (err) {
         reqLogger.warn('mcp_cli_generation_failed', { error: (err as Error).message });
       }
@@ -1312,6 +1323,7 @@ export async function processCompletion(
       // Identity from git, skills from .ax/skills/ in workspace
       identity: identityPayload,
       mcpCLIs: mcpCLIsPayload,
+      toolModuleIndex,
       // Credential placeholders — k8s pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
       credentialEnv: {

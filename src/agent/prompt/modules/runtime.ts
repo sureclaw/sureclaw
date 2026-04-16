@@ -59,7 +59,17 @@ export class RuntimeModule extends BasePromptModule {
       `  - Use /tmp for temporary files that should not persist`,
       ...(ctx.hasWorkspace ? [
         `  - /workspace/skills/ \u2014 installed skills`,
-        ...(ctx.mcpCLIs?.length ? [
+        // New PTC block (preferred when toolModuleIndex is available)
+        ...(ctx.toolModuleIndex ? [
+          `  - /workspace/tools/ \u2014 importable tool modules`,
+          `    Use execute_script to run multi-step scripts that import these modules.`,
+          `    Available modules:`,
+          ctx.toolModuleIndex,
+          `    Read /workspace/tools/<module>.js for full function signatures.`,
+          `    Only stdout from execute_script enters your context \u2014 intermediate results stay local.`,
+        ] : []),
+        // Legacy CLI block (backward compat)
+        ...(ctx.mcpCLIs?.length && !ctx.toolModuleIndex ? [
           `  - /workspace/bin/ \u2014 MCP tool CLIs (in PATH)`,
           `    Run \`<tool> --help\` for usage. Available: ${ctx.mcpCLIs.join(', ')}`,
           `    These are Node.js CLIs. When writing multi-step scripts, use sandbox_write_file to write a .js file, then run it with \`node script.js\`. Do not use heredocs or cat.`,

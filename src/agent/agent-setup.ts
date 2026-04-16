@@ -34,6 +34,22 @@ function scanMcpCLIs(workspace: string): string[] | undefined {
   } catch { return undefined; }
 }
 
+/** Scan workspace/tools/ for tool module .js files (excluding index.js). */
+export function scanToolModules(workspace: string): string[] | undefined {
+  if (!workspace) return undefined;
+  const toolsDir = resolve(workspace, 'tools');
+  if (!existsSync(toolsDir)) return undefined;
+  try {
+    const entries = readdirSync(toolsDir).filter(f => {
+      if (f === 'index.js' || !f.endsWith('.js')) return false;
+      try {
+        return statSync(join(toolsDir, f)).isFile();
+      } catch { return false; }
+    });
+    return entries.length > 0 ? entries.map(f => f.replace(/\.js$/, '')) : undefined;
+  } catch { return undefined; }
+}
+
 export interface PromptBuildResult {
   systemPrompt: string;
   metadata: { [key: string]: unknown };
@@ -71,6 +87,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
   }
 
   const mcpCLIs = scanMcpCLIs(config.workspace);
+  const toolModules = scanToolModules(config.workspace);
 
   const promptBuilder = new PromptBuilder();
   const promptResult = promptBuilder.build({
@@ -91,6 +108,7 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasWorkspace: !!config.workspace,
     mcpCLIs,
     skillInstallEnabled,
+    toolModuleIndex: config.toolModuleIndex,
   });
 
   const toolFilter: ToolFilterContext = {

@@ -1,9 +1,9 @@
 /**
- * Tests for MCP CLI generation.
+ * Tests for MCP CLI generation and tool module generation.
  */
 
 import { describe, it, expect } from 'vitest';
-import { prepareMcpCLIs } from '../../../src/host/capnweb/generate-and-cache.js';
+import { prepareMcpCLIs, prepareToolModules } from '../../../src/host/toolgen/generate-and-cache.js';
 import type { McpToolSchema } from '../../../src/providers/mcp/types.js';
 import { initLogger } from '../../../src/logger.js';
 
@@ -25,6 +25,27 @@ describe('prepareMcpCLIs', () => {
 
   it('returns null for empty tools', async () => {
     const result = await prepareMcpCLIs({ agentName: 'test', tools: [] });
+    expect(result).toBeNull();
+  });
+});
+
+describe('prepareToolModules', () => {
+  it('generates module files + index + compact index', async () => {
+    const tools: McpToolSchema[] = [
+      { name: 'list_issues', description: 'List issues', inputSchema: { type: 'object', properties: { team: { type: 'string' } } }, server: 'linear' },
+      { name: 'list_repos', description: 'List repos', inputSchema: { type: 'object', properties: {} }, server: 'github' },
+    ];
+    const result = await prepareToolModules({ agentName: 'test', tools });
+    expect(result).not.toBeNull();
+    expect(result!.files.find(f => f.path === 'linear.js')).toBeTruthy();
+    expect(result!.files.find(f => f.path === 'github.js')).toBeTruthy();
+    expect(result!.files.find(f => f.path === 'index.js')).toBeTruthy();
+    expect(result!.compactIndex).toContain('linear:');
+    expect(result!.compactIndex).toContain('github:');
+  });
+
+  it('returns null for empty tools', async () => {
+    const result = await prepareToolModules({ agentName: 'test', tools: [] });
     expect(result).toBeNull();
   });
 });

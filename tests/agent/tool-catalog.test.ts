@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, filterTools } from '../../s
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 14 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(14);
+  test('exports exactly 15 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(15);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -55,7 +55,7 @@ describe('tool-catalog', () => {
       'save_artifact',
       'audit', 'agent',
       'bash', 'read_file', 'write_file', 'edit_file',
-      'grep', 'glob',
+      'grep', 'glob', 'execute_script',
     ];
     expect(TOOL_NAMES).toEqual(expected);
   });

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { groupToolsByServer, generateCLI, mcpToolToCLICommand } from '../../../src/host/capnweb/codegen.js';
+import { groupToolsByServer, generateCLI, mcpToolToCLICommand } from '../../../src/host/toolgen/codegen.js';
 import { initLogger } from '../../../src/logger.js';
 
 initLogger({ file: false, level: 'silent' });

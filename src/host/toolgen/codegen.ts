@@ -183,6 +183,110 @@ main().catch(e => { process.stderr.write('Error: ' + (e.message || e) + '\\n'); 
 }
 
 // ---------------------------------------------------------------------------
+// Module generation (PTC model)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert snake_case to camelCase: list_issues → listIssues
+ */
+export function snakeToCamel(name: string): string {
+  return name.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+/**
+ * Generate a JSDoc block from tool description and input schema.
+ */
+function buildJSDoc(description: string, schema: Record<string, unknown>): string {
+  const lines = ['/**', ` * ${description}`];
+  const props = (schema.properties ?? {}) as Record<string, { type?: string; description?: string }>;
+  const required = new Set((schema.required ?? []) as string[]);
+  for (const [name, prop] of Object.entries(props)) {
+    const opt = required.has(name) ? '' : ' [optional]';
+    const desc = prop.description ? ` — ${prop.description}` : '';
+    lines.push(` * @param {${prop.type ?? 'unknown'}} ${name}${opt}${desc}`);
+  }
+  lines.push(' */');
+  return lines.join('\n');
+}
+
+/**
+ * Generate an importable JS module for an MCP server's tools.
+ * Each tool becomes a named async function that calls through IPC.
+ */
+export function generateModule(
+  server: string,
+  tools: McpToolSchema[],
+): string {
+  const functions = tools.map(tool => {
+    const fnName = snakeToCamel(tool.name);
+    const props = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
+    const paramNames = Object.keys(props);
+    const jsDoc = buildJSDoc(tool.description ?? tool.name, tool.inputSchema ?? {});
+
+    return `${jsDoc}
+export async function ${fnName}(${paramNames.length ? 'params' : ''}) {
+  return _call(${JSON.stringify(tool.name)}${paramNames.length ? ', params' : ', {}'});
+}`;
+  });
+
+  return `// Auto-generated tool module for ${server}. Do not edit.
+'use strict';
+
+const _hostUrl = process.env.AX_HOST_URL;
+const _token = process.env.AX_IPC_TOKEN;
+
+async function _call(tool, params) {
+  if (!_hostUrl) throw new Error('AX_HOST_URL not set');
+  const res = await fetch(_hostUrl + '/internal/ipc', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(_token ? { Authorization: 'Bearer ' + _token } : {}),
+    },
+    body: JSON.stringify({ action: 'tool_batch', calls: [{ tool, args: params }] }),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + (await res.text()));
+  const data = await res.json();
+  const result = data.results?.[0];
+  if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
+    throw new Error(result.error || 'tool call failed');
+  }
+  return result;
+}
+
+${functions.join('\n\n')}
+`;
+}
+
+/**
+ * Generate a barrel index.js that re-exports all server modules.
+ */
+export function generateIndex(servers: string[]): string {
+  const exports = servers.map(s => `export * as ${s} from './${s}.js';`);
+  return `// Auto-generated tool index. Do not edit.\n${exports.join('\n')}\n`;
+}
+
+/**
+ * Generate a compact one-line-per-server summary for the system prompt.
+ * Minimizes token cost while giving the LLM enough info to write scripts.
+ */
+export function generateCompactIndex(groups: ToolStubGroup[]): string {
+  return groups.map(group => {
+    const fns = group.tools.map(tool => {
+      const fnName = snakeToCamel(tool.name);
+      const props = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
+      const required = new Set((tool.inputSchema?.required ?? []) as string[]);
+      const params = Object.keys(props)
+        .map(p => required.has(p) ? p : `${p}?`)
+        .join(', ');
+      return `${fnName}(${params})`;
+    });
+    return `  ${group.server}: ${fns.join(', ')}`;
+  }).join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Grouping
 // ---------------------------------------------------------------------------
 

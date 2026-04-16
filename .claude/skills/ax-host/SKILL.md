@@ -40,8 +40,8 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
 | `src/host/ipc-handlers/cowork-plugins.ts` | Cowork plugin install/uninstall/list IPC handlers (uses McpConnectionManager for plugin server registration) |
 | `src/host/ipc-handlers/tool-batch.ts` | Tool batch IPC handler with `__batchRef` pipelining for Cap'n Web |
-| `src/host/capnweb/codegen.ts` | TypeScript tool stub generation with Proxy-based batching |
-| `src/host/capnweb/generate-and-cache.ts` | DB caching for generated tool stubs with schema hash invalidation |
+| `src/host/toolgen/codegen.ts` | TypeScript tool stub generation with Proxy-based batching |
+| `src/host/toolgen/generate-and-cache.ts` | DB caching for generated tool stubs with schema hash invalidation |
 | `src/plugins/mcp-manager.ts` | `McpConnectionManager` — unified MCP tool discovery and routing across all MCP sources |
 | `src/host/inprocess.ts` | In-process fast path — runs LLM orchestration loop directly in host process (no pods, no IPC, no proxy). Uses `FastPathDeps` (including `McpConnectionManager`), `FastPathRequest`, `FastPathResult`. AsyncLocalStorage for per-turn context isolation |
 | `src/host/tool-router.ts` | Tool router for in-process fast path — routes tool calls to MCP providers (unified via McpConnectionManager), lazy file I/O, or sandbox escalation. Unified MCP methods: `resolveServer()`, `mcpCallTool()`, `resolveHeaders()`. Per-turn limits (`FAST_PATH_LIMITS`). Exports `routeToolCall()`, `ToolRouterContext`, `ToolResult` |

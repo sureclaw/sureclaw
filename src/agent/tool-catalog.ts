@@ -381,6 +381,32 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     category: 'sandbox',
     singletonAction: 'sandbox_glob',
   },
+
+  // ── Execute Script (PTC) ──
+  {
+    name: 'execute_script',
+    label: 'Execute Script',
+    description:
+      'Run a JavaScript script with access to tool modules.\n\n' +
+      'The script can import modules from /workspace/tools/ to call external tools ' +
+      '(MCP servers, APIs). Only the script\'s stdout output is returned — ' +
+      'intermediate tool calls do NOT enter your context window.\n\n' +
+      'Use this for multi-step tool pipelines instead of calling tools individually.\n\n' +
+      'Example:\n' +
+      '```\n' +
+      'import { listIssues } from \'/workspace/tools/linear.js\';\n' +
+      'const bugs = await listIssues({ query: \'bug\', limit: 5 });\n' +
+      'console.log(JSON.stringify(bugs, null, 2));\n' +
+      '```\n\n' +
+      'IMPORTANT: Use console.log() for output. Only stdout is captured.',
+    parameters: Type.Object({
+      code: Type.String({ description: 'JavaScript code to execute. Can import from /workspace/tools/.' }),
+      timeoutMs: Type.Optional(Type.Number({ description: 'Execution timeout in ms (default: 30000, max: 120000)' })),
+    }),
+    category: 'sandbox',
+    timeoutMs: 120_000,
+    singletonAction: 'execute_script',
+  },
 ] as const;
 
 /** All tool names, derived from the catalog. */

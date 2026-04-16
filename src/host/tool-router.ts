@@ -10,6 +10,7 @@ import type { McpProvider, McpToolResult } from '../providers/mcp/types.js';
 import { McpAuthRequiredError } from '../providers/mcp/types.js';
 import type { TaintTag, ProviderRegistry } from '../types.js';
 import type { EventBus } from './event-bus.js';
+import type { ToolDispatcher } from './tool-dispatcher.js';
 
 // ---------------------------------------------------------------------------
 // Resource limits (Phase 2 launch-blocking)
@@ -53,6 +54,8 @@ export interface ToolRouterContext {
   sessionId: string;
   eventBus?: EventBus;
   workspaceBasePath: string;
+  /** Optional unified dispatcher — when set, MCP tool calls go through ToolDispatcher. */
+  dispatcher?: ToolDispatcher;
   /** Accumulated byte size of all tool results in the current turn. */
   totalBytes: number;
   /** Number of tool calls made so far in the current turn. */
@@ -115,6 +118,23 @@ async function handleMcpToolCall(
   call: ToolCall,
   ctx: ToolRouterContext,
 ): Promise<ToolResult> {
+  // ── ToolDispatcher preferred path ──
+  if (ctx.dispatcher) {
+    const result = await ctx.dispatcher.dispatch(
+      { tool: call.name, args: call.args },
+      { agentId: ctx.agentId, sessionId: ctx.sessionId, userId: ctx.userId },
+    );
+    ctx.totalBytes += Buffer.byteLength(result.content);
+    if (ctx.totalBytes > FAST_PATH_LIMITS.maxTotalContextBytes) {
+      return {
+        toolUseId: call.id,
+        content: `Total context size limit exceeded (>${FAST_PATH_LIMITS.maxTotalContextBytes} bytes).`,
+        isError: true,
+      };
+    }
+    return { toolUseId: call.id, content: result.content, isError: result.isError, taint: result.taint };
+  }
+
   // ── Unified path: resolveServer covers ALL MCP tools (plugins, database, etc.) ──
   if (ctx.resolveServer) {
     const serverUrl = ctx.resolveServer(ctx.agentId, call.name);

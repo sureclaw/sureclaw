@@ -69,6 +69,8 @@ export interface AgentConfig {
   agentId?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
+  /** Compact tool module index for system prompt (one line per server). */
+  toolModuleIndex?: string;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -275,6 +277,8 @@ export interface StdinPayload {
   singleTurn?: boolean;
   /** MCP CLI executables — one file per server, written to /workspace/bin/. */
   mcpCLIs?: Array<{ path: string; content: string }>;
+  /** Compact tool module index for system prompt (one line per server). */
+  toolModuleIndex?: string;
 }
 
 /**
@@ -324,6 +328,7 @@ export function parseStdinPayload(data: string): StdinPayload {
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         singleTurn: parsed.singleTurn === true,
         mcpCLIs: Array.isArray(parsed.mcpCLIs) ? parsed.mcpCLIs : undefined,
+        toolModuleIndex: typeof parsed.toolModuleIndex === 'string' ? parsed.toolModuleIndex : undefined,
       };
     }
   } catch {
@@ -479,6 +484,42 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
       writeFileSync(filePath, file.content, { mode: 0o755 });
     }
     logger.info('mcp_clis_written', { count: payload.mcpCLIs.length, dir: binDir });
+  }
+
+  // ── Write tool modules to /workspace/tools/ ──
+  if (Array.isArray(payload.mcpCLIs) && config.workspace) {
+    // Tool modules are .js files included alongside CLIs in the mcpCLIs payload
+    const moduleFiles = payload.mcpCLIs.filter(f => f.path.endsWith('.js'));
+    if (moduleFiles.length > 0) {
+      const toolsDir = resolve(config.workspace, 'tools');
+      mkdirSync(toolsDir, { recursive: true });
+      // Remove stale modules not in the current payload
+      const incomingModulePaths = new Set(moduleFiles.map(f => f.path));
+      try {
+        for (const existing of readdirSync(toolsDir)) {
+          if (!incomingModulePaths.has(existing)) {
+            const fullPath = resolve(toolsDir, existing);
+            if (fullPath.startsWith(toolsDir + sep) && statSync(fullPath).isFile()) {
+              unlinkSync(fullPath);
+            }
+          }
+        }
+      } catch { /* toolsDir may not exist yet */ }
+      for (const file of moduleFiles) {
+        const filePath = resolve(toolsDir, file.path);
+        if (!filePath.startsWith(toolsDir + sep) && filePath !== toolsDir) {
+          logger.warn('tool_module_path_traversal_blocked', { path: file.path });
+          continue;
+        }
+        writeFileSync(filePath, file.content, { mode: 0o644 });
+      }
+      logger.info('tool_modules_written', { count: moduleFiles.length, dir: toolsDir });
+    }
+  }
+
+  // Store toolModuleIndex on config for prompt building
+  if (payload.toolModuleIndex) {
+    config.toolModuleIndex = payload.toolModuleIndex;
   }
 
   if (payload.identity) {

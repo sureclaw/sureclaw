@@ -48,6 +48,8 @@ export interface PromptContext {
   hasWorkspace?: boolean;
   /** MCP CLI tool names available in PATH (e.g. ['linear', 'github']). */
   mcpCLIs?: string[];
+  /** Tool module compact index for system prompt (replaces mcpCLIs). */
+  toolModuleIndex?: string;
   /** Whether to show skill install instructions (detected from user message). */
   skillInstallEnabled?: boolean;
 

@@ -95,10 +95,10 @@ describe('ipc-tools', () => {
     expect(tool!.description).toContain('cron');
   });
 
-  test('total tool count is 14 without filter', () => {
+  test('total tool count is 15 without filter', () => {
     const client = createMockClient();
     const tools = createIPCTools(client as any);
-    expect(tools.length).toBe(14);
+    expect(tools.length).toBe(15);
   });
 
   test('scheduler tool is always present regardless of hasHeartbeat', () => {
@@ -142,6 +142,7 @@ describe('ipc-tools', () => {
     expect(names).toContain('edit_file');
     expect(names).toContain('grep');
     expect(names).toContain('glob');
-    expect(tools.length).toBe(14);
+    expect(names).toContain('execute_script');
+    expect(tools.length).toBe(15);
   });
 });

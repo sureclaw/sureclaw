@@ -62,10 +62,10 @@ Plugin IPC actions: `plugin_install_cowork`, `plugin_uninstall_cowork`, `plugin_
 
 ### Cap'n Web Tool Batching
 
-Zero-dependency TypeScript tool stub generation with Proxy-based batching (`src/host/capnweb/`). Generates per-agent TypeScript stubs cached in DocumentStore with schema hash invalidation.
+Zero-dependency TypeScript tool stub generation with Proxy-based batching (`src/host/toolgen/`). Generates per-agent TypeScript stubs cached in DocumentStore with schema hash invalidation.
 
-- `src/host/capnweb/codegen.ts` — TypeScript stub generation (JSON Schema to TypeScript via `json-schema-to-typescript`)
-- `src/host/capnweb/generate-and-cache.ts` — DB caching with schema hash for generated stubs
+- `src/host/toolgen/codegen.ts` — TypeScript stub generation (JSON Schema to TypeScript via `json-schema-to-typescript`)
+- `src/host/toolgen/generate-and-cache.ts` — DB caching with schema hash for generated stubs
 - `src/host/ipc-handlers/tool-batch.ts` — IPC handler for `tool_batch` with `__batchRef` pipelining
 - `src/providers/storage/tool-stubs.ts` — Schema hash computation and cache storage
 

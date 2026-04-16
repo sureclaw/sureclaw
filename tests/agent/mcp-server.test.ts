@@ -144,7 +144,7 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('request_credential');
   });
 
-  test('all 14 tools are registered without filter', () => {
+  test('all 15 tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
@@ -155,14 +155,14 @@ describe('IPC MCP Server', () => {
       'agent',
       'save_artifact',
       'bash', 'read_file', 'write_file', 'edit_file',
-      'grep', 'glob',
+      'grep', 'glob', 'execute_script',
     ];
 
     const registeredNames = Object.keys(tools);
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(14);
+    expect(registeredNames.length).toBe(15);
   });
 
   test('scheduler is always present regardless of hasHeartbeat', () => {
