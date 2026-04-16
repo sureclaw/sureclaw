@@ -477,17 +477,19 @@ describe('lifecycle dispatch replaces three-phase orchestration', () => {
 
 // ── Work Payload Workspace Provisioning Fields ───────────────────────
 
-describe('work payload includes skills from DB', () => {
-  test('stdinPayload includes skills field', async () => {
+describe('skills loaded from git workspace', () => {
+  test('agent-setup loads skills from .ax/skills/ in workspace', async () => {
     const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/host/server-completions.ts'), 'utf-8');
-    expect(source).toContain('skills: skillsPayload');
+    const source = readFileSync(resolve('src/agent/agent-setup.ts'), 'utf-8');
+    expect(source).toContain('.ax');
+    expect(source).toContain('skills');
   });
 
-  test('StdinPayload type includes skills field', async () => {
+  test('StdinPayload does not include skills field (git-native)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    expect(source).toContain('skills?:');
+    // Skills are no longer in the payload — they live in the git workspace
+    expect(source).not.toContain('skills?:');
   });
 });
 

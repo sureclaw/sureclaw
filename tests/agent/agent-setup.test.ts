@@ -9,7 +9,7 @@ describe('buildSystemPrompt', () => {
   const workspace = join(tmpdir(), 'ax-test-agent-setup-ws-' + Date.now());
 
   beforeEach(() => {
-    mkdirSync(join(workspace, 'skills'), { recursive: true });
+    mkdirSync(join(workspace, '.ax', 'skills'), { recursive: true });
   });
 
   afterEach(() => {
@@ -17,8 +17,8 @@ describe('buildSystemPrompt', () => {
   });
 
   test('loads skills from workspace/skills/ directory', () => {
-    writeFileSync(join(workspace, 'skills', 'deploy.md'), '# Deploy\nDeploy to production');
-    writeFileSync(join(workspace, 'skills', 'custom.md'), '# Custom\nUser custom skill');
+    writeFileSync(join(workspace, '.ax', 'skills', 'deploy.md'), '# Deploy\nDeploy to production');
+    writeFileSync(join(workspace, '.ax', 'skills', 'custom.md'), '# Custom\nUser custom skill');
 
     const config: AgentConfig = {
       ipcSocket: '/tmp/test.sock',
