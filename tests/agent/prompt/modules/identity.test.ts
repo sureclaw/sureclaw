@@ -134,8 +134,8 @@ describe('IdentityModule', () => {
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('Identity Evolution');
-    expect(text).toContain('.ax/identity/SOUL.md');
-    expect(text).toContain('.ax/identity/IDENTITY.md');
+    expect(text).toContain('.ax/SOUL.md');
+    expect(text).toContain('.ax/IDENTITY.md');
     expect(text).toContain('write_file');
     expect(text).not.toContain('git add');
     expect(text).not.toContain('git commit');

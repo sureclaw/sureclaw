@@ -8,6 +8,6 @@ You are meeting this user for the first time. Pay attention to:
 - How they like to receive information (concise vs detailed)
 
 As you learn about this user, use `write_file` to record your observations:
-`write_file({ path: ".ax/identity/USER.md", content: "..." })`
+`write_file({ path: ".ax/USER.md", content: "..." })`
 
 Once you've written USER.md, this prompt section will be replaced by your observations.

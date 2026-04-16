@@ -37,7 +37,6 @@ import { createProxyStreamFn } from '../proxy-stream.js';
 import { makeProxyErrorMessage } from '../proxy-stream.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
-import { installSkillDeps } from '../skill-installer.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { getLogger, truncate } from '../../logger.js';
 
@@ -498,11 +497,8 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
     }
   }
 
-  // Install missing skill dependencies from /workspace/skills/ (after git sync)
-  const skillSources = [{ skillDir: join(config.workspace, 'skills'), prefix: config.workspace }];
-  if (existsSync(skillSources[0].skillDir)) {
-    await installSkillDeps(skillSources);
-  }
+  // Skill dependencies are installed lazily when the agent reads a SKILL.md
+  // and runs its install commands via bash — not eagerly at startup.
 
   // Decide LLM transport: proxy (direct Anthropic SDK) or IPC fallback
   const useProxy = !!config.proxySocket;

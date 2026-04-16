@@ -69,9 +69,6 @@ export interface AgentConfig {
   agentId?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
-  /** Pre-loaded skills from host (via stdin payload from DB).
-   *  Written to workspace skills/ directory before runner starts. */
-  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -276,11 +273,6 @@ export interface StdinPayload {
   caCert?: string;
   /** When true, sandbox exits after completing this turn (cron, heartbeat, etc.). */
   singleTurn?: boolean;
-  /** Pre-loaded skills from DB (agent-scoped and user-scoped, merged).
-   *  Each skill includes its full file contents so the runner can write
-   *  them to /workspace/skills/ for installSkillDeps() and
-   *  buildSystemPrompt() to read. */
-  skills?: Array<{ slug: string; files: Array<{ path: string; content: string }> }>;
   /** MCP CLI executables — one file per server, written to /workspace/bin/. */
   mcpCLIs?: Array<{ path: string; content: string }>;
 }
@@ -331,7 +323,6 @@ export function parseStdinPayload(data: string): StdinPayload {
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         singleTurn: parsed.singleTurn === true,
-        skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
         mcpCLIs: Array.isArray(parsed.mcpCLIs) ? parsed.mcpCLIs : undefined,
       };
     }
@@ -459,33 +450,9 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
 
   // Enterprise fields
   config.agentId = payload.agentId;
-  // Write skills to /workspace/skills/ so installSkillDeps() and loadSkillsMultiDir() find them.
-  if (Array.isArray(payload.skills) && config.workspace) {
-    const skillsBase = resolve(config.workspace, 'skills');
-    // Prune stale skills from previous turns so deleted skills don't linger on disk
-    if (existsSync(skillsBase)) {
-      rmSync(skillsBase, { recursive: true, force: true });
-    }
-    for (const skill of payload.skills) {
-      // SC-SEC-004: Constrain skill writes to the skills root
-      const skillDir = resolve(skillsBase, skill.slug.replace(/[/\\]/g, '_').replace(/\.\./g, '_'));
-      if (!skillDir.startsWith(skillsBase + sep)) {
-        logger.warn('skill_path_traversal_blocked', { slug: skill.slug });
-        continue;
-      }
-      for (const file of skill.files) {
-        const filePath = resolve(skillDir, file.path);
-        // Containment check: ensure file stays within the skill directory
-        if (!filePath.startsWith(skillDir + sep) && filePath !== skillDir) {
-          logger.warn('skill_file_path_traversal_blocked', { slug: skill.slug, path: file.path });
-          continue;
-        }
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, file.content, 'utf-8');
-      }
-    }
-    logger.info('skills_written', { count: payload.skills.length, dir: skillsBase });
-  }
+
+  // Skills live in the git workspace at .ax/skills/ — no payload writing needed.
+  // The agent reads them directly from the workspace filesystem.
 
   // ── Write MCP CLI executables to /workspace/bin/ ──
   if (Array.isArray(payload.mcpCLIs) && config.workspace) {

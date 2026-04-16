@@ -50,11 +50,9 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  // Load skills from workspace/skills/ directory.
-  // In k8s mode, the runner writes DB-loaded skills to the workspace
-  // skills/ directory before we get here (see applyPayload in runner.ts).
+  // Load skills from .ax/skills/ in the git workspace.
   const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [
-    { dir: join(config.workspace, 'skills'), scope: 'agent' as const },
+    { dir: join(config.workspace, '.ax', 'skills'), scope: 'agent' as const },
   ];
   const skills = loadSkillsMultiDir(skillDirs);
 

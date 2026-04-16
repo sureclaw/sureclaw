@@ -28,7 +28,6 @@ import { createIPCMcpServer } from '../mcp-server.js';
 import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
 import { buildSystemPrompt } from '../agent-setup.js';
-import { installSkillDeps } from '../skill-installer.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -215,11 +214,8 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
     }
   }
 
-  // Install missing skill dependencies from /workspace/skills/ (after git sync)
-  const skillSources = [{ skillDir: join(config.workspace, 'skills'), prefix: config.workspace }];
-  if (existsSync(skillSources[0].skillDir)) {
-    await installSkillDeps(skillSources);
-  }
+  // Skill dependencies are installed lazily when the agent reads a SKILL.md
+  // and runs its install commands via bash — not eagerly at startup.
 
   // 2. Connect IPC client for MCP tools
   // Use pre-connected client if available (listen mode starts before stdin read).

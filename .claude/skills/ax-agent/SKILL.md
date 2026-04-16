@@ -11,10 +11,10 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 
 | File | Responsibility | Key Exports |
 |---|---|---|
-| `src/agent/runner.ts` | Entry point, stdin parse, agent dispatch, IPC transport selection. Skills are loaded as `{slug, files}` objects. | `run()`, `parseStdinPayload()`, `compactHistory()`, `historyToPiMessages()`, `AgentConfig`, `IIPCClient` |
+| `src/agent/runner.ts` | Entry point, stdin parse, agent dispatch, IPC transport selection. | `run()`, `parseStdinPayload()`, `compactHistory()`, `historyToPiMessages()`, `AgentConfig`, `IIPCClient` |
 | `src/agent/ipc-client.ts` | Length-prefixed Unix socket IPC with heartbeat keep-alive | `IPCClient` (connect, call, disconnect, reconnect) |
 | `src/agent/http-ipc-client.ts` | HTTP-based IPC client for k8s pods (drop-in replacement for IPCClient) | `HttpIPCClient`, `HttpIPCClientOptions` |
-| `src/agent/skill-installer.ts` | Skill dependency installer — reads SKILL.md install specs, runs missing installs with package-manager prefix env vars | `installSkillDeps()` |
+| `src/agent/skill-installer.ts` | Skill dependency installer — reads SKILL.md install specs, runs missing installs. Not called eagerly; agent runs install commands via bash when it uses a skill. | `installSkillDeps()` |
 | `src/agent/stream-utils.ts` | Shared pi-ai message conversion and stream event utilities | `convertPiMessages()`, `emitStreamEvents()` |
 | `src/agent/heartbeat-state.ts` | Heartbeat check state persistence (last-run timestamps) | `HeartbeatState` |
 | `src/agent/local-sandbox.ts` | Agent-side local sandbox executor; runs bash/file tools in-container with host audit gate | `createLocalSandbox()`, `LocalSandboxOptions` |
@@ -43,12 +43,12 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
    - **Socket** (default): Runners create their own `IPCClient` (Unix socket) later, or use a pre-connected one in listen mode (`AX_IPC_LISTEN=1`)
    - **HTTP** (k8s): When `AX_HOST_URL` is set, creates `HttpIPCClient` with HTTP-based IPC to host's `/internal/ipc` route. NATS is only used for initial work dispatch (queue groups).
    - **Listen** (Apple Container): Creates `IPCClient` in listen mode before reading stdin, sets `config.ipcClient`
-3. Reads stdin as JSON (`{message, history, taintRatio, profile, sessionId, ipcToken, identity, skills, ...}`) via `parseStdinPayload()` (or receives work via NATS in k8s mode)
+3. Reads stdin as JSON (`{message, history, taintRatio, profile, sessionId, ipcToken, identity, ...}`) via `parseStdinPayload()` (or receives work via NATS in k8s mode)
 4. `applyPayload()` populates config and calls `ipcClient.setContext()` with session/request/user/token fields
 5. Dispatches to runner: `runPiSession()` or `runClaudeCode()`
 6. Runner uses pre-connected `config.ipcClient` if available, otherwise creates a new `IPCClient` and connects
-7. Loads identity files from stdin payload (preloaded from DocumentStore by host) via `loadIdentityFiles({ preloaded: config.identity })`
-8. Skills loaded from stdin payload (array of `{slug, files}`). Plugin commands may also be loaded from installed plugins.
+7. Loads identity files from stdin payload (preloaded from git by host) via `loadIdentityFiles({ preloaded: config.identity })`
+8. Skills loaded from `.ax/skills/` in the git workspace (seeded by host on repo creation). Plugin commands may also be loaded from installed plugins.
 9. `buildSystemPrompt()` builds both the system prompt AND a `ToolFilterContext` for context-aware tool filtering
 10. Creates IPC tools (catalog-based, filtered). Sandbox tools (bash, read_file, write_file, edit_file) route based on sandbox type:
     - **Container mode** (docker, apple, k8s): `local-sandbox.ts` executes locally with host audit gate (`sandbox_approve` -> execute -> `sandbox_result`)
@@ -192,7 +192,7 @@ When `WORKSPACE_REPO_URL` is set AND in k8s (`AX_HOST_URL` set):
 - **`safePath()` is mandatory**: Every sandbox tool file operation must go through `safePath()` to prevent workspace escape -- both in `local-sandbox.ts` (container mode) and `sandbox-tools.ts` (subprocess mode).
 - **Strict IPC schemas reject unknown fields**: Adding a field to an IPC call without updating the Zod schema silently fails (`{ok: false}`).
 - **Identity loader never throws**: Missing files return `''`. Check content length, not for exceptions.
-- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. The agent no longer reads identity/skills from filesystem mounts.
+- **Identity via stdin payload**: The host loads identity from committed git state and sends it in the stdin JSON payload. Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem.
 - **Context-aware tool filtering**: Excluded prompt modules must have corresponding category filters in `filterTools()`.
 - **Delegation module**: Priority 75, optional, excluded during bootstrap. Includes guidance on `agent_delegate` and runner selection.
 - **Use `IIPCClient` interface, not concrete `IPCClient`**: All IPC consumers (`ipc-tools.ts`, `mcp-server.ts`, `runner.ts`, `local-sandbox.ts`) accept the `IIPCClient` interface so they work with both Unix socket (`IPCClient`) and HTTP (`HttpIPCClient`) transports. Never import the concrete class in tool/sandbox code.

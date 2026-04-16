@@ -25,7 +25,7 @@ Agents run INSIDE their containers and execute tools locally. Each agent gets a 
 | workspaceSizeGi          | `number?`                  | PVC size in GiB (k8s only, default: 10)                  |
 | extraEnv                 | `Record<string, string>?`  | Additional env vars for sandbox pod (e.g. IPC tokens)    |
 
-Note: Identity files and skills are no longer mounted as filesystem directories. They are sent via stdin payload (loaded from DocumentStore by the host).
+Note: Identity files are sent via stdin payload (loaded from git by the host). Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem after git clone.
 
 **SandboxProcess** -- returned by `spawn()`:
 
@@ -57,7 +57,7 @@ Every agent gets a single `/workspace` directory as its CWD and HOME. The old th
 
 In Docker and Apple Container mode, `/workspace` is bind-mounted from the host. In k8s mode, `/workspace` is backed by a PVC (persistent across pod restarts) or emptyDir (ephemeral). PVC-backed workspaces mean installed tools and packages survive pod restarts.
 
-Identity files and skills are sent via stdin payload from DocumentStore -- not mounted as filesystem directories.
+Identity files are sent via stdin payload from git. Skills live in `.ax/skills/` in the git workspace.
 
 ### Environment Variables
 
@@ -203,7 +203,7 @@ In k8s mode, workspace persistence is handled by PVCs (PersistentVolumeClaims):
 - **K8s pods have synthetic PIDs**: Real PIDs don't exist for k8s pods. The provider maintains a counter starting at 100,000.
 - **New host paths must be added to container providers**: SandboxConfig changes ripple to docker (-v), apple (-v), k8s (volume mounts).
 - **EPERM on kill**: tsx-wrapped agents may throw EPERM on SIGTERM/SIGKILL. `enforceTimeout()` handles this with try/catch.
-- **Identity/skills NOT mounted**: They come via stdin payload from DocumentStore. Don't add filesystem mounts for identity or skills.
+- **Identity via stdin payload**: Identity comes from git via stdin payload. Skills live in `.ax/skills/` in the git workspace. Don't add separate filesystem mounts for identity or skills.
 - **Web proxy socket location**: `web-proxy.sock` lives in the same directory as the IPC socket (already mounted into containers). `canonicalEnv()` computes the path from `dirname(config.ipcSocket)`. No extra mount needed.
 - **K8s web proxy uses k8s Service**: K8s pods don't use a Unix socket for the web proxy. Instead, `server-k8s.ts` passes `AX_WEB_PROXY_URL` pointing to a k8s Service (`ax-web-proxy.{namespace}.svc:3128`). Network policy allows pods to reach the proxy service.
 - **K8s workspace uses PVCs**: `/workspace` is backed by a PVC in k8s mode. State persists across pod restarts. Pod idle timeout is 5 minutes since the PVC preserves everything.

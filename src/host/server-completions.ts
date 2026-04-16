@@ -4,7 +4,7 @@
  * agent spawning, outbound scanning, and memory persistence.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
@@ -27,7 +27,7 @@ import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
-import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir } from '../utils/assets.js';
+import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
 import type { OpenAIChatRequest } from './server-http.js';
 import type { FileStore } from '../file-store.js';
 import type { GcsFileStorage } from './gcs-file-storage.js';
@@ -38,7 +38,7 @@ import { createEmbeddingClient } from '../utils/embedding-client.js';
 import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
 import { generateSessionTitle } from './session-title.js';
 import type { McpConnectionManager } from '../plugins/mcp-manager.js';
-import { validateCommit } from './validate-commit.js';
+import { validateCommit, AX_DIFF_PATHSPEC } from './validate-commit.js';
 
 // ── Session ID placeholder rewriting ──
 // HTTP sessions use '_' as the workspace placeholder in the SessionAddress.
@@ -156,8 +156,8 @@ export interface IdentityPayload {
 const IDENTITY_FILE_MAP: Array<{ gitPath: string; field: keyof IdentityPayload }> = [
   { gitPath: '.ax/AGENTS.md', field: 'agents' },
   { gitPath: '.ax/HEARTBEAT.md', field: 'heartbeat' },
-  { gitPath: '.ax/identity/SOUL.md', field: 'soul' },
-  { gitPath: '.ax/identity/IDENTITY.md', field: 'identity' },
+  { gitPath: '.ax/SOUL.md', field: 'soul' },
+  { gitPath: '.ax/IDENTITY.md', field: 'identity' },
   // BOOTSTRAP.md and USER_BOOTSTRAP.md are always loaded from templates/ (static).
 ];
 
@@ -386,9 +386,8 @@ function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void 
     execFileSync('git', ['add', '.'], gitOpts);
 
     // Validate .ax/ changes before committing
-    const axDiff = execFileSync('git', ['diff', '--cached', '--',
-      '.ax/identity/', '.ax/skills/', '.ax/policy/', '.ax/AGENTS.md', '.ax/HEARTBEAT.md',
-    ], textOpts).trim();
+    const axDiff = execFileSync('git', ['diff', '--cached', '--', AX_DIFF_PATHSPEC],
+      textOpts).trim();
 
     if (axDiff) {
       const validation = validateCommit(axDiff);
@@ -437,50 +436,72 @@ function hostGitCommit(workspace: string, gitDir: string, logger: Logger): void 
 }
 
 /**
- * Ensure the .ax/ directory structure and template files exist in the workspace.
- * Creates directories, copies template identity/config files, and commits if new.
- * Works with any repo that has a local working tree + separate gitDir.
+ * Seed .ax/ directory structure, template files, and default skills into a workspace.
+ * Only writes files that don't already exist (won't overwrite agent-customized versions).
+ * Used by both local mode (file:// repos) and k8s mode (via seedRemoteRepo).
  */
 function seedAxDirectory(workspace: string, gitDir: string, logger: Logger): void {
   const gitEnv = { GIT_DIR: gitDir, GIT_WORK_TREE: workspace };
   const gitOpts = { cwd: workspace, stdio: 'pipe' as const, env: { ...process.env, ...gitEnv } };
 
-  const dirs = [
-    join(workspace, '.ax', 'identity'),
-    join(workspace, '.ax', 'skills'),
-    join(workspace, '.ax', 'policy'),
-  ];
-
-  for (const dir of dirs) {
-    mkdirSync(dir, { recursive: true });
+  // Ensure .ax/ subdirectories exist
+  for (const sub of ['skills', 'policy']) {
+    mkdirSync(join(workspace, '.ax', sub), { recursive: true });
   }
 
-  // Seed template files into .ax/ if they don't already exist in the workspace.
-  // These are the identity/config files the agent needs on first run.
+  // Seed template files (AGENTS.md, HEARTBEAT.md) into .ax/.
+  // BOOTSTRAP.md and USER_BOOTSTRAP.md are static templates loaded directly
+  // into the identity payload — they don't need to be in git.
   let tDir: string;
   try { tDir = resolveTemplatesDir(); } catch { tDir = ''; }
   if (tDir && existsSync(tDir)) {
-    // Only seed AGENTS.md and HEARTBEAT.md into the workspace git repo.
-    // BOOTSTRAP.md and USER_BOOTSTRAP.md are static templates loaded directly
-    // into the identity payload — they don't need to be in git.
-    const templateMap: Array<{ src: string; dest: string }> = [
-      { src: 'AGENTS.md', dest: join('.ax', 'AGENTS.md') },
-      { src: 'HEARTBEAT.md', dest: join('.ax', 'HEARTBEAT.md') },
-    ];
-    for (const { src, dest } of templateMap) {
-      const srcPath = join(tDir, src);
-      const destPath = join(workspace, dest);
+    for (const file of ['AGENTS.md', 'HEARTBEAT.md']) {
+      const srcPath = join(tDir, file);
+      const destPath = join(workspace, '.ax', file);
       if (existsSync(srcPath) && !existsSync(destPath)) {
-        try {
-          writeFileSync(destPath, readFileSync(srcPath, 'utf-8'));
-        } catch (err) {
-          logger.debug('ax_seed_template_failed', { file: src, error: (err as Error).message });
-        }
+        try { writeFileSync(destPath, readFileSync(srcPath, 'utf-8')); }
+        catch (err) { logger.debug('ax_seed_template_failed', { file, error: (err as Error).message }); }
       }
     }
   }
 
-  // Commit the directory structure and templates if new
+  // Seed default skills from project skills/ directory into .ax/skills/.
+  // File-based skills (default.md) become .ax/skills/default/SKILL.md.
+  // Directory-based skills (deploy/SKILL.md) keep their structure.
+  let sDir: string;
+  try { sDir = resolveSeedSkillsDir(); } catch { sDir = ''; }
+  if (sDir && existsSync(sDir)) {
+    try {
+      const entries = readdirSync(sDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
+          // File-based skill: default.md → .ax/skills/default/SKILL.md
+          const skillName = entry.name.replace(/\.md$/, '');
+          const destDir = join(workspace, '.ax', 'skills', skillName);
+          const destPath = join(destDir, 'SKILL.md');
+          if (!existsSync(destPath)) {
+            mkdirSync(destDir, { recursive: true });
+            writeFileSync(destPath, readFileSync(join(sDir, entry.name), 'utf-8'));
+            logger.debug('ax_seed_skill', { skill: skillName });
+          }
+        } else if (entry.isDirectory()) {
+          // Directory-based skill: deploy/SKILL.md → .ax/skills/deploy/SKILL.md
+          const skillMd = join(sDir, entry.name, 'SKILL.md');
+          const destDir = join(workspace, '.ax', 'skills', entry.name);
+          const destPath = join(destDir, 'SKILL.md');
+          if (existsSync(skillMd) && !existsSync(destPath)) {
+            mkdirSync(destDir, { recursive: true });
+            writeFileSync(destPath, readFileSync(skillMd, 'utf-8'));
+            logger.debug('ax_seed_skill', { skill: entry.name });
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug('ax_seed_skills_failed', { error: (err as Error).message });
+    }
+  }
+
+  // Commit seed files if anything was added
   try {
     execFileSync('git', ['add', '.ax/'], gitOpts);
     const status = execFileSync('git', ['status', '--porcelain', '--', '.ax/'],
@@ -1267,39 +1288,8 @@ export async function processCompletion(
       }
     }
 
-    // ── Load installed skills from DB ──
-    // All skills (agent-scoped and user-scoped) are merged into a single array
-    // and written to /workspace/skills/ in the sandbox.
-    type SkillPayloadEntry = { slug: string; files: Array<{ path: string; content: string }> };
-    let skillsPayload: SkillPayloadEntry[] = [];
-    if (providers.storage?.documents) {
-      try {
-        const { listSkills, listUserSkills } = await import('../providers/storage/skills.js');
-        const dbSkills = await listSkills(providers.storage.documents, agentId);
-        skillsPayload = dbSkills.map(s => ({
-          slug: s.id,
-          files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
-        }));
-        // Merge user-scoped skills into the same array (user skills shadow agent by slug)
-        if (currentUserId) {
-          const dbUserSkills = await listUserSkills(providers.storage.documents, agentId, currentUserId);
-          const agentSlugs = new Set(skillsPayload.map(s => s.slug));
-          for (const s of dbUserSkills) {
-            const entry = {
-              slug: s.id,
-              files: s.files ?? [{ path: 'SKILL.md', content: s.instructions }],
-            };
-            if (agentSlugs.has(s.id)) {
-              // User skill shadows agent skill — replace
-              skillsPayload = skillsPayload.filter(a => a.slug !== s.id);
-            }
-            skillsPayload.push(entry);
-          }
-        }
-      } catch (err) {
-        reqLogger.warn('skills_load_failed', { error: (err as Error).message });
-      }
-    }
+    // Skills live in the git workspace at .ax/skills/ — no DB loading needed.
+    // The agent reads them directly from the workspace filesystem.
 
     // ── Generate MCP CLI tools ──
     let mcpCLIsPayload: Array<{ path: string; content: string }> | undefined;
@@ -1383,9 +1373,8 @@ export async function processCompletion(
       webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
       // Enterprise fields
       agentId,
-      // Identity, skills, and tool stubs from DocumentStore
+      // Identity from git, skills from .ax/skills/ in workspace
       identity: identityPayload,
-      skills: skillsPayload.length > 0 ? skillsPayload : undefined,
       mcpCLIs: mcpCLIsPayload,
       // Credential placeholders — k8s pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.

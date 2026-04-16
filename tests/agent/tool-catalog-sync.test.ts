@@ -135,7 +135,7 @@ describe('tool-catalog <-> system prompt sync', () => {
     const rendered = mod.render(ctx).join('\n');
 
     // Should reference git-based identity files
-    expect(rendered, '.ax/identity/ path missing from IdentityModule').toContain('.ax/identity/');
+    expect(rendered, '.ax/SOUL.md path missing from IdentityModule').toContain('.ax/SOUL.md');
     // Should document git commit workflow
     expect(rendered, 'git commit missing from IdentityModule').toContain('git');
     expect(rendered, 'Identity Evolution heading missing').toContain('Identity Evolution');

@@ -17,7 +17,7 @@ DatabaseProvider (SQLite or PostgreSQL)
         ├── MessageQueueStore — inbound message lifecycle
         ├── ConversationStoreProvider — conversation history per session
         ├── SessionStoreProvider — session/channel tracking
-        └── DocumentStore — identity files, skills, config (key-value)
+        └── DocumentStore — config, plugin metadata (key-value). Identity and skills are git-native.
   └── McpServerStore — `mcp_servers` table for database-backed MCP provider
   └── Cortex MemoryProvider — knowledge items, embeddings, summaries
   └── AuditProvider — audit trail
@@ -78,7 +78,7 @@ Standalone stores (outside StorageProvider):
 - **Table**: `documents` (collection + key composite PK, content, updated_at)
 - **Collections**: `identity` (SOUL.md, IDENTITY.md, etc.), `skills`, `config`, `_meta`
 - **Key format**: `{agentId}/{filename}` for identity, `{agentId}/{skillPath}` for skills
-- **Used by**: Identity/skills IPC handlers, host stdin payload construction, migration utility
+- **Used by**: Plugin metadata, config storage, migration utility. Identity and skills are git-native (not in DocumentStore).
 
 ## Migration System
 
@@ -106,7 +106,7 @@ Standalone stores (outside StorageProvider):
 
 ## Workspace Provider
 
-The `WorkspaceProvider` (`src/providers/workspace/`) provides git clone URLs for agent workspaces. Minimal interface: `getRepoUrl(agentId): Promise<string>` and `close(): Promise<void>`.
+The `WorkspaceProvider` (`src/providers/workspace/`) provides git clone URLs for agent workspaces. Minimal interface: `getRepoUrl(agentId): Promise<{ url: string; created: boolean }>` and `close(): Promise<void>`. The `created` flag lets the host seed `.ax/` templates on first creation.
 
 - **Backends**:
   - `git-http` — Creates repos via HTTP POST to `ax-git.{namespace}.svc.cluster.local:8000/repos`. Clone URLs are HTTP-based. Used in k8s deployments.

@@ -41,7 +41,7 @@ export class SecurityModule extends BasePromptModule {
       '   - You cannot log, store, or transmit credentials',
       '',
       '4. **Identity Ownership**',
-      '   - SOUL.md and IDENTITY.md are yours to evolve (under .ax/identity/)',
+      '   - SOUL.md and IDENTITY.md are yours to evolve (under .ax/)',
       '   - All identity changes are validated at commit time and tracked in git history',
       '   - AGENTS.md is set by the operator and cannot be modified by the agent',
       '   - Security configuration and sandbox settings cannot be changed',

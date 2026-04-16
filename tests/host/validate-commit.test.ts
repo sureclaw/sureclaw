@@ -8,9 +8,9 @@ describe('validateCommit', () => {
   });
 
   it('passes for valid identity file changes', () => {
-    const diff = `diff --git a/.ax/identity/SOUL.md b/.ax/identity/SOUL.md
+    const diff = `diff --git a/.ax/SOUL.md b/.ax/SOUL.md
 --- /dev/null
-+++ b/.ax/identity/SOUL.md
++++ b/.ax/SOUL.md
 @@ -0,0 +1,3 @@
 +I am a helpful assistant.
 +I value clarity and honesty.
@@ -32,9 +32,9 @@ describe('validateCommit', () => {
 
   it('rejects files exceeding size limit', () => {
     const bigContent = '+' + 'x'.repeat(33_000) + '\n';
-    const diff = `diff --git a/.ax/identity/SOUL.md b/.ax/identity/SOUL.md
+    const diff = `diff --git a/.ax/SOUL.md b/.ax/SOUL.md
 --- /dev/null
-+++ b/.ax/identity/SOUL.md
++++ b/.ax/SOUL.md
 @@ -0,0 +1,1 @@
 ${bigContent}`;
     const result = validateCommit(diff);
@@ -97,9 +97,9 @@ ${content}`;
   });
 
   it('handles multiple files in a single diff', () => {
-    const diff = `diff --git a/.ax/identity/SOUL.md b/.ax/identity/SOUL.md
+    const diff = `diff --git a/.ax/SOUL.md b/.ax/SOUL.md
 --- /dev/null
-+++ b/.ax/identity/SOUL.md
++++ b/.ax/SOUL.md
 @@ -0,0 +1 @@
 +I am thoughtful.
 diff --git a/.ax/AGENTS.md b/.ax/AGENTS.md
@@ -112,9 +112,9 @@ diff --git a/.ax/AGENTS.md b/.ax/AGENTS.md
   });
 
   it('rejects when one file of many is outside allowed paths', () => {
-    const diff = `diff --git a/.ax/identity/SOUL.md b/.ax/identity/SOUL.md
+    const diff = `diff --git a/.ax/SOUL.md b/.ax/SOUL.md
 --- /dev/null
-+++ b/.ax/identity/SOUL.md
++++ b/.ax/SOUL.md
 @@ -0,0 +1 @@
 +I am thoughtful.
 diff --git a/.ax/hacks/evil.sh b/.ax/hacks/evil.sh

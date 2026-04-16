@@ -161,7 +161,8 @@ This avoids the round-trip of sending file contents/command output over IPC for 
 - **claude-code disallows WebFetch/WebSearch/Skill**: Replaced by AX's IPC-routed equivalents for taint tracking.
 - **Image blocks via `buildSDKPrompt()`**: Structured content blocks only generated when `image_data` blocks are present in user message.
 - **Context-aware filtering**: Both runners now use `ToolFilterContext` from `buildSystemPrompt()` to automatically exclude tools based on missing prompt modules.
-- **Identity/skills via stdin payload**: The host loads identity and skills from DocumentStore and sends them in the stdin JSON payload. Skills are loaded as `{slug, files}` objects (not just `{name, description, path}`). The agent no longer reads identity/skills from filesystem mounts. `loadIdentityFiles({ preloaded: config.identity })`.
+- **Identity via stdin payload**: The host loads identity from committed git state and sends it in the stdin JSON payload via `loadIdentityFiles({ preloaded: config.identity })`. Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem. No DB or payload involvement for skills.
+- **No eager skill install**: `installSkillDeps()` is no longer called at runner startup. Skill dependencies are installed lazily when the agent reads a SKILL.md and runs install commands via bash.
 - **Concurrent IPC fix**: Misrouted responses on shared Unix sockets have been fixed. Each `call()` is now correctly matched to its response.
 - **Web proxy bridge cleanup**: Both runners stop the web proxy bridge in their cleanup path (after agent loop completes). Failure to start the bridge is non-fatal (logged as warning, agent continues without outbound HTTP).
 - **Web proxy env var priority**: `AX_WEB_PROXY_SOCKET` (container, Unix socket bridge) > `AX_WEB_PROXY_URL` (k8s, direct URL) > `AX_WEB_PROXY_PORT` (subprocess, TCP). Only one is used.

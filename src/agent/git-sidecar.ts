@@ -31,6 +31,7 @@
 import { createServer } from 'node:http';
 import { getLogger } from '../logger.js';
 import { gitExec, gitFetch, gitResetHard, gitClean, gitAdd, gitStatus, gitCommit, gitPush } from './git-cli.js';
+import { AX_DIFF_PATHSPEC } from '../host/validate-commit.js';
 
 const logger = getLogger().child({ component: 'git-sidecar' });
 
@@ -89,9 +90,7 @@ async function commitAndPush(workspaceDir: string, gitDir: string): Promise<Comm
 
   // Validate .ax/ changes before committing
   try {
-    const axDiff = (await gitExec(['diff', '--cached', '--',
-      '.ax/identity/', '.ax/skills/', '.ax/policy/', '.ax/AGENTS.md', '.ax/HEARTBEAT.md',
-    ], opts)).trim();
+    const axDiff = (await gitExec(['diff', '--cached', '--', AX_DIFF_PATHSPEC], opts)).trim();
 
     if (axDiff) {
       const validation = await callHostValidateCommit(axDiff);

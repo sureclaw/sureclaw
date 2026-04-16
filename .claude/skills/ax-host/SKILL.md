@@ -80,10 +80,10 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 1. **HTTP Handler** -- Parse OpenAIChatRequest JSON, validate session_id, derive stable session ID (explicit -> user field -> random UUID), extract user/conversationId
 2. **Router + Inbound Scan** -- Build InboundMessage, call `router.processInbound()` (scan, taint-wrap, canary inject, enqueue), emit `completion.start` and `scan.inbound` events
 3. **Message Dequeue** -- Dequeue **by ID** (not FIFO) from MessageQueue
-4. **Workspace Setup** -- Create workspace dir, load identity/skills from DocumentStore, build conversation history (DB-persisted for persistent sessions, client-provided for ephemeral), prepend parent channel context for thread sessions
+4. **Workspace Setup** -- Create workspace dir, load identity from committed git state (or seed new repo via `seedAxDirectory`), build conversation history (DB-persisted for persistent sessions, client-provided for ephemeral), prepend parent channel context for thread sessions
 5. **Credential Proxy** (claude-code only) -- Refresh OAuth pre-flight, start Anthropic credential-injecting proxy, pass proxy socket to agent
 6. **Web Proxy** (opt-in, `config.web_proxy`) -- Start HTTP forward proxy per completion. Container sandboxes get a Unix socket (`web-proxy.sock` in IPC dir); subprocess gets a TCP port. Proxy enforces private IP blocking, canary scanning, and audit logging.
-7. **Agent Spawn** -- Build spawn command with runner args, spawn with stdio pipes, write JSON payload to stdin (history, message, taintRatio, profile, requestId, identity, skills), collect stdout/stderr concurrently
+7. **Agent Spawn** -- Build spawn command with runner args, spawn with stdio pipes, write JSON payload to stdin (history, message, taintRatio, profile, requestId, identity), collect stdout/stderr concurrently
 7. **Outbound Scanning + Response Processing** -- Call `router.processOutbound()`, parse agent response (structured JSON with __ax_response or plain text), extract image_data blocks -> save to workspace/files/ -> convert to file refs, drain generated images
 8. **Persistence + Cleanup** -- Persist conversation turns, attach file refs, clean up workspace/proxy, emit `completion.done` event
 

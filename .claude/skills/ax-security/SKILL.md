@@ -83,7 +83,7 @@ Cowork plugins (installed via `ax plugin install`) are stored in DocumentStore w
 - **No network** -- Agent containers deny all TCP/IP. Unix sockets allowed only for IPC (local). HTTP-based IPC for K8s pods (no NATS).
 - **No credentials** -- API keys and OAuth tokens never enter the container.
 - **Three-phase orchestration** -- Containers use provision (network) -> run (no network) -> cleanup (network). Network is only available during provisioning and cleanup phases.
-- **4 canonical mounts**: `/workspace` (root/CWD), `/workspace/scratch` (rw), `/workspace/agent` (ro), `/workspace/user` (ro). Identity files and skills are sent via stdin payload from DocumentStore, not mounted as filesystem directories.
+- **4 canonical mounts**: `/workspace` (root/CWD), `/workspace/scratch` (rw), `/workspace/agent` (ro), `/workspace/user` (ro). Identity files are sent via stdin payload from git. Skills live in `.ax/skills/` in the git workspace.
 - **Local sandbox execution with audit gate** -- In container mode, tools execute inside the agent's container with host audit approval (`sandbox_approve` -> execute -> `sandbox_result`).
 - **Sandbox tools via IPC** -- bash, read_file, write_file, edit_file route through IPC to host-side handlers (`src/host/ipc-handlers/sandbox-tools.ts`), enforcing `safePath()` containment.
 - **HTTP IPC for K8s** -- Per-turn capability tokens (`AX_IPC_TOKEN`) authenticate HTTP requests. Uses `HttpIPCClient` → `POST /internal/ipc`.

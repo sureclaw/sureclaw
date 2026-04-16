@@ -2,7 +2,7 @@
  * Validates staged git diffs for .ax/ files before committing.
  *
  * Enforces:
- * - Only allowed paths under .ax/ (identity/, skills/, policy/, AGENTS.md, HEARTBEAT.md)
+ * - Only allowed paths under .ax/ (skills/, policy/, SOUL.md, IDENTITY.md, AGENTS.md, HEARTBEAT.md)
  * - File size limits (32KB for identity, 64KB for skills)
  */
 
@@ -12,16 +12,24 @@ const logger = getLogger().child({ component: 'validate-commit' });
 
 /** Allowed path prefixes under .ax/ */
 const ALLOWED_PREFIXES = [
-  '.ax/identity/',
   '.ax/skills/',
   '.ax/policy/',
 ];
 
 /** Allowed exact files under .ax/ */
 const ALLOWED_FILES = [
+  '.ax/SOUL.md',
+  '.ax/IDENTITY.md',
   '.ax/AGENTS.md',
   '.ax/HEARTBEAT.md',
 ];
+
+/**
+ * Git pathspec for `git diff --cached --` to extract .ax/ changes.
+ * Single source of truth — used by hostGitCommit (local) and git-sidecar (k8s).
+ * We diff the entire .ax/ directory; validateCommit() rejects disallowed paths.
+ */
+export const AX_DIFF_PATHSPEC = '.ax/';
 
 /** Max content size per file in bytes */
 const MAX_IDENTITY_SIZE = 32_768;

@@ -152,42 +152,8 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     }
   }
 
-  // Skills seeding — seed to DocumentStore if no skills exist yet
-  try {
-    const { listSkills, upsertSkill } = await import('../providers/storage/skills.js');
-    const existingSkills = await listSkills(documents, agentId);
-    if (existingSkills.length === 0) {
-      const { seedSkillsDir: resolveSeedSkillsDir } = await import('../utils/assets.js');
-      const seedDir = resolveSeedSkillsDir();
-      if (existsSync(seedDir)) {
-        const { readdirSync } = await import('node:fs');
-        const seedEntries = readdirSync(seedDir, { withFileTypes: true });
-        for (const entry of seedEntries) {
-          let skillName: string | undefined;
-          let content: string | undefined;
-          if (entry.isFile() && entry.name.endsWith('.md')) {
-            content = readFileSync(join(seedDir, entry.name), 'utf-8');
-            skillName = entry.name.replace(/\.md$/, '');
-          } else if (entry.isDirectory()) {
-            const skillMdPath = join(seedDir, entry.name, 'SKILL.md');
-            if (existsSync(skillMdPath)) {
-              content = readFileSync(skillMdPath, 'utf-8');
-              skillName = entry.name;
-            }
-          }
-          if (skillName && content) {
-            await upsertSkill(documents, {
-              id: skillName,
-              agentId,
-              version: '0.0.0',
-              instructions: content,
-              mcpApps: [],
-            });
-          }
-        }
-      }
-    }
-  } catch { /* non-fatal */ }
+  // Skills are seeded into the git workspace (.ax/skills/) by seedAxDirectory().
+  // No DB seeding needed — skills live in git.
 
   const defaultUserId = process.env.USER ?? 'default';
 
