@@ -239,6 +239,7 @@ function makeErrorMessage(errorText: string, api = 'ax-ipc'): AssistantMessage {
 import { TOOL_CATALOG, filterTools } from '../tool-catalog.js';
 import type { ToolFilterContext } from '../tool-catalog.js';
 import { createLocalSandbox } from '../local-sandbox.js';
+import { executeScript } from '../execute-script.js';
 
 function text(t: string) {
   return { content: [{ type: 'text' as const, text: t }], details: undefined };
@@ -343,6 +344,15 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
           `Error: "${action}" has failed ${priorFailures} consecutive times. ` +
           'Do NOT retry — inform the user what went wrong and move on.',
         );
+      }
+
+      // execute_script always runs locally — it only needs Node.js and the filesystem
+      if (action === 'execute_script') {
+        const result = executeScript(
+          { code: callParams.code as string, timeoutMs: callParams.timeoutMs as number | undefined },
+          opts?.localSandbox?.workspace ?? process.cwd(),
+        );
+        return text(JSON.stringify(result));
       }
 
       // Route sandbox tools to local executor when in container

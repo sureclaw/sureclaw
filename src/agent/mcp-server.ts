@@ -13,6 +13,7 @@ import type { IIPCClient } from './runner.js';
 import { filterTools, getToolDescription } from './tool-catalog.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 import { createLocalSandbox } from './local-sandbox.js';
+import { executeScript } from './execute-script.js';
 
 function stripTaint(data: unknown): unknown {
   if (Array.isArray(data)) {
@@ -277,6 +278,15 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
             const params = Object.fromEntries(Object.entries(args).filter(([_, v]) => v !== undefined));
             return ipcCall('sandbox_grep', params);
           },
+    ),
+
+    // ── Execute Script (PTC) — always runs locally, no IPC needed ──
+    tool('execute_script', getToolDescription('execute_script'),
+      {
+        code: z.string().max(500_000).describe('JavaScript code to execute. Can import from /workspace/tools/.'),
+        timeoutMs: z.number().int().min(1000).max(120_000).optional().describe('Execution timeout in ms (default: 30000, max: 120000)'),
+      },
+      async (args) => textResult(executeScript(args, opts?.localSandbox?.workspace ?? process.cwd())),
     ),
 
     // ── Glob (find files by pattern) ──
