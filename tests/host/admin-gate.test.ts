@@ -21,6 +21,7 @@ vi.mock('../../src/host/identity-reader.js', () => ({
   readIdentityForAgent: vi.fn(async () => ({})),
   loadIdentityFromGit: vi.fn(() => ({})),
   fetchIdentityFromRemote: vi.fn(() => ({ gitDir: '/tmp/mock', identity: {} })),
+  clearIdentityCache: vi.fn(),
   IDENTITY_FILE_MAP: [],
 }));
 
