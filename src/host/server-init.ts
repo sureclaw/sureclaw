@@ -296,23 +296,32 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
       'admin_oauth_migration',
     );
     if (oauthMigResult.error) throw oauthMigResult.error;
-    const envKey = process.env.AX_OAUTH_SECRET_KEY;
-    const adminToken = config.admin?.token ?? '';
-    const derived = deriveOAuthKey(adminToken, envKey);
-    if (derived.derivedFrom === 'admin-token') {
-      // Fallback path — warn so ops know rotating the admin token will
-      // also rotate the encryption key (and invalidate any already-stored
-      // client secrets). Set AX_OAUTH_SECRET_KEY to a 32-byte hex string
-      // to decouple.
-      logger.warn('admin_oauth_key_from_admin_token', {
-        hint: 'Set AX_OAUTH_SECRET_KEY (32 hex bytes) to decouple the encryption key from admin.token rotation.',
+    // Soft-degrade when no key source is configured: `deriveOAuthKey` throws
+    // for installs without AX_OAUTH_SECRET_KEY AND without a sufficiently-long
+    // admin.token (refusing sha256('') as an at-rest key). That's a valid
+    // state for many dev loops, so we warn and skip constructing the store —
+    // OAuth provider CRUD endpoints will 503, matching the DB-less case.
+    try {
+      const derived = deriveOAuthKey(
+        config.admin?.token ?? '',
+        process.env.AX_OAUTH_SECRET_KEY,
+      );
+      adminOAuthKey = derived.key;
+      if (derived.derivedFrom === 'admin-token') {
+        logger.warn('oauth_secret_key_derived_from_admin_token', {
+          msg: 'AX_OAUTH_SECRET_KEY unset — derived from admin.token. Set a dedicated 32-byte key for production.',
+        });
+      }
+      adminOAuthProviderStore = createAdminOAuthProviderStore(
+        providers.database.db,
+        adminOAuthKey,
+      );
+    } catch (err) {
+      logger.warn('admin_oauth_provider_store_disabled', {
+        msg: 'Admin-registered OAuth providers disabled — OAuth provider CRUD endpoints will return 503.',
+        error: err instanceof Error ? err.message : String(err),
       });
     }
-    adminOAuthKey = derived.key;
-    adminOAuthProviderStore = createAdminOAuthProviderStore(
-      providers.database.db,
-      adminOAuthKey,
-    );
   }
 
   // Phase 4: construct live-state appliers when the state store is available.

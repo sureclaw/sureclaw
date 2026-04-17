@@ -39,9 +39,20 @@ export function deriveOAuthKey(
   if (envKey) {
     const buf = Buffer.from(envKey, 'hex');
     if (buf.length !== 32) {
-      throw new Error('AX_OAUTH_SECRET_KEY must be 32 hex-encoded bytes');
+      throw new Error('AX_OAUTH_SECRET_KEY must be 32 hex-encoded bytes (64 hex chars)');
     }
     return { key: buf, derivedFrom: 'env' };
+  }
+  // Fallback path: refuse trivially-short admin tokens.
+  // sha256('') is a published constant; operators who haven't configured
+  // admin.token OR AX_OAUTH_SECRET_KEY would otherwise encrypt client secrets
+  // under a world-known key. 16 chars ≈ 96 bits of entropy if random, which
+  // is the minimum we're willing to accept for a fallback key source.
+  if (!adminToken || adminToken.length < 16) {
+    throw new Error(
+      'OAuth secret key unavailable: set AX_OAUTH_SECRET_KEY (32 hex bytes) ' +
+      'or config.admin.token to a value of at least 16 characters',
+    );
   }
   const key = createHash('sha256').update(adminToken).digest();
   return { key, derivedFrom: 'admin-token' };

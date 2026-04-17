@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 12:32] — Phase 6 Task 1 follow-up: refuse sha256('') as at-rest key
+
+**Task:** PR review finding — `deriveOAuthKey` fell back to `sha256(adminToken)` without a length floor, so installs with neither `AX_OAUTH_SECRET_KEY` nor `admin.token` configured would derive from `sha256('')` (a world-known constant), letting any DB-read attacker decrypt stored client secrets offline.
+**What I did:** `deriveOAuthKey` now throws for empty / <16-char admin tokens when no env key is set. `server-init.ts` wraps the key derivation in try/catch and soft-degrades: on throw, we log `admin_oauth_provider_store_disabled` at warn level and leave both `adminOAuthKey` and `adminOAuthProviderStore` undefined — matching the DB-less case so Task 2's CRUD endpoints will 503 naturally. Added three tests (empty throws, short throws, 16-char works) and adjusted one existing test that used `deriveOAuthKey('test')` (4 chars) to use a 16+ char token.
+**Files touched:** `src/host/admin-oauth-providers.ts`, `src/host/server-init.ts`, `tests/host/admin-oauth-providers.test.ts`.
+**Outcome:** Success. 80/80 tests pass (admin-oauth-providers + server-admin + server-admin-skills); tsc clean.
+**Notes:** 16 chars ≈ 96 bits of entropy if random — minimum we'll accept as a fallback key source. The soft-degrade keeps dev loops without `admin.token` unblocked (they already have no DB in many cases); production installs should set `AX_OAUTH_SECRET_KEY` (32 hex bytes) directly.
+
 ## [2026-04-17 12:12] — Phase 6 Task 1: admin OAuth providers table + crypto + storage
 
 **Task:** Foundation for phase 6 OAuth PKCE work — new `admin_oauth_providers` table (provider pk, client_id, encrypted client_secret, redirect_uri, updated_at), AES-256-GCM crypto helpers, Kysely storage module, and server-init wiring.

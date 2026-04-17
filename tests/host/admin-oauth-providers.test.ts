@@ -63,14 +63,36 @@ describe('admin-oauth-providers crypto helpers', () => {
   });
 
   it('deriveOAuthKey falls back to sha256(adminToken) when env is unset', () => {
-    const result = deriveOAuthKey('test');
-    const expected = createHash('sha256').update('test').digest();
+    // Token must be at least 16 chars — see the "empty / short admin token"
+    // cases below for the rejection contract.
+    const token = 'a-sufficiently-long-admin-token';
+    const result = deriveOAuthKey(token);
+    const expected = createHash('sha256').update(token).digest();
     expect(result.derivedFrom).toBe('admin-token');
     expect(result.key.equals(expected)).toBe(true);
   });
 
   it('deriveOAuthKey throws on a malformed env key', () => {
-    expect(() => deriveOAuthKey('token', 'abc')).toThrow(/32 hex/);
+    expect(() => deriveOAuthKey('a-sufficiently-long-admin-token', 'abc')).toThrow(/32 hex/);
+  });
+
+  it('deriveOAuthKey throws when admin token is empty and env is unset', () => {
+    // sha256('') is a world-known constant — refusing to derive from it
+    // prevents two unconfigured installs from sharing the same at-rest key.
+    expect(() => deriveOAuthKey('', undefined)).toThrow(/at least 16/);
+  });
+
+  it('deriveOAuthKey throws when admin token is shorter than 16 chars', () => {
+    expect(() => deriveOAuthKey('tooshort', undefined)).toThrow(/at least 16/);
+  });
+
+  it('deriveOAuthKey accepts a 16+ char admin token and returns a 32-byte key', () => {
+    const token = 'a'.repeat(16);
+    const result = deriveOAuthKey(token, undefined);
+    expect(result.derivedFrom).toBe('admin-token');
+    expect(result.key.length).toBe(32);
+    const expected = createHash('sha256').update(token).digest();
+    expect(result.key.equals(expected)).toBe(true);
   });
 });
 
