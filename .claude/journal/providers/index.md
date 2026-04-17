@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-04-16 22:29 — Git-native skills Phase 1 Task 2: SKILL.md parser [skills.md](skills.md)
 - 2026-04-16 22:26 — Git-native skills Phase 1 Task 1: Zod frontmatter schema [skills.md](skills.md)
 - 2026-04-05 10:00 — Add AuthProvider contract types [auth.md](auth.md)
 - 2026-03-29 14:00 — Add global MCP server CRUD + admin API endpoints (Tasks 1 & 2) [plugins.md](plugins.md)

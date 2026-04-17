@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:29] — Git-native skills Phase 1 Task 2: SKILL.md parser
+
+**Task:** Phase 1 Task 2 of git-native skills effort — create `parseSkillFile(content)` that splits YAML frontmatter from body, validates through Task 1's Zod schema, and returns a discriminated union `{ ok, frontmatter, body } | { ok: false, error }`. TDD order: failing test, implementation, passing test.
+**What I did:** Created `src/host/skills/parser.ts` with `FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/` and `tests/host/skills/parser.test.ts` (6 cases: valid parse, missing frontmatter, unterminated, invalid YAML, schema violation, CRLF line endings). Parser wraps Zod issues as `path: message; path: message` strings. Pure logic — no filesystem.
+**Files touched:** `src/host/skills/parser.ts` (new), `tests/host/skills/parser.test.ts` (new)
+**Outcome:** Success — all 6 parser tests pass, all 16 tests in `tests/host/skills/` pass (parser + frontmatter-schema).
+**Notes:** Regex uses non-greedy `[\s\S]*?` for the frontmatter section so a body containing `---` doesn't confuse the split. The `yaml` package was already a dependency (no install needed).
+
 ## [2026-04-16 22:26] — Git-native skills Phase 1 Task 1: Zod frontmatter schema
 
 **Task:** Phase 1 Task 1 of git-native skills effort — create the `SkillFrontmatterSchema` Zod module that will be used by later tasks (parser, reconciler). TDD order: failing test, implementation, passing test.
