@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:41] — Git-native skills Phase 1 Task 6: computeProxyAllowlist
+
+**Task:** Phase 1 Task 6 of git-native skills effort — append `computeProxyAllowlist(snapshot, states): Set<string>` to `src/host/skills/reconciler.ts`. Pure union of domains declared by enabled skills. Pending/invalid skills contribute nothing — that's the "defense in depth" gate from the design doc. TDD order: failing test, implementation, passing test.
+**What I did:** Appended `computeProxyAllowlist` to `reconciler.ts`. Builds `enabledNames` from `states[]` (only `kind === 'enabled'`), walks the snapshot skipping non-ok or non-enabled entries, and inserts each declared domain into an output `Set<string>`. Set handles deduplication naturally when two enabled skills share a domain.
+**Files touched:** `src/host/skills/reconciler.ts` (appended), `tests/host/skills/reconciler-allowlist.test.ts` (new)
+**Outcome:** Success — 3 new tests pass, all 29 tests in `tests/host/skills/` pass (schema + parser + reconciler-states + reconciler-mcp + reconciler-allowlist).
+**Notes:** No filtering against `approvedDomains` needed here — approval was already gated at `computeSkillStates` (unapproved domains keep a skill `pending`, which excludes it from the allowlist by definition). Keeps the function a trivial union and pushes policy into one place.
+
 ## [2026-04-16 22:38] — Git-native skills Phase 1 Task 5: computeMcpDesired
 
 **Task:** Phase 1 Task 5 of git-native skills effort — append `computeMcpDesired(snapshot, states)` to `src/host/skills/reconciler.ts`. Pure function that folds enabled-skill MCP server declarations into a keyed `Map<string, { url, bearerCredential? }>` with "first occurrence wins" semantics and a conflict list when the same MCP name has different URLs across skills. TDD order: failing test, implementation, passing test.

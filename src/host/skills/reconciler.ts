@@ -84,3 +84,16 @@ export function computeMcpDesired(
   }
   return { mcpServers: servers, conflicts };
 }
+
+export function computeProxyAllowlist(
+  snapshot: SkillSnapshotEntry[],
+  states: SkillState[],
+): Set<string> {
+  const enabledNames = new Set(states.filter((s) => s.kind === 'enabled').map((s) => s.name));
+  const out = new Set<string>();
+  for (const entry of snapshot) {
+    if (!entry.ok || !enabledNames.has(entry.name)) continue;
+    for (const d of entry.frontmatter.domains) out.add(d);
+  }
+  return out;
+}
