@@ -24,6 +24,12 @@
 **Lesson:** Even when callers only pass internally-generated strings (e.g. `user:<agentName>:`), throw on LIKE metacharacters (`%`, `_`, `\`) in the prefix. It's one line and future-proofs against a day when someone passes user-controlled data. Kysely parameterizes the full pattern so injection isn't the risk — over-matching is (`%` means "any"). Throw, don't silently escape: the caller is buggy/hostile, surface it.
 **Tags:** sql, kysely, like, security, defensive
 
+### SQLite LIKE is ASCII-case-insensitive by default — use GLOB for case-sensitive prefix matches
+**Date:** 2026-04-17
+**Context:** CodeRabbit review flagged `listScopePrefix('user:main:alice')` returning rows for scope `user:main:Alice` too — identities that must not collide.
+**Lesson:** `LIKE` in SQLite defaults to case-insensitive matching for ASCII characters (PRAGMA `case_sensitive_like` is off by default). PostgreSQL's LIKE is case-sensitive. When matching identifiers that differ only in case, either go dialect-aware (GLOB on sqlite, LIKE on postgres) or use a dialect-portable `substr(col, 1, N) = prefix`. If you switch to GLOB, widen any metacharacter guard: GLOB metachars are `* ? [ ]`, not `%` and `_`.
+**Tags:** sqlite, glob, like, case-sensitivity, kysely, cross-dialect
+
 ### Zod transform for backward-compatible config migration
 **Date:** 2026-03-02
 **Context:** Migrating `credentials: 'env'` to `credentials: 'keychain'` in config.ts

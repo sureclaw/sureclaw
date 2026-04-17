@@ -4,6 +4,22 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 05:40] — Phase 2 PR #177 CodeRabbit review fixes (8)
+
+**Task:** Apply 8 review fixes on PR #177 (git-native skills phase 2): orphan-repo cleanup, case-sensitive scope prefix, skip branch-deletion pushes, buffer-based HMAC, non-Error throw narrowing, atomic states+queue persistence, curl --data-binary, ifExists() on down migration.
+**What I did:**
+  1. `container/git-server/http-server.js`: best-effort `fs.rmSync(repoPath)` on hook-install failure so retries aren't wedged by the 409 "Repository already exists" branch.
+  2. `src/providers/credentials/database.ts` + test: switched `listScopePrefix` from SQLite LIKE (ASCII-case-insensitive) to GLOB (case-sensitive) on sqlite, LIKE on postgres. Widened metachar guard to `/[*?[\]%_\\]/`. New test verifies "Alice" and "alice" don't collide.
+  3. `src/providers/workspace/install-hook.ts` + `container/git-server/install-hook.js` + both test files: skip branch-deletion pushes (newSha all zeros) to prevent `skills.reconcile_failed` on `git push --delete`.
+  4. `src/host/skills/hook-endpoint.ts` + test: `readRawBody` returns Buffer now (not string); HMAC computed over raw bytes to avoid U+FFFD utf-8 normalization mismatch with the shell client. Added regression test with a raw 0xC3 byte.
+  5. `src/host/skills/reconcile-orchestrator.ts`: narrowed `(err as Error).message` to `err instanceof Error ? err.message : String(err)`.
+  6. `src/host/skills/state-store.ts` + tests (state-store, current-state, reconcile-orchestrator unaffected): added `putStatesAndQueue(agentId, states, queue)` that wraps both table replacements in ONE transaction. Extracted `replaceStatesInTrx` + `replaceSetupQueueInTrx` helpers so single-table methods and atomic method can't drift. Orchestrator now calls the atomic variant. Added atomicity test using duplicate pk to force rollback.
+  7. `src/providers/workspace/install-hook.ts` + container/git-server/install-hook.js` + both tests: `curl -d` → `curl --data-binary` to preserve exact body bytes for HMAC.
+  8. `src/migrations/skills.ts`: `dropTable().ifExists()` on down migration.
+**Files touched:** `container/git-server/http-server.js`, `container/git-server/install-hook.js`, `src/providers/credentials/database.ts`, `src/providers/workspace/install-hook.ts`, `src/host/skills/hook-endpoint.ts`, `src/host/skills/reconcile-orchestrator.ts`, `src/host/skills/state-store.ts`, `src/migrations/skills.ts`, `tests/providers/credentials/database.test.ts`, `tests/providers/workspace/install-hook.test.ts`, `tests/container/git-server/install-hook.test.ts`, `tests/host/skills/hook-endpoint.test.ts`, `tests/host/skills/state-store.test.ts`, `tests/host/skills/current-state.test.ts`.
+**Outcome:** Success — `npm test -- tests/host/skills/ tests/providers/workspace/ tests/container/ tests/providers/credentials/` = 129/129 pass. `npm run build` clean. 9 commits, one per fix plus this journal update.
+**Notes:** Fix 2 went dialect-aware (GLOB on sqlite, LIKE on postgres) rather than sqlite-only GLOB — PostgreSQL's LIKE is case-sensitive by default so plain LIKE is fine there, and a shared `substr(...)` approach would have been less idiomatic. Fix 6 factored the table-replace logic into helpers to kill any chance of drift between the two public code paths. Fix 3 and Fix 7 both touch the shell template in two places — the existing byte-identical test between host and container continues to enforce sync.
+
 ## [2026-04-16 23:55] — Phase 2 Task 6: mount /v1/internal/skills/reconcile
 
 **Task:** Wire task 5's `createReconcileHookHandler` into the real router at `POST /v1/internal/skills/reconcile`. Run `skillsMigrations` at startup, build the state store, resolve `getBareRepoPath`, construct `OrchestratorDeps`, and hand the handler into the existing `extraRoutes` extension point so `server-request-handlers.ts` stays untouched.
