@@ -48,7 +48,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 5. Dispatches to runner: `runPiSession()` or `runClaudeCode()`
 6. Runner uses pre-connected `config.ipcClient` if available, otherwise creates a new `IPCClient` and connects
 7. Loads identity files from stdin payload (preloaded from git by host) via `loadIdentityFiles({ preloaded: config.identity })`
-8. Skills loaded from `.ax/skills/` in the git workspace (seeded by host on repo creation). Plugin commands may also be loaded from installed plugins.
+8. Runner calls `fetchSkillsIndex(client)` in `src/agent/agent-setup.ts` (IPC action `skills_index`) and sets `config.skills` from the response. `buildSystemPrompt(config)` prefers `config.skills`; if absent (transport error, legacy path), it falls back to `loadSkillsMultiDir(...)` scanning `.ax/skills/` in the git workspace. `SkillsModule` (priority 70) renders the host-authoritative bullet list with pending/invalid markers from `pendingReasons`. Plugin commands may also be loaded from installed plugins.
 9. `buildSystemPrompt()` builds both the system prompt AND a `ToolFilterContext` for context-aware tool filtering
 10. Creates IPC tools (catalog-based, filtered). Sandbox tools (bash, read_file, write_file, edit_file) route based on sandbox type:
     - **Container mode** (docker, apple, k8s): `local-sandbox.ts` executes locally with host audit gate (`sandbox_approve` -> execute -> `sandbox_result`)
@@ -65,7 +65,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
   - No skills loaded -> no skill tools
   - No workspace tiers -> no workspace tools
   - No governance mode -> no governance tools
-- **IPC tools** (`ipc-tools.ts` for pi-session, `mcp-server.ts` for claude-code): Non-sandbox tools proxy to host via IPC -- `memory_*`, `web_*`, `audit_query`, `identity_write`, `user_write`, `scheduler_*`, `skill_*`, `skill_import`, `skill_search`, `request_credential`, `agent_delegate`, `image_generate`, `workspace_*`, `identity_propose`, `proposal_list`, `agent_registry_list`. Each calls `client.call({action, ...params})`. All IPC consumers use the `IIPCClient` interface (not concrete `IPCClient`), making them transport-agnostic.
+- **IPC tools** (`ipc-tools.ts` for pi-session, `mcp-server.ts` for claude-code): Non-sandbox tools proxy to host via IPC -- `memory_*`, `web_*`, `audit_query`, `identity_write`, `user_write`, `scheduler_*`, `skill_*`, `skill_import`, `skill_search`, `skills_index`, `request_credential`, `agent_delegate`, `image_generate`, `workspace_*`, `identity_propose`, `proposal_list`, `agent_registry_list`. Each calls `client.call({action, ...params})`. All IPC consumers use the `IIPCClient` interface (not concrete `IPCClient`), making them transport-agnostic.
 - **`request_credential` is a standalone tool**: Split from `skill_install` into its own tool in `tool-catalog.ts` with `category: 'credential'`. Always available (not filtered by skill presence). Maps to `credential_request` IPC action. Used when skills or web APIs need env vars the agent doesn't have.
 - **Sandbox tools routing** (two paths):
   - **Container mode** (docker, apple, k8s): `local-sandbox.ts` executes bash/file ops inside the agent's own container. Protocol: `sandbox_approve` IPC -> auto-approve well-known network domains (`extractNetworkDomains()` → `web_proxy_approve` IPC) -> execute locally (async `spawn` for bash, readFileSync/writeFileSync for files) -> `sandbox_result` IPC (best-effort). Uses `safePath()` for path containment. Enabled when `CONTAINER_SANDBOXES.has(config.sandboxType)`. Bash uses async `spawn` (not `execFileSync`) to keep the event loop responsive during command execution.
@@ -87,7 +87,7 @@ The agent subsystem runs inside a sandboxed process (no network, no credentials)
 | SecurityModule | 10 | Taint awareness, identity ownership rules | No |
 | ToolStyleModule | 12 | Tool invocation instructions | No |
 | MemoryRecallModule | 60 | Memory recall pattern instructions | No |
-| SkillsModule | 70 | Loaded skill definitions | Yes |
+| SkillsModule | 70 | Host-authoritative skills index (via `skills_index` IPC) | Yes |
 | CommandsModule | 72 | Installed plugin slash commands | Yes |
 | DelegationModule | 75 | Agent delegation instructions + runner selection guide | Yes |
 | HeartbeatModule | 80 | HEARTBEAT.md periodic check schedule | Yes |
@@ -192,7 +192,7 @@ When `WORKSPACE_REPO_URL` is set AND in k8s (`AX_HOST_URL` set):
 - **`safePath()` is mandatory**: Every sandbox tool file operation must go through `safePath()` to prevent workspace escape -- both in `local-sandbox.ts` (container mode) and `sandbox-tools.ts` (subprocess mode).
 - **Strict IPC schemas reject unknown fields**: Adding a field to an IPC call without updating the Zod schema silently fails (`{ok: false}`).
 - **Identity loader never throws**: Missing files return `''`. Check content length, not for exceptions.
-- **Identity via stdin payload**: The host loads identity from committed git state and sends it in the stdin JSON payload. Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem.
+- **Identity via stdin payload**: The host loads identity from committed git state and sends it in the stdin JSON payload. SKILL.md *files* still live in `.ax/skills/` in the git workspace — agents `Read` them on demand — but the **prompt-visible skills index** is host-sourced via the `skills_index` IPC (fetched by `fetchSkillsIndex()` before `buildSystemPrompt()`), not a filesystem scan. `loadSkillsMultiDir()` remains only as a fallback when IPC is unavailable.
 - **Context-aware tool filtering**: Excluded prompt modules must have corresponding category filters in `filterTools()`.
 - **Delegation module**: Priority 75, optional, excluded during bootstrap. Includes guidance on `agent_delegate` and runner selection.
 - **Use `IIPCClient` interface, not concrete `IPCClient`**: All IPC consumers (`ipc-tools.ts`, `mcp-server.ts`, `runner.ts`, `local-sandbox.ts`) accept the `IIPCClient` interface so they work with both Unix socket (`IPCClient`) and HTTP (`HttpIPCClient`) transports. Never import the concrete class in tool/sandbox code.

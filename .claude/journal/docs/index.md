@@ -4,6 +4,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-04-17 13:00 — Phase 3 Task 8: update ax-agent skill doc for host-authoritative skills_index [website.md](website.md)
 - 2026-04-17 12:00 — Expand phase 3 (skills_index prompt integration) into concrete TDD tasks [plans.md](plans.md)
 - 2026-04-16 16:30 — Split git-native skills rollout into per-phase plan files (phase 2-7) [plans.md](plans.md)
 - 2026-04-16 14:00 — Design git-native skills and credentials UX [plans.md](plans.md)

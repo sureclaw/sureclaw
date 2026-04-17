@@ -2,6 +2,14 @@
 
 README.md updates, docs/web site updates, dashboard, warning banners, GitHub Pages deployment, skill syncs.
 
+## [2026-04-17 13:00] — Phase 3 Task 8: update ax-agent skill doc for host-authoritative skills_index
+
+**Task:** Reflect the new skills flow in `.claude/skills/ax-agent/SKILL.md`: host reconciler writes `skill_states`, runner calls `fetchSkillsIndex()` before prompt build, `buildSystemPrompt(config)` prefers `config.skills` with filesystem scan as fallback, `SkillsModule` renders pending/invalid markers.
+**What I did:** Four targeted edits: (1) boot-sequence step 8 now describes `fetchSkillsIndex(client)` → `config.skills` → `buildSystemPrompt` preference with `loadSkillsMultiDir(...)` fallback and `SkillsModule`'s pending-marker rendering. (2) Added `skills_index` to the IPC tools list (alphabetical cluster with `skill_*`). (3) Prompt-module table row for `SkillsModule` now reads "Host-authoritative skills index (via `skills_index` IPC)". (4) "Identity via stdin payload" gotcha rewritten: SKILL.md files still live in `.ax/skills/` for on-demand `Read`, but the prompt-visible index is host-sourced, not a filesystem scan.
+**Files touched:** `.claude/skills/ax-agent/SKILL.md`, `.claude/journal/docs/website.md`, `.claude/journal/docs/index.md`
+**Outcome:** Success — diff shows only the four expected line-level replacements.
+**Notes:** All line-number hints in the task brief matched the current file (no drift). No stale `loadSkills`/`filesystem` references remained after the edits.
+
 ## [2026-04-06 12:00] — Update docs and skills for PVC-backed single workspace model
 
 **Task:** Phase 6 of PVC workspace plan: update documentation for new single /workspace model
