@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-17 17:13] — Phase 7 Task 1: Remove skill IPC + agent tool
+
+**Task:** Delete skill_install/skill_create/skill_update/skill_delete IPC actions plus the `skill` agent tool, now that skills are authored git-natively under `.ax/skills/`.
+**What I did:** Removed 4 schema declarations from `src/ipc-schemas.ts`. Rewrote `src/host/ipc-handlers/skills.ts` to keep only `skills_index`, `audit_query`, and `credential_request` — dropped clawhub/manifest-generator/skill-format-parser/storage.skills/server-admin-helpers imports. Trimmed `SkillsHandlerOptions` to `requestedCredentials`, `eventBus`, `stateStore`. Removed the skill tool block + `category: 'skill'` from tool-catalog.ts and mcp-server.ts, dropped `stripSkillInstall`, simplified `filterTools`. Deleted `tests/host/ipc-handlers/skills.test.ts`, edited related tests (tool counts 15→14, remove skill assertions). Touched stale `skill_install` comments in web-proxy.ts and ipc-server.ts.
+**Files touched:** `src/ipc-schemas.ts`, `src/host/ipc-handlers/skills.ts`, `src/host/ipc-server.ts`, `src/host/web-proxy.ts`, `src/agent/tool-catalog.ts`, `src/agent/mcp-server.ts`, `tests/host/ipc-handlers/skills.test.ts` (deleted), `tests/host/post-agent-credential-detection.test.ts`, `tests/agent/tool-catalog.test.ts`, `tests/agent/mcp-server.test.ts`, `tests/agent/ipc-tools.test.ts`.
+**Outcome:** Success — build clean, 155/155 targeted tests pass. Remaining `skill_*` references in `utils/manifest-generator.ts` and `integration/cross-component.test.ts` are slated for Tasks 2 and 7.
+**Notes:** `IPCHandlerOptions.domainList` / `adminCtx` remain (other subsystems still use them) but no longer reach the skills handler.
+
 ## [2026-04-15 12:40] — Remove old identity system (Tasks 5-12 of git-identity plan)
 
 **Task:** Remove database-backed identity IPC schemas, handlers, tools, and governance system; simplify identity-loader; update prompt modules to use git-based identity evolution; seed .ax/ directory in workspace init

@@ -14,7 +14,7 @@ import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
   | 'memory' | 'web' | 'audit'
-  | 'scheduler' | 'skill' | 'credential' | 'delegation'
+  | 'scheduler' | 'credential' | 'delegation'
   | 'workspace' | 'sandbox';
 
 export interface ToolSpec {
@@ -161,50 +161,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       run_at: 'scheduler_run_at',
       remove: 'scheduler_remove_cron',
       list: 'scheduler_list_jobs',
-    },
-  },
-
-  // ── Skill ──
-  {
-    name: 'skill',
-    label: 'Skill',
-    description:
-      'Create, install, update, and delete skills.\n\nUse `type` to select:\n' +
-      '- create: Create a new skill from SKILL.md content. Non-admin users in DM/web get a personal skill; admins get an agent-wide skill.\n' +
-      '- install: Install a skill from ClawHub by slug or search query\n' +
-      '- update: Update a specific file in a skill\n' +
-      '- delete: Uninstall a skill by slug',
-    parameters: Type.Union([
-      Type.Object({
-        type: Type.Literal('create'),
-        slug: Type.String({ description: 'Skill slug (short name, e.g. "my-helper")' }),
-        content: Type.String({ description: 'Full SKILL.md content' }),
-      }),
-      Type.Object({
-        type: Type.Literal('install'),
-        slug: Type.String({ description: 'ClawHub skill slug (owner/name or URL)' }),
-      }),
-      Type.Object({
-        type: Type.Literal('install'),
-        query: Type.String({ description: 'Search query to find skills on ClawHub' }),
-      }),
-      Type.Object({
-        type: Type.Literal('update'),
-        slug: Type.String({ description: 'Skill slug to update' }),
-        path: Type.String({ description: 'File path within the skill (e.g. "SKILL.md")' }),
-        content: Type.String({ description: 'New file content' }),
-      }),
-      Type.Object({
-        type: Type.Literal('delete'),
-        slug: Type.String({ description: 'Skill slug to delete' }),
-      }),
-    ]),
-    category: 'skill',
-    actionMap: {
-      create: 'skill_create',
-      install: 'skill_install',
-      update: 'skill_update',
-      delete: 'skill_delete',
     },
   },
 
@@ -453,47 +409,8 @@ export interface ToolFilterContext {
 /**
  * Filter the catalog to tools relevant to the current session.
  * Without a context, returns the full catalog (backward compat).
- *
- * When skillInstallEnabled is false, the skill tool's install variants
- * are stripped from its parameter union so the LLM can't attempt installs.
  */
-export function filterTools(ctx: ToolFilterContext): readonly ToolSpec[] {
-  return TOOL_CATALOG
-    .filter(spec => {
-      switch (spec.category) {
-        case 'scheduler':  return true;  // always available — HEARTBEAT.md controls heartbeat content, not tool visibility
-        case 'skill':      return true;  // always available — delete/update shouldn't require install intent
-        default:           return true;
-      }
-    })
-    .map(spec => {
-      // Strip install variants from skill tool when install intent not detected
-      if (spec.category === 'skill' && !ctx.skillInstallEnabled) {
-        return stripSkillInstall(spec);
-      }
-      return spec;
-    });
-}
-
-/** Remove install variants from skill tool's parameter union and actionMap. */
-function stripSkillInstall(spec: ToolSpec): ToolSpec {
-  const schema = spec.parameters as { anyOf?: Array<{ properties?: { type?: { const?: string } } }> };
-  if (!schema.anyOf) return spec;
-
-  const filtered = schema.anyOf.filter(
-    variant => variant.properties?.type?.const !== 'install',
-  );
-  if (filtered.length === schema.anyOf.length) return spec; // nothing to strip
-
-  const { install: _, ...remainingActions } = spec.actionMap ?? {};
-  const description = spec.description
-    .replace('Create, install, update, and delete', 'Create, update, and delete')
-    .replace(/\n- install:[^\n]*/g, '');
-  return {
-    ...spec,
-    description,
-    parameters: Type.Union(filtered as TSchema[]),
-    actionMap: remainingActions,
-  };
+export function filterTools(_ctx: ToolFilterContext): readonly ToolSpec[] {
+  return TOOL_CATALOG;
 }
 

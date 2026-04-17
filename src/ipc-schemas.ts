@@ -117,26 +117,6 @@ export const WebExtractSchema = ipcAction('web_extract', {
 
 // ── Skills ───────────────────────────────────────────
 
-export const SkillInstallSchema = ipcAction('skill_install', {
-  query: safeString(500).optional(),
-  slug: safeString(200).optional(),
-});
-
-export const SkillUpdateSchema = ipcAction('skill_update', {
-  slug: safeString(200),
-  path: safeString(1024),
-  content: safeString(500_000),
-});
-
-export const SkillCreateSchema = ipcAction('skill_create', {
-  slug: safeString(200),
-  content: safeString(500_000),
-});
-
-export const SkillDeleteSchema = ipcAction('skill_delete', {
-  slug: safeString(200),
-});
-
 /**
  * Agent asks the host for its authoritative skill index.
  * Handler uses ctx.agentId from the IPC session — no request fields needed.

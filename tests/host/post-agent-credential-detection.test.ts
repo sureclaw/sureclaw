@@ -38,36 +38,6 @@ describe('ClawHub skill package download', () => {
   });
 });
 
-describe('skill_install IPC schema', () => {
-  test('SkillInstallSchema is registered', async () => {
-    const { IPC_SCHEMAS } = await import('../../src/ipc-schemas.js');
-    expect(IPC_SCHEMAS).toHaveProperty('skill_install');
-  });
-
-  test('validates slug and query fields', async () => {
-    const { IPC_SCHEMAS } = await import('../../src/ipc-schemas.js');
-    const schema = IPC_SCHEMAS['skill_install'];
-
-    const validSlug = schema.safeParse({ action: 'skill_install', slug: 'linear-skill' });
-    expect(validSlug.success).toBe(true);
-
-    const validQuery = schema.safeParse({ action: 'skill_install', query: 'linear' });
-    expect(validQuery.success).toBe(true);
-
-    // Both optional — empty is valid
-    const validEmpty = schema.safeParse({ action: 'skill_install' });
-    expect(validEmpty.success).toBe(true);
-  });
-});
-
-describe('skill tool catalog includes install action', () => {
-  test('skill tool actionMap includes skill_install', async () => {
-    const { TOOL_CATALOG } = await import('../../src/agent/tool-catalog.js');
-    const skill = TOOL_CATALOG.find(t => t.name === 'skill');
-    expect(skill?.actionMap?.install).toBe('skill_install');
-  });
-});
-
 describe('collectSkillCredentialRequirements detects requires.env', () => {
   let testDir: string;
 

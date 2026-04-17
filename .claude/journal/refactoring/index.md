@@ -4,6 +4,7 @@ General refactoring, cleanup work, stale reference removal.
 
 ## Entries
 
+- 2026-04-17 17:13 — Phase 7 Task 1: Remove skill IPC + agent tool [cleanup.md](cleanup.md)
 - 2026-04-14 06:20 — Replace ClawHub filesystem cache with in-memory cache [cleanup.md](cleanup.md)
 - 2026-04-14 00:00 — Move MITM CA from agents/ to data/ directory [cleanup.md](cleanup.md)
 - 2026-04-06 12:00 — PVC Workspace Phase 1: Simplify workspace model + PVC support [cleanup.md](cleanup.md)
