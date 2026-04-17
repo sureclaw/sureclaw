@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-16 23:36] — Phase 2 Task 4: reconcile orchestrator
+
+**Task:** Build `reconcileAgent(agentId, ref, deps)` — glue that runs the full reconcile cycle: snapshot → current-state → `reconcile()` → persist states + setup queue → emit events. Phase 2 intentionally discards `output.desired` (MCP/proxy wiring lands in phase 4). Push-time hook MUST NOT 500 the push on a reconcile error.
+**What I did:** TDD. Wrote 4 integration tests using real snapshot builder (real bare git repo + work-tree push), real reconciler, real state-store (in-memory sqlite + `skillsMigrations`), with stubs only at the provider boundary (ProxyDomainList, CredentialProvider, EventBus). Covered: happy path (missing creds → pending, 2 events, setup queue populated), enabled path (creds + domain met, 2 events, empty queue), snapshot failure (bogus path → returns zeroed counts, emits `skills.reconcile_failed`, no partial writes to state-store), and multi-reconcile replacement (skill A replaced by skill B → A is removed, B is present, `skill.removed` emitted). Verified failing (no module). Implemented `src/host/skills/reconcile-orchestrator.ts`: try/catch wraps every step; on error logs via `getLogger().child({component:'skills-reconcile'}).error('reconcile_failed', …)`, emits single `skills.reconcile_failed` event, returns `{skills:0, events:0}`. Each successful event fired with `requestId === agentId` and `Date.now()` timestamp.
+**Files touched:** `src/host/skills/reconcile-orchestrator.ts` (new), `tests/host/skills/reconcile-orchestrator.test.ts` (new), `.claude/journal/host/skills.md`.
+**Outcome:** Success — 4/4 new tests pass, full skills suite 63/63 passes, `tsc --noEmit` clean.
+**Notes:** YAGNI — `output.desired` is computed by the reconciler but dropped here; phase 4 will pick it up. Error path is holistic: a throw from `getBareRepoPath`, snapshot, current-state, reconcile, `putStates`, `putSetupQueue`, or the emit loop all land in the same catch, so a fully-failed reconcile leaves prior state-store rows untouched (covered by test 3). Note a partial failure AFTER `putStates` but BEFORE `putSetupQueue` WOULD leave the state-store partially updated — phase 2 accepts this because the individual table writes are already transactional and the reconciler never inspects the setup queue during future reconciles. Events sequence: skill.installed first, then status events (enabled/pending/invalid) — matches phase-1 computeEvents output.
+
 ## [2026-04-16 23:30] — Phase 2 Task 3: current-state loader
 
 **Task:** Build a pure async `loadCurrentState(agentId, deps)` that aggregates the `ReconcilerCurrentState` (approvedDomains, storedCredentials, registeredMcpServers, priorSkillStates) by polling existing host providers. Its role is to hide provider-specific key formats from the reconcile orchestrator.
