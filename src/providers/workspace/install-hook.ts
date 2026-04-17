@@ -6,8 +6,9 @@ import { safePath } from '../../utils/safe-path.js';
  *
  * Inlined (rather than loaded from a co-located .sh file) because `tsc`
  * does not copy non-TS assets into `dist/`, and adding a postbuild copy
- * step buys us little for a ~30-line script. If you want to edit this,
- * edit it here — there is no other canonical source to keep in sync.
+ * step buys us little for a ~30-line script. This template is mirrored
+ * byte-for-byte in `container/git-server/install-hook.js` — both paths
+ * must produce identical hook content, and the container test enforces it.
  *
  * Notes on the shell script itself:
  *   - `set -eu` catches undefined vars but NOT pipeline failures (that's
