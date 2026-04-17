@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-04-16 14:00] — Design git-native skills and credentials UX
+
+**Task:** Brainstorm the best UX for installing tools/skills and managing credentials given AX's git-based workspace model
+**What I did:** Led a brainstorming session through six sections — overall model, frontmatter schema, reconciliation flow, credentials dashboard + OAuth, agent role & progressive disclosure, pending state & security. Key decisions: skills live as files in `.ax/skills/<name>/SKILL.md` in the agent's repo (no install CLI, no DocumentStore); agent authors skills directly via its file-edit tools; YAML frontmatter declares credentials, MCP servers, and domains; post-receive hook drives host-side reconciliation; dashboard shows a single setup card per skill bundling domain approvals + credential collection (OAuth PKCE default, admin-registered app fallback, API key last resort); skill enabled state is derived from gate status (proxy allowlist + credential storage + MCP registration) with "pending" as a soft label on top of hard enforcement; agent sees a progressive-disclosure index (name + description only) and reads full SKILL.md on demand.
+**Files touched:** `docs/plans/2026-04-16-git-native-skills-design.md`, `.claude/journal/docs/plans.md`, `.claude/journal/docs/index.md`
+**Outcome:** Success — design doc captured with frontmatter schema, reconcile flow, UX mockup for setup card, migration recommendation (fresh start for early-stage AX), and open questions for follow-up.
+**Notes:** `request_credential` tool + `credential.required` event bus flow can be reused as-is — dashboard just becomes another subscriber alongside the chat UI. Domain approvals need user-in-the-loop (agent can silently expand its own network reach otherwise). Defense-in-depth matters: pending-state enforcement lives at the proxy/placeholder/MCP-registry gates, not at the agent.
+
 ## [2026-03-22 12:00] — Update ax-debug skill with agent_response timer and scanner timeout learnings
 
 **Task:** Add debugging learnings from kind-ax cluster session to ax-debug skill
