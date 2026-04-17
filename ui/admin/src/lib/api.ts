@@ -7,8 +7,6 @@ import type {
   Session,
   StreamEvent,
   DocumentEntry,
-  SkillEntry,
-  SkillContent,
   WorkspaceFileEntry,
   MemoryEntryView,
   McpServer,
@@ -152,31 +150,6 @@ export const api = {
   /** List identity documents for an agent. */
   agentIdentity(id: string): Promise<DocumentEntry[]> {
     return apiFetch<DocumentEntry[]>(`/agents/${encodeURIComponent(id)}/identity`);
-  },
-
-  /** List skills for an agent. */
-  agentSkills(id: string): Promise<SkillEntry[]> {
-    return apiFetch<SkillEntry[]>(`/agents/${encodeURIComponent(id)}/skills`);
-  },
-
-  /** Read a single skill's content. */
-  agentSkillContent(id: string, name: string): Promise<SkillContent> {
-    return apiFetch<SkillContent>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`);
-  },
-
-  /** Update a skill's content. */
-  updateSkill(id: string, name: string, content: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ content }),
-    });
-  },
-
-  /** Delete a skill. */
-  deleteSkill(id: string, name: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    });
   },
 
   /** List workspace files for an agent. */

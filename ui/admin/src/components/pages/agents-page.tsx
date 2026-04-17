@@ -8,16 +8,12 @@ import {
   XCircle,
   CheckCircle,
   FileText,
-  Sparkles,
   FolderOpen,
   Brain,
   Activity,
   User,
   Globe,
-  Pencil,
   Trash2,
-  Save,
-  X,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -26,7 +22,6 @@ import { useApi } from '../../hooks/use-api';
 import type {
   Agent,
   DocumentEntry,
-  SkillEntry,
   WorkspaceFileEntry,
   MemoryEntryView,
   McpServer,
@@ -34,7 +29,7 @@ import type {
 
 // ── Types ──
 
-type SectionId = 'overview' | 'identity' | 'skills' | 'connectors' | 'workspace' | 'memory';
+type SectionId = 'overview' | 'identity' | 'connectors' | 'workspace' | 'memory';
 
 // ── Helpers ──
 
@@ -216,7 +211,6 @@ const NAV_GROUPS: {
   {
     label: 'TOOLS',
     items: [
-      { id: 'skills', label: 'Skills', icon: Sparkles },
       { id: 'connectors', label: 'Connectors', icon: Globe },
     ],
   },
@@ -494,183 +488,6 @@ function IdentityTab({ agentId }: { agentId: string }) {
   );
 }
 
-function SkillsTab({ agentId }: { agentId: string }) {
-  const { data: skills, loading, error, refresh } = useApi<SkillEntry[]>(
-    () => api.agentSkills(agentId),
-    [agentId]
-  );
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [skillContent, setSkillContent] = useState<Record<string, string>>({});
-  const [loadingSkill, setLoadingSkill] = useState<string | null>(null);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editContent, setEditContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => { if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current); };
-  }, []);
-
-  const toggleSkill = async (name: string) => {
-    if (expanded === name) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(name);
-    if (!skillContent[name]) {
-      setLoadingSkill(name);
-      try {
-        const result = await api.agentSkillContent(agentId, name);
-        setSkillContent((prev) => ({ ...prev, [name]: result.content }));
-      } catch {
-        setSkillContent((prev) => ({ ...prev, [name]: '(failed to load)' }));
-      } finally {
-        setLoadingSkill(null);
-      }
-    }
-  };
-
-  const startEdit = (name: string) => {
-    setEditing(name);
-    setEditContent(skillContent[name] ?? '');
-  };
-
-  const cancelEdit = () => {
-    setEditing(null);
-    setEditContent('');
-  };
-
-  const saveEdit = async (name: string) => {
-    setSaving(true);
-    try {
-      await api.updateSkill(agentId, name, editContent);
-      setSkillContent((prev) => ({ ...prev, [name]: editContent }));
-      setEditing(null);
-      setEditContent('');
-    } catch {
-      // stay in edit mode on failure
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (name: string) => {
-    if (confirmingDelete !== name) {
-      setConfirmingDelete(name);
-      if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-      confirmTimerRef.current = setTimeout(() => setConfirmingDelete(null), 3000);
-      return;
-    }
-    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
-    setConfirmingDelete(null);
-    try {
-      await api.deleteSkill(agentId, name);
-      if (expanded === name) setExpanded(null);
-      refresh();
-    } catch {
-      refresh();
-    }
-  };
-
-  if (loading) return <TabSkeleton />;
-  if (error) return <TabError message={error.message} />;
-  if (!skills || skills.length === 0) return <TabEmpty label="No skills" />;
-
-  return (
-    <div className="space-y-2">
-      {skills.map((skill) => (
-        <div key={skill.name} className="rounded-lg border border-border/30 overflow-hidden">
-          <div
-            className="flex items-center justify-between px-3 py-2 hover:bg-foreground/[0.02] transition-colors"
-          >
-            <button
-              onClick={() => toggleSkill(skill.name)}
-              className="flex items-center gap-2 min-w-0 flex-1 text-left"
-            >
-              <Sparkles size={12} className="text-violet shrink-0" />
-              <span className="text-[13px] font-medium text-foreground truncate">{skill.name}</span>
-            </button>
-            <div className="flex items-center gap-1 shrink-0 ml-2">
-              {expanded === skill.name && editing !== skill.name && (
-                <button
-                  onClick={() => startEdit(skill.name)}
-                  className="p-1 text-muted-foreground hover:text-foreground transition-colors rounded"
-                  title="Edit"
-                >
-                  <Pencil size={12} />
-                </button>
-              )}
-              <button
-                onClick={() => handleDelete(skill.name)}
-                className={`p-1 transition-colors rounded ${
-                  confirmingDelete === skill.name
-                    ? 'text-rose'
-                    : 'text-muted-foreground hover:text-rose'
-                }`}
-                title={confirmingDelete === skill.name ? 'Click again to confirm' : 'Delete'}
-              >
-                <Trash2 size={12} />
-              </button>
-              <button
-                onClick={() => toggleSkill(skill.name)}
-                className="p-1 text-muted-foreground"
-              >
-                {expanded === skill.name ? (
-                  <ChevronUp size={12} />
-                ) : (
-                  <ChevronDown size={12} />
-                )}
-              </button>
-            </div>
-          </div>
-          {skill.description && expanded !== skill.name && (
-            <p className="px-3 pb-2 text-[11px] text-muted-foreground truncate">{skill.description}</p>
-          )}
-          {expanded === skill.name && (
-            <div className="px-3 pb-3 border-t border-border/20">
-              {loadingSkill === skill.name ? (
-                <div className="skeleton h-20 w-full mt-2" />
-              ) : editing === skill.name ? (
-                <div className="mt-2 space-y-2">
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="input w-full h-[300px] text-[11px] font-mono resize-y"
-                    disabled={saving}
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => saveEdit(skill.name)}
-                      disabled={saving}
-                      className="btn-primary text-[12px] px-3 py-1 flex items-center gap-1.5"
-                    >
-                      <Save size={12} />
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      onClick={cancelEdit}
-                      disabled={saving}
-                      className="btn-secondary text-[12px] px-3 py-1 flex items-center gap-1.5"
-                    >
-                      <X size={12} />
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <pre className="text-[11px] text-foreground/70 font-mono whitespace-pre-wrap mt-2 max-h-[300px] overflow-y-auto">
-                  {skillContent[skill.name] ?? ''}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function WorkspaceTab({ agentId }: { agentId: string }) {
   const { data: files, loading, error } = useApi<WorkspaceFileEntry[]>(
     () => api.agentWorkspace(agentId),
@@ -915,7 +732,6 @@ function ContentArea({
             />
           )}
           {activeSection === 'identity' && <IdentityTab agentId={agent.id} />}
-          {activeSection === 'skills' && <SkillsTab agentId={agent.id} />}
           {activeSection === 'connectors' && <ConnectorsSection agentId={agent.id} />}
           {activeSection === 'workspace' && <WorkspaceTab agentId={agent.id} />}
           {activeSection === 'memory' && <MemoryTab agentId={agent.id} />}

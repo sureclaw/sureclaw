@@ -1,5 +1,11 @@
 # Architecture
 
+## When deleting a REST endpoint, grep the admin UI client for its caller
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 7 removed the backend handlers for `GET /admin/api/agents/:id/skills` (+ the per-skill CRUD routes) — but the admin dashboard client in `ui/admin/src/lib/api.ts` still exported `agentSkills` / `agentSkillContent` / `updateSkill` / `deleteSkill` methods, and `agents-page.tsx` still rendered a `SkillsTab` wired to them via a sidebar nav entry + `activeSection === 'skills'` render branch. The whole tab was silently 404'ing from the moment Task 7 landed. The main `npm run build` + `tsc` in `src/` stayed green because the admin UI has its own `tsconfig.json` under `ui/admin/` that the root build doesn't touch.
+**Lesson:** When removing a REST handler in `src/host/server-admin.ts`, always grep `ui/admin/` for callers — the `api` client in `ui/admin/src/lib/api.ts` is a separate codebase with its own typecheck (`cd ui/admin && npx tsc --noEmit`). Look for: API method definitions, `activeSection === '<id>'` branches in agents-page, SectionId union entries, Playwright route mocks in `ui/admin/tests/fixtures.ts`, and spec files importing the mock data. The dashboard is the last consumer and the easiest one to forget.
+**Tags:** refactoring, deletion, admin-ui, rest-api, phase-7, dead-code
+
 ## Multi-task deletion phases leave "dormant-caller" dead code that only a final sweep finds
 **Date:** 2026-04-17
 **Context:** Phase 7 tasks 1–6 deleted the skill_install IPC, ClawHub client, plugin manifest machinery, CLI, and DB data. The build stayed green through each task because tasks were scoped to remove entire subsystems at a time. But the host still had dormant readers of the empty `documents.skills` collection (`findSkillContent` in `server-admin.ts`, `loadSkillsFromDB` in `inprocess.ts`) that ran on every request, returned empty results, and were never grep-visible from the retired IPC-action names. Task 7's grep of `DocumentStore.*skill` is what flushed them out.

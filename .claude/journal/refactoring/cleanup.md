@@ -2,6 +2,18 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-17 19:58] — Phase 7 Task 7 post-review fixes (1 critical + 3 important)
+
+**Task:** Address code-quality review findings on Task 7 (commit 5a3f4144) — an orphan admin UI SkillsTab still calling the deleted per-agent `/agents/:id/skills` endpoints, plus three stale references.
+**What I did:**
+- **CRITICAL — Admin UI orphan SkillsTab:** Deleted the `SkillsTab` component (~175 lines) from `ui/admin/src/components/pages/agents-page.tsx`, dropped `'skills'` from the `SectionId` union, removed the `{ id: 'skills', label: 'Skills', icon: Sparkles }` sidebar nav entry, removed the `{activeSection === 'skills' && <SkillsTab ... />}` render branch, and removed the now-unused icon imports (`Sparkles`, `Pencil`, `Save`, `X`) + `SkillEntry` type import. Removed `agentSkills` / `agentSkillContent` / `updateSkill` / `deleteSkill` methods from `ui/admin/src/lib/api.ts` and their `SkillEntry` / `SkillContent` type imports. Deleted `SkillEntry` + `SkillContent` interfaces from `ui/admin/src/lib/types.ts`. Deleted the Playwright route mocks for `/agents/*/skills` and `/agents/*/skills/*` from `ui/admin/tests/fixtures.ts` along with the `MOCK_SKILLS` constant, and updated `ui/admin/tests/agent-tabs.spec.ts` to drop the `MOCK_SKILLS` import + the two Skills-tab test cases + retitled `"shows all five tabs"` → `"shows all four tabs"`. **Kept** the separate phase-5 `SkillsPage` (admin setup cards + credential requests at `/admin/?page=skills`) untouched — different feature, live endpoint.
+- **Stale comment (mcp-exfiltration test):** `tests/host/mcp-exfiltration.test.ts:262` — replaced `"handled by discoverTools, not the router"` with `"handled at MCP tool discovery time, not the router"`.
+- **Stale config sample (docs/web):** `docs/web/index.html:230` — dropped the `providers.skills: git` line from the personal profile config sample (skills is no longer a provider category).
+- **Misleading log (server-completions):** `src/host/server-completions.ts:590-592` — renamed `fast_path_skip_no_documents` → `sandbox_state_unavailable_fallback` and rewrote the comment to say "Can't determine sandbox liveness without the documents store" (the guard exists because `hasActiveSandbox` reads from `documents`, not because the fast path itself needs documents).
+**Files touched:** Modified: `ui/admin/src/components/pages/agents-page.tsx`, `ui/admin/src/lib/api.ts`, `ui/admin/src/lib/types.ts`, `ui/admin/tests/fixtures.ts`, `ui/admin/tests/agent-tabs.spec.ts`, `tests/host/mcp-exfiltration.test.ts`, `docs/web/index.html`, `src/host/server-completions.ts`.
+**Outcome:** Success — `npm run build` clean; `cd ui/admin && npx tsc --noEmit` clean; `npx vitest run tests/host/mcp-exfiltration tests/host/server-completions` → 3 files / 14 tests green; `npx vitest run tests/host/server-admin` → 4 files / 87 tests green. No lingering hits for `agentSkills|agentSkillContent|updateSkill|deleteSkill|MOCK_SKILLS|SkillEntry|SkillContent` in `ui/admin/`.
+**Notes:** The SkillsTab had never been wired to anything real after Task 1 removed its IPC backing — the client-side dashboard was calling endpoints that returned 404s from the moment Task 7 landed. Classic dead-code-after-backend-delete hazard: remember to grep UI callers when removing REST routes.
+
 ## [2026-04-17 19:45] — Phase 7 Task 7 (final): Docs sweep + dead-code cleanup + full verification
 
 **Task:** Final task of phase 7 — delete the last readers of the retired `documents.skills` / `documents.plugins` collections, update README + web docs + `.claude/skills/ax*/` for the git-native skill flow, fix stale in-code comments, and verify the five exit-criteria greps return zero.

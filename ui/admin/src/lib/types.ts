@@ -80,19 +80,6 @@ export interface DocumentEntry {
   content: string;
 }
 
-/** Skill metadata. */
-export interface SkillEntry {
-  name: string;
-  description?: string;
-  path: string;
-}
-
-/** Skill with content. */
-export interface SkillContent {
-  name: string;
-  content: string;
-}
-
 /** Workspace file entry. */
 export interface WorkspaceFileEntry {
   path: string;

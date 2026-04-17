@@ -197,11 +197,6 @@ export const MOCK_IDENTITY = [
   { key: 'rules.md', content: 'Always cite sources.' },
 ];
 
-export const MOCK_SKILLS = [
-  { name: 'web-search', description: 'Search the web for information', path: '/skills/web-search.md' },
-  { name: 'summarize', description: 'Summarize long documents', path: '/skills/summarize.md' },
-];
-
 export const MOCK_WORKSPACE_FILES = [
   { path: 'notes.txt', size: 1024 },
   { path: 'output/report.md', size: 4096 },
@@ -287,33 +282,6 @@ export async function mockAgentTabs(page: Page) {
       body: JSON.stringify(MOCK_IDENTITY),
     }),
   );
-
-  // Mock skills list endpoint
-  await page.route('**/admin/api/agents/*/skills', (route) => {
-    const url = new URL(route.request().url());
-    // Only match the skills list, not skills/:name
-    const parts = url.pathname.split('/');
-    const lastPart = parts[parts.length - 1];
-    if (lastPart !== 'skills') return route.fallback();
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(MOCK_SKILLS),
-    });
-  });
-
-  // Mock individual skill content
-  await page.route('**/admin/api/agents/*/skills/*', (route) => {
-    const url = new URL(route.request().url());
-    const parts = url.pathname.split('/');
-    const skillName = parts[parts.length - 1];
-    if (skillName === 'skills') return route.fallback();
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ name: decodeURIComponent(skillName), content: `# ${decodeURIComponent(skillName)} skill content` }),
-    });
-  });
 
   // Mock workspace endpoint
   await page.route('**/admin/api/agents/*/workspace**', (route) =>
