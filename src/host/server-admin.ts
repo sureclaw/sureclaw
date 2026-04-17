@@ -648,21 +648,26 @@ async function handleAdminAPI(
   // Validates the request body against the pending setup card BEFORE applying anything.
   // If any validation step fails, no credentials are written, no domains approved, no reconcile runs.
   if (pathname === '/admin/api/skills/setup/approve' && method === 'POST') {
+    // Narrow the catch to JSON parsing ONLY — a malformed body is a 400.
+    // Real failures from approveSkillSetup (audit.log throws, getStates throws, etc.)
+    // should propagate to the outer HTTP handler as a 500, not masquerade as 400.
+    let body: unknown;
     try {
-      const body = JSON.parse(await readBody(req));
-      const parsed = ApproveBodySchema.safeParse(body);
-      if (!parsed.success) { sendError(res, 400, parsed.error.message); return; }
-      const result = await approveSkillSetup(deps, parsed.data);
-      if (result.ok) {
-        sendJSON(res, { ok: true, state: result.state });
-      } else if (result.details) {
-        // sendError wraps as { error: { message, type, code } } — bypass to preserve `details`.
-        sendJSON(res, { error: result.error, details: result.details }, result.status);
-      } else {
-        sendError(res, result.status, result.error);
-      }
+      body = JSON.parse(await readBody(req));
     } catch (err) {
       sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      return;
+    }
+    const parsed = ApproveBodySchema.safeParse(body);
+    if (!parsed.success) { sendError(res, 400, parsed.error.message); return; }
+    const result = await approveSkillSetup(deps, parsed.data);
+    if (result.ok) {
+      sendJSON(res, { ok: true, state: result.state });
+    } else if (result.details) {
+      // sendError wraps as { error: { message, type, code } } — bypass to preserve `details`.
+      sendJSON(res, { error: result.error, details: result.details }, result.status);
+    } else {
+      sendError(res, result.status, result.error);
     }
     return;
   }

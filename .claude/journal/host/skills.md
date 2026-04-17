@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 09:25] — Phase 5 Task 3 second follow-up: narrow skill-approve route catch
+
+**Task:** Second spec-review finding uncovered while doing the audit-catch removal. The approve route's outer `try/catch` wrapped the entire flow and reported every throw as `400 Invalid request: <msg>`. After removing the helper's silent audit-catch, a real audit/DB failure would have surfaced as 400 (client bug) instead of 500 (server bug), misleading operators.
+**What I did:** Narrowed the route's try/catch in `src/host/server-admin.ts` to cover only `JSON.parse(await readBody(req))`. Everything else (schema `safeParse`, `approveSkillSetup`, response writes) is now outside the catch and propagates to the outer HTTP handler (`server-request-handlers.ts:735-742`) which already returns 500 for unhandled admin-route throws. Added a regression test in `tests/host/server-admin-skills.test.ts` that mocks `audit.log` to reject and asserts status 500 plus no `"Invalid request:"` prefix. Also updated the test file's `startTestServer` helper to mirror production's outer try/catch (so admin-handler throws surface as 500 in-test too).
+**Files touched:** `src/host/server-admin.ts`, `tests/host/server-admin-skills.test.ts`.
+**Outcome:** Success — `npx vitest run tests/host/server-admin-skills.test.ts tests/host/server-admin.test.ts` = 56/56 pass (55 prior + 1 new). `npx tsc --noEmit` clean.
+**Notes:** Verified `server-request-handlers.ts:735-742` does wrap `adminHandler` in try/catch and returns `500 Admin request failed` on unhandled throws. Follow-up to commit that removed the helper's audit catch — new commit, not an amend.
+
 ## [2026-04-17 09:15] — Phase 5 Task 3 follow-up: let skill-approve audit failures surface
 
 **Task:** Spec-review finding on commit 9f19b6b5. The approve helper wrapped `audit.log` in a try/catch that logged `skill_approve_audit_failed` and returned 200 — silent failure for a security-relevant action, in tension with CLAUDE.md's "Everything is audited" invariant. Reconcile's swallow-and-log is justified (DB already consistent; startup-rehydrate catches up), but audit has no such recovery mechanism.

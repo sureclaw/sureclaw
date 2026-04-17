@@ -164,7 +164,16 @@ function startTestServer(
     const server = createHttpServer(async (req, res) => {
       const url = req.url ?? '/';
       if (url.startsWith('/admin')) {
-        await handler(req, res, url.split('?')[0]);
+        // Mirror production outer try/catch from server-request-handlers.ts:
+        // unhandled throws from an admin route surface as 500.
+        try {
+          await handler(req, res, url.split('?')[0]);
+        } catch (_err) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: 'Admin request failed' } }));
+          }
+        }
       } else {
         res.writeHead(404);
         res.end();
@@ -732,5 +741,37 @@ describe('POST /admin/api/skills/setup/approve', () => {
     expect(body.state).toEqual(freshState);
     // Credentials were still persisted before the reconcile attempt.
     expect(credsSet).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 500 when audit.log throws — unexpected server errors are not masked as 400', async () => {
+    // Regression: the approve route previously wrapped the entire flow in one try/catch
+    // that reported every throw as 400 "Invalid request". That masked real server-side
+    // failures (audit.log rejection, getStates exploding) as client bugs. The catch is
+    // now narrowed to JSON.parse only, so unexpected throws fall through to the outer
+    // HTTP handler, which returns 500.
+    const deps = await mockDeps({
+      getSetupQueueImpl: async () => [weatherAgentScoped],
+    });
+    const auditLog = deps.providers.audit.log as ReturnType<typeof vi.fn>;
+    auditLog.mockRejectedValueOnce(new Error('database down'));
+
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/approve', {
+      token: 'test-secret-token',
+      method: 'POST',
+      body: {
+        agentId: 'main',
+        skillName: 'weather',
+        credentials: [{ envName: 'W_KEY', value: 's' }],
+        approveDomains: ['api.weather.com'],
+      },
+    });
+
+    expect(res.status).toBe(500);
+    // Must NOT be the old 400 "Invalid request: ..." response.
+    const body = res.body as { error?: { message?: string } } | null;
+    expect(body?.error?.message).not.toMatch(/^Invalid request:/);
   });
 });
