@@ -2,6 +2,20 @@ import { z } from 'zod';
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
 
+// Hostname per RFC 1035 (labels 1-63 chars, total <=253), no scheme, no path.
+// Rejects "not a host", "api.linear.app/path", "HTTPS://example.com", etc.
+const HOSTNAME_RE =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$/;
+
+const Hostname = z
+  .string()
+  .min(1)
+  .max(253)
+  .transform((s) => s.trim().toLowerCase())
+  .refine((s) => HOSTNAME_RE.test(s), {
+    message: 'must be a valid hostname (no scheme, no path)',
+  });
+
 const OAuthBlockSchema = z
   .object({
     provider: z.string().min(1).max(100),
@@ -47,7 +61,7 @@ export const SkillFrontmatterSchema = z
     source: SourceSchema.optional(),
     credentials: z.array(CredentialSchema).default([]),
     mcpServers: z.array(McpServerSchema).default([]),
-    domains: z.array(z.string().min(1).max(253)).default([]),
+    domains: z.array(Hostname).default([]),
   })
   .strict();
 

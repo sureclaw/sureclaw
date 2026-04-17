@@ -49,4 +49,26 @@ describe('computeEvents', () => {
     const prior = new Map([['a', 'enabled' as const]]);
     expect(computeEvents([e('a')], prior)).toEqual([]);
   });
+
+  it('omits reasons/error from skill.enabled payload when undefined', () => {
+    const events = computeEvents([e('a')], new Map());
+    const enabledEvent = events.find((ev) => ev.type === 'skill.enabled');
+    expect(enabledEvent?.data).toEqual({ name: 'a' });
+    expect('reasons' in (enabledEvent?.data ?? {})).toBe(false);
+    expect('error' in (enabledEvent?.data ?? {})).toBe(false);
+  });
+
+  it('includes reasons on skill.pending but omits error', () => {
+    const events = computeEvents([p('a', ['missing X'])], new Map());
+    const pendingEvent = events.find((ev) => ev.type === 'skill.pending');
+    expect(pendingEvent?.data).toEqual({ name: 'a', reasons: ['missing X'] });
+    expect('error' in (pendingEvent?.data ?? {})).toBe(false);
+  });
+
+  it('includes error on skill.invalid but omits reasons', () => {
+    const events = computeEvents([inv('a')], new Map());
+    const invalidEvent = events.find((ev) => ev.type === 'skill.invalid');
+    expect(invalidEvent?.data).toEqual({ name: 'a', error: 'bad' });
+    expect('reasons' in (invalidEvent?.data ?? {})).toBe(false);
+  });
 });

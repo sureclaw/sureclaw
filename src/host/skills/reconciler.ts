@@ -50,8 +50,14 @@ export function computeSkillStates(
 export interface McpConflict {
   skillName: string;
   mcpName: string;
+  /** URL being dropped (the loser — this skill's declaration). */
   declaredUrl: string;
+  /** URL already registered by an earlier skill (the winner). */
   conflictingUrl: string;
+}
+
+function enabledNameSet(states: SkillState[]): Set<string> {
+  return new Set(states.filter((s) => s.kind === 'enabled').map((s) => s.name));
 }
 
 export function computeMcpDesired(
@@ -61,13 +67,18 @@ export function computeMcpDesired(
   mcpServers: Map<string, { url: string; bearerCredential?: string }>;
   conflicts: McpConflict[];
 } {
-  const enabledNames = new Set(states.filter((s) => s.kind === 'enabled').map((s) => s.name));
+  const enabledNames = enabledNameSet(states);
   const servers = new Map<string, { url: string; bearerCredential?: string }>();
   const conflicts: McpConflict[] = [];
 
   for (const entry of snapshot) {
     if (!entry.ok || !enabledNames.has(entry.name)) continue;
+    // Dedup within the skill — a single SKILL.md listing two entries with the
+    // same name would otherwise self-conflict on its second occurrence.
+    const seen = new Set<string>();
     for (const mcp of entry.frontmatter.mcpServers) {
+      if (seen.has(mcp.name)) continue;
+      seen.add(mcp.name);
       const existing = servers.get(mcp.name);
       if (existing) {
         if (existing.url !== mcp.url) {
@@ -93,7 +104,7 @@ export function computeProxyAllowlist(
   snapshot: SkillSnapshotEntry[],
   states: SkillState[],
 ): Set<string> {
-  const enabledNames = new Set(states.filter((s) => s.kind === 'enabled').map((s) => s.name));
+  const enabledNames = enabledNameSet(states);
   const out = new Set<string>();
   for (const entry of snapshot) {
     if (!entry.ok || !enabledNames.has(entry.name)) continue;
@@ -151,14 +162,10 @@ export function computeEvents(
           : s.kind === 'pending'
             ? 'skill.pending'
             : 'skill.invalid';
-      events.push({
-        type,
-        data: {
-          name: s.name,
-          reasons: s.pendingReasons,
-          error: s.error,
-        },
-      });
+      const data: Record<string, unknown> = { name: s.name };
+      if (s.pendingReasons !== undefined) data.reasons = s.pendingReasons;
+      if (s.error !== undefined) data.error = s.error;
+      events.push({ type, data });
     }
   }
   for (const [name] of priorStates) {

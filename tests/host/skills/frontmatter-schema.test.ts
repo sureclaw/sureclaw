@@ -112,4 +112,31 @@ describe('SkillFrontmatterSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('rejects domains that are not valid hostnames', () => {
+    const bad = ['not a host', 'api.linear.app/path', 'https://api.linear.app', '.leading.dot', 'trailing.dot.', 'a..b'];
+    for (const domain of bad) {
+      expect(() =>
+        SkillFrontmatterSchema.parse({ name: 'x', description: 'y', domains: [domain] }),
+      ).toThrow();
+    }
+  });
+
+  it('normalizes domains to lowercase and trims whitespace', () => {
+    const parsed = SkillFrontmatterSchema.parse({
+      name: 'x',
+      description: 'y',
+      domains: ['  API.Linear.App  '],
+    });
+    expect(parsed.domains).toEqual(['api.linear.app']);
+  });
+
+  it('accepts multi-label hostnames including multi-part TLDs', () => {
+    const parsed = SkillFrontmatterSchema.parse({
+      name: 'x',
+      description: 'y',
+      domains: ['api.example.co.uk', 'mcp.linear.app'],
+    });
+    expect(parsed.domains).toEqual(['api.example.co.uk', 'mcp.linear.app']);
+  });
 });

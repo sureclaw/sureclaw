@@ -1,5 +1,11 @@
 # Security
 
+### Validate shapes at schema boundaries, not downstream consumers
+**Date:** 2026-04-17
+**Context:** CodeRabbit flagged `domains: z.array(z.string().min(1).max(253))` in the skill frontmatter schema. The values fed a proxy allowlist (`approvedDomains.has(domain)`) and a reconciler that builds `desired.proxyAllowlist` — exact-string matching means `"not a host"` or `"https://api.linear.app"` would silently land in the allowlist if a later refactor ever used fuzzy matching or URL parsing.
+**Lesson:** When a schema field feeds a security-sensitive downstream (allowlist, cred resolution, path building), validate the shape at parse time rather than trusting the consumer to reject bad input. For hostnames in Zod, combine `.transform(s => s.trim().toLowerCase())` with a `.refine()` RFC 1035-style regex (labels 1-63, total ≤253, no scheme/path). Bad entries fail at `parseSkillFile` rather than rippling through to reconciliation.
+**Tags:** security, validation, zod, schema, proxy-allowlist, skills
+
 ## MITM proxy canary detection must send HTTP response before destroying TLS socket
 **Date:** 2026-03-19
 **Context:** Implementing canary token scanning on decrypted HTTPS traffic in the MITM proxy

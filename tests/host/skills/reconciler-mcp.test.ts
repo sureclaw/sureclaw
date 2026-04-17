@@ -66,4 +66,16 @@ describe('computeMcpDesired', () => {
     const { mcpServers } = computeMcpDesired(snapshot, [enabled('a')]);
     expect(mcpServers.get('foo')?.bearerCredential).toBe('FOO_TOKEN');
   });
+
+  it('deduplicates duplicate MCP names within a single skill (no self-conflict)', () => {
+    const snapshot = [
+      skill('a', [
+        { name: 'dup', url: 'https://first.example' },
+        { name: 'dup', url: 'https://second.example' },
+      ]),
+    ];
+    const { mcpServers, conflicts } = computeMcpDesired(snapshot, [enabled('a')]);
+    expect(mcpServers.get('dup')?.url).toBe('https://first.example');
+    expect(conflicts).toEqual([]);
+  });
 });
