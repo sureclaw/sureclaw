@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-04-17 18:15 — Phase 6 Task 6: end-to-end OAuth verification against local host with mock token endpoint — POST /oauth/start → GET /v1/oauth/callback/linear → credential_store (access_token + __oauth_blob at user:verify-agent:vpulim) + audit (oauth_start, oauth_callback_success, no token leakage) + replay defense [skills.md](skills.md)
 - 2026-04-17 13:51 — Phase 6 Task 4: OAuth callback extension — `resolveCallback` on AdminOAuthFlow (code exchange + scoped credential write + refresh blob + reconcile trigger); matched-but-failed semantics block fall-through to agent flow on consumed state [skills.md](skills.md)
 - 2026-04-17 13:42 — Phase 6 Task 3: admin OAuth flow module + `POST /admin/api/skills/oauth/start` (PKCE initiation, 15-min TTL single-use pending-flow map, admin clientSecret stays server-side) [skills.md](skills.md)
 - 2026-04-17 13:40 — Phase 6 Task 2: admin OAuth provider CRUD endpoints (`/admin/api/oauth/providers*`) — Zod-strict upsert, 503 when store missing, `hasSecret:boolean` audit shape [skills.md](skills.md)

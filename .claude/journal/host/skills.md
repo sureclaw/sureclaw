@@ -4,6 +4,56 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 18:15] — Phase 6 Task 6: end-to-end OAuth verification against local host
+
+**Task:** Live-wire verification of the phase-6 admin-initiated OAuth flow. Walk GET `/skills/setup` → POST `/oauth/start` → GET `/v1/oauth/callback/linear` → DB inspection against a real phase-6 host, with a tiny mock token endpoint standing in for the OAuth provider. Module tests (135+ across admin-oauth-flow/server-admin-oauth-start/server-oauth-callback/admin-oauth-providers) already cover behavior; this task just proves the code boots + the full HTTP path executes against a live process.
+**What I did:** Option A (local host, phase-5 precedent). (1) `npm run build` clean. (2) Wrote `/tmp/ax-phase6-verify/ax.yaml` — SQLite + `apple` sandbox + `admin.token=phase6-verify-token-abc12345678` + `agent_name: verify-agent`. (3) Wrote `/tmp/ax-phase6-verify/mock-token-server.js` — a 30-line node HTTP server listening on 127.0.0.1:9077, responds to `POST /token` with `{access_token:"at-fake-xyz", refresh_token:"rt-fake-abc", expires_in:3600, token_type:"bearer"}` and appends every request body to `/tmp/ax-phase6-verify/mock-token.log`. (4) Started host via `AX_HOME=/tmp/ax-phase6-verify AX_HOOK_SECRET=verify-hook-secret BIND_HOST=127.0.0.1 node dist/cli/index.js serve --port 8099`; default agent `verify-agent` auto-registered; host logged `oauth_secret_key_derived_from_admin_token` (expected — no AX_OAUTH_SECRET_KEY set, phase-6 Task 1 followup soft-degrade path is healthy with a 30-char admin.token). (5) Wrote `/tmp/ax-phase6-verify/seed.js` using `better-sqlite3` from the ax node_modules to upsert one row into `skill_setup_queue` + `skill_states` for skill `e2e-linear` with an OAuth missingCredential whose `tokenUrl` pointed at `http://127.0.0.1:9077/token`, `provider:linear`, `scope:user`. (6) Ran the flow end-to-end, captured outputs, killed host + mock server cleanly.
+
+**The flow:**
+
+1. **GET /admin/api/skills/setup** — returned the seeded card verbatim (agentId=verify-agent, skillName=e2e-linear, missingCredentials=[{envName:LINEAR_TOKEN, authType:oauth, scope:user, oauth:{provider:linear, clientId:e2e-client-id, authorizationUrl, tokenUrl:http://127.0.0.1:9077/token, scopes:[read,write]}}]).
+
+2. **POST /admin/api/skills/oauth/start** with body `{"agentId":"verify-agent","skillName":"e2e-linear","envName":"LINEAR_TOKEN"}` →
+   ```json
+   {
+     "authUrl": "https://linear.app/oauth/authorize?client_id=e2e-client-id&redirect_uri=http%3A%2F%2F127.0.0.1%3A8099%2Fv1%2Foauth%2Fcallback%2Flinear&scope=read+write&response_type=code&code_challenge_method=S256&code_challenge=a802D2IWIA0Bkv6Wn4lk1HvTIq37uVtq-w1u95dlan0&state=d90e22f08d2df73894095e20638996a2",
+     "state": "d90e22f08d2df73894095e20638996a2"
+   }
+   ```
+   All PKCE fields present (code_challenge_method=S256, 43-char code_challenge, state). Host logged `admin_oauth_flow_started` with `hasAdminOverride:false`.
+
+3. **GET /v1/oauth/callback/linear?code=fake-auth-code&state=d90e22f08d2df73894095e20638996a2** → HTTP 200, `<html><body><h2>Authentication successful</h2><p>You can close this tab and return to the dashboard.</p></body></html>`. Exactly the admin-matched success HTML from `server-request-handlers.ts`.
+
+4. **Mock token server observed POST body** (verbatim from `/tmp/ax-phase6-verify/mock-token.log`):
+   ```
+   grant_type=authorization_code
+   &code=fake-auth-code
+   &redirect_uri=http%3A%2F%2F127.0.0.1%3A8099%2Fv1%2Foauth%2Fcallback%2Flinear
+   &client_id=e2e-client-id
+   &code_verifier=koLUTPXM9Q-103xPKWmFnO3LKEHdyPziOmlgvf_nEDQ
+   ```
+   All four required params present. `client_secret` correctly absent (no admin-registered provider for `linear`). Content-Type `application/x-www-form-urlencoded` — RFC 6749 §4.1.3 compliant.
+
+5. **credential_store** — SQL: `SELECT scope, env_name, length(value) FROM credential_store WHERE env_name LIKE 'LINEAR_TOKEN%'`:
+   ```
+   scope=user:verify-agent:vpulim  env_name=LINEAR_TOKEN              value_len=11   (value="at-fake-xyz")
+   scope=user:verify-agent:vpulim  env_name=LINEAR_TOKEN__oauth_blob  value_len=180
+   ```
+   Blob parsed: `{"access_token":"at-fake-xyz","refresh_token":"rt-fake-abc","expires_at":1776453180,"token_url":"http://127.0.0.1:9077/token","client_id":"e2e-client-id","scopes":["read","write"]}` — exactly the shape declared in `admin-oauth-flow.ts#resolveCallback`.
+
+6. **audit_log** — SQL: `SELECT timestamp, action, session_id, args FROM audit_log WHERE action LIKE 'oauth_%' ORDER BY timestamp DESC`:
+   ```
+   oauth_callback_success  sessionId=verify-agent  args={"agentId":"verify-agent","skillName":"e2e-linear","envName":"LINEAR_TOKEN","provider":"linear","hasRefreshToken":true}
+   oauth_start             sessionId=verify-agent  args={"agentId":"verify-agent","skillName":"e2e-linear","envName":"LINEAR_TOKEN","provider":"linear","hasAdminProvider":false}
+   ```
+   Substring-checked the concatenated args JSON for `"at-fake-xyz"` and `"rt-fake-abc"` — neither present. Secret-leak invariant holds.
+
+7. **Replay defense** — re-issued the same callback URL a second time → HTTP 400 with "Invalid or expired OAuth flow" HTML. Confirms single-use state: admin-oauth-flow's `claim()` returned undefined on the second call, path fell through to agent-initiated oauth-skills module, which also didn't know the state, so the 400 came from the agent-path's failure HTML. No token write / no duplicate audit.
+
+**Files touched:** `.claude/journal/host/skills.md` (this entry). No production code changes. Throwaway scratch: `/tmp/ax-phase6-verify/{ax.yaml,seed.js,mock-token-server.js,data/,host.out,mock-token.log}`.
+**Outcome:** Success. Every phase-6 endpoint behaved exactly as the unit tests described. No real bugs surfaced.
+**Notes:** Five observations worth retaining. (a) `BIND_HOST=127.0.0.1` flips `localDevMode=true` (same gotcha phase-5 Task 8 documented) — admin auth is bypassed on loopback regardless of the token. I still passed `Authorization: Bearer <token>` for realism. (b) Proxy didn't intercept the token-endpoint fetch — confirming that OAuth token exchange runs in the host process, not the agent sandbox, as the architecture intends. (c) Post-callback reconcile fires and fails: `git -C /tmp/ax-phase6-verify/repos/verify-agent ls-tree...` (no bare repo exists). The admin-oauth-flow swallow-and-log handles it per `admin-oauth-flow.ts:394-403`; credentials are already written and audit is already emitted. The setup card remains in `skill_setup_queue` because reconcile can't rewrite it — same behavior as phase-5 Task 8 documented. Not a bug. (d) `better-sqlite3` isn't in `/tmp`'s node_modules; seed script requires it via absolute path `/Users/vpulim/dev/ai/ax/node_modules/better-sqlite3`. Phase-5 footgun repro. (e) Kind-ax deployment skipped — same reason as phase 5 (pinned image pre-dates phase-4). Local coverage + module tests are sufficient.
+
 ## [2026-04-17 15:30] — Phase 6 Task 5: UI Connect button + polling
 
 **Task:** Replace the phase-5 "OAuth flow — coming in phase 6" stub in `SetupCardView` with a real Connect button. Click POSTs `/admin/api/skills/oauth/start` and opens the returned `authUrl` in a new tab. Parent page auto-polls `/skills/setup` every 2s whenever any card has an unconnected OAuth credential so the callback's reconcile surfaces (card vanishes / missingCredentials shrinks) without a manual refresh.
