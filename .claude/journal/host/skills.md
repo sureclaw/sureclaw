@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 09:15] — Phase 5 Task 3 follow-up: let skill-approve audit failures surface
+
+**Task:** Spec-review finding on commit 9f19b6b5. The approve helper wrapped `audit.log` in a try/catch that logged `skill_approve_audit_failed` and returned 200 — silent failure for a security-relevant action, in tension with CLAUDE.md's "Everything is audited" invariant. Reconcile's swallow-and-log is justified (DB already consistent; startup-rehydrate catches up), but audit has no such recovery mechanism.
+**What I did:** Removed the try/catch around the `providers.audit.log` call in `src/host/server-admin-skills-helpers.ts` (step 10). Replaced the comment with one explaining why audit must propagate. Reconcile's try/catch (step 8) is untouched — that one is spec-aligned. The route handler's outer try/catch is also untouched. No test relied on the silenced audit failure — all existing tests already stub `audit.log` as `mockResolvedValue(undefined)` so the happy path is unchanged.
+**Files touched:** `src/host/server-admin-skills-helpers.ts`.
+**Outcome:** Success — `npx vitest run tests/host/server-admin-skills.test.ts tests/host/server-admin.test.ts` = 55/55 pass. `npx tsc --noEmit` clean.
+**Notes:** Follow-up to 9f19b6b5 (new commit, not an amend, per CLAUDE.md "prefer a new commit"). The original Task 3 journal entry below stays unchanged — history is append-only.
+
 ## [2026-04-17 08:50] — Phase 5 Task 3: POST /admin/api/skills/setup/approve (atomic)
 
 **Task:** Phase 5 Task 3. Wire the dashboard's "Approve & enable" button. Validate-all (body schema + card cross-check + OAuth guard) then apply-all (creds + domains + re-reconcile) — if anything fails, zero side effects. Phase 5 is API-key only; OAuth rejects with a clear 400.

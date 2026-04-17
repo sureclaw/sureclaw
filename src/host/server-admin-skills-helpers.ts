@@ -154,28 +154,23 @@ export async function approveSkillSetup(
   const states = await deps.skillStateStore.getStates(body.agentId);
   const state = states.find(s => s.name === body.skillName);
 
-  // 10. Audit — never log credential values.
-  try {
-    await deps.providers.audit.log({
-      action: 'skill_approved',
-      args: {
-        agentId: body.agentId,
-        skillName: body.skillName,
-        domains: body.approveDomains,
-        envNames: body.credentials.map(c => c.envName),
-      },
-      result: 'success',
-      timestamp: new Date(),
-      durationMs: 0,
-    });
-  } catch (err) {
-    // Audit failure must not fail the approve call — log it and move on.
-    logger.warn('skill_approve_audit_failed', {
+  // 10. Audit — never log credential values. Let audit failures propagate:
+  //     "Everything is audited" is a security invariant. If the audit provider
+  //     blows up, credentials + domains are already written, and silent
+  //     success leaves an evidence gap for a security-relevant action. The
+  //     route handler's outer catch surfaces the error to the caller.
+  await deps.providers.audit.log({
+    action: 'skill_approved',
+    args: {
       agentId: body.agentId,
       skillName: body.skillName,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+      domains: body.approveDomains,
+      envNames: body.credentials.map(c => c.envName),
+    },
+    result: 'success',
+    timestamp: new Date(),
+    durationMs: 0,
+  });
 
   return { ok: true, state };
 }

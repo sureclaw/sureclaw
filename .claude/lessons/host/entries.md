@@ -1,5 +1,11 @@
 # Host
 
+### Audit-log failures must surface, not swallow
+**Date:** 2026-04-17
+**Context:** Phase 5 Task 3: the approve helper originally wrapped `providers.audit.log` in a try/catch that logged `skill_approve_audit_failed` and returned 200 — reasoning "audit failure shouldn't fail the approve call since creds + domains are already persisted." Spec review flagged it: CLAUDE.md lists "Everything is audited" as a security invariant. Silent audit loss on a security-relevant action (credential write + domain approval) is exactly the evidence gap the invariant exists to prevent. Unlike the reconcile path — where swallow-and-log is fine because the DB is already consistent and startup-rehydrate catches up — audit has no recovery mechanism. If the audit provider drops a record, it's gone.
+**Lesson:** For any handler that performs a security-relevant mutation, treat the audit-log call like any other required side effect: no try/catch unless you have a concrete recovery path (which for audit, you almost never do). Let the error propagate to the outer request catch — a 5xx (or even a 4xx with a real error message) is the correct signal to operators. "Swallow-and-log" is valid when the surrounding state converges by some other mechanism (reconcile loops, idempotent retries, startup rehydration). It is NOT valid for append-only logs, audit trails, or anything whose absence can't be detected later. When in doubt, ask: "if this fails silently, is there a downstream process that will notice?" If the answer is no, let it throw.
+**Tags:** audit, security-invariants, error-handling, admin-api, swallow-and-log, evidence-gap
+
 ### Multi-step admin endpoints must validate-all before they apply-anything
 **Date:** 2026-04-17
 **Context:** Phase 5 `POST /admin/api/skills/setup/approve` performs three applies (credentials → domains → reconcile). Early drafts interleaved validation with application ("parse cred, write cred, parse domain, approve domain, ..."), which would have left the system in a half-approved state on any downstream validation error — e.g. a bogus domain in the body after the first credential was already persisted. The spec's load-bearing invariant is: if *any* validation step fails, zero credentials written, zero domains approved, no reconcile.
