@@ -42,3 +42,45 @@ export function computeSkillStates(
     };
   });
 }
+
+export interface McpConflict {
+  skillName: string;
+  mcpName: string;
+  declaredUrl: string;
+  conflictingUrl: string;
+}
+
+export function computeMcpDesired(
+  snapshot: SkillSnapshotEntry[],
+  states: SkillState[],
+): {
+  mcpServers: Map<string, { url: string; bearerCredential?: string }>;
+  conflicts: McpConflict[];
+} {
+  const enabledNames = new Set(states.filter((s) => s.kind === 'enabled').map((s) => s.name));
+  const servers = new Map<string, { url: string; bearerCredential?: string }>();
+  const conflicts: McpConflict[] = [];
+
+  for (const entry of snapshot) {
+    if (!entry.ok || !enabledNames.has(entry.name)) continue;
+    for (const mcp of entry.frontmatter.mcpServers) {
+      const existing = servers.get(mcp.name);
+      if (existing) {
+        if (existing.url !== mcp.url) {
+          conflicts.push({
+            skillName: entry.name,
+            mcpName: mcp.name,
+            declaredUrl: mcp.url,
+            conflictingUrl: existing.url,
+          });
+        }
+        continue;
+      }
+      servers.set(mcp.name, {
+        url: mcp.url,
+        bearerCredential: mcp.credential,
+      });
+    }
+  }
+  return { mcpServers: servers, conflicts };
+}

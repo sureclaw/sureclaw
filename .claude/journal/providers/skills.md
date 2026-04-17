@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:38] — Git-native skills Phase 1 Task 5: computeMcpDesired
+
+**Task:** Phase 1 Task 5 of git-native skills effort — append `computeMcpDesired(snapshot, states)` to `src/host/skills/reconciler.ts`. Pure function that folds enabled-skill MCP server declarations into a keyed `Map<string, { url, bearerCredential? }>` with "first occurrence wins" semantics and a conflict list when the same MCP name has different URLs across skills. TDD order: failing test, implementation, passing test.
+**What I did:** Appended `McpConflict` interface and `computeMcpDesired` function to `reconciler.ts`. Builds `enabledNames` from the incoming `states[]` (only `kind === 'enabled'` counts), then walks the snapshot skipping invalid or non-enabled entries. Same-name-same-URL is a silent ref-count (no-op); same-name-different-URL appends to the conflicts array keyed by the later skill. `bearerCredential` passes through from `mcp.credential` verbatim.
+**Files touched:** `src/host/skills/reconciler.ts` (appended), `tests/host/skills/reconciler-mcp.test.ts` (new)
+**Outcome:** Success — 4 new tests pass, all 26 tests in `tests/host/skills/` pass (schema + parser + reconciler-states + reconciler-mcp).
+**Notes:** Deterministic given snapshot iteration order; phase 4 is where pending skills get blocked at the enforcement gate. Conflict record captures `skillName` (the losing one), `mcpName`, `declaredUrl` (rejected), and `conflictingUrl` (kept).
+
 ## [2026-04-16 22:36] — Git-native skills Phase 1 Task 4: computeSkillStates
 
 **Task:** Phase 1 Task 4 of git-native skills effort — add `computeSkillStates(snapshot, current)` to a new `reconciler.ts`. Pure function that classifies each snapshot entry as `enabled` / `pending` / `invalid` based on stored credentials (`${envName}@${scope}`) and approved domains. TDD order: failing test, implementation, passing test.
