@@ -235,7 +235,7 @@ Use `execFileSync('git', ['init', '--bare', ...])` for the bare repo, then a sid
 
 **Files:**
 - Create: `src/host/skills/state-store.ts`
-- Create: `src/providers/database/migrations/NNN-skill-states.ts` (next migration number — check `src/providers/database/migrations/` first)
+- Create: `src/migrations/skills.ts` (new migration set file; mirror the shape of `src/migrations/jobs.ts`)
 - Create: `tests/host/skills/state-store.test.ts`
 
 **Step 1 — Failing test:** open an in-memory sqlite via the project's existing helper, run migrations, call `putStates` with two skills, then `getPriorStates` and assert the map matches. Same for setup queue: `putSetupQueue([{...}])` → `getSetupQueue` round-trip.
