@@ -4,6 +4,7 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Appliers diff desired-state against live runtime with a closure-scoped prior map [entries.md](entries.md)
 - Shared resources consumed by both core and server.ts belong in HostCore [entries.md](entries.md)
 - Never have two independent timers managing the same resource lifecycle [entries.md](entries.md)
 - Admin state is filesystem-based and doesn't sync across k8s pods [entries.md](entries.md)

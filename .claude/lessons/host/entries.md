@@ -1,5 +1,11 @@
 # Host
 
+### Appliers diff desired-state against live runtime with a closure-scoped prior map
+**Date:** 2026-04-17
+**Context:** Phase 4 git-native skills needed to bridge the reconciler's `desired.{mcpServers,proxyAllowlist}` to the live `McpConnectionManager` + `ProxyDomainList`. The naive version would "re-read the live map, compute the diff, apply it" — but that blends other-source entries (plugins, database MCP, other agents) into the diff and risks clobbering them. The solution was to give each applier its own closure-scoped `prior` map keyed by the entries *this agent* previously wrote, plus a `source: 'skill:<agentId>'` tag on every registration so cross-source entries are never inspected. Startup rehydration then works by simply re-running `reconcileAgent` per agent — no separate "rebuild from DB" code path.
+**Lesson:** When an applier module mutates a shared runtime map that other subsystems also write to, (1) tag every write with a source identifier (`source: 'skill:<agentId>'`), (2) keep a closure-scoped `prior` map of *only* the entries this applier owns — don't read back from the shared map to compute the diff, and (3) prefer re-running the full reconcile on startup over persisting a materialized "live state" — the desired-state computation is already idempotent and the DB has everything needed. Cross-source isolation falls out of the tag; rehydration falls out of the idempotency.
+**Tags:** applier, reconcile, mcp-manager, proxy-domain-list, skills, startup, cross-source-isolation, architecture
+
 ### Shared resources consumed by both core and server.ts belong in HostCore
 **Date:** 2026-04-17
 **Context:** Phase 3 Task 4 — `SkillStateStore` needed to be reachable by both `createIPCHandler` (built inside `initHostCore`) and the reconcile-hook wiring (set up later in `server.ts`). Phase 2 originally created it in `server.ts:162`, but `initHostCore` had already finished by then, so the IPC handler couldn't see it. Moving creation into `server-init.ts` and returning it on `HostCore` (same pattern as `domainList`, `adminCtx`) made one instance reach both callsites.

@@ -36,6 +36,9 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/ipc-handlers/scheduler.ts` | Scheduler job management IPC handlers |
 | `src/host/ipc-handlers/sandbox-tools.ts` | Sandbox tool IPC handlers (sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file) and audit gate protocol (sandbox_approve, sandbox_result) for in-container tool execution with host approval |
 | `src/host/ipc-handlers/skills.ts` | Skill read/list/propose/import/search IPC handlers + `credential_request` handler (backed by DocumentStore) |
+| `src/host/skills/mcp-applier.ts` | Diffs `desired.mcpServers` against the live `McpConnectionManager`. Owns its own `prior` map keyed by skill-server name; tags every register with `source: 'skill:<agentId>'` so cross-source entries (plugins, database MCP, other agents) are never touched. Emits audit records per register/unregister and skips no-ops |
+| `src/host/skills/proxy-applier.ts` | Diffs `desired.proxyAllowlist` against `ProxyDomainList` using the new `setAgentDomains(agentId, domains)` replace-semantics API. Normalizes hosts (trim + lowercase + strip trailing dot), writes one `proxy_allowlist_updated` audit entry per non-empty diff |
+| `src/host/skills/startup-rehydrate.ts` | On host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` for each. Rebuilds live `McpConnectionManager` + `ProxyDomainList` state from the last committed `.ax/skills/` tree. Per-agent errors log `startup_rehydrate_failed` and don't block the loop |
 | `src/host/ipc-handlers/web.ts` | Web fetch/search IPC handlers |
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
 | `src/host/ipc-handlers/cowork-plugins.ts` | Cowork plugin install/uninstall/list IPC handlers (uses McpConnectionManager for plugin server registration) |
@@ -204,6 +207,16 @@ Per-agent plugin lifecycle managed via IPC:
 - **sandbox** category: docker, apple, k8s
 - **workspace** category: git-http, git-local
 - **skills** category: database only
+
+## Git-Native Skills Pipeline (src/host/skills/)
+
+Skills live as `.ax/skills/**/SKILL.md` files in the agent's git workspace. A post-receive hook calls `reconcileAgent`, which snapshots the ref, diffs desired state against live state, persists `SkillState` rows, and hands off to two appliers:
+
+- **`src/host/skills/mcp-applier.ts`** — diffs `desired.mcpServers` against the live `McpConnectionManager`. Tags every register with `source: 'skill:<agentId>'` so entries owned by plugins, database MCP, or other agents are never touched. Registers with `Authorization: Bearer ${TOKEN}` header placeholders when a `bearerCredential` is declared.
+- **`src/host/skills/proxy-applier.ts`** — diffs `desired.proxyAllowlist` against `ProxyDomainList` using the new `setAgentDomains(agentId, domains)` replace-semantics API. One `proxy_allowlist_updated` audit entry per non-empty diff.
+- **`src/host/skills/startup-rehydrate.ts`** — on host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` so the live `McpConnectionManager` + `ProxyDomainList` state catches up with the DB after a restart.
+
+Both appliers are wired through `OrchestratorDeps` in `src/host/skills/reconcile-orchestrator.ts`, so every push-driven reconcile AND every startup rehydrate apply the same desired state. See `docs/plans/2026-04-16-git-native-skills-design.md` for the full design.
 
 ## Image Generation (ipc-handlers/image.ts)
 
