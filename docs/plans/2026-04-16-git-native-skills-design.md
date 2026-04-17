@@ -1,13 +1,14 @@
 # Git-Native Skills & Credentials Design
 
 **Date:** 2026-04-16
-**Status:** Design — implementation in progress (phases 1–5 landed, see Rollout Status below)
+**Status:** Design — implementation in progress (phases 1–6 landed, see Rollout Status below)
 **Supersedes:** Parts of the current plugin/skill install flow in `src/plugins/`, `src/providers/storage/skills.ts`, and related CLI commands.
 
 ## Rollout Status
 
 - **Phase 4 — Applier + rehydration:** Landed on `feat/skills-phase4-appliers` (commits `cec9015a..c1a2cd76`). Adds `src/host/skills/mcp-applier.ts`, `src/host/skills/proxy-applier.ts`, `src/host/skills/startup-rehydrate.ts`, wires both appliers into `reconcile-orchestrator.ts`, and runs a full reconcile for every registered agent on host boot so live `McpConnectionManager` + `ProxyDomainList` state matches the last-reconciled DB snapshot after a restart.
 - **Phase 5 — Dashboard setup cards (API-key path only):** Landed on `feat/skills-phase5-dashboard` (commits `74970c48..16973d86`). Adds four admin endpoints (`GET /admin/api/skills/setup`, `POST /admin/api/skills/setup/approve`, `DELETE /admin/api/skills/setup/:agentId/:skillName`, `GET /admin/api/credentials/requests`), atomic approve via `src/host/server-admin-skills-helpers.ts` (validate-all-then-apply-all: credentials → domains → reconcile), an in-memory credential request queue at `src/host/credential-request-queue.ts` seeded by `credential.required` event-bus subscriptions, and a new `SkillsPage` React component (`ui/admin/src/components/pages/skills-page.tsx`) wired into the admin sidebar. OAuth credentials render disabled with a "coming in phase 6" stub — the PKCE flow is deferred to phase 6.
+- **Phase 6 — OAuth PKCE + admin-registered provider fallback:** Landed on `feat/skills-phase6-oauth` (commits `1a229e8d..1500a6b8`). New `admin_oauth_providers` table with AES-256-GCM encrypted client_secret at rest; four admin endpoints under `/admin/api/oauth/providers*` for CRUD plus `POST /admin/api/skills/oauth/start` for PKCE initiation. Callback handler extended to try admin-initiated flows first, falling through to agent-initiated. Dashboard's SkillsPage now renders a real "Connect with <provider>" button that opens the authUrl in a new tab; parent polls /skills/setup every 2s while any OAuth cred is unconnected. Refresh-blob is stored at `<envName>__oauth_blob` for future refresh-on-read; actual refresh path is deferred.
 
 ---
 

@@ -60,6 +60,9 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/session-title.ts` | Auto-generate session titles from first user message using fast LLM model |
 | `src/host/llm-proxy-core.ts` | Shared LLM credential injection and forwarding — used by both Unix socket proxy (`proxy.ts`) and HTTP route (`/internal/llm-proxy` in `server-k8s.ts`) |
 | `src/host/oauth-skills.ts` | OAuth PKCE flow for skill credentials — manages pending flows (start → callback → token exchange → store), handles token refresh |
+| `src/host/admin-oauth-providers.ts` | AES-256-GCM encrypted admin-registered OAuth provider CRUD. Key derived from `AX_OAUTH_SECRET_KEY` (preferred, 32 hex bytes) or `config.admin.token` (fallback, requires ≥16 chars). `clientSecret` never returned on read. |
+| `src/host/admin-oauth-flow.ts` | PKCE pending-flow map (15-min TTL, single-use) + `resolveCallback` that exchanges code via `AbortSignal.timeout(15s)`, writes access_token at declared credential scope, stores refresh blob at `<envName>__oauth_blob`, triggers best-effort reconcile. Returns `{matched:false} | {matched:true, ok:true} | {matched:true, ok:false}`. |
+| `src/migrations/admin-oauth-providers.ts` | Kysely migration for `admin_oauth_providers` table (name PK, client_id, encrypted client_secret blob, metadata). |
 | `src/host/web-proxy-approvals.ts` | Web proxy approval coordination via event bus — replaces old in-memory promise map pattern. Works across stateless replicas (in-process for local, NATS for k8s) |
 | `src/host/workspace-release-screener.ts` | Release-time screening for skill files and binaries — inspects workspace changes before GCS commit |
 | `src/host/delivery.ts` | Delivery resolution for cron/heartbeat responses (CronDelivery handling) |
@@ -230,6 +233,30 @@ The host exposes four admin endpoints under `/admin/api/` for the dashboard to d
 - **`GET /admin/api/credentials/requests`** — snapshot of the in-memory credential request queue at `src/host/credential-request-queue.ts`. Seeded by `credential.required` event-bus subscriptions; drained when `POST /admin/api/credentials/provide` succeeds.
 
 See `docs/plans/2026-04-17-phase5-skills-dashboard-cards.md` for the detailed plan.
+
+### Phase 6: OAuth Flow
+
+Skill credentials with `authType: oauth` can be filled via a PKCE-based OAuth
+flow initiated from the dashboard. Admin-registered providers (stored in
+`admin_oauth_providers`) override the frontmatter's public `client_id` with
+pre-configured `client_id`/`client_secret` — the escape hatch for providers
+that don't support PKCE-only public flows (e.g. Google confidential web flow).
+
+Endpoints under `/admin/api/`:
+- `GET /oauth/providers` — list admin-registered providers (never includes client_secret)
+- `POST /oauth/providers` — upsert with Zod-strict body. Audits `hasSecret: boolean`.
+- `DELETE /oauth/providers/:name` — idempotent.
+- `POST /skills/oauth/start` — validates `{agentId, skillName, envName}` against the current setup queue, picks up admin-registered overrides, returns `{authUrl, state}`.
+
+Callback: `GET /v1/oauth/callback/:provider` (unchanged URL; public endpoint) tries the admin-initiated flow first (`src/host/admin-oauth-flow.ts`), falls through to agent-initiated (`src/host/oauth-skills.ts`). Admin callback exchanges the code via the provider's token endpoint (15s timeout), writes the access_token at the card's declared credential scope, stores a refresh blob at `<envName>__oauth_blob`, and fires reconcile best-effort.
+
+Security invariants:
+- clientSecret encrypted at rest with AES-256-GCM; key from `AX_OAUTH_SECRET_KEY` (32 hex bytes) preferred, derived from `config.admin.token` as a fallback (requires ≥16 chars).
+- No tokens or client_secrets in audit args, logs, or response bodies.
+- OAuth state is single-use (consumed even on failure, to prevent replay into the fall-through agent path).
+- Provider URL-path must match the pending flow's provider — mismatch is treated as matched-but-failed.
+
+See `docs/plans/2026-04-17-phase6-skills-oauth-implementation.md` for the detailed plan.
 
 ## Image Generation (ipc-handlers/image.ts)
 

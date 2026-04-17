@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 14:17] — Phase 6 complete: OAuth PKCE + admin-registered providers
+
+**Task:** Implement phase 6 of git-native skills: OAuth PKCE flow for skill credentials, with admin-registered provider fallback for confidential-flow providers (Google etc).
+**What I did:** 9 commits across backend (Tasks 1-4) and UI (Task 5), plus live E2E verification (Task 6) and documentation (Task 7). Tests: 135 backend + 23 Playwright pass. tsc clean at root and ui/admin.
+**Files touched:** See commits 1a229e8d..1500a6b8.
+**Outcome:** Success. The full Connect → authorize → callback → credential persistence → reconcile flow works against a live local host with a mock token endpoint. Credential values, client_secrets, and tokens never appear in audit, logs, or HTTP responses; secret-leak substring guards are locked in tests.
+**Notes:** Kind-ax image rebuild was again skipped (pre-dates phase 4). Background refresh-on-read is deferred — the refresh blob is stored for a future phase. Admin UI for OAuth provider CRUD is deferred — operators POST directly via curl for now.
+
 ## [2026-04-17 18:15] — Phase 6 Task 6: end-to-end OAuth verification against local host
 
 **Task:** Live-wire verification of the phase-6 admin-initiated OAuth flow. Walk GET `/skills/setup` → POST `/oauth/start` → GET `/v1/oauth/callback/linear` → DB inspection against a real phase-6 host, with a tiny mock token endpoint standing in for the OAuth provider. Module tests (135+ across admin-oauth-flow/server-admin-oauth-start/server-oauth-callback/admin-oauth-providers) already cover behavior; this task just proves the code boots + the full HTTP path executes against a live process.

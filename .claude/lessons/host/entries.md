@@ -1,5 +1,11 @@
 # Host
 
+### Use AbortSignal.timeout(ms) for outbound fetch timeouts (Node 18+)
+**Date:** 2026-04-17
+**Context:** Phase 6 Task 4 token-exchange. `fetch(tokenUrl, { body, headers })` against an external OAuth provider will hang indefinitely if the provider is slow/unreachable — Node's global fetch has no default timeout. The pre-Node-18 pattern was a manual `AbortController` + `setTimeout` dance: create controller, schedule `controller.abort()`, pass `signal: controller.signal`, clear the timer on success/failure. Works but verbose and leaks timers on mistakes.
+**Lesson:** For any outbound fetch to a third party (OAuth token endpoints, webhook receivers, etc.), add `signal: AbortSignal.timeout(15_000)` to the request init. It's a Node 18+ static that bundles the abort controller and timeout into one line, auto-cleans up, and surfaces as a `DOMException` with `name === 'TimeoutError'` on timeout. Pick 15s for OAuth-style synchronous exchanges; longer only if the endpoint is known-slow. Pair with status-only logging (see the sibling lesson about OAuth error-body logging) — don't let timeout failures leak the request body into logs either.
+**Tags:** fetch, timeout, abortsignal, node18, outbound-http, oauth
+
 ### "matched" is state consumption, not exchange success — callback fall-through must gate on matched, not ok
 **Date:** 2026-04-17
 **Context:** Phase 6 Task 4. The `/v1/oauth/callback/:provider` handler tries the admin-initiated flow first and, on no match, falls through to the agent-initiated `oauth-skills.ts` path. First instinct was `if (adminResult.ok)` to decide when to return; fall-through happened on any failure. That would leak already-claimed admin states to the agent module, and also let a URL-path-mismatch attack carry a valid state into the other handler.
