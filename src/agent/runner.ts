@@ -338,12 +338,49 @@ export function parseStdinPayload(data: string): StdinPayload {
 }
 
 /**
+ * Wait for the workspace mount to become ready (VirtioFS in Apple Container
+ * may lag behind process startup). Polls for the .ax/ sentinel directory.
+ */
+async function waitForWorkspace(workspace: string, timeoutMs = 30_000): Promise<void> {
+  const sentinel = join(workspace, '.ax');
+  try {
+    const entries = readdirSync(workspace);
+    process.stderr.write(`[diag] workspace_check path=${workspace} entries=[${entries.join(',')}] sentinel_exists=${existsSync(sentinel)}\n`);
+    if (existsSync(sentinel)) return;
+  } catch (err) {
+    process.stderr.write(`[diag] workspace_check path=${workspace} error=${(err as Error).message}\n`);
+  }
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 200));
+    if (existsSync(sentinel)) {
+      const waitMs = Date.now() - start;
+      process.stderr.write(`[diag] workspace_mount_ready waitMs=${waitMs}\n`);
+      logger.info('workspace_mount_ready', { waitMs });
+      return;
+    }
+  }
+  try {
+    const entries = readdirSync(workspace);
+    process.stderr.write(`[diag] workspace_mount_timeout entries=[${entries.join(',')}]\n`);
+  } catch { /* ignore */ }
+  logger.warn('workspace_mount_timeout', { timeoutMs, workspace });
+}
+
+/**
  * Dispatch to the appropriate agent implementation based on config.agent.
  */
 export async function run(config: AgentConfig): Promise<void> {
   const agent = config.agent ?? 'pi-coding-agent';
   process.stderr.write(`[diag] dispatch agent=${agent}\n`);
   logger.debug('dispatch', { agent, workspace: config.workspace, ipcSocket: config.ipcSocket });
+
+  // VirtioFS mounts (Apple Container) may not be visible immediately at process
+  // start. Wait for the workspace to have content before building the prompt.
+  if (config.workspace) {
+    await waitForWorkspace(config.workspace);
+  }
+
   switch (agent) {
     case 'pi-coding-agent': {
       const { runPiSession } = await import('./runners/pi-session.js');

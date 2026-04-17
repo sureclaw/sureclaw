@@ -218,4 +218,24 @@ describe('Local sandbox executor', () => {
     });
   });
 
+  // ── glob path="." ──
+
+  describe('glob', () => {
+    test('path "." resolves to workspace root, not _empty_', async () => {
+      writeFileSync(join(workspace, 'hello.txt'), 'hi');
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      const result = await sandbox.glob('**/*', { path: '.' });
+      expect(result.files).toContain('hello.txt');
+    });
+
+    test('no path defaults to workspace root', async () => {
+      writeFileSync(join(workspace, 'hello.txt'), 'hi');
+      const client = mockClient();
+      const sandbox = createLocalSandbox({ client, workspace });
+      const result = await sandbox.glob('**/*');
+      expect(result.files).toContain('hello.txt');
+    });
+  });
+
 });

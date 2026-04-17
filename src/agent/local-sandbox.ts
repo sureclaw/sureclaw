@@ -105,12 +105,15 @@ export function createLocalSandbox(opts: LocalSandboxOptions) {
   const { client, workspace, timeoutMs = 120_000 } = opts;
 
   function safeWorkspacePath(relativePath: string): string {
+    // "." means workspace root — return it directly
+    if (relativePath === '.' || relativePath === './') return workspace;
     // Strip workspace prefix if the LLM sent an absolute path rooted in workspace
     let path = relativePath;
     if (path.startsWith(workspace + '/')) {
       path = path.slice(workspace.length + 1);
     }
     const segments = path.split(/[/\\]/).filter(Boolean);
+    if (segments.length === 0) return workspace;
     return safePath(workspace, ...segments);
   }
 
