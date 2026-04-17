@@ -42,8 +42,9 @@ export function buildSkillsMigrations(dbType: DbDialect): MigrationSet {
           .execute();
       },
       async down(db: Kysely<any>) {
-        await db.schema.dropTable('skill_setup_queue').execute();
-        await db.schema.dropTable('skill_states').execute();
+        // ifExists so a partial-apply doesn't wedge the migration on rollback.
+        await db.schema.dropTable('skill_setup_queue').ifExists().execute();
+        await db.schema.dropTable('skill_states').ifExists().execute();
       },
     },
   };
