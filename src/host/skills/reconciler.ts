@@ -1,6 +1,7 @@
 import type {
   SkillSnapshotEntry,
   SkillState,
+  SkillStateKind,
   ReconcilerCurrentState,
   SetupRequest,
 } from './types.js';
@@ -126,4 +127,42 @@ export function computeSetupQueue(
     });
   }
   return out;
+}
+
+export function computeEvents(
+  states: SkillState[],
+  priorStates: ReadonlyMap<string, SkillStateKind>,
+): Array<{ type: string; data: Record<string, unknown> }> {
+  const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+  const seen = new Set<string>();
+
+  for (const s of states) {
+    seen.add(s.name);
+    const prior = priorStates.get(s.name);
+    if (!prior) {
+      events.push({ type: 'skill.installed', data: { name: s.name } });
+    }
+    if (prior !== s.kind) {
+      const type =
+        s.kind === 'enabled'
+          ? 'skill.enabled'
+          : s.kind === 'pending'
+            ? 'skill.pending'
+            : 'skill.invalid';
+      events.push({
+        type,
+        data: {
+          name: s.name,
+          reasons: s.pendingReasons,
+          error: s.error,
+        },
+      });
+    }
+  }
+  for (const [name] of priorStates) {
+    if (!seen.has(name)) {
+      events.push({ type: 'skill.removed', data: { name } });
+    }
+  }
+  return events;
 }

@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:47] — Git-native skills Phase 1 Task 8: computeEvents
+
+**Task:** Phase 1 Task 8 of git-native skills effort — append `computeEvents(states, priorStates): Array<{type, data}>` to `src/host/skills/reconciler.ts`. Pure function that diffs freshly-computed skill states against the prior cycle's kind-map and emits dot-namespaced lifecycle events. `skill.installed` fires once on first appearance; `skill.enabled`/`skill.pending`/`skill.invalid` fire on transitions into that kind; `skill.removed` fires when a previously-known skill disappears. TDD order: failing test, implementation, passing test.
+**What I did:** Merged `SkillStateKind` into the existing `import type` block and appended `computeEvents`. Walks `states[]` with a `seen` set — for each state, emits `skill.installed` when the name is absent from `priorStates`, and emits the kind-specific event (`skill.enabled`/`skill.pending`/`skill.invalid`) when the prior kind differs from the current kind. Each non-installed event carries `{name, reasons, error}` (reasons/error undefined when not applicable — caller is phase 2+ event bus). Second pass over `priorStates` emits `skill.removed` for any name not in `seen`. Unchanged states emit nothing.
+**Files touched:** `src/host/skills/reconciler.ts` (appended), `tests/host/skills/reconciler-events.test.ts` (new)
+**Outcome:** Success — 6 new tests pass, all 39 tests in `tests/host/skills/` pass (schema + parser + reconciler-states + reconciler-mcp + reconciler-allowlist + reconciler-setup + reconciler-events).
+**Notes:** `skill.installed` is one-shot on first appearance, emitted alongside the kind event on the same cycle (two events: installed + enabled/pending/invalid). Transition detection uses `prior !== s.kind` which correctly fires on first-appearance too (prior is `undefined`). Caller (phase 2+ reconcile orchestration) feeds `priorStates` from last cycle and wires events to the event bus.
+
 ## [2026-04-16 22:44] — Git-native skills Phase 1 Task 7: computeSetupQueue
 
 **Task:** Phase 1 Task 7 of git-native skills effort — append `computeSetupQueue(snapshot, current): SetupRequest[]` to `src/host/skills/reconciler.ts`. Pure function that emits one dashboard setup card per skill with missing credentials and/or unapproved domains. Independent notion of "pending" — works directly against the snapshot + current state, not `computeSkillStates` output. TDD order: failing test, implementation, passing test.
