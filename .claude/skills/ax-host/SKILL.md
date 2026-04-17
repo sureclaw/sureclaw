@@ -51,7 +51,9 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/sandbox-manager.ts` | Sandbox session manager — tracks session-bound sandbox pods for cross-turn escalation from fast path. CRUD on DocumentStore with TTL (30min default, 1hr max) |
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management. `AgentRegistryEntry` has `displayName`, `agentKind` ('personal'/'shared'), `admins[]`. `findByKind()` filters by agent kind |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration). Migration 003 adds `display_name` and `agent_kind` columns |
-| `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers` |
+| `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers` and the phase-5 skill setup endpoints under `/admin/api/skills/setup` and `/admin/api/credentials/requests` |
+| `src/host/server-admin-skills-helpers.ts` | Phase-5 helper for `POST /admin/api/skills/setup/approve`. Owns the validate-all-then-apply-all logic: parses + validates the request body against the pending card, then stores credentials at declared scope, approves pending domains via `ProxyDomainList.approvePending`, and re-runs `reconcileAgent` with `refs/heads/main`. Narrow `ApproveDeps` interface avoids circular imports with `server-admin.ts` |
+| `src/host/credential-request-queue.ts` | Phase-5 in-memory queue of ad-hoc credential requests. Seeded by `credential.required` event-bus subscriptions; drained when `POST /admin/api/credentials/provide` succeeds. Exposed to the dashboard via `GET /admin/api/credentials/requests` |
 | `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection (work dispatch only), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
 | `src/host/server-chat-api.ts` | Chat API handler — serves `/v1/chat/sessions` endpoints for chat UI thread list and history |
 | `src/host/server-chat-ui.ts` | Chat UI static file serving — serves built chat UI from `dist/chat-ui/` at root path |
@@ -217,6 +219,17 @@ Skills live as `.ax/skills/**/SKILL.md` files in the agent's git workspace. A po
 - **`src/host/skills/startup-rehydrate.ts`** — on host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` so the live `McpConnectionManager` + `ProxyDomainList` state catches up with the DB after a restart.
 
 Both appliers are wired through `OrchestratorDeps` in `src/host/skills/reconcile-orchestrator.ts`, so every push-driven reconcile AND every startup rehydrate apply the same desired state. See `docs/plans/2026-04-16-git-native-skills-design.md` for the full design.
+
+### Phase 5: Dashboard Admin Endpoints
+
+The host exposes four admin endpoints under `/admin/api/` for the dashboard to drive skill setup:
+
+- **`GET /admin/api/skills/setup`** — returns pending setup cards grouped by agent. Source of truth: the `skill_setup_queue` + `skill_states` tables populated by the reconciler.
+- **`POST /admin/api/skills/setup/approve`** — atomic approve. `src/host/server-admin-skills-helpers.ts` owns the validate-all-then-apply-all logic: validates every credential + domain in the body against the pending card, then (only if all checks pass) stores credentials at declared scope, approves pending domains via `ProxyDomainList.approvePending`, and re-runs `reconcileAgent` with `refs/heads/main`. Rejects `authType: oauth` credentials — phase 6 adds the OAuth PKCE flow.
+- **`DELETE /admin/api/skills/setup/:agentId/:skillName`** — dashboard-only dismissal. Drops the row from `skill_setup_queue`. If the skill is still pending on next reconcile, the card reappears. Idempotent (second call returns `{ok:true, removed:false}`).
+- **`GET /admin/api/credentials/requests`** — snapshot of the in-memory credential request queue at `src/host/credential-request-queue.ts`. Seeded by `credential.required` event-bus subscriptions; drained when `POST /admin/api/credentials/provide` succeeds.
+
+See `docs/plans/2026-04-17-phase5-skills-dashboard-cards.md` for the detailed plan.
 
 ## Image Generation (ipc-handlers/image.ts)
 

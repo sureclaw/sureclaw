@@ -4,6 +4,10 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-04-17 10:17 — Phase 5 complete: docs wrap-up (ax-host skill, design doc rollout status, journal entry) [skills.md](skills.md)
+- 2026-04-17 14:15 — Phase 5 Task 8: end-to-end verification of `/admin/api/skills/*` against local host (SQLite, admin token) — all endpoints behaved as specified [skills.md](skills.md)
+- 2026-04-17 12:05 — Phase 5 Task 7: Skills sidebar nav entry (Sparkles icon between Agents and Connectors) + navigation.spec.ts updates [skills.md](skills.md)
+- 2026-04-17 11:15 — Phase 5 Task 6: React SkillsPage + admin UI types/api/fixtures/Playwright tests; `?page=skills` query param wiring in App.tsx [skills.md](skills.md)
 - 2026-04-17 08:10 — Phase 4 PR #179 review: bearer-rotation fix, proxy-applier removeAgent, gated live_state_applied event, non-blocking startup rehydrate [skills.md](skills.md)
 - 2026-04-17 07:40 — Phase 4 wrap-up: MCP + proxy appliers, startup rehydration, reconcile orchestrator wiring — `feat/skills-phase4-appliers` ready for review [skills.md](skills.md)
 - 2026-04-17 05:40 — Phase 2 PR #177 CodeRabbit review fixes (8 commits): orphan-repo cleanup, case-sensitive scope prefix, skip branch-deletion pushes, buffer-based HMAC, non-Error narrowing, atomic states+queue, curl --data-binary, ifExists down [skills.md](skills.md)

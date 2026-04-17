@@ -30,6 +30,7 @@ import type { AdminContext } from './server-admin-helpers.js';
 import type { SkillStateStore } from './skills/state-store.js';
 import type { McpApplier } from './skills/mcp-applier.js';
 import type { ProxyApplier } from './skills/proxy-applier.js';
+import { createCredentialRequestQueue, type CredentialRequestQueue } from './credential-request-queue.js';
 
 const logger = getLogger();
 
@@ -82,6 +83,15 @@ export interface HostCore {
   /** Phase 4: live proxy-allowlist applier. Constructed only when the
    *  state store is available — shared with startup rehydration. */
   proxyApplier?: ProxyApplier;
+  /** Phase 5 Task 5: in-memory queue of ad-hoc credential requests emitted
+   *  by the `request_credential` agent tool. Seeded by a subscriber on the
+   *  event bus. Surfaced via `GET /admin/api/credentials/requests` and
+   *  drained by `POST /admin/api/credentials/provide`. */
+  credentialRequestQueue: CredentialRequestQueue;
+  /** Detach the `credential.required` → queue subscription. Callers that
+   *  restart or dispose the host core should invoke this; otherwise the
+   *  subscription lives for the process lifetime. */
+  unsubscribeCredentialRequests: () => void;
 }
 
 /**
@@ -90,6 +100,40 @@ export interface HostCore {
  */
 export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const { config, providers, eventBus, verbose } = opts;
+
+  // ── Credential request queue (Phase 5 Task 5) ──
+  // Seed from credential.required events so the admin dashboard can surface
+  // ad-hoc requests from the `request_credential` agent tool at any time,
+  // not just while an SSE client is connected.
+  const credentialRequestQueue = createCredentialRequestQueue();
+  // Capture the unsubscribe fn so callers (tests / future shutdown paths) can
+  // detach the listener. Matches the pattern used in server-admin.ts and
+  // event-console.ts.
+  const unsubscribeCredentialRequests = eventBus.subscribe((event) => {
+    if (event.type !== 'credential.required') return;
+    const data = event.data ?? {};
+    const envName = typeof data.envName === 'string' ? data.envName : '';
+    const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+    if (!envName || !sessionId) return;
+    // The event emitted by skills.ts carries `agentId`/`userId` (not
+    // `agentName`). We accept either shape — pull whatever's there and fall
+    // back to '' for agentName if nothing resembles an agent identifier.
+    const agentName =
+      (typeof (data as Record<string, unknown>).agentName === 'string' && (data as Record<string, unknown>).agentName as string) ||
+      (typeof (data as Record<string, unknown>).agentId === 'string' && (data as Record<string, unknown>).agentId as string) ||
+      '';
+    const userId = typeof (data as Record<string, unknown>).userId === 'string'
+      ? ((data as Record<string, unknown>).userId as string)
+      : undefined;
+    credentialRequestQueue.enqueue({
+      sessionId,
+      envName,
+      agentName,
+      userId,
+      createdAt: event.timestamp ?? Date.now(),
+    });
+  });
+
   // Create McpConnectionManager if not provided — needed for plugin/database
   // MCP server discovery and tool stub generation.
   const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
@@ -413,5 +457,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     stateStore,
     mcpApplier,
     proxyApplier,
+    credentialRequestQueue,
+    unsubscribeCredentialRequests,
   };
 }

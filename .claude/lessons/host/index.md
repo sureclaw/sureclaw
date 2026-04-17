@@ -4,6 +4,7 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Admin auth is bypassed on loopback when BIND_HOST defaults to 127.0.0.1 [entries.md](entries.md)
 - Appliers diff desired-state against live runtime with a closure-scoped prior map [entries.md](entries.md)
 - Shared resources consumed by both core and server.ts belong in HostCore [entries.md](entries.md)
 - Never have two independent timers managing the same resource lifecycle [entries.md](entries.md)

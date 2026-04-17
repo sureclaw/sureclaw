@@ -1,5 +1,35 @@
 # Host
 
+### Admin auth is bypassed on loopback when BIND_HOST defaults to 127.0.0.1
+**Date:** 2026-04-17
+**Context:** Phase 5 Task 8 end-to-end verification. I was curling `/admin/api/*` endpoints with and without `Authorization: Bearer <token>` to confirm auth worked. Both succeeded. My first instinct was "the token check is broken" — it wasn't. `server.ts:332` sets `localDevMode = bindHost === '127.0.0.1' || bindHost === '::1'`, and `server-admin.ts:197` does `skipAuth = authDisabled || externalAuth || (localDevMode && isLoopback(clientIp))`. When the process binds to 127.0.0.1 AND the request comes from a loopback address, the token check is skipped — by design, for local dev.
+**Lesson:** When testing admin endpoints locally, don't rely on "curl succeeded without a token → auth is broken" as a signal. To exercise the real auth path, either (a) set `BIND_HOST=0.0.0.0` and curl from a non-loopback address (not trivial on a dev laptop), (b) set `admin.disable_auth: false` and force a non-loopback connection, or (c) add a unit test that constructs AdminDeps with `localDevMode: false` and asserts the 401 — which is how `tests/host/server-admin.test.ts` already does it. If you're writing a task spec that says "curl with Authorization: Bearer $TOKEN", call this out explicitly so the reader knows the token is decorative on loopback.
+**Tags:** admin-api, auth, localDevMode, BIND_HOST, loopback, testing
+
+### EventBus has a single catch-all subscribe — filter by type in-handler
+**Date:** 2026-04-17
+**Context:** Phase 5 Task 5 needed a subscriber for `credential.required` events. My first reach was `eventBus.on('credential.required', listener)` because that's the EventEmitter-style API. But `src/host/event-bus.ts` only exposes `subscribe(listener)` (all events) and `subscribeRequest(requestId, listener)` (per-request) — no per-type subscription. The correct pattern is `eventBus.subscribe((event) => { if (event.type !== 'credential.required') return; ... })`.
+**Lesson:** When wiring new subscribers on AX's event bus, skip the `.on('eventName', ...)` reflex — `EventBus` is catch-all. Subscribe once, guard `event.type` at the top of the handler. Also: `event.data` is `Record<string, unknown>` (not typed per event), so narrow fields yourself (`typeof data.envName === 'string'`). Do NOT change the event shape to fit a subscriber — read what's there, fall back to defaults if a field's missing.
+**Tags:** event-bus, subscribe, pub-sub, host, patterns
+
+### Audit-log failures must surface, not swallow
+**Date:** 2026-04-17
+**Context:** Phase 5 Task 3: the approve helper originally wrapped `providers.audit.log` in a try/catch that logged `skill_approve_audit_failed` and returned 200 — reasoning "audit failure shouldn't fail the approve call since creds + domains are already persisted." Spec review flagged it: CLAUDE.md lists "Everything is audited" as a security invariant. Silent audit loss on a security-relevant action (credential write + domain approval) is exactly the evidence gap the invariant exists to prevent. Unlike the reconcile path — where swallow-and-log is fine because the DB is already consistent and startup-rehydrate catches up — audit has no recovery mechanism. If the audit provider drops a record, it's gone.
+**Lesson:** For any handler that performs a security-relevant mutation, treat the audit-log call like any other required side effect: no try/catch unless you have a concrete recovery path (which for audit, you almost never do). Let the error propagate to the outer request catch — a 5xx (or even a 4xx with a real error message) is the correct signal to operators. "Swallow-and-log" is valid when the surrounding state converges by some other mechanism (reconcile loops, idempotent retries, startup rehydration). It is NOT valid for append-only logs, audit trails, or anything whose absence can't be detected later. When in doubt, ask: "if this fails silently, is there a downstream process that will notice?" If the answer is no, let it throw.
+**Tags:** audit, security-invariants, error-handling, admin-api, swallow-and-log, evidence-gap
+
+### Multi-step admin endpoints must validate-all before they apply-anything
+**Date:** 2026-04-17
+**Context:** Phase 5 `POST /admin/api/skills/setup/approve` performs three applies (credentials → domains → reconcile). Early drafts interleaved validation with application ("parse cred, write cred, parse domain, approve domain, ..."), which would have left the system in a half-approved state on any downstream validation error — e.g. a bogus domain in the body after the first credential was already persisted. The spec's load-bearing invariant is: if *any* validation step fails, zero credentials written, zero domains approved, no reconcile.
+**Lesson:** For multi-step endpoints that persist state, structure the handler as two distinct phases with no interleaving: (1) run every validation check against the request body and the pending card/state, collecting any first failure into an error return; (2) only if all checks pass, begin applying side effects. Also enforce the contract in a dedicated test: mix one valid item with one invalid item in the same body and assert that the valid item is NOT persisted. Without that test the atomicity can regress silently.
+**Tags:** admin-api, atomicity, validation, approve, skills
+
+### When a helper imports from a route handler, use a narrower deps interface to dodge cycles
+**Date:** 2026-04-17
+**Context:** Phase 5 Task 3 helper `approveSkillSetup` needed several fields from `AdminDeps` (defined in `server-admin.ts`). Importing `AdminDeps` back into the helper would have created a circular type import, since the route handler in `server-admin.ts` needs to import the helper too. `Pick<AdminDeps, ...>` would import the whole type transitively.
+**Lesson:** When a helper module is consumed by the same module that owns a big "deps" type, declare a local narrower interface in the helper listing only the fields it actually uses, with the specific provider-typed sub-fields (e.g. `providers: ProviderRegistry`). The caller passes its full deps through — TypeScript's structural subtyping handles the compatibility for free. No shared type, no cycle.
+**Tags:** typescript, circular-imports, admin-helpers, deps-interface
+
 ### Applier no-op checks must compare *all* runtime-observable fields, not just the identity key
 **Date:** 2026-04-17
 **Context:** PR #179 review: `mcp-applier` used `if (currentUrl === entry.url) continue;` as its idempotence check. That meant rotating a bearer credential while keeping the URL unchanged was silently skipped — the live server kept running with the stale `Authorization: Bearer ${OLD_TOKEN}` placeholder, and credential rotations never reached the runtime. The URL is the natural identity key (agents route on it), but it's not the only field the runtime consumes.

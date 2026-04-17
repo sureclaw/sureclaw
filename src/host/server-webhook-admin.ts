@@ -69,11 +69,19 @@ export interface AdminSetupOpts {
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
   /** When true, auth is handled externally by auth middleware. */
   externalAuth?: boolean;
+  /** Phase 5: persisted skill setup queue. When absent, /admin/api/skills/* returns 503. */
+  skillStateStore?: import('./skills/state-store.js').SkillStateStore;
+  /** Phase 5: re-trigger reconcile after approve. When absent, /admin/api/skills/setup/approve returns 503. */
+  reconcileAgent?: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Phase 5: default user ID for credentials with scope='user' when the request doesn't specify one. */
+  defaultUserId?: string;
+  /** Phase 5 Task 5: in-memory queue of ad-hoc credential requests. */
+  credentialRequestQueue?: import('./credential-request-queue.js').CredentialRequestQueue;
 }
 
 export function setupAdminHandler(opts: AdminSetupOpts) {
-  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth } = opts;
+  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth, skillStateStore, reconcileAgent, defaultUserId, credentialRequestQueue } = opts;
   return config.admin?.enabled
-    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth })
+    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth, skillStateStore, reconcileAgent, defaultUserId, credentialRequestQueue })
     : null;
 }

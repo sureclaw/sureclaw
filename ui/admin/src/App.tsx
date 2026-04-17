@@ -9,6 +9,7 @@ import {
   Hexagon,
   ChevronRight,
   Globe,
+  Sparkles,
 } from 'lucide-react';
 import { getToken, setToken, clearToken, apiFetch } from './lib/api';
 import type { SetupStatus } from './lib/types';
@@ -20,13 +21,43 @@ import SecurityPage from './components/pages/security-page';
 import LogsPage from './components/pages/logs-page';
 import SettingsPage from './components/pages/settings-page';
 import ConnectorsPage from './components/pages/connectors-page';
+import SkillsPage from './components/pages/skills-page';
 
-type Page = 'overview' | 'agents' | 'connectors' | 'security' | 'logs' | 'settings';
+type Page = 'overview' | 'agents' | 'connectors' | 'skills' | 'security' | 'logs' | 'settings';
+const VALID_PAGES: Page[] = [
+  'overview',
+  'agents',
+  'connectors',
+  'skills',
+  'security',
+  'logs',
+  'settings',
+];
+
+/**
+ * If the URL has ?page=<name>, return it as the initial page.
+ * Returns 'overview' if absent. The param itself is stripped from history
+ * inside checkAuth() so reloads land on the default page.
+ * Lets Playwright (and anyone else) drive to a page without a sidebar entry.
+ */
+function readInitialPage(): Page {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('page');
+    if (raw && (VALID_PAGES as string[]).includes(raw)) {
+      return raw as Page;
+    }
+  } catch {
+    // Ignore — fall through to default.
+  }
+  return 'overview';
+}
 type AuthState = 'loading' | 'authenticated' | 'login' | 'access-denied' | 'setup';
 
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'agents', label: 'Agents', icon: Users },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connectors', label: 'Connectors', icon: Globe },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'logs', label: 'Logs', icon: FileText },
@@ -55,7 +86,7 @@ function AccessDenied() {
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>('loading');
   const [sessionAuth, setSessionAuth] = useState(false);
-  const [activePage, setActivePage] = useState<Page>('overview');
+  const [activePage, setActivePage] = useState<Page>(readInitialPage);
 
   // Check authentication on mount
   useEffect(() => {
@@ -67,8 +98,12 @@ export default function App() {
       const urlToken = params.get('token');
       if (urlToken) {
         setToken(urlToken);
-        // Strip token from URL to avoid leaking it in browser history
+      }
+      // Strip `token` (leaks into history) and `page` (pins reloads to the
+      // param'd page forever) in one history replacement.
+      if (params.has('token') || params.has('page')) {
         params.delete('token');
+        params.delete('page');
         const clean = params.toString();
         const newUrl = window.location.pathname + (clean ? `?${clean}` : '') + window.location.hash;
         window.history.replaceState({}, '', newUrl);
@@ -273,6 +308,7 @@ export default function App() {
             {activePage === 'overview' && <OverviewPage />}
             {activePage === 'agents' && <AgentsPage />}
             {activePage === 'connectors' && <ConnectorsPage />}
+            {activePage === 'skills' && <SkillsPage />}
             {activePage === 'security' && <SecurityPage />}
             {activePage === 'logs' && <LogsPage />}
             {activePage === 'settings' && <SettingsPage />}

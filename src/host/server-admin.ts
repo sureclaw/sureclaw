@@ -17,6 +17,9 @@ import type { Config, ProviderRegistry } from '../types.js';
 import type { EventBus, StreamEvent } from './event-bus.js';
 import type { AgentRegistry } from './agent-registry.js';
 import type { ProxyDomainList } from './proxy-domain-list.js';
+import type { SetupRequest } from './skills/types.js';
+import type { CredentialRequestQueue } from './credential-request-queue.js';
+import { ApproveBodySchema, approveSkillSetup } from './server-admin-skills-helpers.js';
 import { parseAgentSkill } from '../utils/skill-format-parser.js';
 import { getLogger } from '../logger.js';
 import { configPath as getConfigPath } from '../paths.js';
@@ -148,6 +151,16 @@ export interface AdminDeps {
   externalAuth?: boolean;
   domainList?: ProxyDomainList;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
+  /** Phase 5: persisted skill setup queue. When absent, /admin/api/skills/* returns 503. */
+  skillStateStore?: import('./skills/state-store.js').SkillStateStore;
+  /** Phase 5: re-trigger reconcile after approve. When absent, /admin/api/skills/setup/approve returns 503. */
+  reconcileAgent?: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Phase 5: default user ID for credentials with scope='user' when the request doesn't specify one. */
+  defaultUserId?: string;
+  /** Phase 5 Task 5: in-memory queue of pending ad-hoc credential requests
+   *  from the `request_credential` agent tool. When absent, the GET
+   *  endpoint soft-degrades to an empty array. */
+  credentialRequestQueue?: CredentialRequestQueue;
 }
 
 // ── Factory ──
@@ -509,6 +522,17 @@ async function handleAdminAPI(
     return;
   }
 
+  // GET /admin/api/credentials/requests — ad-hoc credential requests (from request_credential tool).
+  // Soft-degrades to { requests: [] } when the queue dep isn't wired — the queue is additive.
+  if (pathname === '/admin/api/credentials/requests' && method === 'GET') {
+    if (!deps.credentialRequestQueue) {
+      sendJSON(res, { requests: [] });
+      return;
+    }
+    sendJSON(res, { requests: deps.credentialRequestQueue.snapshot() });
+    return;
+  }
+
   // POST /admin/api/credentials/provide — store a credential for future requests
   if (pathname === '/admin/api/credentials/provide' && method === 'POST') {
     try {
@@ -527,6 +551,12 @@ async function handleAdminAPI(
         await deps.providers.credentials.set(envName, value, credentialScope(ctx.agentName));
       } else {
         await deps.providers.credentials.set(envName, value);
+      }
+      // Success path only: drop the matching queue entry (if any) so the dashboard
+      // stops showing this ad-hoc request. No-op if the queue dep is missing or
+      // the entry isn't present.
+      if (deps.credentialRequestQueue && credSessionId) {
+        deps.credentialRequestQueue.dequeue(credSessionId, envName);
       }
       sendJSON(res, { ok: true });
     } catch (err) {
@@ -616,6 +646,79 @@ async function handleAdminAPI(
     const { testGlobalMcpServer } = await import('../providers/mcp/database.js');
     const result = await testGlobalMcpServer(providers.database.db, name, providers.credentials);
     sendJSON(res, result);
+    return;
+  }
+
+  // ── Skills (Phase 5) ──
+
+  // GET /admin/api/skills/setup — list pending setup cards grouped by agent.
+  // Skips agents with empty queues so the dashboard doesn't render noise.
+  // Returns 503 when the state store isn't wired (back-compat for deployments without one).
+  if (pathname === '/admin/api/skills/setup' && method === 'GET') {
+    if (!deps.skillStateStore) { sendError(res, 503, 'Skills not configured'); return; }
+    const activeAgents = await agentRegistry.list('active');
+    const out: Array<{ agentId: string; agentName: string; cards: SetupRequest[] }> = [];
+    for (const a of activeAgents) {
+      const cards = await deps.skillStateStore.getSetupQueue(a.id);
+      if (cards.length > 0) out.push({ agentId: a.id, agentName: a.name, cards });
+    }
+    sendJSON(res, { agents: out });
+    return;
+  }
+
+  // POST /admin/api/skills/setup/approve — atomic approve (creds + domains + re-reconcile).
+  // Validates the request body against the pending setup card BEFORE applying anything.
+  // If any validation step fails, no credentials are written, no domains approved, no reconcile runs.
+  if (pathname === '/admin/api/skills/setup/approve' && method === 'POST') {
+    // Narrow the catch to JSON parsing ONLY — a malformed body is a 400.
+    // Real failures from approveSkillSetup (audit.log throws, getStates throws, etc.)
+    // should propagate to the outer HTTP handler as a 500, not masquerade as 400.
+    let body: unknown;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch (err) {
+      sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      return;
+    }
+    const parsed = ApproveBodySchema.safeParse(body);
+    if (!parsed.success) { sendError(res, 400, parsed.error.message); return; }
+    const result = await approveSkillSetup(deps, parsed.data);
+    if (result.ok) {
+      sendJSON(res, { ok: true, state: result.state });
+    } else if (result.details) {
+      // sendError wraps as { error: { message, type, code } } — bypass to preserve `details`.
+      sendJSON(res, { error: result.error, details: result.details }, result.status);
+    } else {
+      sendError(res, result.status, result.error);
+    }
+    return;
+  }
+
+  // DELETE /admin/api/skills/setup/:agentId/:skillName — dashboard-only dismissal.
+  // Drops the card from the user's view. Does NOT touch repo files or skill_states.
+  // Idempotent: dismissing a card that's not in the queue returns `removed: false`.
+  // If the skill is still pending on the next reconcile, the card reappears.
+  const skillDismissMatch = pathname.match(/^\/admin\/api\/skills\/setup\/([^/]+)\/([^/]+)$/);
+  if (skillDismissMatch && method === 'DELETE') {
+    if (!deps.skillStateStore) { sendError(res, 503, 'Skills not configured'); return; }
+    const agentId = decodeURIComponent(skillDismissMatch[1]);
+    const skillName = decodeURIComponent(skillDismissMatch[2]);
+    const before = await deps.skillStateStore.getSetupQueue(agentId);
+    const after = before.filter(c => c.skillName !== skillName);
+    if (after.length === before.length) {
+      sendJSON(res, { ok: true, removed: false });
+      return;
+    }
+    await deps.skillStateStore.putSetupQueue(agentId, after);
+    // Audit throws propagate (same as approve) — audit is a security invariant.
+    await providers.audit.log({
+      action: 'skill_dismissed',
+      sessionId: agentId,
+      args: { agentId, skillName },
+      result: 'success',
+      durationMs: 0,
+    });
+    sendJSON(res, { ok: true, removed: true });
     return;
   }
 

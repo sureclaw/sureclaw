@@ -152,6 +152,10 @@ export async function createServer(
   // reconcile) and the startup rehydration pass (boot-time reconcile) so both
   // paths drive the same live-state appliers.
   let reconcileHookHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
+  // Phase 5: reconcile closure hoisted out of the `if (stateStore)` block so the
+  // admin handler can trigger reconcile after an approve. `undefined` when no
+  // state store is configured (back-compat — admin skills endpoints will 503).
+  let adminReconcileAgent: ((agentId: string, ref: string) => Promise<{ skills: number; events: number }>) | undefined;
   if (stateStore) {
     // AX_HOOK_SECRET: shared HMAC secret for post-receive → host handshake.
     // Env-var preferred so the hook installer (task 8) can read the same
@@ -192,6 +196,10 @@ export async function createServer(
       secret: hookSecret,
       reconcileAgent: (agentId, ref) => reconcileAgent(agentId, ref, orchestratorDeps),
     });
+
+    // Phase 5: admin uses the same orchestratorDeps so approve-triggered
+    // reconciles share the same appliers as the push-time hook.
+    adminReconcileAgent = (agentId, ref) => reconcileAgent(agentId, ref, orchestratorDeps);
 
     // Phase 4: startup rehydration — re-run reconcile for every known agent
     // so the McpConnectionManager + ProxyDomainList catch up with the
@@ -332,6 +340,10 @@ export async function createServer(
     domainList: core.domainList,
     mcpManager: core.mcpManager,
     externalAuth: !!providers.auth?.length,
+    skillStateStore: stateStore,
+    reconcileAgent: adminReconcileAgent,
+    defaultUserId,
+    credentialRequestQueue: core.credentialRequestQueue,
   });
 
   let httpServer: HttpServer | null = null;

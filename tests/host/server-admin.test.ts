@@ -766,6 +766,40 @@ describe('proxy domain management endpoints', () => {
   });
 });
 
+describe('AdminDeps Phase 5 skill fields (back-compat)', () => {
+  let server: Server;
+  let port: number;
+
+  afterEach(() => { server?.close(); });
+
+  it('accepts skillStateStore, reconcileAgent, defaultUserId without breaking existing endpoints', async () => {
+    _rateLimits.clear();
+    const deps = await mockDeps();
+
+    // Phase 5: stub SkillStateStore — every method a vi.fn() with reasonable defaults.
+    deps.skillStateStore = {
+      getPriorStates: vi.fn().mockResolvedValue(new Map()),
+      getStates: vi.fn().mockResolvedValue([]),
+      putStates: vi.fn().mockResolvedValue(undefined),
+      putSetupQueue: vi.fn().mockResolvedValue(undefined),
+      getSetupQueue: vi.fn().mockResolvedValue([]),
+      putStatesAndQueue: vi.fn().mockResolvedValue(undefined),
+    };
+    deps.reconcileAgent = vi.fn().mockResolvedValue({ skills: 0, events: 0 });
+    deps.defaultUserId = 'test-user';
+
+    const handler = createAdminHandler(deps);
+    const result = await startTestServer(handler);
+    server = result.server;
+    port = result.port;
+
+    // Hitting /admin/api/status with correct token should still return 200 —
+    // adding the new optional deps must not break existing endpoints.
+    const res = await fetchAdmin(port, '/admin/api/status', { token: 'test-secret-token' });
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('MCP server admin syncs to McpConnectionManager', () => {
   let server: Server;
   let port: number;

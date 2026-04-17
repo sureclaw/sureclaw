@@ -157,3 +157,81 @@ export interface McpTestResult {
   tools?: Array<{ name: string; description?: string }>;
   error?: string;
 }
+
+// ── Skills (Phase 5) ──
+
+/** An entry on a skill's setup card — one credential the user must provide. */
+export interface SetupCardCredential {
+  envName: string;
+  authType: 'api_key' | 'oauth';
+  scope: 'user' | 'agent';
+  oauth?: {
+    provider: string;
+    clientId: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    scopes: string[];
+  };
+}
+
+/** A pending skill setup card for a single skill on a single agent. */
+export interface SetupCard {
+  skillName: string;
+  description: string;
+  missingCredentials: SetupCardCredential[];
+  unapprovedDomains: string[];
+  mcpServers: Array<{ name: string; url: string }>;
+}
+
+/** Setup cards grouped per agent. */
+export interface AgentSetupGroup {
+  agentId: string;
+  agentName: string;
+  cards: SetupCard[];
+}
+
+/** Response from GET /admin/api/skills/setup. */
+export interface SkillSetupResponse {
+  agents: AgentSetupGroup[];
+}
+
+/** Body for POST /admin/api/skills/setup/approve. */
+export interface SkillApproveBody {
+  agentId: string;
+  skillName: string;
+  credentials: Array<{ envName: string; value: string }>;
+  approveDomains: string[];
+  userId?: string;
+}
+
+/** Possible lifecycle states for a skill. */
+export type SkillStateKind = 'enabled' | 'pending' | 'invalid';
+
+/** Post-reconcile state for a skill. */
+export interface SkillState {
+  name: string;
+  kind: SkillStateKind;
+  description?: string;
+  pendingReasons?: string[];
+  error?: string;
+}
+
+/** Response from POST /admin/api/skills/setup/approve. */
+export interface SkillApproveResponse {
+  ok: boolean;
+  state?: SkillState;
+}
+
+/** Ad-hoc credential request from the request_credential agent tool. */
+export interface CredentialRequest {
+  sessionId: string;
+  envName: string;
+  agentName: string;
+  userId?: string;
+  createdAt: number;
+}
+
+/** Response from GET /admin/api/credentials/requests. */
+export interface CredentialRequestsResponse {
+  requests: CredentialRequest[];
+}

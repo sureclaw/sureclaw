@@ -221,6 +221,8 @@ export async function mockAllAPIs(page: Page) {
   await mockConfig(page);
   await mockSessions(page);
   await mockEvents(page);
+  await mockSkillsSetup(page);
+  await mockCredentialRequests(page);
 }
 
 export async function mockSetupStatus(page: Page, configured: boolean) {
@@ -391,9 +393,100 @@ export async function mockEvents(page: Page) {
   );
 }
 
+// ── Skills (Phase 5) ──
+
+export const MOCK_SKILL_SETUP = {
+  agents: [
+    {
+      agentId: 'agent-001-abcdef123456',
+      agentName: 'research-bot',
+      cards: [
+        {
+          skillName: 'linear-tracker',
+          description: 'Read and update Linear issues.',
+          missingCredentials: [
+            {
+              envName: 'LINEAR_TOKEN',
+              authType: 'api_key',
+              scope: 'user',
+            },
+          ],
+          unapprovedDomains: ['api.linear.app'],
+          mcpServers: [
+            { name: 'linear-mcp', url: 'https://mcp.linear.app/sse' },
+          ],
+        },
+        {
+          skillName: 'gcal-helper',
+          description: 'Schedule things on Google Calendar.',
+          missingCredentials: [
+            {
+              envName: 'GOOGLE_OAUTH',
+              authType: 'oauth',
+              scope: 'user',
+              oauth: {
+                provider: 'google',
+                clientId: 'example-client-id',
+                authorizationUrl: 'https://accounts.google.com/o/oauth2/auth',
+                tokenUrl: 'https://oauth2.googleapis.com/token',
+                scopes: ['https://www.googleapis.com/auth/calendar'],
+              },
+            },
+          ],
+          unapprovedDomains: [],
+          mcpServers: [],
+        },
+      ],
+    },
+  ],
+};
+
+export const MOCK_CREDENTIAL_REQUESTS = {
+  requests: [
+    {
+      sessionId: 'sess-credreq-1111aaaa',
+      envName: 'STRIPE_API_KEY',
+      agentName: 'billing-bot',
+      userId: 'user-42',
+      createdAt: 1_710_000_000_000,
+    },
+  ],
+};
+
+export async function mockSkillsSetup(
+  page: Page,
+  data: typeof MOCK_SKILL_SETUP = MOCK_SKILL_SETUP,
+) {
+  await page.route('**/admin/api/skills/setup', (route) => {
+    const req = route.request();
+    if (req.method() !== 'GET') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(data),
+    });
+  });
+}
+
+export async function mockCredentialRequests(
+  page: Page,
+  data: typeof MOCK_CREDENTIAL_REQUESTS = MOCK_CREDENTIAL_REQUESTS,
+) {
+  await page.route('**/admin/api/credentials/requests', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(data),
+    }),
+  );
+}
+
 /** Navigate to the dashboard with a pre-set auth token. */
 export async function gotoAuthenticated(page: Page, path = '/admin/') {
   await mockAllAPIs(page);
-  // Set token via URL param (the app reads it and stores in localStorage)
-  await page.goto(`${path}?token=${MOCK_TOKEN}`);
+  // Set token via URL param (the app reads it and stores in localStorage).
+  // If `path` already has a query string (e.g. '/admin/?page=skills'), append
+  // the token with '&', otherwise start a new query string with '?'.
+  const sep = path.includes('?') ? '&' : '?';
+  await page.goto(`${path}${sep}token=${MOCK_TOKEN}`);
 }

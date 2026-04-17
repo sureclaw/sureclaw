@@ -9,6 +9,7 @@ test.describe('Navigation', () => {
   test('sidebar shows all navigation items', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Agents' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Skills' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Security' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Logs' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
@@ -30,6 +31,11 @@ test.describe('Navigation', () => {
     await expect(
       page.getByText('Manage and monitor running agents'),
     ).toBeVisible();
+  });
+
+  test('navigating to Skills page', async ({ page }) => {
+    await page.getByRole('button', { name: 'Skills' }).click();
+    await expect(page.getByRole('heading', { name: 'Skills', exact: true })).toBeVisible();
   });
 
   test('navigating to Security page', async ({ page }) => {

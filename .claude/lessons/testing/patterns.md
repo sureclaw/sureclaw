@@ -1,5 +1,11 @@
 # Testing Patterns
 
+### Playwright route overrides need "last wins" ordering
+**Date:** 2026-04-17
+**Context:** Writing `ui/admin/tests/skills.spec.ts`. An empty-state test called `mockSkillsSetup(page, { agents: [] })` before `gotoAuthenticated`, but `gotoAuthenticated` internally runs `mockAllAPIs` which re-registers the default non-empty route. The page fetched the defaults, not the empty override.
+**Lesson:** Playwright applies the most-recently-registered matching route first. If a default mock is installed via a helper (e.g. `mockAllAPIs`), any per-test override must be registered AFTER the helper runs — and if the fetch already fired before the override, `page.reload()` to re-trigger with the new routing. Equivalently: restructure helpers to skip the default route when you know a test overrides it. For the skills page I used the reload pattern because it's cheap and local.
+**Tags:** playwright, route-mocking, test-ordering, ui-admin
+
 ### Seed a bare git repo in tests via sidecar work-tree + push
 **Date:** 2026-04-16
 **Context:** Writing `tests/host/skills/snapshot.test.ts` — needed real commits/refs in a bare repo so `git ls-tree`/`git show` against `refs/heads/main` work. You can't just `git init --bare` and point at files; bare repos have no index.
