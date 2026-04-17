@@ -71,4 +71,14 @@ describe('installPostReceiveHook', () => {
     // set -eu guards against unset vars; pipefail is deliberately omitted (not POSIX).
     expect(content).toContain('set -eu');
   });
+
+  test('hook skips branch-deletion pushes (all-zero newSha)', () => {
+    // Branch deletions send newSha="0000...0000". We MUST skip these —
+    // there's no commit to read the manifest from, and reconciling would
+    // drop prior skills state via skills.reconcile_failed.
+    const bareRepo = initBareRepo();
+    installPostReceiveHook(bareRepo, 'agent-z');
+    const content = readFileSync(join(bareRepo, 'hooks', 'post-receive'), 'utf8');
+    expect(content).toContain('0000000000000000000000000000000000000000');
+  });
 });

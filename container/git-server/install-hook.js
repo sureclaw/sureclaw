@@ -41,6 +41,14 @@ while read -r oldSha newSha ref; do
     *) continue ;;
   esac
 
+  # Skip branch deletions. 'git push --delete main' sends newSha=all-zeros;
+  # there's nothing at that SHA to read the manifest from, so reconcile
+  # would just emit skills.reconcile_failed and leave prior skills stuck.
+  # The next push that recreates main will trigger a fresh reconcile.
+  case "\$newSha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+
   body=\$(printf '{"agentId":"%s","ref":"%s","oldSha":"%s","newSha":"%s"}' \\
     "\$AGENT_ID" "\$ref" "\$oldSha" "\$newSha")
 

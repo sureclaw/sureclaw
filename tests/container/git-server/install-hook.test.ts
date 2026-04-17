@@ -59,6 +59,13 @@ describe('container/git-server install-hook', () => {
     expect(tpl).not.toContain('xxd');
   });
 
+  test('template skips branch-deletion pushes (all-zero newSha)', () => {
+    // Branch deletions send newSha="0000...0000". Reconciling a deleted
+    // branch would drop prior skills state (no manifest at that SHA).
+    const tpl: string = containerInstaller.TEMPLATE;
+    expect(tpl).toContain('0000000000000000000000000000000000000000');
+  });
+
   test('container and host templates produce byte-identical hook content for the same agentId', () => {
     // Read the host TS source directly and extract the TEMPLATE literal.
     // We can't import the TS file at test runtime without the TS compiler
