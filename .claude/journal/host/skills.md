@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 12:12] — Phase 6 Task 1: admin OAuth providers table + crypto + storage
+
+**Task:** Foundation for phase 6 OAuth PKCE work — new `admin_oauth_providers` table (provider pk, client_id, encrypted client_secret, redirect_uri, updated_at), AES-256-GCM crypto helpers, Kysely storage module, and server-init wiring.
+**What I did:** Created `src/migrations/admin-oauth-providers.ts` modeled on `skills.ts` (SQLite default export, `buildAdminOAuthMigrations(dbType)` for Postgres path). Created `src/host/admin-oauth-providers.ts` with `encryptSecret`/`decryptSecret` (iv || ct || tag, base64), `deriveOAuthKey` (env var preferred, sha256(admin.token) fallback with warning), and `createAdminOAuthProviderStore` exposing get/list/upsert/delete. `list()` deliberately omits `clientSecret` (wire safety). Extended `server-init.ts`'s `if (providers.database)` block to run the new migration under table name `admin_oauth_migration`, derive the key, and attach `adminOAuthKey` + `adminOAuthProviderStore` to `HostCore`.
+**Files touched:** `src/migrations/admin-oauth-providers.ts` (new), `src/host/admin-oauth-providers.ts` (new), `src/host/server-init.ts` (wiring + HostCore fields), `tests/host/admin-oauth-providers.test.ts` (new, 12 cases).
+**Outcome:** Success. 12/12 new tests pass; 183/183 phase-5 tests still pass; `tsc --noEmit` clean.
+**Notes:** Store's `delete()` sums `numDeletedRows: bigint` across Kysely's `DeleteResult[]` so idempotency returns correct booleans under either single- or multi-statement backends. The conflict branch of upsert explicitly bumps `updated_at = Math.floor(Date.now()/1000)` to match the `sqlEpoch` default applied on first insert. No endpoints/flow logic wired — that's Tasks 2–4.
+
 ## [2026-04-17 10:50] — Phase 5 PR #180 review feedback
 
 **Task:** Address CodeRabbit review comments on PR #180 (phase 5 dashboard setup cards).

@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-04-17 12:12 — Phase 6 Task 1: admin OAuth providers table + AES-256-GCM crypto helpers + Kysely store + server-init wiring [skills.md](skills.md)
 - 2026-04-17 10:17 — Phase 5 complete: docs wrap-up (ax-host skill, design doc rollout status, journal entry) [skills.md](skills.md)
 - 2026-04-17 14:15 — Phase 5 Task 8: end-to-end verification of `/admin/api/skills/*` against local host (SQLite, admin token) — all endpoints behaved as specified [skills.md](skills.md)
 - 2026-04-17 12:05 — Phase 5 Task 7: Skills sidebar nav entry (Sparkles icon between Agents and Connectors) + navigation.spec.ts updates [skills.md](skills.md)

@@ -31,6 +31,7 @@ import type { SkillStateStore } from './skills/state-store.js';
 import type { McpApplier } from './skills/mcp-applier.js';
 import type { ProxyApplier } from './skills/proxy-applier.js';
 import { createCredentialRequestQueue, type CredentialRequestQueue } from './credential-request-queue.js';
+import type { AdminOAuthProviderStore } from './admin-oauth-providers.js';
 
 const logger = getLogger();
 
@@ -92,6 +93,18 @@ export interface HostCore {
    *  restart or dispose the host core should invoke this; otherwise the
    *  subscription lives for the process lifetime. */
   unsubscribeCredentialRequests: () => void;
+  /** Phase 6 Task 1: symmetric key used to encrypt admin-registered OAuth
+   *  client secrets at rest. Derived from `AX_OAUTH_SECRET_KEY` (preferred)
+   *  or sha256(admin.token) as a fallback. Exposed so Task 2's CRUD endpoint
+   *  handler can construct its own store views if needed. Undefined when
+   *  no database provider is available. */
+  adminOAuthKey?: Buffer;
+  /** Phase 6 Task 1: admin-registered OAuth provider store. Pre-configured
+   *  client_id + (encrypted) client_secret + redirect_uri per provider name,
+   *  used by the OAuth start/callback flow in later phase-6 tasks to override
+   *  a skill's frontmatter `client_id` (upgrading a public-client config to
+   *  a confidential one). Undefined when no database provider is available. */
+  adminOAuthProviderStore?: AdminOAuthProviderStore;
 }
 
 /**
@@ -255,6 +268,8 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   // Only created when a database provider is available; otherwise the
   // skills_index handler silently returns an empty list (Task 3 behavior).
   let stateStore: SkillStateStore | undefined;
+  let adminOAuthKey: Buffer | undefined;
+  let adminOAuthProviderStore: AdminOAuthProviderStore | undefined;
   if (providers.database) {
     const { runMigrations } = await import('../utils/migrator.js');
     const { skillsMigrations } = await import('../migrations/skills.js');
@@ -266,6 +281,38 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     );
     if (migResult.error) throw migResult.error;
     stateStore = createSkillStateStore(providers.database.db);
+
+    // Phase 6 Task 1: admin-registered OAuth providers. Run the migration
+    // alongside the skills one (same Kysely instance, distinct migration
+    // table name so their histories don't collide), derive the encryption
+    // key, and construct the store so Task 2's CRUD endpoints can wire to
+    // it without another round of setup.
+    const { adminOAuthMigrations } = await import('../migrations/admin-oauth-providers.js');
+    const { deriveOAuthKey, createAdminOAuthProviderStore } =
+      await import('./admin-oauth-providers.js');
+    const oauthMigResult = await runMigrations(
+      providers.database.db,
+      adminOAuthMigrations,
+      'admin_oauth_migration',
+    );
+    if (oauthMigResult.error) throw oauthMigResult.error;
+    const envKey = process.env.AX_OAUTH_SECRET_KEY;
+    const adminToken = config.admin?.token ?? '';
+    const derived = deriveOAuthKey(adminToken, envKey);
+    if (derived.derivedFrom === 'admin-token') {
+      // Fallback path — warn so ops know rotating the admin token will
+      // also rotate the encryption key (and invalidate any already-stored
+      // client secrets). Set AX_OAUTH_SECRET_KEY to a 32-byte hex string
+      // to decouple.
+      logger.warn('admin_oauth_key_from_admin_token', {
+        hint: 'Set AX_OAUTH_SECRET_KEY (32 hex bytes) to decouple the encryption key from admin.token rotation.',
+      });
+    }
+    adminOAuthKey = derived.key;
+    adminOAuthProviderStore = createAdminOAuthProviderStore(
+      providers.database.db,
+      adminOAuthKey,
+    );
   }
 
   // Phase 4: construct live-state appliers when the state store is available.
@@ -459,5 +506,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     proxyApplier,
     credentialRequestQueue,
     unsubscribeCredentialRequests,
+    adminOAuthKey,
+    adminOAuthProviderStore,
   };
 }

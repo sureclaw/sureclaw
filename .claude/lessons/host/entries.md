@@ -1,5 +1,17 @@
 # Host
 
+### Kysely's DeleteResult is an array; sum numDeletedRows across it
+**Date:** 2026-04-17
+**Context:** Phase 6 Task 1. The admin OAuth store needs `delete()` to return whether a row was actually removed (idempotent API contract: first delete returns true, second returns false). My first instinct was `const res = await db.deleteFrom(...).execute(); return res.numDeletedRows > 0n` — but Kysely's `execute()` on a delete returns `DeleteResult[]`, not a single object. Single-statement backends give you a one-element array, multi-statement backends (CTE-ful Postgres queries, multi-DB) give you multiple. Accessing `.numDeletedRows` directly on the array silently yields `undefined` (which is not > 0n, so the function always returns false).
+**Lesson:** When consuming Kysely mutation results, always treat them as arrays and sum the `numDeletedRows`/`numUpdatedRows`/`numInsertedOrUpdatedRows` fields across the batch. Pattern: `const total = res.reduce((n: bigint, r) => n + r.numDeletedRows, 0n); return total > 0n`. The bigint literal `0n` matters — these fields are `bigint`, not `number`.
+**Tags:** kysely, database, delete, idempotence, bigint
+
+### AES-256-GCM: encode (iv || ciphertext || tag) into a single blob
+**Date:** 2026-04-17
+**Context:** Phase 6 Task 1 encrypting OAuth client secrets at rest. Node's `crypto` API forces you to keep track of three separate pieces (iv, ciphertext, tag) because `getAuthTag()` is returned *after* `final()`. Storing them in three DB columns is possible but annoying — every read/write gets a third the readability.
+**Lesson:** For AES-256-GCM at rest, concatenate `Buffer.concat([iv(12), ciphertext, tag(16)])` and base64-encode the whole thing into a single TEXT column. On read: slice `iv = buf[0..12)`, `tag = buf[len-16..len)`, `ct = buf[12..len-16)`. Reject blobs shorter than 12+16 bytes up front — `decipher.setAuthTag` will throw on those anyway but a clear error beats an opaque GCM failure. Never reuse IVs; always `randomBytes(12)` per encrypt call.
+**Tags:** crypto, aes-gcm, secrets-at-rest, node-crypto, encryption
+
 ### Admin auth is bypassed on loopback when BIND_HOST defaults to 127.0.0.1
 **Date:** 2026-04-17
 **Context:** Phase 5 Task 8 end-to-end verification. I was curling `/admin/api/*` endpoints with and without `Authorization: Bearer <token>` to confirm auth worked. Both succeeded. My first instinct was "the token check is broken" — it wasn't. `server.ts:332` sets `localDevMode = bindHost === '127.0.0.1' || bindHost === '::1'`, and `server-admin.ts:197` does `skipAuth = authDisabled || externalAuth || (localDevMode && isLoopback(clientIp))`. When the process binds to 127.0.0.1 AND the request comes from a loopback address, the token check is skipped — by design, for local dev.
