@@ -9,6 +9,7 @@ import {
   Hexagon,
   ChevronRight,
   Globe,
+  Sparkles,
 } from 'lucide-react';
 import { getToken, setToken, clearToken, apiFetch } from './lib/api';
 import type { SetupStatus } from './lib/types';
@@ -56,6 +57,7 @@ type AuthState = 'loading' | 'authenticated' | 'login' | 'access-denied' | 'setu
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'agents', label: 'Agents', icon: Users },
+  { id: 'skills', label: 'Skills', icon: Sparkles },
   { id: 'connectors', label: 'Connectors', icon: Globe },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'logs', label: 'Logs', icon: FileText },

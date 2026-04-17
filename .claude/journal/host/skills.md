@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 12:05] — Phase 5 Task 7: Skills sidebar nav entry
+
+**Task:** Wire the Skills page into the admin sidebar. Task 6 had already added `'skills'` to the `Page` union and the `activePage === 'skills'` render branch; the visible entry point (the sidebar button) was intentionally deferred to this task.
+**What I did:** (1) In `ui/admin/src/App.tsx`, imported `Sparkles` from `lucide-react` and inserted `{ id: 'skills', label: 'Skills', icon: Sparkles }` into `NAV_ITEMS` between `'agents'` and `'connectors'` so the final order reads Overview / Agents / Skills / Connectors / Security / Logs / Settings. (2) In `ui/admin/tests/navigation.spec.ts`, added `Skills` to the "sidebar shows all navigation items" visibility assertions and added a new `navigating to Skills page` test placed next to the Agents equivalent — clicks the Skills button and asserts the `heading { name: 'Skills', exact: true }` becomes visible (the `<h2>Skills</h2>` inside `skills-page.tsx`). Verified `fixtures.ts` `mockAllAPIs` already calls both `mockSkillsSetup` and `mockCredentialRequests` (added in Task 6) — no fixture changes needed.
+**Files touched:** `ui/admin/src/App.tsx`, `ui/admin/tests/navigation.spec.ts`.
+**Outcome:** Success — `npx playwright test navigation.spec.ts skills.spec.ts` = 18/18 pass (10 navigation + 8 skills). `npx tsc --noEmit` clean at both the worktree root and in `ui/admin/`.
+**Notes:** Scope-discipline pass — two lines of production change and ~6 lines of test change. No backend or SkillsPage edits. `Sparkles` mirrors the icon already used inside the SkillsPage header, so the sidebar and page header match visually.
+
 ## [2026-04-17 11:45] — Phase 5 Task 6 follow-up: page-param leak + approve detail parsing
 
 **Task:** Two minor Task 6 review findings. (1) `readInitialPage` in `App.tsx` had a JSDoc claim it stripped `?page=` from history, but the strip only covered `?token=` — reloads on `/admin/?page=skills` pinned the user to the Skills page forever. (2) `handleApprove` in `skills-page.tsx` tried `JSON.parse(msg)` to extract `.details` from the approve-error message, but `apiFetch` flattens the JSON envelope to a plain string before throwing — the parse always failed, so `errorDetails` was never populated. Chose Option A (preserve details on the thrown Error) since approve surfaces genuinely useful strings like "Unexpected credential: EVIL_KEY".
