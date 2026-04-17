@@ -4,6 +4,7 @@ General refactoring, cleanup work, stale reference removal.
 
 ## Entries
 
+- 2026-04-17 17:44 — Phase 7 Task 3: Strip legacy plugin machinery (keep MCP manager) [cleanup.md](cleanup.md)
 - 2026-04-17 17:30 — Phase 7 Task 2: Delete ClawHub registry + legacy skill DocumentStore [cleanup.md](cleanup.md)
 - 2026-04-17 17:13 — Phase 7 Task 1: Remove skill IPC + agent tool [cleanup.md](cleanup.md)
 - 2026-04-14 06:20 — Replace ClawHub filesystem cache with in-memory cache [cleanup.md](cleanup.md)

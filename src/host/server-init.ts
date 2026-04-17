@@ -25,7 +25,7 @@ import { AgentProvisioner } from './agent-provisioner.js';
 import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
-import { reloadPluginMcpServers, loadDatabaseMcpServers } from '../plugins/startup.js';
+import { loadDatabaseMcpServers } from '../plugins/startup.js';
 import type { AdminContext } from './server-admin-helpers.js';
 import type { SkillStateStore } from './skills/state-store.js';
 import type { McpApplier } from './skills/mcp-applier.js';
@@ -478,10 +478,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   });
   completionDeps.ipcHandler = handleIPC;
 
-  // ── Load MCP servers into the manager from plugins and database ──
-  if (mcpManager && providers.storage?.documents) {
-    await reloadPluginMcpServers(providers.storage.documents, mcpManager);
-  }
+  // ── Load MCP servers into the manager from the database ──
   if (mcpManager && providers.database) {
     await loadDatabaseMcpServers(providers.database, mcpManager);
   }

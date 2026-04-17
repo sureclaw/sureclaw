@@ -1,5 +1,11 @@
 # Architecture
 
+## When deleting a subsystem, inline its last-surviving type into the sibling that uses it
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 3 deleted `src/plugins/{fetcher,install,parser,store,types}.ts`. The `types.ts` file was going away, but `src/plugins/mcp-manager.ts` (which stays — phase-4 depends on it) still imported `PluginMcpServer` from `./types.js`. Leaving `types.ts` alive just for one interface used by one file would have kept a stub alive for no reason.
+**Lesson:** When a shared-types module has only one surviving consumer after a deletion pass, inline the type into the consumer rather than keeping the module as a shell. This leaves the codebase with strictly fewer files and strictly fewer cross-file imports. If/when a second consumer shows up, you can re-extract. Don't preserve structure "just in case" — that's how you end up with 6-line modules that future greps mistake for important seams.
+**Tags:** refactoring, deletion, types, module-boundaries, phase-7
+
 ## Deletion tasks need a dependency audit, not just a grep of "what imports the target"
 **Date:** 2026-04-17
 **Context:** Phase 7 Task 2 (delete `src/clawhub/registry-client.ts` + `src/providers/storage/skills.ts`) assumed the previous task's cleanup was sufficient to leave zero live importers. It wasn't — `server-admin.ts` (admin CRUD routes), `server-init.ts` (a dead DB-allowlist block), and `plugins/install.ts` (skill upserts) still pulled from the target modules. The plan scoped each of those to future tasks, but the build broke immediately without touching them.

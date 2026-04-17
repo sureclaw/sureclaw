@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-17 17:44] — Phase 7 Task 3: Strip legacy plugin machinery (keep MCP manager)
+
+**Task:** Remove the plugin-manifest install pipeline (fetcher/install/parser/store/types) while keeping `mcp-manager`, `mcp-client`, and `loadDatabaseMcpServers` — phase-4 MCP wiring still depends on those.
+**What I did:** `git rm`'d `src/plugins/{fetcher,install,parser,store,types}.ts` plus `tests/plugins/{fetcher,parser,store}.test.ts`. Rewrote `src/plugins/startup.ts` to a ~55-line module exporting only `loadDatabaseMcpServers` (dropped `reloadPluginMcpServers`, `autoInstallDeclaredPlugins`, and imports of the removed modules). Updated `src/host/server-init.ts` import to a single `loadDatabaseMcpServers` and removed the `reloadPluginMcpServers` call site. Inlined `PluginMcpServer` into `src/plugins/mcp-manager.ts` (formerly imported from `types.ts`). Trimmed `tests/plugins/startup.test.ts` to keep only the three `loadDatabaseMcpServers` cases. Stubbed Task-4 scope so build stays green: `src/cli/plugin.ts` now exports a single `runPlugin` that prints a retirement notice and exits 1; plugin list/install/uninstall routes in `src/host/server-admin.ts` collapse to a single 410 response with a `TODO(phase7-task4)` marker. Both stubs carry `TODO(phase7-task4)` so the next task knows what to delete.
+**Files touched:** Deleted: `src/plugins/fetcher.ts`, `src/plugins/install.ts`, `src/plugins/parser.ts`, `src/plugins/store.ts`, `src/plugins/types.ts`, `tests/plugins/fetcher.test.ts`, `tests/plugins/parser.test.ts`, `tests/plugins/store.test.ts`. Modified: `src/plugins/startup.ts`, `src/plugins/mcp-manager.ts`, `src/host/server-init.ts`, `src/host/server-admin.ts`, `src/cli/plugin.ts`, `tests/plugins/startup.test.ts`.
+**Outcome:** Success — `npm run build` clean; targeted tests green (`tests/plugins`: 4 files/28 tests; `tests/host/server-admin`: 36 tests). The 29 macOS EINVAL socket failures in `tests/host/server.test.ts` are pre-existing (long-path Unix socket issue, unrelated).
+**Notes:** `server-admin.ts`'s plugin routes and `cli/plugin.ts` still exist as stubs because their static/dynamic imports of deleted modules would have broken the build. Task 4 deletes them outright. `mcp-manager.ts` kept its public `PluginMcpServer` export (renamed doc comment, same shape) — used by inprocess, server-completions, mcp-applier, and the DB MCP provider.
+
 ## [2026-04-17 17:30] — Phase 7 Task 2: Delete ClawHub registry + legacy skill DocumentStore
 
 **Task:** Remove the ClawHub registry client and the DocumentStore-backed skill storage module, now that skills are authored git-natively and phase 3+ state-store handles reconciliation.

@@ -940,81 +940,18 @@ async function handleAdminAPI(
 
   // ── Plugin Management ──
 
-  // GET /admin/api/agents/:id/plugins — list installed plugins
+  // TODO(phase7-task4): these plugin admin routes are retired and will be
+  // deleted wholesale in Task 4. Until then, they 410-stub so Task 3 can drop
+  // the underlying modules (fetcher/install/parser/store/types) without
+  // breaking the TS build via dangling dynamic imports.
   const pluginListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins$/);
-  if (pluginListMatch && method === 'GET') {
-    const id = decodeURIComponent(pluginListMatch[1]);
-    if (!providers.storage?.documents) { sendJSON(res, []); return; }
-    const { listPlugins } = await import('../plugins/store.js');
-    const plugins = await listPlugins(providers.storage.documents, id);
-    sendJSON(res, plugins.map(p => ({
-      name: p.pluginName,
-      version: p.version,
-      description: p.description,
-      source: p.source,
-      skills: p.skillCount,
-      commands: p.commandCount,
-      mcpServers: p.mcpServers.map(s => s.name),
-      installedAt: p.installedAt,
-    })));
+  if (pluginListMatch && (method === 'GET' || method === 'POST')) {
+    sendError(res, 410, 'Plugin manifest install routes have been retired. Use `ax mcp` for MCP servers.');
     return;
   }
-
-  // POST /admin/api/agents/:id/plugins — install a plugin
-  if (pluginListMatch && method === 'POST') {
-    const id = decodeURIComponent(pluginListMatch[1]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    try {
-      const body = JSON.parse(await readBody(req));
-      const { source } = body;
-      if (typeof source !== 'string' || !source) { sendError(res, 400, 'Missing required field: source'); return; }
-      if (!deps.mcpManager) {
-        logger.warn('admin_plugin_install_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not persist' });
-      }
-      const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
-      const mcpManager = deps.mcpManager ?? new McpConnectionManager();
-      const { installPlugin } = await import('../plugins/install.js');
-      const result = await installPlugin({
-        source,
-        agentId: id,
-        documents: providers.storage.documents,
-        mcpManager,
-        audit: providers.audit,
-        domainList: deps.domainList,
-        sessionId: 'admin',
-        database: providers.database,
-      });
-      sendJSON(res, result, result.installed ? 201 : 400);
-    } catch (err) {
-      sendError(res, 400, `Install failed: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // DELETE /admin/api/agents/:id/plugins/:name — uninstall a plugin
   const pluginDeleteMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins\/([^/]+)$/);
   if (pluginDeleteMatch && method === 'DELETE') {
-    const id = decodeURIComponent(pluginDeleteMatch[1]);
-    const name = decodeURIComponent(pluginDeleteMatch[2]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    if (!deps.mcpManager) {
-      logger.warn('admin_plugin_uninstall_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not be cleaned up' });
-    }
-    const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
-    const mcpManager = deps.mcpManager ?? new McpConnectionManager();
-    const { uninstallPlugin } = await import('../plugins/install.js');
-    const result = await uninstallPlugin({
-      pluginName: name,
-      agentId: id,
-      documents: providers.storage.documents,
-      mcpManager,
-      audit: providers.audit,
-      domainList: deps.domainList,
-      sessionId: 'admin',
-      database: providers.database,
-    });
-    if (!result.ok) { sendError(res, 404, result.reason ?? 'Not found'); return; }
-    sendJSON(res, { ok: true });
+    sendError(res, 410, 'Plugin manifest install routes have been retired. Use `ax mcp` for MCP servers.');
     return;
   }
 
