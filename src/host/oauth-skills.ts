@@ -14,6 +14,11 @@ import type { EventBus } from './event-bus.js';
 
 const logger = getLogger().child({ component: 'oauth-skills' });
 
+/** OAuth token endpoint timeout. 15s balances slow enterprise IdPs against
+ * DoS exposure from hostile/stuck servers; longer hangs keep a pending flow
+ * state consumed and the HTTP request queued. */
+const TOKEN_EXCHANGE_TIMEOUT_MS = 15_000;
+
 /** Stored credential blob — self-contained for refresh. */
 export interface OAuthCredentialBlob {
   access_token: string;
@@ -122,6 +127,7 @@ export async function resolveOAuthCallback(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
       body: body.toString(),
+      signal: AbortSignal.timeout(TOKEN_EXCHANGE_TIMEOUT_MS),
     });
 
     if (!res.ok) {
@@ -200,6 +206,7 @@ export async function refreshOAuthToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
     body: body.toString(),
+    signal: AbortSignal.timeout(TOKEN_EXCHANGE_TIMEOUT_MS),
   });
 
   if (!res.ok) {

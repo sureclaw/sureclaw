@@ -521,6 +521,54 @@ describe('resolveCallback', () => {
     expect(tokenCall!.scope).toBe('agent:main');
   });
 
+  it('returns error when token endpoint hangs (AbortSignal.timeout fires)', async () => {
+    // Short timeout (50ms) so the test doesn't wait 15s. The
+    // `tokenExchangeTimeoutMs` knob on `createAdminOAuthFlow` exists purely
+    // to keep this hygiene test fast — production default is 15s.
+    const flow = createAdminOAuthFlow({ tokenExchangeTimeoutMs: 50 });
+    const { state } = flow.start(baseInput());
+
+    // Fetch returns a promise that only settles when its AbortSignal fires.
+    // When the timeout expires, the runtime aborts the signal and we reject
+    // with an AbortError — same shape a real fetch abort produces.
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      (_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+        });
+      }),
+    );
+
+    const credentials = makeCredentials();
+    const audit = makeAudit();
+    const reconcile = vi.fn(async () => ({ skills: 0, events: 0 }));
+
+    const result = await flow.resolveCallback({
+      provider: 'linear',
+      code: 'code-hang',
+      state,
+      credentials,
+      audit,
+      reconcileAgent: reconcile,
+    });
+
+    expect(result.matched).toBe(true);
+    expect(result).toMatchObject({ ok: false, reason: 'error' });
+
+    // No credential write, no reconcile call — the hang must not leave
+    // partial state behind.
+    expect(credentials.setCalls).toEqual([]);
+    expect(reconcile).not.toHaveBeenCalled();
+
+    // Audit records the failure so the DoS attempt is visible.
+    const fail = audit.calls.find(c => c.action === 'oauth_callback_failed');
+    expect(fail).toBeDefined();
+
+    // Verify the signal was actually passed (not just that fetch was called).
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(fetchCall[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('claim is single-use for callback: second resolveCallback with same state → matched:false', async () => {
     const flow = createAdminOAuthFlow();
     const { state } = flow.start(baseInput());

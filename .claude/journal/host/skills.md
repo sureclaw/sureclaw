@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 14:00] — Phase 6 Task 4 follow-up: 15s timeout on OAuth token-exchange fetches
+
+**Task:** Review-fix: the three OAuth token-endpoint fetches (admin-initiated in `admin-oauth-flow.ts#resolveCallback`, agent-initiated in `oauth-skills.ts#resolveOAuthCallback` + `refreshOAuthToken`) had no timeout. A hostile or unresponsive IdP hangs the host request forever AND keeps the pending-flow state consumed with no recovery path. DoS hygiene gap on a security-critical path.
+**What I did:** Added `const TOKEN_EXCHANGE_TIMEOUT_MS = 15_000` (same name + comment in both files — same invariant). Passed `signal: AbortSignal.timeout(...)` to each of the three fetch calls. In `admin-oauth-flow.ts`, made the timeout injectable via new `CreateAdminOAuthFlowOpts.tokenExchangeTimeoutMs` so tests can override to 50ms without waiting 15s. Existing catch blocks already surface thrown errors as `{ ok:false, reason:'error' }` with audit — timeout folds in as one more failure mode, no behavior changes otherwise. Added one test in `tests/host/admin-oauth-flow.test.ts` that stubs fetch to hang on its own AbortSignal, fires the injected short timeout, and asserts no credential write / no reconcile call / audit failure emitted.
+**Files touched:** `src/host/admin-oauth-flow.ts`, `src/host/oauth-skills.ts`, `tests/host/admin-oauth-flow.test.ts`.
+**Outcome:** Success. 135/135 across the 8 target files (including pre-existing `tests/host/oauth-skills.test.ts`); `tsc --noEmit` clean.
+**Notes:** `AbortSignal.timeout(ms)` is native in Node 18+; no polyfill. Not touching `oauth-skills.ts` beyond the three-line signal add per scope discipline — existing agent-flow tests still pass, no new coverage there. Test uses a DOMException with name `'AbortError'` to match real fetch-abort semantics; the implementation path doesn't branch on error name, so this is just cosmetic parity.
+
 ## [2026-04-17 13:51] — Phase 6 Task 4: OAuth callback extension + reconcile trigger
 
 **Task:** Extend `/v1/oauth/callback/:provider` to handle admin-initiated flows first. Adds `resolveCallback` to `AdminOAuthFlow`: exchanges the auth code (PKCE verifier + optional client_secret for admin-registered confidential providers), writes `access_token` at the declared credential scope, persists a refresh blob at `<envName>__oauth_blob`, audits, and fires `reconcileAgent` best-effort. On match (ok or fail), we do NOT fall through to the agent-initiated oauth-skills path — matched:true consumes the state.

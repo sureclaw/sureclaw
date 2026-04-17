@@ -22,6 +22,11 @@ const logger = getLogger().child({ component: 'admin-oauth-flow' });
 
 const TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+/** OAuth token endpoint timeout. 15s balances slow enterprise IdPs against
+ * DoS exposure from hostile/stuck servers; longer hangs keep a pending flow
+ * state consumed and the HTTP request queued. */
+const TOKEN_EXCHANGE_TIMEOUT_MS = 15_000;
+
 export interface AdminOAuthPendingFlow {
   agentId: string;
   agentName: string; // credential-scope source
@@ -106,10 +111,14 @@ export interface AdminOAuthFlow {
 export interface CreateAdminOAuthFlowOpts {
   /** For tests. Override the clock. */
   now?: () => number;
+  /** For tests. Override the token-exchange fetch timeout (ms). Defaults to
+   *  `TOKEN_EXCHANGE_TIMEOUT_MS` (15s). */
+  tokenExchangeTimeoutMs?: number;
 }
 
 export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): AdminOAuthFlow {
   const now = opts.now ?? (() => Date.now());
+  const tokenExchangeTimeoutMs = opts.tokenExchangeTimeoutMs ?? TOKEN_EXCHANGE_TIMEOUT_MS;
   const flows = new Map<string, AdminOAuthPendingFlow>();
 
   function sweepExpired(): void {
@@ -230,6 +239,7 @@ export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): Admin
             'Accept': 'application/json',
           },
           body: body.toString(),
+          signal: AbortSignal.timeout(tokenExchangeTimeoutMs),
         });
       } catch (err) {
         logger.error('admin_oauth_token_fetch_error', {
