@@ -713,9 +713,9 @@ async function handleAdminAPI(
     // Audit throws propagate (same as approve) — audit is a security invariant.
     await providers.audit.log({
       action: 'skill_dismissed',
+      sessionId: agentId,
       args: { agentId, skillName },
       result: 'success',
-      timestamp: new Date(),
       durationMs: 0,
     });
     sendJSON(res, { ok: true, removed: true });

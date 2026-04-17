@@ -88,6 +88,10 @@ export interface HostCore {
    *  event bus. Surfaced via `GET /admin/api/credentials/requests` and
    *  drained by `POST /admin/api/credentials/provide`. */
   credentialRequestQueue: CredentialRequestQueue;
+  /** Detach the `credential.required` → queue subscription. Callers that
+   *  restart or dispose the host core should invoke this; otherwise the
+   *  subscription lives for the process lifetime. */
+  unsubscribeCredentialRequests: () => void;
 }
 
 /**
@@ -102,7 +106,10 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   // ad-hoc requests from the `request_credential` agent tool at any time,
   // not just while an SSE client is connected.
   const credentialRequestQueue = createCredentialRequestQueue();
-  eventBus.subscribe((event) => {
+  // Capture the unsubscribe fn so callers (tests / future shutdown paths) can
+  // detach the listener. Matches the pattern used in server-admin.ts and
+  // event-console.ts.
+  const unsubscribeCredentialRequests = eventBus.subscribe((event) => {
     if (event.type !== 'credential.required') return;
     const data = event.data ?? {};
     const envName = typeof data.envName === 'string' ? data.envName : '';
@@ -451,5 +458,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     mcpApplier,
     proxyApplier,
     credentialRequestQueue,
+    unsubscribeCredentialRequests,
   };
 }

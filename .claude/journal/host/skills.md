@@ -4,6 +4,18 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 10:50] — Phase 5 PR #180 review feedback
+
+**Task:** Address CodeRabbit review comments on PR #180 (phase 5 dashboard setup cards).
+**What I did:** Four minor findings, three actioned, one deferred:
+1. `server-admin-skills-helpers.ts` + `server-admin.ts` — stripped redundant `timestamp: new Date()` from the two new `audit.log` calls (the database provider sets its own timestamp when omitted). Added `sessionId: body.agentId` / `sessionId: agentId` so audit queries can filter by agent for skill_approved and skill_dismissed.
+2. `server-init.ts` — captured the unsubscribe function returned by `eventBus.subscribe(...)` in a new `unsubscribeCredentialRequests` field on `HostCore`. Matches the pattern used in server-admin.ts and event-console.ts; no current caller invokes it but future shutdown paths now have a handle.
+3. `skills-page.tsx` — added `success` to the Approve + Dismiss disable conditions so a second click during the 1.5s post-success refresh window can't fire a duplicate `/approve` (which would 404 once reconcile drops the setup row) or a stray dismiss. Added a Playwright assertion to the "approve click" test that both buttons are disabled after success. Matches `CredentialRequestCard`'s existing behavior.
+4. TOCTOU on dismiss's read-modify-write was flagged as "no change requested for this PR" by the reviewer and genuinely out of scope — acceptable for single-admin dashboards. Deferred.
+**Files touched:** `src/host/server-admin-skills-helpers.ts`, `src/host/server-admin.ts`, `src/host/server-init.ts`, `ui/admin/src/components/pages/skills-page.tsx`, `ui/admin/tests/skills.spec.ts`.
+**Outcome:** Success. 72/72 backend tests + 8/8 Playwright + root & UI tsc all pass.
+**Notes:** `AuditEntry.timestamp` is declared non-optional on the type but `AuditProvider.log(entry: Partial<AuditEntry>)` takes a partial, and the database provider falls back to `new Date().toISOString()` when timestamp is absent — so stripping it is safe and makes the new call sites consistent with existing ones.
+
 ## [2026-04-17 10:17] — Phase 5 complete: dashboard setup cards
 
 **Task:** Implement phase 5 of git-native skills: dashboard setup cards + atomic approve + credential request queue + React UI.

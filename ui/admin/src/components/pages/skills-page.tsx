@@ -60,7 +60,11 @@ function SetupCardView({ agentId, card, onChange }: SetupCardViewProps) {
     (c) => (credentialValues[c.envName] ?? '').trim() === ''
   );
 
-  const approveDisabled = submitting || hasOAuth || missingApiKeyValue;
+  // Once an approve succeeds we defer the refresh 1.5s so the "Enabled" chip
+  // is visible before the card vanishes. During that window both buttons stay
+  // visible — disable them so a second click can't fire a duplicate approve
+  // (which would 404 once reconcile drops the setup row) or a stray dismiss.
+  const approveDisabled = submitting || success || hasOAuth || missingApiKeyValue;
 
   const toggleDomain = useCallback((domain: string) => {
     setDomainChecks((prev) => ({ ...prev, [domain]: !prev[domain] }));
@@ -276,7 +280,7 @@ function SetupCardView({ agentId, card, onChange }: SetupCardViewProps) {
           <button
             onClick={handleDismissClick}
             className="btn-danger text-[13px] flex items-center gap-1.5"
-            disabled={submitting}
+            disabled={submitting || success}
           >
             <Trash2 size={13} />
             {confirmingDismiss ? 'Confirm dismiss?' : 'Dismiss'}

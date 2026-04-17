@@ -161,6 +161,7 @@ export async function approveSkillSetup(
   //     route handler's outer catch surfaces the error to the caller.
   await deps.providers.audit.log({
     action: 'skill_approved',
+    sessionId: body.agentId,
     args: {
       agentId: body.agentId,
       skillName: body.skillName,
@@ -168,7 +169,6 @@ export async function approveSkillSetup(
       envNames: body.credentials.map(c => c.envName),
     },
     result: 'success',
-    timestamp: new Date(),
     durationMs: 0,
   });
 

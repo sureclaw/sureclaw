@@ -98,6 +98,13 @@ test.describe('Skills Page', () => {
       credentials: [{ envName: 'LINEAR_TOKEN', value: 'secret-token-value' }],
       approveDomains: ['api.linear.app'],
     });
+
+    // Approve + Dismiss stay visible during the 1.5s refresh window. They
+    // MUST be disabled so a second click can't fire a duplicate /approve
+    // (which would 404 once reconcile drops the setup row) or a stray dismiss.
+    const card = page.locator('[data-testid="setup-card-linear-tracker"]');
+    await expect(card.getByRole('button', { name: /approve & enable/i })).toBeDisabled();
+    await expect(card.getByRole('button', { name: /dismiss/i })).toBeDisabled();
   });
 
   test('approve surfaces both error and details when the server rejects', async ({ page }) => {
