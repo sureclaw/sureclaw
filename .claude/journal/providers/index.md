@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-04-17 06:02 — Phase 3 Task 3: skills_index IPC handler [skills.md](skills.md)
 - 2026-04-17 05:53 — Phase 3 Task 1: SkillStateStore.getStates [skills.md](skills.md)
 - 2026-04-17 05:15 — PR #176 review-comment fixes: hostname validation, MCP self-conflict dedup, clean event payload [skills.md](skills.md)
 - 2026-04-17 00:15 — Git-native skills Phase 2 Task 9: git-http installs post-receive hook + unify template [workspace.md](workspace.md)

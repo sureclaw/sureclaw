@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-17 06:02] — Phase 3 Task 3: skills_index IPC handler
+
+**Task:** Phase 3 Task 3 of git-native skills rollout — add `skills_index` handler to `createSkillsHandlers` in `src/host/ipc-handlers/skills.ts`. Handler reads from a new optional `stateStore?: SkillStateStore` on `SkillsHandlerOptions` via `stateStore.getStates(ctx.agentId)` and returns `{skills: Array<{name, kind, description?, pendingReasons?}>}`. Falls back to `{skills: []}` when `stateStore` is not wired. Actual wire-up through `ipc-server.ts` + `server.ts` is Task 4 — out of scope here.
+**What I did:** TDD: wrote `tests/host/ipc-handlers/skills-index.test.ts` with 4 cases (no-store → empty, scoped read, optional-field omission including not-leaking `error`, unknown-agent → empty). Confirmed all 4 failed with `handlers.skills_index is not a function`. Added `SkillStateStore` import + `stateStore?` field on `SkillsHandlerOptions`. Implemented `skills_index` between `skill_delete` and `audit_query`. Deliberately strips `s.error` from the response shape — prompt builder doesn't need raw parse errors, `kind: 'invalid'` is the signal. No audit log call since this runs every agent turn.
+**Files touched:** `src/host/ipc-handlers/skills.ts` (add import, add `stateStore?` option, add handler), `tests/host/ipc-handlers/skills-index.test.ts` (new, 4 tests)
+**Outcome:** Success — 4/4 new tests pass, `npm run build` clean, `tests/host/ipc-handlers/` suite 118/118 (10 files) with no regressions.
+**Notes:** Used `_req: unknown` (request payload is empty per the Zod schema added in Task 2). Handler skips audit logging because index fetches happen every agent turn and would flood the audit log — read-only internal reads aren't interesting for audit. Building the output object conditionally (only attaching `description` / `pendingReasons` when truthy) preserves the same `'x' in row` semantics `getStates` uses, so downstream consumers can keep that style check working through the IPC boundary.
+
 ## [2026-04-17 05:53] — Phase 3 Task 1: SkillStateStore.getStates
 
 **Task:** Phase 3 Task 1 of git-native skills rollout — add `getStates(agentId): Promise<SkillState[]>` to `SkillStateStore`. Phase 3's `skills_index` IPC action needs the full persisted rows (name, kind, description, pendingReasons, error), not just the `Map<name, kind>` that `getPriorStates` returns. TDD order: failing tests, implement, passing tests.
