@@ -8,6 +8,8 @@ const os = require('os');
 
 const crypto = require('crypto');
 
+const { installPostReceiveHook } = require('./install-hook.js');
+
 const PORT = process.env.PORT || 8000;
 const GIT_REPOS_PATH = process.env.GIT_REPOS_PATH || '/var/git/repos';
 const LFS_OBJECTS_PATH = process.env.LFS_OBJECTS_PATH || '/var/git/lfs-objects';
@@ -272,6 +274,29 @@ const server = http.createServer((req, res) => {
 
             // Clean up temp directory
             try { fs.rmSync(tmpDir, { recursive: true }); } catch (e) { /* best-effort */ }
+
+            // Install post-receive hook for skills reconciliation.
+            // Must succeed — if we return 201 without a hook, the agent
+            // will push changes that never trigger reconcile. Fail hard.
+            try {
+              installPostReceiveHook(repoPath, repoName);
+            } catch (hookErr) {
+              console.error(`[ERROR] Failed to install post-receive hook: ${hookErr.message}`);
+              // Clean up the bare repo so retries aren't permanently blocked
+              // by the 409 "Repository already exists" branch. Without this,
+              // a hook-install failure orphans the bare repo on disk and the
+              // agent can never be re-provisioned. Best-effort — same style
+              // as the tmpDir cleanup above.
+              try {
+                fs.rmSync(repoPath, { recursive: true, force: true });
+                console.error(`[INFO] Removed orphan bare repo after hook failure: ${repoPath}`);
+              } catch (cleanupErr) {
+                console.error(`[ERROR] Failed to clean up orphan bare repo ${repoPath}: ${cleanupErr.message}`);
+              }
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Failed to install hook', details: hookErr.message }));
+              return;
+            }
 
             // Now respond - the repo has the initial commit and is ready for cloning
             res.writeHead(201, { 'Content-Type': 'application/json' });

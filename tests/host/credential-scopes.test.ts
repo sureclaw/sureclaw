@@ -9,6 +9,7 @@ function mockProvider(store: Record<string, Record<string, string>>): Credential
     set: async () => {},
     delete: async () => {},
     list: async () => [],
+    listScopePrefix: async () => [],
   };
 }
 

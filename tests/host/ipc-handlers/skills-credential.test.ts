@@ -10,6 +10,7 @@ function mockProviders(credentialStore: Record<string, Record<string, string>> =
       set: async () => {},
       delete: async () => {},
       list: async () => [],
+      listScopePrefix: async () => [],
     },
   } as unknown as ProviderRegistry;
 }

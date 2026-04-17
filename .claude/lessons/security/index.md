@@ -5,6 +5,8 @@ Security patterns: import resolution, static allowlist design, and safe path han
 ## Entries
 
 - Validate shapes at schema boundaries, not downstream consumers [entries.md](entries.md)
+- timingSafeEqual throws on unequal-length buffers — gate with a regex first [entries.md](entries.md)
+- HMAC-verify raw body bytes BEFORE JSON.parse — don't round-trip [entries.md](entries.md)
 - MITM TLS proxies expand trust much more than explicit service proxies [entries.md](entries.md)
 - import.meta.resolve() is the secure way to resolve package names [entries.md](entries.md)
 - Static allowlist (SC-SEC-002) can point to package names, not just relative paths [entries.md](entries.md)

@@ -4,6 +4,7 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-04-16 16:30 — Split git-native skills rollout into per-phase plan files (phase 2-7) [plans.md](plans.md)
 - 2026-04-16 14:00 — Design git-native skills and credentials UX [plans.md](plans.md)
 - 2026-04-06 12:00 — Update docs and skills for PVC-backed single workspace model [website.md](website.md)
 - 2026-03-29 14:00 — Restructure Agents page and add Plugins section [website.md](website.md)

@@ -17,7 +17,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync, rmSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { axHome } from '../paths.js';
 import type { Config } from '../types.js';
 import { loadProviders } from './registry.js';
@@ -44,6 +44,13 @@ import type { IPCContext } from './ipc-server.js';
 import { dataDir } from '../paths.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { SharedCredentialRegistry } from './credential-placeholders.js';
+
+// Git-native skills: reconcile hook mount
+import { runMigrations } from '../utils/migrator.js';
+import { skillsMigrations } from '../migrations/skills.js';
+import { createSkillStateStore } from './skills/state-store.js';
+import { reconcileAgent, type OrchestratorDeps } from './skills/reconcile-orchestrator.js';
+import { createReconcileHookHandler } from './skills/hook-endpoint.js';
 
 /**
  * Token registry: maps per-turn tokens to their bound IPC handler + context.
@@ -135,6 +142,61 @@ export async function createServer(
   } = core;
 
   const isK8s = config.providers.sandbox === 'k8s';
+
+  // ── Git-native skills: migrations, state store, reconcile hook ──
+  //
+  // Runs regardless of deployment mode, but the hook endpoint is only useful
+  // when a post-receive hook is installed (phase-2 task 8 wires that for
+  // git-local). The resolver here mirrors git-local's path layout — for
+  // git-http/k8s deployments the git-http container will need its own
+  // reconcile path (phase-2 task 9), so this default only works for git-local.
+  let reconcileHookHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
+  if (providers.database) {
+    const migResult = await runMigrations(
+      providers.database.db,
+      skillsMigrations,
+      'skills_migration',
+    );
+    if (migResult.error) throw migResult.error;
+
+    const stateStore = createSkillStateStore(providers.database.db);
+
+    // AX_HOOK_SECRET: shared HMAC secret for post-receive → host handshake.
+    // Env-var preferred so the hook installer (task 8) can read the same
+    // value; fall back to a random per-process secret with a loud warning
+    // when unset. Stash on process.env so downstream code (task 8) picks
+    // it up without re-plumbing.
+    let hookSecret = process.env.AX_HOOK_SECRET;
+    if (!hookSecret) {
+      hookSecret = randomBytes(32).toString('hex');
+      process.env.AX_HOOK_SECRET = hookSecret;
+      logger.warn('ax_hook_secret_generated', {
+        message: 'AX_HOOK_SECRET env var unset — generated a random secret for this process. Git-push reconcile hooks across restarts require a stable secret.',
+      });
+    }
+
+    // Phase-2 resolver: git-local layout only. Other deployments will bring
+    // their own hook path. encodeURIComponent mirrors git-local.ts.
+    const getBareRepoPath = (agentId: string): string =>
+      join(axHome(), 'repos', encodeURIComponent(agentId));
+
+    const orchestratorDeps: OrchestratorDeps = {
+      agentName,
+      proxyDomainList: domainList,
+      credentials: providers.credentials,
+      // mcpManager: left undefined in phase 2 (real wiring lands in phase 4)
+      stateStore,
+      eventBus,
+      getBareRepoPath,
+    };
+
+    reconcileHookHandler = createReconcileHookHandler({
+      secret: hookSecret,
+      reconcileAgent: (agentId, ref) => reconcileAgent(agentId, ref, orchestratorDeps),
+    });
+  } else {
+    logger.debug('skills_reconcile_hook_disabled_no_database');
+  }
 
   // ── Session manager (tracks session-long sandboxes across turns) ──
   const sessionManager = createSessionManager({
@@ -383,6 +445,18 @@ export async function createServer(
   // ── k8s internal HTTP routes ──
 
   async function handleInternalRoutes(req: IncomingMessage, res: ServerResponse, url: string): Promise<boolean> {
+    // Git-native skills reconcile hook — works in ALL deployment modes (not
+    // just k8s). Auth is per-request HMAC, not turn-token.
+    if (url === '/v1/internal/skills/reconcile' && req.method === 'POST') {
+      if (!reconcileHookHandler) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Reconcile hook unavailable: no database provider configured' }));
+        return true;
+      }
+      await reconcileHookHandler(req, res);
+      return true;
+    }
+
     if (!isK8s) return false;
 
     // LLM proxy over HTTP from sandbox pods

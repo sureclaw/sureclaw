@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-04-16 16:30] — Split git-native skills rollout into per-phase plan files (phase 2-7)
+
+**Task:** Create one plan file per phase of the git-native skills design, starting with a fully-detailed phase 2 plan and stub plans for phases 3-7.
+**What I did:** Wrote `docs/plans/2026-04-16-phase2-skills-git-hooks.md` with 10 bite-sized TDD tasks — snapshot builder (`git ls-tree`/`git show` from bare repo), current-state loader (reads `ProxyDomainList`, `CredentialProvider.list`, new `skill_states` sqlite table), state store + migration, reconcile orchestrator (glue, emits events, discards desired MCP/proxy for phase 4), HMAC-authenticated `/v1/internal/skills/reconcile` endpoint, shell-script post-receive hook template, idempotent hook installer, git-local + git-http wiring, E2E smoke. Wrote high-level stub plans for phases 3 (host-authoritative `skills_index` IPC), 4 (MCP/proxy appliers + startup rehydration), 5 (dashboard `SkillsPage` replacing `ConnectorsPage` with atomic approval endpoint), 6 (OAuth PKCE with admin-registered fallback), and 7 (cleanup of `src/plugins/`, `src/cli/plugin.ts`, `src/cli/mcp.ts`, `src/providers/storage/skills.ts`).
+**Files touched:** `docs/plans/2026-04-16-phase{2,3,4,5,6,7}-*.md`, `.claude/journal/docs/plans.md`
+**Outcome:** Success — phase 2 is ready for subagent-driven-development; phases 3-7 have enough scope to expand into detailed plans when their turn comes.
+**Notes:** Post-receive hook reaches the host via HTTP + HMAC (not IPC socket) — git-http container runs separately, so HTTP is the common denominator. `AX_HOOK_SECRET` is injected into the hook script at install time. Phase 2 intentionally leaves MCP/proxy wiring as a no-op — phase 4 adds appliers. Reference counting for MCP/domains falls out naturally from the reconciler's set math (no separate counters needed).
+
 ## [2026-04-16 14:00] — Design git-native skills and credentials UX
 
 **Task:** Brainstorm the best UX for installing tools/skills and managing credentials given AX's git-based workspace model

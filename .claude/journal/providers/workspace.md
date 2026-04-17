@@ -1,5 +1,29 @@
 # Workspace Provider Journal
 
+## [2026-04-17 00:15] — Git-native skills Phase 2 Task 9: git-http installs post-receive hook + unify template with host
+
+**Task:** Make the git-http server install the same post-receive reconcile hook into each bare repo it creates, producing byte-identical hook content to the host-side `src/providers/workspace/install-hook.ts`. Also swap the host template from `xxd` to busybox-compatible `od -An -tx1 | tr -d ' \n'` so both paths work under Alpine.
+**What I did:** TDD. Wrote 5 failing tests in new `tests/container/git-server/install-hook.test.ts` (fresh install, idempotent overwrite, required shell snippets, busybox-od not xxd, byte-identical to host template). Extracted the container-side template + installer to `container/git-server/install-hook.js` (CommonJS). Added `container/git-server/package.json` with `"type": "commonjs"` so vitest (repo is type:module) requires it cleanly AND the container still runs it unchanged. Updated `http-server.js` to require the module and call `installPostReceiveHook(repoPath, repoName)` synchronously after the initial push succeeds and before the 201 — hook install failures return 500. Swapped `xxd -p -c 256` → `od -An -tx1 | tr -d ' \n'` in `src/providers/workspace/install-hook.ts` and synchronized the comment header so both templates emit byte-identical content. Added `openssl` + `curl` to the Alpine Dockerfile (they were missing; the hook needs both at runtime) and a `COPY install-hook.js` line.
+**Files touched:** container/git-server/install-hook.js (new), container/git-server/package.json (new), container/git-server/http-server.js, container/git-server/Dockerfile, src/providers/workspace/install-hook.ts, tests/container/git-server/install-hook.test.ts (new)
+**Outcome:** Success — 5/5 container tests pass, 3/3 host install-hook tests pass (unchanged, xxd→od swap didn't break any assertion), `npm run build` clean. Pre-existing failures in server-history / server-multimodal / server.test.ts verified unrelated (same 25 fail on base with my changes stashed).
+**Notes:** The byte-identical test actually materializes both hooks into tmp dirs and compares file contents — cheap and catches drift. Helm deployment env wiring (AX_HOST_URL, AX_HOOK_SECRET on the git-server deployment) is deferred to Phase 4 rehydration per task instructions. Without those env vars the hook is a no-op (`exit 0` when AX_HOOK_SECRET unset), so pushes continue to succeed in the interim.
+
+## [2026-04-17 00:30] — Git-native skills Phase 2 Task 8: wire git-local to install hook
+
+**Task:** Wire the git-local workspace provider so every `getRepoUrl()` installs the post-receive hook into the bare repo (backfills pre-existing repos too).
+**What I did:** Added failing tests first — three under a new `post-receive hook installation` sub-describe in the existing git-local test file: (1) hook file present with `AGENT_ID="agent-x"` after `getRepoUrl`, (2) idempotent across two calls, (3) owner-executable mode bit set. Tests isolate via `AX_HOME=tmpdir` so `~/.ax` is never touched. Verified the 3 tests fail (hook file missing), then added `import { installPostReceiveHook } from './install-hook.js'` and a single `installPostReceiveHook(repoPath, agentId)` call right after `logger.debug('repo_initialized', ...)`. Re-ran: 7/7 pass.
+**Files touched:** src/providers/workspace/git-local.ts, tests/providers/workspace/git-local.test.ts
+**Outcome:** Success — all 89 tests pass across `tests/providers/workspace/` and `tests/host/skills/`, `npm run build` clean.
+**Notes:** The install call runs on EVERY call (not just `created===true`) so pre-feature repos get backfilled; the installer is a cheap idempotent overwrite. No try/catch around it — freshly-initialized repo under a path we just validated with `safePath`, so any failure is genuine and should surface. Tests restore `process.env.AX_HOME` in `finally` so they don't leak state between cases.
+
+## [2026-04-17 00:00] — Git-native skills Phase 2 Task 7: post-receive hook installer
+
+**Task:** Create a reusable, idempotent installer that drops a post-receive hook into a bare git repo with the right permissions and substitutes the agent ID into the template.
+**What I did:** Wrote tests first (fresh install, idempotent overwrite, mode bits, content sanity). Started with the file-based approach (co-located `hooks/post-receive.sh` loaded via `readFileSync` + `import.meta.url`). Confirmed tests pass and build succeeds, but `tsc` does not copy `.sh` files into `dist/`, so the dist-time load would fail. Per task guidance, switched to inlining the template as a TS template literal and deleted the separate `.sh` file to avoid drift. Added explicit `chmodSync(hookPath, 0o755)` after `writeFileSync` so the exec bit is set on both create and overwrite.
+**Files touched:** src/providers/workspace/install-hook.ts (new), tests/providers/workspace/install-hook.test.ts (new)
+**Outcome:** Success — 7 workspace tests pass (3 new + 4 pre-existing), `npm run build` clean, `sh -n` confirms the generated script has valid POSIX syntax.
+**Notes:** Used `safePath(bareRepoPath, 'hooks', 'post-receive')` for the hook target. Pre-existing server-history/server-multimodal/server.test.ts failures on `design/git-native-skills` are unrelated (verified they fail on base without my changes). The `__AGENT_ID__` placeholder is replaced via `replaceAll`. Escaped all shell `$` sequences inside the TS template literal.
+
 ## [2026-04-16 10:00] — Document `created` flag limitation in git-http workspace
 
 **Task:** Fix two documentation issues: (1) git-http.ts 409 branch doesn't note that `created=false` can be wrong after a timed-out creation, (2) workspace/types.ts over-promises that creation always succeeds.

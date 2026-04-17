@@ -85,6 +85,7 @@ function createMockCredentialProvider(): CredentialProvider {
     async set(service, value) { store.set(service, value); },
     async delete(service) { store.delete(service); },
     async list() { return [...store.keys()]; },
+    async listScopePrefix() { return []; },
   };
 }
 

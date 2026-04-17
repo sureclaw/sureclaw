@@ -2,6 +2,12 @@
 
 ## Lessons
 
+### CommonJS container code in a type:module project needs a nested package.json override
+**Date:** 2026-04-17
+**Context:** Wrote a container-side module `container/git-server/install-hook.js` using `require()`/`module.exports` to match `http-server.js`. Vitest (repo is `type:module`) refused to load it via `createRequire` with "require is not defined in ES module scope."
+**Lesson:** When you have a subdirectory that ships as CommonJS (e.g., a container's Node code that must stay dependency-free), drop a tiny `package.json` with `{"type": "commonjs"}` alongside the `.js` files. Node's resolver finds the nearest package.json and flips the module type back to CJS for just those files — tests can require them, the container runs them unchanged, no renames to `.cjs` required. The container had no enclosing package.json before, so it silently worked inside the image (defaults to CJS) but broke at test time.
+**Tags:** commonjs, esm, package.json, type-module, container, require, vitest
+
 ### When merging split src/test branches, check 7 common failure patterns
 **Date:** 2026-04-12
 **Context:** Merging workspace-git-ssh-src (source changes) with workspace-git-ssh-tests (test branch) produced 10+ test failures.

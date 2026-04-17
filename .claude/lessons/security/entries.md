@@ -6,6 +6,24 @@
 **Lesson:** When a schema field feeds a security-sensitive downstream (allowlist, cred resolution, path building), validate the shape at parse time rather than trusting the consumer to reject bad input. For hostnames in Zod, combine `.transform(s => s.trim().toLowerCase())` with a `.refine()` RFC 1035-style regex (labels 1-63, total ≤253, no scheme/path). Bad entries fail at `parseSkillFile` rather than rippling through to reconciliation.
 **Tags:** security, validation, zod, schema, proxy-allowlist, skills
 
+### timingSafeEqual throws on unequal-length buffers — gate with a regex first
+**Date:** 2026-04-16
+**Context:** Implementing HMAC-SHA256 signature verification for the skills reconcile hook endpoint. `crypto.timingSafeEqual` requires both inputs to have the same byte length — calling it with mismatched lengths raises a RangeError instead of returning false.
+**Lesson:** Before calling `timingSafeEqual(Buffer.from(received,'hex'), Buffer.from(expected,'hex'))`, validate the received string with `/^[0-9a-f]{64}$/` (for sha256 hex). Using a regex — not `.length === 64` — also covers the non-hex case, so `Buffer.from('z...', 'hex')` doesn't silently produce a short buffer. Wrap the `timingSafeEqual` call in try/catch too, as a belt-and-braces guard against edge cases.
+**Tags:** security, hmac, timing-attack, signature-verification, crypto
+
+### HMAC-verify raw body bytes BEFORE JSON.parse — don't round-trip
+**Date:** 2026-04-16
+**Context:** Designing the reconcile hook endpoint. The remote caller (shell hook via `openssl dgst`, or Node code) computes HMAC over the exact body bytes it sends on the wire; the receiver must HMAC the same bytes.
+**Lesson:** When verifying an HMAC of a request body, compute the HMAC over the raw body BEFORE any `JSON.parse` → `JSON.stringify` round-trip. Round-tripping re-orders keys, changes whitespace, re-escapes unicode, etc., and breaks byte-exact comparison. The order of operations inside the handler is: (1) read raw body with size cap, (2) verify signature on raw, (3) parse + validate. Doing signature verification BEFORE body validation also prevents attackers from probing Zod error shapes.
+**Tags:** security, hmac, signature-verification, http, webhook, skills
+
+### HMAC input must be Buffer, not string — utf-8 toString normalizes invalid bytes to U+FFFD
+**Date:** 2026-04-17
+**Context:** Follow-up to the HMAC-verify-raw-bytes lesson. The original implementation did `Buffer.concat(chunks).toString('utf-8')` to get a string, then passed that string to `createHmac.update()`. CodeRabbit flagged that this silently corrupts the HMAC when the body contains invalid utf-8 byte sequences.
+**Lesson:** `Buffer.toString('utf-8')` replaces invalid byte sequences with U+FFFD (0xEF 0xBF 0xBD). The shell client signs exact bytes with `openssl dgst -binary`; if the receiver normalizes those bytes through utf-8 before HMAC, the signatures diverge for any non-ASCII-clean body and you get spurious 401s. Keep the raw body as `Buffer` end-to-end; pass `Buffer` into `createHmac.update()` and only call `.toString('utf-8')` for `JSON.parse`, which can itself be less strict. Also use `curl --data-binary` (not `-d`) on the client — `-d` strips CR/LF.
+**Tags:** security, hmac, buffer, utf-8, encoding, http, webhook, curl
+
 ## MITM proxy canary detection must send HTTP response before destroying TLS socket
 **Date:** 2026-03-19
 **Context:** Implementing canary token scanning on decrypted HTTPS traffic in the MITM proxy

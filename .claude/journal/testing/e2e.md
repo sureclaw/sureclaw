@@ -2,6 +2,14 @@
 
 End-to-end test framework, simulated providers, scenario coverage.
 
+## [2026-04-16 00:17] — Phase 2 Task 10: git-native skills e2e smoke
+
+**Task:** Write an end-to-end test that exercises the full phase 2 wire — post-receive hook fires on push → HMAC → in-process HTTP endpoint → real reconcileAgent → state store + event bus. No stubs for anything shipped in phase 2.
+**What I did:** Created `tests/host/skills/e2e-reconcile.test.ts`. Stood up an in-process HTTP server on an ephemeral port wired to `createReconcileHookHandler` + real `reconcileAgent` (real snapshot builder, real state store on in-memory sqlite, real event bus, real `loadCurrentState`). Only provider-boundary stubs for `ProxyDomainList`, `CredentialProvider`, and MCP manager (omitted). Bare repo initialized, `installPostReceiveHook(bareRepoPath, 'agent-e2e')` installs the shell hook. A cloned working tree commits `.ax/skills/demo/SKILL.md` with valid frontmatter and pushes. The push subprocess env carries `AX_HOST_URL` + `AX_HOOK_SECRET`. Test polls `stateStore.getPriorStates('agent-e2e')` up to 5s because the hook runs asynchronously after the push subprocess exits. Gated on `hasCommand('openssl'/'curl'/'git')` — table stakes, but skip-clean if absent.
+**Files touched:** `tests/host/skills/e2e-reconcile.test.ts` (new)
+**Outcome:** Success — passed first try. All 15 skills test files (80 tests) pass, `tsc` build clean.
+**Notes:** Had to add explicit `git config user.name` / `user.email` in the work tree — `childEnv` GIT_* vars cover commit but not all git operations on CI. The `git symbolic-ref HEAD refs/heads/main` on the bare repo is wrapped in try/catch because some git versions default to main. Stderr from `git push` is captured for debug output if the polling deadline is missed.
+
 ## [2026-03-20] — Update ax-debug skill to prefer e2e infrastructure
 
 **Task:** Restructure ax-debug skill to use e2e test infrastructure as the primary debugging approach

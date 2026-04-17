@@ -94,6 +94,7 @@ describe('credential injection integration', () => {
       set: async () => {},
       delete: async () => {},
       list: async (scope?) => Object.keys(store[scope ?? 'global'] ?? {}),
+      listScopePrefix: async () => [],
     };
 
     const { credentialMap, credentialEnv } = await preloadCredentials(provider, 'main', 'alice', false);
@@ -112,6 +113,7 @@ describe('credential injection integration', () => {
       set: async () => {},
       delete: async () => {},
       list: async (scope?) => Object.keys(store[scope ?? 'global'] ?? {}),
+      listScopePrefix: async () => [],
     };
 
     const { credentialMap, credentialEnv } = await preloadCredentials(provider, 'main', 'alice', true);
@@ -131,6 +133,7 @@ describe('credential injection integration', () => {
       set: async () => {},
       delete: async () => {},
       list: async (scope?) => Object.keys(store[scope ?? 'global'] ?? {}),
+      listScopePrefix: async () => [],
     };
 
     const { credentialEnv } = await preloadCredentials(provider, 'main', 'alice', false);
@@ -150,6 +153,7 @@ describe('credential injection integration', () => {
       set: async () => {},
       delete: async () => {},
       list: async (scope?) => Object.keys(store[scope ?? 'global'] ?? {}),
+      listScopePrefix: async () => [],
     };
 
     const { credentialEnv } = await preloadCredentials(provider, 'main', 'alice', false);

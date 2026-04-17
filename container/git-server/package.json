@@ -1,0 +1,6 @@
+{
+  "name": "ax-git-server",
+  "private": true,
+  "description": "AX git-http server (container-only). Kept CommonJS so it runs unchanged in the Alpine container without bundling. Do not depend from the root project.",
+  "type": "commonjs"
+}

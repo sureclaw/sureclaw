@@ -1,5 +1,11 @@
 # Testing Patterns
 
+### Seed a bare git repo in tests via sidecar work-tree + push
+**Date:** 2026-04-16
+**Context:** Writing `tests/host/skills/snapshot.test.ts` — needed real commits/refs in a bare repo so `git ls-tree`/`git show` against `refs/heads/main` work. You can't just `git init --bare` and point at files; bare repos have no index.
+**Lesson:** To seed a bare repo in a test, create a temp work-tree, run `git init -b main`, set `user.name`/`user.email`, `git remote add origin <bareRepoPath>`, write files, `add`/`commit`/`push -u origin main`. Use `execFileSync('git', [...], { stdio: 'pipe' })` with array args (no shell). Clean up both dirs in `afterEach`/`finally`. This mirrors the http-server.js init-repo flow and is the only reliable way to get a real ref into a bare repo from a test.
+**Tags:** git, bare-repo, testing, fixtures, execFile
+
 ### SSE streaming tests are fragile when new named events are added
 **Date:** 2026-03-24
 **Context:** Adding status named SSE events broke server.test.ts because it filtered all `data:` lines by index, not by content type.

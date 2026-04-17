@@ -15,6 +15,7 @@ describe('database MCP provider', () => {
         set: async () => {},
         delete: async () => {},
         list: async () => [],
+        listScopePrefix: async () => [],
       };
       const result = await resolveHeaders(
         JSON.stringify({ Authorization: 'Bearer {MY_TOKEN}' }),
@@ -30,6 +31,7 @@ describe('database MCP provider', () => {
         set: async () => {},
         delete: async () => {},
         list: async () => [],
+        listScopePrefix: async () => [],
       };
       const result = await resolveHeaders(
         JSON.stringify({ Authorization: 'Bearer {MISSING_KEY}' }),
@@ -45,6 +47,7 @@ describe('database MCP provider', () => {
         set: async () => {},
         delete: async () => {},
         list: async () => [],
+        listScopePrefix: async () => [],
       };
       const result = await resolveHeaders(
         JSON.stringify({ Authorization: 'Bearer {MY_TOKEN}' }),
@@ -60,6 +63,7 @@ describe('database MCP provider', () => {
         set: async () => {},
         delete: async () => {},
         list: async () => [],
+        listScopePrefix: async () => [],
       };
       expect(await resolveHeaders(null, creds)).toEqual({});
       expect(await resolveHeaders(undefined, creds)).toEqual({});
