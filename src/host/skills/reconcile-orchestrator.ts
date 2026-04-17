@@ -47,7 +47,10 @@ export async function reconcileAgent(
 
     return { skills: output.skills.length, events: output.events.length };
   } catch (err) {
-    const message = (err as Error).message;
+    // Defensive: non-Error throws (thrown strings, thrown objects) shouldn't
+    // blow up the error path. err.message on a non-Error returns undefined
+    // and propagates "undefined" into the event.
+    const message = err instanceof Error ? err.message : String(err);
     log.error('reconcile_failed', { agentId, ref, error: message });
     deps.eventBus.emit({
       type: 'skills.reconcile_failed',
