@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 13:42] — Phase 6 Task 3: admin OAuth flow module + /skills/oauth/start endpoint
+
+**Task:** Admin-initiated OAuth flow: new in-memory pending-flow map (state-keyed, 15-min TTL, single-use claim) and `POST /admin/api/skills/oauth/start` — the endpoint the dashboard calls when a user clicks "Connect with <provider>" on a SetupCard. Frontmatter `clientId` is used unless an admin-registered provider overrides it; admin `clientSecret` is stored server-side in the pending flow but NEVER enters audit args or response bodies.
+**What I did:** Created `src/host/admin-oauth-flow.ts` with `createAdminOAuthFlow()` (PKCE via the existing `oauth.ts` helpers — `generateCodeVerifier`/`generateCodeChallenge`/`generateState`). Added `AdminOAuthStartSchema` (Zod strict: `agentId`/`skillName`/`envName`/`userId?`) + route handler in `server-admin.ts` — validates agentId in registry, looks up the setup card, finds the matching OAuth credential, resolves admin-registered provider override, and computes redirectUri from `x-forwarded-proto`/`req.socket.encrypted` + `host` header (or uses `adminRedirectUri` when the provider is admin-registered, for exact OAuth app match). Wired `adminOAuthFlow` through `AdminDeps` → `AdminSetupOpts` → `setupAdminHandler` → `server.ts` call site → `HostCore.adminOAuthFlow` constructed unconditionally in `server-init.ts` (in-memory, no DB deps).
+**Files touched:** `src/host/admin-oauth-flow.ts` (new), `src/host/server-admin.ts` (schema + route + `AdminDeps.adminOAuthFlow`), `src/host/server-webhook-admin.ts` (AdminSetupOpts pass-through), `src/host/server.ts` (call site), `src/host/server-init.ts` (construct + expose on HostCore), `tests/host/admin-oauth-flow.test.ts` (new, 9 cases), `tests/host/server-admin-oauth-start.test.ts` (new, 12 cases).
+**Outcome:** Success. 21/21 new tests pass; 112/112 across the six target files; `tsc --noEmit` clean.
+**Notes:** Scheme detection for redirect_uri: prefer `x-forwarded-proto` (accepting the first value when comma-separated), fall back to `req.socket.encrypted`. Admin-registered provider `redirectUri` wins over the request-derived value — lets operators pin the exact URI that matches their OAuth app registration. The module is parallel to `oauth-skills.ts` (untouched here), with its own flow schema that captures skill setup context (skillName/envName/scope/agentId + admin-override secret). Secret leak audit check substring-guards both `auditCall` and response body against the literal `'admin-shh'`.
+
 ## [2026-04-17 13:40] — Phase 6 Task 2: admin OAuth provider CRUD endpoints
 
 **Task:** Expose `GET/POST/DELETE /admin/api/oauth/providers*` so operators can configure admin-registered OAuth providers that override a skill's frontmatter `client_id`/`client_secret` (for providers like Google that don't support PKCE-only public-client flows).

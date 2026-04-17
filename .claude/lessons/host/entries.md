@@ -1,5 +1,11 @@
 # Host
 
+### Derive redirect_uri scheme from x-forwarded-proto first, req.socket.encrypted second
+**Date:** 2026-04-17
+**Context:** Phase 6 Task 3 — computing the OAuth `redirect_uri` server-side for the admin-initiated flow. In production, the host runs behind a TLS-terminating proxy (nginx, Cloudflare), so `req.socket.encrypted` is `false` even though the user's browser spoke `https` to the proxy. Building `http://<host>/v1/oauth/callback/linear` in that case means the authorization server will refuse (the OAuth app is registered with the `https` URI) or — worse — issue tokens to an `http` endpoint that the browser will downgrade-reject.
+**Lesson:** When constructing a server-origin URL from an incoming request, check `req.headers['x-forwarded-proto']` first (and accept only the FIRST value if it's comma-separated — proxies chain them), fall back to `(req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http'`. If the header exists but is empty, don't use it; fall back. For OAuth specifically, prefer letting operators configure an exact `redirectUri` via admin-registered provider config — proxies add enough uncertainty that "compute from the request" should be a fallback, not the primary path.
+**Tags:** http, proxy, x-forwarded-proto, oauth, redirect_uri, tls
+
 ### Kysely's DeleteResult is an array; sum numDeletedRows across it
 **Date:** 2026-04-17
 **Context:** Phase 6 Task 1. The admin OAuth store needs `delete()` to return whether a row was actually removed (idempotent API contract: first delete returns true, second returns false). My first instinct was `const res = await db.deleteFrom(...).execute(); return res.numDeletedRows > 0n` — but Kysely's `execute()` on a delete returns `DeleteResult[]`, not a single object. Single-statement backends give you a one-element array, multi-statement backends (CTE-ful Postgres queries, multi-DB) give you multiple. Accessing `.numDeletedRows` directly on the array silently yields `undefined` (which is not > 0n, so the function always returns false).

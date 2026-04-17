@@ -32,6 +32,7 @@ import type { McpApplier } from './skills/mcp-applier.js';
 import type { ProxyApplier } from './skills/proxy-applier.js';
 import { createCredentialRequestQueue, type CredentialRequestQueue } from './credential-request-queue.js';
 import type { AdminOAuthProviderStore } from './admin-oauth-providers.js';
+import { createAdminOAuthFlow, type AdminOAuthFlow } from './admin-oauth-flow.js';
 
 const logger = getLogger();
 
@@ -105,6 +106,11 @@ export interface HostCore {
    *  a skill's frontmatter `client_id` (upgrading a public-client config to
    *  a confidential one). Undefined when no database provider is available. */
   adminOAuthProviderStore?: AdminOAuthProviderStore;
+  /** Phase 6 Task 3: in-memory pending-flow map for admin-initiated OAuth.
+   *  Keyed by state, single-use claim, 15-minute TTL. Constructed
+   *  unconditionally (no DB deps) so the /admin/api/skills/oauth/start
+   *  endpoint is available whenever the skill state store is wired. */
+  adminOAuthFlow: AdminOAuthFlow;
 }
 
 /**
@@ -270,6 +276,11 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   let stateStore: SkillStateStore | undefined;
   let adminOAuthKey: Buffer | undefined;
   let adminOAuthProviderStore: AdminOAuthProviderStore | undefined;
+
+  // Phase 6 Task 3: admin-initiated OAuth pending-flow map. In-memory, no
+  // DB deps — construct unconditionally so the endpoint is available
+  // whenever `skillStateStore` is.
+  const adminOAuthFlow = createAdminOAuthFlow();
   if (providers.database) {
     const { runMigrations } = await import('../utils/migrator.js');
     const { skillsMigrations } = await import('../migrations/skills.js');
@@ -517,5 +528,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     unsubscribeCredentialRequests,
     adminOAuthKey,
     adminOAuthProviderStore,
+    adminOAuthFlow,
   };
 }

@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-04-17 13:42 — Phase 6 Task 3: admin OAuth flow module + `POST /admin/api/skills/oauth/start` (PKCE initiation, 15-min TTL single-use pending-flow map, admin clientSecret stays server-side) [skills.md](skills.md)
 - 2026-04-17 13:40 — Phase 6 Task 2: admin OAuth provider CRUD endpoints (`/admin/api/oauth/providers*`) — Zod-strict upsert, 503 when store missing, `hasSecret:boolean` audit shape [skills.md](skills.md)
 - 2026-04-17 12:32 — Phase 6 Task 1 follow-up: `deriveOAuthKey` refuses empty / <16-char admin tokens (no more `sha256('')` at-rest key); server-init soft-degrades [skills.md](skills.md)
 - 2026-04-17 12:12 — Phase 6 Task 1: admin OAuth providers table + AES-256-GCM crypto helpers + Kysely store + server-init wiring [skills.md](skills.md)

@@ -164,6 +164,8 @@ export interface AdminDeps {
   credentialRequestQueue?: CredentialRequestQueue;
   /** Phase 6: admin-registered OAuth providers. When absent, /admin/api/oauth/* returns 503. */
   adminOAuthProviderStore?: import('./admin-oauth-providers.js').AdminOAuthProviderStore;
+  /** Phase 6: admin-initiated OAuth flow module. When absent, /admin/api/skills/oauth/* returns 503. */
+  adminOAuthFlow?: import('./admin-oauth-flow.js').AdminOAuthFlow;
 }
 
 // ── OAuth provider upsert body schema (Phase 6 Task 2) ──
@@ -174,6 +176,23 @@ const AdminOAuthProviderUpsertSchema = z
     clientId: z.string().min(1).max(500),
     clientSecret: z.string().min(1).max(500).optional(),
     redirectUri: z.string().url().max(500),
+  })
+  .strict();
+
+// ── OAuth start body schema (Phase 6 Task 3) ──
+//
+// The dashboard POSTs this when the user clicks "Connect with <provider>" on
+// a SetupCard. The handler uses agentId + skillName + envName to find the
+// pending OAuth credential in the agent's setup queue; no client-controlled
+// OAuth params — everything comes from frontmatter + admin-registered
+// provider config, so an attacker can't coerce a non-whitelisted authorize
+// URL or scope via the request body.
+const AdminOAuthStartSchema = z
+  .object({
+    agentId: z.string().min(1),
+    skillName: z.string().min(1),
+    envName: z.string().min(1),
+    userId: z.string().optional(),
   })
   .strict();
 
@@ -733,6 +752,125 @@ async function handleAdminAPI(
       durationMs: 0,
     });
     sendJSON(res, { ok: true, removed: true });
+    return;
+  }
+
+  // ── Admin OAuth Start (Phase 6 Task 3) ──
+  //
+  // POST /admin/api/skills/oauth/start — begin a PKCE OAuth flow for a
+  // pending skill credential. Validates agentId/skillName/envName against
+  // the current setup queue (no arbitrary authorize URLs), applies admin
+  // provider overrides when registered, and returns { authUrl, state } for
+  // the dashboard to open in a new tab. The clientSecret (when
+  // admin-registered) is held server-side — it never enters the response
+  // body or the audit args.
+  if (pathname === '/admin/api/skills/oauth/start' && method === 'POST') {
+    if (!deps.skillStateStore || !deps.adminOAuthFlow || !deps.agentRegistry) {
+      sendError(res, 503, 'Skills not configured');
+      return;
+    }
+
+    // Narrow the catch to JSON parsing only — store / audit / registry
+    // throws should propagate to the outer 500 handler (phase-5 pattern).
+    let body: unknown;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch (err) {
+      sendError(res, 400, `Invalid request: ${(err as Error).message}`);
+      return;
+    }
+    const parsed = AdminOAuthStartSchema.safeParse(body);
+    if (!parsed.success) { sendError(res, 400, parsed.error.message); return; }
+
+    const agent = await deps.agentRegistry.get(parsed.data.agentId);
+    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
+
+    const queue = await deps.skillStateStore.getSetupQueue(parsed.data.agentId);
+    const card = queue.find(c => c.skillName === parsed.data.skillName);
+    if (!card) { sendError(res, 404, 'No pending setup for this skill'); return; }
+
+    const cred = card.missingCredentials.find(
+      c => c.envName === parsed.data.envName && c.authType === 'oauth',
+    );
+    if (!cred) {
+      sendError(res, 404, 'No pending OAuth credential for this envName');
+      return;
+    }
+    // Defensive: phase-5 Zod schema guarantees cred.oauth is present when
+    // authType === 'oauth', but a drifted persisted queue could still hit
+    // this path. 500 so it stays loud in logs.
+    if (!cred.oauth) {
+      sendError(res, 500, 'OAuth credential missing oauth config');
+      return;
+    }
+
+    // Look up admin-registered override (confidential-client upgrade).
+    let adminOverride: { clientId: string; clientSecret?: string } | undefined;
+    let adminRedirectUri: string | undefined;
+    let hasAdminProvider = false;
+    if (deps.adminOAuthProviderStore) {
+      const registered = await deps.adminOAuthProviderStore.get(cred.oauth.provider);
+      if (registered) {
+        hasAdminProvider = true;
+        adminOverride = {
+          clientId: registered.clientId,
+          clientSecret: registered.clientSecret,
+        };
+        adminRedirectUri = registered.redirectUri;
+      }
+    }
+
+    // Compute redirectUri: admin-registered value wins (so admins can pin an
+    // exact URI matching their OAuth app registration). Otherwise derive
+    // from the request. Behind a proxy, trust `x-forwarded-proto` for scheme.
+    let redirectUri: string;
+    if (adminRedirectUri) {
+      redirectUri = adminRedirectUri;
+    } else {
+      const forwardedProto = req.headers['x-forwarded-proto'];
+      const proto = typeof forwardedProto === 'string' && forwardedProto
+        ? forwardedProto.split(',')[0].trim()
+        : ((req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http');
+      const host = req.headers.host ?? 'localhost';
+      redirectUri = `${proto}://${host}/v1/oauth/callback/${cred.oauth.provider}`;
+    }
+
+    // Resolve userId for credential scope (same chain as phase-5 approve).
+    const userId = parsed.data.userId ?? deps.defaultUserId ?? 'admin';
+
+    const { state, authUrl } = deps.adminOAuthFlow.start({
+      agentId: parsed.data.agentId,
+      agentName: agent.name,
+      skillName: parsed.data.skillName,
+      envName: parsed.data.envName,
+      scope: cred.scope,
+      userId,
+      provider: cred.oauth.provider,
+      authorizationUrl: cred.oauth.authorizationUrl,
+      tokenUrl: cred.oauth.tokenUrl,
+      clientId: cred.oauth.clientId,
+      scopes: cred.oauth.scopes,
+      redirectUri,
+      adminOverride,
+    });
+
+    // Audit throws propagate (security invariant). Secret value NEVER enters
+    // args — we ship only the boolean hasAdminProvider flag.
+    await providers.audit.log({
+      action: 'oauth_start',
+      sessionId: parsed.data.agentId,
+      args: {
+        agentId: parsed.data.agentId,
+        skillName: parsed.data.skillName,
+        envName: parsed.data.envName,
+        provider: cred.oauth.provider,
+        hasAdminProvider,
+      },
+      result: 'success',
+      durationMs: 0,
+    });
+
+    sendJSON(res, { authUrl, state });
     return;
   }
 

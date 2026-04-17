@@ -345,6 +345,7 @@ export async function createServer(
     defaultUserId,
     credentialRequestQueue: core.credentialRequestQueue,
     adminOAuthProviderStore: core.adminOAuthProviderStore,
+    adminOAuthFlow: core.adminOAuthFlow,
   });
 
   let httpServer: HttpServer | null = null;
