@@ -620,7 +620,6 @@ export async function processCompletion(
           config,
           providers,
           conversationStore,
-          documents: providers.storage.documents,
           router,
           taintBudget,
           sessionCanaries,

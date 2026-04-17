@@ -86,9 +86,12 @@ export async function loadProviders(config: Config, opts?: LoadProvidersOptions)
   const audit = await auditMod.create(config, config.providers.audit, { database });
 
   // Load MCP provider if configured (optional — fast path only).
-  // NOTE: providers.mcp is deprecated. New MCP servers should be added via:
-  // 1. Database: `ax mcp add` / admin dashboard (loaded into McpConnectionManager at startup)
-  // 2. Plugins: `ax plugin install` (loaded into McpConnectionManager on install)
+  // NOTE: providers.mcp is deprecated. New MCP servers come from two places now:
+  // 1. Skill frontmatter in `.ax/skills/<name>/SKILL.md` — the reconciler picks
+  //    them up and the admin dashboard approval step registers them with
+  //    McpConnectionManager.
+  // 2. Ad-hoc admin API entries (`/admin/api/agents/:id/mcp-servers`) — also
+  //    loaded into McpConnectionManager at startup.
   // The database MCP provider remains as a legacy option until all callers
   // migrate to the unified McpConnectionManager routing path.
   let mcp;

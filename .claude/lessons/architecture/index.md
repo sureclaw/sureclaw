@@ -4,6 +4,7 @@ Design patterns, provider contracts, import hygiene, event bus design, and works
 
 ## Entries
 
+- Multi-task deletion phases leave "dormant-caller" dead code that only a final sweep finds [entries.md](entries.md)
 - IPC-sourced config with filesystem fallback: use `config.X ?? scan()` in sync builders [entries.md](entries.md)
 - Shared outbound proxies need per-turn auth to preserve session identity [entries.md](entries.md)
 - K8s filesystem lifecycle must stay inside one pod or use explicit remote handoff [entries.md](entries.md)

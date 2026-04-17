@@ -1,11 +1,13 @@
 ---
 name: ax-cli
-description: Use when modifying CLI commands — chat, send, bootstrap, plugin, mcp, provider, or adding new CLI commands in src/cli/
+description: Use when modifying CLI commands — chat, send, bootstrap, provider, or adding new CLI commands in src/cli/
 ---
 
 ## Overview
 
-The CLI subsystem provides the user-facing command interface for AX. Entry point is `src/cli/index.ts` which routes commands via `routeCommand()`. Commands communicate with the AX server over a Unix socket using the OpenAI-compatible API. The chat command uses Ink (React-based terminal UI); send is a one-shot HTTP client. The plugin command manages Cowork plugins (skills + commands + MCP servers). The provider command manages third-party npm provider packages.
+The CLI subsystem provides the user-facing command interface for AX. Entry point is `src/cli/index.ts` which routes commands via `routeCommand()`. Commands communicate with the AX server over a Unix socket using the OpenAI-compatible API. The chat command uses Ink (React-based terminal UI); send is a one-shot HTTP client. The provider command manages third-party npm provider packages.
+
+Skills and MCP servers are not managed from the CLI anymore — they live in the agent's workspace (`.ax/skills/<name>/SKILL.md`) and go through the admin dashboard approval flow. The old `ax plugin` (Cowork plugins) and `ax mcp` commands have been removed.
 
 ## Key Files
 
@@ -14,10 +16,8 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `src/cli/index.ts` | Command router, `main()` entry point, `runServe()`, help text, --port flag, tracing init |
 | `src/cli/send.ts` | One-shot message sender, streaming + JSON output |
 | `src/cli/bootstrap.ts` | Agent identity reset (deletes SOUL.md/IDENTITY.md, copies templates) |
-| `src/cli/plugin.ts` | Cowork plugin management: install, remove, list |
 | `src/cli/provider.ts` | Provider plugin management: add, remove, list, verify |
 | `src/cli/k8s-init.ts` | `ax k8s init` wizard — generates Helm values and K8s secrets for deployment |
-| `src/cli/mcp.ts` | MCP server management: add, remove, list, test |
 | `src/cli/setup-server.ts` | Server setup utilities (config loading, provider initialization) |
 | `src/cli/reload.ts` | Hot-reload config/skills without restart |
 | `src/cli/utils/commands.ts` | Command parsing helpers |
@@ -32,10 +32,8 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 | `ax send <msg>` | `runSend(args)` | One-shot message; ephemeral by default (no session persistence) |
 | `ax configure` | `runConfigure(axHome)` | First-time setup wizard (onboarding) |
 | `ax bootstrap [agent]` | `runBootstrap(args)` | Reset agent identity; prompts confirmation if SOUL.md exists |
-| `ax plugin <cmd>` | `runPlugin(args)` | Cowork plugin management: install, remove, list |
 | `ax provider <cmd>` | `runProvider(args)` | Provider plugin management: add, remove, list, verify |
 | `ax k8s init` | `runK8sInit(args)` | Interactive wizard for Kubernetes deployment setup |
-| `ax mcp <cmd>` | `runMcp(args)` | MCP server management: add, remove, list, test |
 | `ax reload` | `runReload(args)` | Hot-reload config and skills |
 
 ## Server Flags
@@ -58,12 +56,6 @@ The CLI subsystem provides the user-facing command interface for AX. Entry point
 - **Input**: Positional arg or `--stdin` / `-` for piped input
 - **Output modes**: Streaming SSE (default), `--no-stream` (full response), `--json` (raw OpenAI JSON)
 - **SSE parsing**: Reads `data:` lines, extracts `choices[0].delta.content` until `[DONE]`
-
-## Plugin Command (`plugin.ts`) — Cowork Plugins
-
-- **`ax plugin install <source> [--agent <name>]`** -- Install a Cowork plugin (skills + commands + MCP servers) from GitHub or local directory
-- **`ax plugin remove <name> [--agent <name>]`** -- Remove an installed Cowork plugin
-- **`ax plugin list [--agent <name>]`** -- List installed Cowork plugins for an agent
 
 ## Provider Command (`provider.ts`) — npm Provider Plugins
 
@@ -98,7 +90,7 @@ Format: colon-separated segments with minimum 3 parts.
 Interactive wizard for generating Kubernetes deployment configuration:
 
 - **Presets**: `small` and `large` only (medium removed) — control resource allocation. Warm pool enabled by default.
-- **MCP**: Removed (MCP servers are now managed via `ax mcp` CLI commands and the database provider, not through k8s-init).
+- **MCP**: Removed (MCP servers are now managed via skill frontmatter (`.ax/skills/<name>/SKILL.md`) and the admin dashboard, not through k8s-init).
 - **Compound model IDs**: Supports `provider/model` format (e.g., `anthropic/claude-sonnet-4-20250514`)
 - **`extractProvider(compoundId)`** — Splits on first `/` to get provider name
 - **`secretKeyForProvider(provider)`** — e.g., `anthropic` → `anthropic-api-key`

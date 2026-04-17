@@ -6,7 +6,8 @@ const logger = getLogger().child({ component: 'plugin-startup' });
 
 /**
  * Load MCP servers from the mcp_servers DB table into the manager.
- * These are servers configured via `ax mcp add` or the admin dashboard.
+ * These rows come from the admin dashboard (`/admin/api/agents/:id/mcp-servers`)
+ * and from skill frontmatter approved via the skill reconciler pipeline.
  */
 export async function loadDatabaseMcpServers(
   database: DatabaseProvider | undefined,

@@ -51,9 +51,9 @@ AX enforces four security controls across the host/agent boundary. **SC-SEC-001*
 - **Worker isolation**: Plugin workers spawned via fork() with restricted env vars (no credentials).
 - **Credential injection**: Plugins never see the credential store. Server resolves credentials and injects via IPC.
 
-### Cowork Plugin Security
+### Git-Native Skill Security
 
-Cowork plugins (installed via `ax plugin install`) are stored in DocumentStore with per-agent isolation. Plugin MCP servers are registered in `McpConnectionManager` and routed through the unified tool router. Plugin skill domains are added to the web proxy allowlist. Plugin sources are validated during installation.
+Skills are just files committed to the agent's workspace at `.ax/skills/<name>/SKILL.md`. The reconciler parses them, flags anything new (domains, MCP servers, credentials) as a setup request, and an admin must approve via the dashboard before the skill becomes active. Approved MCP servers register in `McpConnectionManager` (the unified tool router). Approved domains land in the proxy allowlist. Credentials stay in the credential provider — never in skill files, never in the agent container.
 
 ## Subagent Delegation Security
 

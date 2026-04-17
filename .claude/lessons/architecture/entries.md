@@ -1,5 +1,11 @@
 # Architecture
 
+## Multi-task deletion phases leave "dormant-caller" dead code that only a final sweep finds
+**Date:** 2026-04-17
+**Context:** Phase 7 tasks 1–6 deleted the skill_install IPC, ClawHub client, plugin manifest machinery, CLI, and DB data. The build stayed green through each task because tasks were scoped to remove entire subsystems at a time. But the host still had dormant readers of the empty `documents.skills` collection (`findSkillContent` in `server-admin.ts`, `loadSkillsFromDB` in `inprocess.ts`) that ran on every request, returned empty results, and were never grep-visible from the retired IPC-action names. Task 7's grep of `DocumentStore.*skill` is what flushed them out.
+**Lesson:** When a multi-task phase rips out a storage-backed feature, the final cleanup task should grep for *readers* of the backing store (`documents.get('<collection>'`, `documents.list('<collection>'`), not just writers / IPC handlers / CLI entry points. Silent empty-result callers keep pulling their weight in deps interfaces, mock fixtures, and test matrices long after the feature is dead. Remove them with the rest or the next person will.
+**Tags:** refactoring, deletion, phase-7, dead-code, grep-discipline
+
 ## When deleting a subsystem, inline its last-surviving type into the sibling that uses it
 **Date:** 2026-04-17
 **Context:** Phase 7 Task 3 deleted `src/plugins/{fetcher,install,parser,store,types}.ts`. The `types.ts` file was going away, but `src/plugins/mcp-manager.ts` (which stays — phase-4 depends on it) still imported `PluginMcpServer` from `./types.js`. Leaving `types.ts` alive just for one interface used by one file would have kept a stub alive for no reason.

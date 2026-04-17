@@ -117,12 +117,12 @@ Real-time observability into everything your agent does. The event bus emits typ
 
 Locally, the event bus runs in-process. In Kubernetes, it switches to **PostgreSQL LISTEN/NOTIFY** — events flow across pods so every agent-runtime instance sees the same stream. Same interface, same subscriptions, just distributed.
 
-### Plugin Framework
+### Provider Plugin Framework
 
-Extend AX with third-party providers without touching core code. The plugin system includes:
+Extend AX with third-party providers without touching core code. The provider plugin system includes:
 
 - **Provider SDK** (`@ax/provider-sdk`) — TypeScript interfaces, contract test harness, and safe path utilities for provider authors
-- **CLI management** — `ax plugin add/remove/list/verify`
+- **CLI management** — `ax provider add/remove/list/verify`
 - **Integrity verification** — SHA-based hash checking on startup. If a plugin's been tampered with, we notice.
 - **Process isolation** — Plugins run in separate processes. Credentials are injected server-side, never passed to plugin code.
 - **Lockfile** (`plugins.lock`) — Reproducible plugin installs, because "works on my machine" isn't a security strategy.
@@ -169,11 +169,11 @@ Full Slack support via Socket Mode:
 - **DM and group DM support** — works everywhere Slack does
 - **Socket disconnect resilience** — reconnects gracefully without crashing the process
 
-### Skill Self-Authoring & Import
+### Git-Native Skills
 
-Agents can propose their own skills — persistent markdown instructions that expand their capabilities. Proposals go through multi-tier safety screening: dangerous patterns are hard-rejected, capability-expanding patterns require human review, and clean content is auto-approved. You stay in the loop on anything that matters.
+Skills are just files in the agent's workspace. To add one, drop a `SKILL.md` under `.ax/skills/<name>/` and commit it. The host's reconciler picks it up, and the admin dashboard surfaces a card for any skill that declares new MCP servers, domains, or credentials — you approve it with a click. No CLI install commands. No registries to trust. Just files and git.
 
-You can also import skills from external registries (ClawHub). Imported skills go through the same screening pipeline — we're paranoid about external code even when it's just markdown. Especially when it's just markdown.
+Agents can also propose their own skills with the `skill_propose` tool — persistent markdown instructions that expand their capabilities. Proposals go through multi-tier safety screening: dangerous patterns are hard-rejected, capability-expanding patterns require human review, and clean content is auto-approved. You stay in the loop on anything that matters.
 
 ### Subagent Delegation
 
@@ -509,29 +509,13 @@ providers:
 
 #### 2. Add MCP Servers
 
-Use the CLI to register MCP servers for an agent:
-
-```bash
-# Add an MCP server
-ax mcp add main linear --url http://linear-mcp.example.com/mcp \
-  --header "Authorization: Bearer {LINEAR_API_KEY}"
-
-# Add another server for the same agent
-ax mcp add main github --url http://github-mcp.example.com/mcp \
-  --header "Authorization: Bearer {GITHUB_TOKEN}"
-
-# List configured servers
-ax mcp list main
-
-# Test connectivity
-ax mcp test main linear
-```
+MCP servers are declared in skill frontmatter (under `.ax/skills/<name>/SKILL.md`) or registered directly via the admin API. The old CLI registration commands have been retired — git-native skill files plus a dashboard review flow cover every real use case with fewer surprises.
 
 Credential placeholders like `{LINEAR_API_KEY}` are resolved from the credential provider at call time — the actual secrets never touch the database.
 
 #### 3. Manage via Admin API
 
-MCP servers can also be managed via the admin API:
+MCP servers can be managed via the admin API:
 
 ```bash
 # List servers for an agent
@@ -572,19 +556,17 @@ The LLM never sees credentials. The credential provider manages them. The host r
 ## CLI
 
 ```bash
-ax serve              # Start the AX server
-ax chat               # Interactive chat session
-ax send "message"     # Send a one-shot message
-ax configure          # Setup wizard (profile, LLM provider, API key)
-ax k8s init           # K8s setup wizard (generates Helm values + secrets)
-ax plugin add <pkg>   # Install a provider plugin
-ax plugin list        # List installed plugins
-ax plugin verify      # Check plugin integrity
-ax mcp add <agent> <name> --url <url>  # Add MCP server
-ax mcp list <agent>   # List MCP servers
-ax mcp test <agent> <name>  # Test MCP server connection
-ax mcp remove <agent> <name>  # Remove MCP server
+ax serve                # Start the AX server
+ax chat                 # Interactive chat session
+ax send "message"       # Send a one-shot message
+ax configure            # Setup wizard (profile, LLM provider, API key)
+ax k8s init             # K8s setup wizard (generates Helm values + secrets)
+ax provider add <pkg>   # Install a third-party provider plugin
+ax provider list        # List installed provider plugins
+ax provider verify      # Check provider plugin integrity
 ```
+
+Skills and MCP servers are managed via `.ax/skills/` files committed to the agent's workspace plus the admin dashboard — not the CLI. See the Git-Native Skills section above.
 
 ## Contributing
 

@@ -509,35 +509,6 @@ describe('GET /admin/api/agents/:id/identity', () => {
   });
 });
 
-describe('GET /admin/api/agents/:id/skills', () => {
-  let server: Server;
-  let port: number;
-
-  beforeEach(async () => {
-    _rateLimits.clear();
-    const deps = await mockDeps();
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-  });
-
-  afterEach(() => { server.close(); });
-
-  it('returns empty skill list when workspace has no downloadScope', async () => {
-    const res = await fetchAdmin(port, '/admin/api/agents/main/skills', { token: 'test-secret-token' });
-    expect(res.status).toBe(200);
-    const data = res.body as Array<{ name: string }>;
-    expect(data).toEqual([]);
-  });
-
-  it('returns 404 for unknown agent', async () => {
-    const res = await fetchAdmin(port, '/admin/api/agents/nonexistent/skills', { token: 'test-secret-token' });
-    expect(res.status).toBe(404);
-  });
-});
-
-
 describe('tab endpoints handle provider errors gracefully', () => {
   let server: Server;
   let port: number;

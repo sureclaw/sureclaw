@@ -44,21 +44,16 @@ In k8s mode, all communication uses HTTP:
 
 The MCP fast path (`src/host/inprocess.ts`) runs the LLM orchestration loop directly in the host process — no pods, no IPC, no proxy, no GCS sync. Used for lightweight tool-calling tasks via MCP providers (database-backed). Key files: `inprocess.ts` (LLM loop), `tool-router.ts` (tool routing with per-turn limits), `sandbox-manager.ts` (cross-turn sandbox escalation). See `src/providers/mcp/` for the `McpProvider` interface: `listTools()`, `callTool()`, `credentialStatus()`, `storeCredential()`. Implementations: `none` (no-op), `database` (per-agent HTTP/SSE MCP servers stored in DB with circuit breakers). Unified MCP routing via `McpConnectionManager` (`src/plugins/mcp-manager.ts`).
 
-### Cowork Plugin System
+### MCP Connection Manager
 
-The Cowork plugin system (`src/plugins/`) provides per-agent plugin lifecycle management with MCP server integration. Plugins are installed from GitHub, local directories, or URLs and can declare skills, commands, and MCP servers.
+`src/plugins/` now contains only the MCP connection manager — the per-agent registry that discovers tools and routes calls across all configured MCP servers. Skills and MCP servers reach it through the git-native skill flow (`.ax/skills/<name>/SKILL.md` → reconciler → admin approval → `mcp-applier.ts` → `McpConnectionManager.addServer()`).
 
 Key files:
-- `src/plugins/types.ts` — Plugin manifest, skill, command, MCP server type definitions
-- `src/plugins/mcp-manager.ts` — `McpConnectionManager`: unified MCP tool discovery and routing across plugins, database, and default providers
+- `src/plugins/mcp-manager.ts` — `McpConnectionManager`: unified MCP tool discovery and routing across skill-declared, database-backed, and default providers
 - `src/plugins/mcp-client.ts` — HTTP client for querying remote MCP servers
-- `src/plugins/store.ts` — Plugin CRUD via DocumentStore
-- `src/plugins/install.ts` — Plugin install/uninstall with MCP server registration
-- `src/plugins/startup.ts` — Bootstrap plugin MCP servers from DB and config on startup
-- `src/plugins/fetcher.ts` — Fetch plugin files from GitHub, local paths, or URLs
-- `src/plugins/parser.ts` — Parse plugin bundles (plugin.json, skills/, commands/, .mcp.json)
+- `src/plugins/startup.ts` — Bootstrap MCP servers from the database + config at startup
 
-Plugin IPC actions: `plugin_install_cowork`, `plugin_uninstall_cowork`, `plugin_list_cowork`. CLI: `ax plugin install|remove|list`.
+There is no longer a legacy `install/uninstall/list_cowork` IPC surface or `ax plugin`/`ax mcp` CLI. Third-party provider plugins (for LLM/memory/channel etc.) are still managed with `ax provider add|remove|list|verify`.
 
 ### Cap'n Web Tool Batching
 

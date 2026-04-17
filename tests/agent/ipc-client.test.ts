@@ -86,10 +86,10 @@ describe('IPCClient', () => {
     await new Promise<void>((resolve) => server.on('listening', resolve));
 
     const client = new IPCClient({ socketPath });
-    const result = await client.call({ action: 'skill_delete', slug: 'test' });
+    const result = await client.call({ action: 'memory_list', scope: 'test' });
 
     expect(result.ok).toBe(true);
-    expect(result.echo).toBe('skill_delete');
+    expect(result.echo).toBe('memory_list');
 
     client.disconnect();
   });

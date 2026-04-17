@@ -9,9 +9,9 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Config, ProviderRegistry, Message, ContentBlock, TaintTag } from '../types.js';
-import type { McpProvider, McpToolSchema } from '../providers/mcp/types.js';
+import type { McpToolSchema } from '../providers/mcp/types.js';
 import type { ChatChunk, ToolDef } from '../providers/llm/types.js';
-import type { ConversationStoreProvider, DocumentStore } from '../providers/storage/types.js';
+import type { ConversationStoreProvider } from '../providers/storage/types.js';
 import type { Router } from './router.js';
 import type { TaintBudget } from './taint-budget.js';
 import type { EventBus } from './event-bus.js';
@@ -43,7 +43,6 @@ export interface FastPathDeps {
   config: Config;
   providers: ProviderRegistry;
   conversationStore: ConversationStoreProvider;
-  documents: DocumentStore;
   router: Router;
   taintBudget: TaintBudget;
   sessionCanaries: Map<string, string>;
@@ -121,15 +120,9 @@ const REQUEST_SANDBOX_TOOL: ToolDef = {
 // ---------------------------------------------------------------------------
 
 function buildFastPathSystemPrompt(
-  skills: Array<{ instructions: string }>,
   canRequestSandbox: boolean,
 ): string {
   const parts: string[] = [];
-
-  // Skill instructions
-  for (const skill of skills) {
-    parts.push(skill.instructions);
-  }
 
   // MCP context
   parts.push(
@@ -150,30 +143,8 @@ function buildFastPathSystemPrompt(
 }
 
 // ---------------------------------------------------------------------------
-// Tool discovery
+// Tool helpers
 // ---------------------------------------------------------------------------
-
-export function extractAppHints(message: string, installedApps: string[]): string[] {
-  if (!message) return [];
-  return installedApps.filter(app => {
-    const escaped = app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`\\b${escaped}\\b`, 'i').test(message);
-  });
-}
-
-async function discoverTools(
-  agentId: string,
-  userMessage: string,
-  mcp: McpProvider | undefined,
-  installedApps: string[],
-): Promise<McpToolSchema[]> {
-  if (!mcp || installedApps.length === 0) return [];
-
-  const hinted = extractAppHints(userMessage, installedApps);
-  const filter = hinted.length > 0 ? { apps: hinted, agentId } : { apps: installedApps, agentId };
-
-  return mcp.listTools(filter);
-}
 
 function mcpToolToToolDef(schema: McpToolSchema): ToolDef {
   return {
@@ -200,14 +171,10 @@ export async function runFastPath(
   };
 
   return turnStore.run(turnCtx, async () => {
-    const { config, providers, conversationStore, documents, logger } = deps;
+    const { config, providers, conversationStore, logger } = deps;
     const reqLogger = logger.child({ reqId: request.requestId.slice(-8) });
 
-    // 1. Load skills from DB (instruction-only skills with MCP app mappings)
-    const skills = await loadSkillsFromDB(documents, request.agentId);
-    const installedApps = skills.flatMap(s => s.mcpApps);
-
-    // 2. Discover MCP tools — unified path via manager, or legacy fallback
+    // 1. Discover MCP tools via the connection manager (if wired).
     let mcpTools: McpToolSchema[] = [];
     if (deps.mcpManager) {
       const resolveHeaders = providers.credentials
@@ -236,16 +203,9 @@ export async function runFastPath(
         } catch { /* table may not exist — leave filter undefined (all servers) */ }
       }
       mcpTools = await deps.mcpManager.discoverAllTools(request.agentId, { resolveHeaders, authForServer, serverFilter });
-    } else {
-      mcpTools = await discoverTools(
-        request.agentId,
-        request.message,
-        providers.mcp,
-        installedApps,
-      );
     }
 
-    // 3. Build tool list
+    // 2. Build tool list
     const tools: ToolDef[] = [
       ...mcpTools.map(mcpToolToToolDef),
       FILE_READ_TOOL,
@@ -253,10 +213,10 @@ export async function runFastPath(
       REQUEST_SANDBOX_TOOL,
     ];
 
-    // 4. Build system prompt
-    const systemPrompt = buildFastPathSystemPrompt(skills, true);
+    // 3. Build system prompt
+    const systemPrompt = buildFastPathSystemPrompt(true);
 
-    // 5. Load conversation history
+    // 4. Load conversation history
     let history: Message[] = [];
     if (request.persistentSessionId) {
       const stored = await conversationStore.load(request.persistentSessionId, config.history.max_turns);
@@ -271,13 +231,13 @@ export async function runFastPath(
       }));
     }
 
-    // 6. Build messages
+    // 5. Build messages
     const messages: Message[] = [
       ...history,
       { role: 'user', content: request.message },
     ];
 
-    // 7. Tool router context
+    // 6. Tool router context
     const routerCtx: ToolRouterContext = {
       requestId: request.requestId,
       agentId: request.agentId,
@@ -314,7 +274,7 @@ export async function runFastPath(
       mcp: providers.mcp, // @deprecated — legacy fallback; remove when McpConnectionManager replaces all callers
     };
 
-    // 8. LLM orchestration loop
+    // 7. LLM orchestration loop
     const model = config.models?.default?.[0] ?? 'claude-sonnet-4-5-20250929';
     let responseText = '';
     let finishReason: 'stop' | 'content_filter' = 'stop';
@@ -426,7 +386,7 @@ export async function runFastPath(
       responseText = '';
     }
 
-    // 9. Persist conversation (final text only — tool-use blocks are omitted
+    // 8. Persist conversation (final text only — tool-use blocks are omitted
     //    to keep history compact; full message exchange lives in the LLM context)
     if (request.persistentSessionId) {
       await conversationStore.append(request.persistentSessionId, 'user', request.message);
@@ -473,44 +433,3 @@ export function resolveTurnLayer(
   return 'in-process';
 }
 
-// ---------------------------------------------------------------------------
-// Skill loading from DB (instruction-only skills)
-// ---------------------------------------------------------------------------
-
-interface SkillRecord {
-  instructions: string;
-  mcpApps: string[];
-}
-
-async function loadSkillsFromDB(
-  documents: DocumentStore,
-  agentId: string,
-): Promise<SkillRecord[]> {
-  const skills: SkillRecord[] = [];
-
-  try {
-    const keys = await documents.list('skills');
-    const agentPrefix = `${agentId}/`;
-
-    for (const key of keys) {
-      if (!key.startsWith(agentPrefix)) continue;
-      const content = await documents.get('skills', key);
-      if (!content) continue;
-
-      try {
-        const parsed = JSON.parse(content) as { instructions?: string; mcpApps?: string[] };
-        skills.push({
-          instructions: parsed.instructions ?? '',
-          mcpApps: parsed.mcpApps ?? [],
-        });
-      } catch {
-        // If the skill content is plain text (legacy), treat as instructions only
-        skills.push({ instructions: content, mcpApps: [] });
-      }
-    }
-  } catch {
-    // Skills collection may not exist yet — return empty
-  }
-
-  return skills;
-}

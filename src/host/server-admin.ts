@@ -20,7 +20,6 @@ import type { ProxyDomainList } from './proxy-domain-list.js';
 import type { SetupRequest } from './skills/types.js';
 import type { CredentialRequestQueue } from './credential-request-queue.js';
 import { ApproveBodySchema, approveSkillSetup } from './server-admin-skills-helpers.js';
-import { parseAgentSkill } from '../utils/skill-format-parser.js';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
 import { configPath as getConfigPath } from '../paths.js';
@@ -347,41 +346,6 @@ async function handleAdminAPI(
     }
     return;
   }
-
-  // GET /admin/api/agents/:id/skills/:name — read a single skill's content
-  const skillContentMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills\/([^/]+)$/);
-  if (skillContentMatch && method === 'GET') {
-    const id = decodeURIComponent(skillContentMatch[1]);
-    const skillName = decodeURIComponent(skillContentMatch[2]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const content = await findSkillContent(providers, id, skillName);
-      if (!content) { sendError(res, 404, 'Skill not found'); return; }
-      sendJSON(res, content);
-    } catch (err) {
-      logger.error('admin_skill_content_failed', { agentId: id, skill: skillName, error: (err as Error).message });
-      sendError(res, 500, `Failed to read skill: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // GET /admin/api/agents/:id/skills — list skills from workspace
-  const skillsListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills$/);
-  if (skillsListMatch && method === 'GET') {
-    const id = decodeURIComponent(skillsListMatch[1]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const skills = await listWorkspaceSkills(providers, id);
-      sendJSON(res, skills);
-    } catch (err) {
-      logger.error('admin_skills_list_failed', { agentId: id, error: (err as Error).message });
-      sendError(res, 500, `Failed to list skills: ${(err as Error).message}`);
-    }
-    return;
-  }
-
 
   // GET /admin/api/agents/:id/memory — list memory entries
   const memoryMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/memory$/);
@@ -945,52 +909,6 @@ async function handleAdminAPI(
   }
 
   sendError(res, 404, 'Not found');
-}
-
-// ── Workspace Skills Helpers ──
-
-/** List skills from workspace directories (agent + user scopes). */
-async function listWorkspaceSkills(
-  providers: ProviderRegistry,
-  agentId: string,
-): Promise<Array<{ name: string; description?: string; path: string }>> {
-  const skills: Array<{ name: string; description?: string; path: string }> = [];
-
-  return skills;
-}
-
-/** Find and return a single skill's content by name. */
-async function findSkillContent(
-  providers: ProviderRegistry,
-  agentId: string,
-  skillName: string,
-): Promise<{ name: string; content: string } | undefined> {
-  // Search plugin skills in DocumentStore
-  if (providers.storage?.documents) {
-    const allKeys = await providers.storage.documents.list('skills');
-    const prefix = `${agentId}/`;
-    for (const key of allKeys) {
-      if (!key.startsWith(prefix)) continue;
-      const raw = await providers.storage.documents.get('skills', key);
-      if (!raw) continue;
-      try {
-        const stored = JSON.parse(raw);
-        const content = stored.instructions ?? raw;
-        const parsed = parseAgentSkill(content);
-        const name = parsed.name || key.slice(prefix.length);
-        if (name === skillName) {
-          return { name, content };
-        }
-      } catch {
-        const parsed = parseAgentSkill(raw);
-        const name = parsed.name || key.slice(prefix.length);
-        if (name === skillName) {
-          return { name, content: raw };
-        }
-      }
-    }
-  }
-  return undefined;
 }
 
 // ── SSE Event Stream ──
