@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 09:35] — Phase 5 Task 4: DELETE /admin/api/skills/setup/:agentId/:skillName (dismiss)
+
+**Task:** Phase 5 Task 4. Add a dashboard-only "Dismiss" endpoint that drops a card from the user's view without touching repo files or `skill_states`. Idempotent — dismissing a card that's not in the queue returns `removed: false`. If the skill is still pending on the next reconcile, the card reappears.
+**What I did:** Added the DELETE route to `src/host/server-admin.ts` right after the approve block. Uses the same regex style as the existing `agents/:id/mcp-servers/:name` delete (`/^\/admin\/api\/skills\/setup\/([^/]+)\/([^/]+)$/`) with `decodeURIComponent` on each segment. 503 short-circuit if `deps.skillStateStore` is missing. Reads the queue, filters out the matching `skillName`, compares lengths: zero-removal → `{ ok: true, removed: false }` with no write/audit; otherwise `putSetupQueue` + `audit.log({ action: 'skill_dismissed', args: { agentId, skillName } })`, then `{ ok: true, removed: true }`. Audit throws propagate (same as approve — audit is a security invariant). Extended `tests/host/server-admin-skills.test.ts` with a new describe block (5 cases: happy path, idempotent-no-op, URL-encoded skill name, 503 missing store, other-agents-untouched).
+**Files touched:** `src/host/server-admin.ts`, `tests/host/server-admin-skills.test.ts`.
+**Outcome:** Success — `npx vitest run tests/host/server-admin-skills.test.ts tests/host/server-admin.test.ts` = 61/61 pass (56 prior + 5 new). `npx tsc --noEmit` clean.
+**Notes:** Zero surprises. The existing `mockDeps` factory already exposed `putSetupQueue` as a `vi.fn()` so the write-back + audit assertions fell out naturally. The "other agents untouched" test seeds a linear card in both `main` and `other` queues and asserts only `main` is written back — load-bearing because it proves the regex pins the write to the URL's `:agentId` segment and doesn't do some global scan.
+
 ## [2026-04-17 09:25] — Phase 5 Task 3 second follow-up: narrow skill-approve route catch
 
 **Task:** Second spec-review finding uncovered while doing the audit-catch removal. The approve route's outer `try/catch` wrapped the entire flow and reported every throw as `400 Invalid request: <msg>`. After removing the helper's silent audit-catch, a real audit/DB failure would have surfaced as 400 (client bug) instead of 500 (server bug), misleading operators.

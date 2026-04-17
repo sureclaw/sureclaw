@@ -775,3 +775,152 @@ describe('POST /admin/api/skills/setup/approve', () => {
     expect(body?.error?.message).not.toMatch(/^Invalid request:/);
   });
 });
+
+// ── DELETE /admin/api/skills/setup/:agentId/:skillName ─────────────────────
+
+const linearCard: SetupRequest = {
+  skillName: 'linear',
+  description: 'Linear stuff',
+  missingCredentials: [
+    { envName: 'LINEAR_TOKEN', authType: 'api_key', scope: 'user' },
+  ],
+  unapprovedDomains: ['api.linear.app'],
+  mcpServers: [],
+};
+
+const weatherCard: SetupRequest = {
+  skillName: 'weather',
+  description: 'Weather lookups',
+  missingCredentials: [
+    { envName: 'W_KEY', authType: 'api_key', scope: 'agent' },
+  ],
+  unapprovedDomains: ['api.weather.com'],
+  mcpServers: [],
+};
+
+describe('DELETE /admin/api/skills/setup/:agentId/:skillName', () => {
+  let server: Server;
+  let port: number;
+
+  beforeEach(() => {
+    _rateLimits.clear();
+  });
+
+  afterEach(() => {
+    server?.close();
+  });
+
+  it('happy path: removes the matching card, persists the new queue, emits audit', async () => {
+    const deps = await mockDeps({
+      getSetupQueueImpl: async (id) => (id === 'main' ? [linearCard, weatherCard] : []),
+    });
+    const putSetupQueue = deps.skillStateStore!.putSetupQueue as ReturnType<typeof vi.fn>;
+    const auditLog = deps.providers.audit.log as ReturnType<typeof vi.fn>;
+
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/main/linear', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: true });
+
+    expect(putSetupQueue).toHaveBeenCalledTimes(1);
+    expect(putSetupQueue).toHaveBeenCalledWith('main', [weatherCard]);
+
+    expect(auditLog).toHaveBeenCalledTimes(1);
+    const auditCall = auditLog.mock.calls[0][0] as { action: string; args: Record<string, unknown> };
+    expect(auditCall.action).toBe('skill_dismissed');
+    expect(auditCall.args).toEqual({ agentId: 'main', skillName: 'linear' });
+  });
+
+  it('idempotent: skill not in queue → 200 { removed: false }, no write, no audit', async () => {
+    const deps = await mockDeps({
+      getSetupQueueImpl: async () => [weatherCard],
+    });
+    const putSetupQueue = deps.skillStateStore!.putSetupQueue as ReturnType<typeof vi.fn>;
+    const auditLog = deps.providers.audit.log as ReturnType<typeof vi.fn>;
+
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/main/linear', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: false });
+    expect(putSetupQueue).not.toHaveBeenCalled();
+    expect(auditLog).not.toHaveBeenCalled();
+  });
+
+  it('decodes URL-encoded skill names (segments with hyphens and percent-encoding)', async () => {
+    const fooBarCard: SetupRequest = { ...linearCard, skillName: 'foo-bar' };
+    const deps = await mockDeps({
+      getSetupQueueImpl: async () => [fooBarCard],
+    });
+    const putSetupQueue = deps.skillStateStore!.putSetupQueue as ReturnType<typeof vi.fn>;
+
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/main/foo-bar', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: true });
+    expect(putSetupQueue).toHaveBeenCalledWith('main', []);
+  });
+
+  it('returns 503 "Skills not configured" when skillStateStore is missing', async () => {
+    const deps = await mockDeps({ withStateStore: false });
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/main/linear', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(503);
+    const body = res.body as { error: { message: string } };
+    expect(body.error.message).toBe('Skills not configured');
+  });
+
+  it("doesn't touch other agents' queues when dismissing from one agent", async () => {
+    // Each agent has its own queue. Dismissing from `main` must only write back to `main`.
+    const deps = await mockDeps({
+      registerOther: true,
+      getSetupQueueImpl: async (id) => {
+        if (id === 'main') return [linearCard, weatherCard];
+        if (id === 'other') return [linearCard]; // `other` also has a linear card
+        return [];
+      },
+    });
+    const putSetupQueue = deps.skillStateStore!.putSetupQueue as ReturnType<typeof vi.fn>;
+
+    const handler = createAdminHandler(deps);
+    ({ server, port } = await startTestServer(handler));
+
+    const res = await fetchAdmin(port, '/admin/api/skills/setup/main/linear', {
+      token: 'test-secret-token',
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: true });
+
+    // Only one write — to `main`. `other` is untouched even though its queue also has `linear`.
+    expect(putSetupQueue).toHaveBeenCalledTimes(1);
+    expect(putSetupQueue).toHaveBeenCalledWith('main', [weatherCard]);
+    const agentIdsWritten = putSetupQueue.mock.calls.map(c => c[0]);
+    expect(agentIdsWritten).toEqual(['main']);
+    expect(agentIdsWritten).not.toContain('other');
+  });
+});

@@ -672,6 +672,34 @@ async function handleAdminAPI(
     return;
   }
 
+  // DELETE /admin/api/skills/setup/:agentId/:skillName — dashboard-only dismissal.
+  // Drops the card from the user's view. Does NOT touch repo files or skill_states.
+  // Idempotent: dismissing a card that's not in the queue returns `removed: false`.
+  // If the skill is still pending on the next reconcile, the card reappears.
+  const skillDismissMatch = pathname.match(/^\/admin\/api\/skills\/setup\/([^/]+)\/([^/]+)$/);
+  if (skillDismissMatch && method === 'DELETE') {
+    if (!deps.skillStateStore) { sendError(res, 503, 'Skills not configured'); return; }
+    const agentId = decodeURIComponent(skillDismissMatch[1]);
+    const skillName = decodeURIComponent(skillDismissMatch[2]);
+    const before = await deps.skillStateStore.getSetupQueue(agentId);
+    const after = before.filter(c => c.skillName !== skillName);
+    if (after.length === before.length) {
+      sendJSON(res, { ok: true, removed: false });
+      return;
+    }
+    await deps.skillStateStore.putSetupQueue(agentId, after);
+    // Audit throws propagate (same as approve) — audit is a security invariant.
+    await providers.audit.log({
+      action: 'skill_dismissed',
+      args: { agentId, skillName },
+      result: 'success',
+      timestamp: new Date(),
+      durationMs: 0,
+    });
+    sendJSON(res, { ok: true, removed: true });
+    return;
+  }
+
   // ── Per-Agent MCP Server Assignment ──
 
   // GET /admin/api/agents/:id/mcp-servers — list assigned server names
