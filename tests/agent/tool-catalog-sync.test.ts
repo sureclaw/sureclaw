@@ -111,11 +111,15 @@ describe('tool-catalog <-> system prompt sync', () => {
 
   test('skill creation instructions are documented in SkillsModule', () => {
     const mod = new SkillsModule();
-    const ctx = makePromptContext({ skills: [{ name: 'Dummy', description: 'dummy', path: 'dummy.md' }] });
+    const ctx = makePromptContext({
+      skills: [{ name: 'Dummy', description: 'dummy', path: 'dummy.md' }],
+      hasWorkspace: true,
+    });
     const rendered = mod.render(ctx).join('\n');
-    // Should reference filesystem-based skill paths and read_file tool
-    expect(rendered, 'skill path missing from SkillsModule system prompt').toContain('/workspace/skills/');
-    expect(rendered, 'read_file tool missing from SkillsModule system prompt').toContain('read_file');
+    // Should reference the git-native skill read path (SKILL.md under .ax/skills/).
+    expect(rendered, 'skill read path missing from SkillsModule system prompt').toContain('.ax/skills/<name>/SKILL.md');
+    // Creating Skills section surfaces the filesystem path used when authoring new skills.
+    expect(rendered, 'skill creation path missing from SkillsModule system prompt').toContain('/workspace/skills/');
   });
 
   test('delegate tool is documented in DelegationModule', () => {
@@ -212,6 +216,8 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'fetch_work',
       // Commit validation (git sidecar → host, validates .ax/ diffs before committing)
       'validate_commit',
+      // Skills index (host-authoritative skill state for system prompt; not an agent tool)
+      'skills_index',
     ]);
 
     for (const action of schemaActions) {

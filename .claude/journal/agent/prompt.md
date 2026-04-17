@@ -2,6 +2,27 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-04-17 06:20] — Phase 3 Tasks 5+6: SkillSummary extension + SkillsModule bullet format
+
+**Task:** Git-native skills phase 3 Tasks 5 (extend `SkillSummary`) + 6 (rewrite `SkillsModule.render` to design-doc bullet format).
+**What I did:**
+1. Extended `SkillSummary` in `src/agent/prompt/types.ts`: made `path` optional (host-indexed skills synthesize paths at render), added `kind?: 'enabled' | 'pending' | 'invalid'` and `pendingReasons?: string[]`.
+2. Rewrote `SkillsModule.render()` in `src/agent/prompt/modules/skills.ts` to emit the design-doc bullet list (`- **name** — [(setup pending: ...) | (invalid) ]description`) with `kind ?? 'enabled'` defaulting legacy rows to enabled. Dropped the markdown table and the "Missing Dependencies" block; left warnings as a compat-bridge `(missing: ...)` parenthetical until phase 4 migrates them to `pendingReasons`.
+3. Updated `renderMinimal` to reference `.ax/skills/<name>/SKILL.md` instead of "the skill path".
+4. Rewrote skill render tests in `tests/agent/prompt/modules/skills.test.ts` (deleted table-format assertions, added 5 new tests: pending-with-reasons, invalid marker, legacy-no-kind, pending-no-reasons fallback, renderMinimal path reference).
+5. Fixed two sibling-suite breaks: `tests/agent/prompt/builder.test.ts` matched the old "## Available Skills" title (updated to new "Available skills"); `tests/agent/tool-catalog-sync.test.ts` asserted `/workspace/skills/` in the no-workspace render (updated to set `hasWorkspace: true` + assert `.ax/skills/<name>/SKILL.md`). Also added `skills_index` to the known-internal IPC actions list (pre-existing failure from phase 3 Task 3 that my base commit inherited).
+
+**Files touched:**
+- src/agent/prompt/types.ts
+- src/agent/prompt/modules/skills.ts
+- tests/agent/prompt/modules/skills.test.ts
+- tests/agent/prompt/builder.test.ts
+- tests/agent/tool-catalog-sync.test.ts
+
+**Outcome:** Success. `npx vitest run tests/agent/prompt/` → 130/130 pass. `npm run build` clean. Full suite: 33 pre-existing failures in host/server & integration/smoke (unchanged by this patch), 2 formerly-failing tool-catalog-sync tests now passing.
+
+**Notes:** `path?` widening was low-risk — the only `.path` reader in src/ was `SkillsModule.render` itself; `loadSkills()`/`loadSkillsMultiDir()` still always set `path`. Runners keep using `loadSkillsMultiDir` until Task 7 wires the `skills_index` IPC call. The `(missing: ...)` compat bridge is deliberate and minimal — phase 4 will migrate it.
+
 ## [2026-03-31 12:00] — Add search tool guidance to ToolStyleModule
 
 **Task:** Update ToolStyleModule to advise the agent to prefer grep/glob over bash for search and file discovery.

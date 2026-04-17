@@ -121,19 +121,57 @@ describe('SkillsModule', () => {
     expect(text).not.toContain('Installing New Skills');
   });
 
-  test('renders skill table with paths', () => {
+  test('renders bullet list of skills (design-doc format)', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({
       skills: [
-        makeSkill('Daily Standup', 'Generates daily standup summaries'),
-        makeSkill('Code Review', 'Reviews pull requests for quality'),
+        makeSkill('daily-standup', 'Generates daily standup summaries'),
+        makeSkill('code-review', 'Reviews pull requests for quality'),
       ],
     });
     const text = mod.render(ctx).join('\n');
-    expect(text).toContain('Available Skills');
-    expect(text).toContain('| Daily Standup | Generates daily standup summaries |');
-    expect(text).toContain('| Code Review | Reviews pull requests for quality |');
-    expect(text).toContain('/workspace/skills/');
+    expect(text).toContain('## Available skills');
+    expect(text).toContain('- **daily-standup** — Generates daily standup summaries');
+    expect(text).toContain('- **code-review** — Reviews pull requests for quality');
+    expect(text).toContain('`.ax/skills/<name>/SKILL.md`');
+  });
+
+  test('renders bullet with pending reasons (design-doc format)', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({
+      skills: [
+        { name: 'linear', description: 'When the user wants to query or update Linear issues.', kind: 'pending', pendingReasons: ['needs LINEAR_TOKEN', 'awaiting approval for mcp.linear.app'] },
+        { name: 'weather', description: 'When the user asks about weather conditions or forecasts.', kind: 'enabled' },
+      ],
+    });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('## Available skills');
+    expect(text).toMatch(/- \*\*linear\*\* — \(setup pending: needs LINEAR_TOKEN, awaiting approval for mcp\.linear\.app\) When the user wants/);
+    expect(text).toMatch(/- \*\*weather\*\* — When the user asks/);
+    expect(text).toContain('`.ax/skills/<name>/SKILL.md`');
+  });
+
+  test('renders invalid skills with marker', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: [{ name: 'bad', description: 'broken', kind: 'invalid' }] });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toMatch(/- \*\*bad\*\* — \(invalid\) broken/);
+  });
+
+  test('treats legacy SkillSummary (no kind) as enabled', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: [{ name: 'legacy', description: 'old skill', path: 'legacy.md' }] });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toContain('- **legacy** — old skill');
+    expect(text).not.toContain('pending');
+    expect(text).not.toContain('invalid');
+  });
+
+  test('falls back to "(setup pending)" when pending has no reasons', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: [{ name: 'foo', description: 'foo skill', kind: 'pending' }] });
+    const text = mod.render(ctx).join('\n');
+    expect(text).toMatch(/- \*\*foo\*\* — \(setup pending\) foo skill/);
   });
 
   test('priority is 70', () => {
@@ -171,11 +209,10 @@ describe('SkillsModule', () => {
 
   test('includes skill usage guidance', () => {
     const mod = new SkillsModule();
-    const ctx = makeContext({ skills: [makeSkill('Test', 'Desc')] });
+    const ctx = makeContext({ skills: [makeSkill('test', 'Desc')] });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('scan this list');
-    expect(rendered).toContain('read_file');
-    expect(rendered).toContain('Do NOT use bash ls');
+    expect(rendered).toContain('To use a skill');
+    expect(rendered).toContain('`.ax/skills/<name>/SKILL.md`');
   });
 
   test('renderMinimal shows skill count', () => {
@@ -185,6 +222,16 @@ describe('SkillsModule', () => {
     });
     const text = mod.renderMinimal!(ctx).join('\n');
     expect(text).toContain('3 skills available');
+  });
+
+  test('renderMinimal references the .ax/skills path', () => {
+    const mod = new SkillsModule();
+    const ctx = makeContext({
+      skills: [{ name: 'a', description: 'a desc' }, { name: 'b', description: 'b desc' }],
+    });
+    const text = mod.renderMinimal!(ctx).join('\n');
+    expect(text).toContain('2 skills available');
+    expect(text).toContain('.ax/skills/<name>/SKILL.md');
   });
 
   test('renderMinimal with no skills shows simple message', () => {
