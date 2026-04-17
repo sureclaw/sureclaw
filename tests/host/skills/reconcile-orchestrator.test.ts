@@ -466,6 +466,74 @@ mcpServers:
     expect(types).toContain('skills.live_state_applied');
   });
 
+  it('does not emit skills.live_state_applied when both appliers throw', async () => {
+    seedRepo(bareRepoPath, { '.ax/skills/linear/SKILL.md': LINEAR_SKILL });
+    const stateStore = createSkillStateStore(dbHandle.db);
+    const proxyDomainList = {
+      getAllowedDomains: () => new Set<string>(['api.linear.app']),
+    } as unknown as ProxyDomainList;
+    const credentials = stubCredentials({
+      byPrefix: { 'user:foo-agent:': [{ scope: 'user:foo-agent:alice', envName: 'LINEAR_TOKEN' }] },
+    });
+    const { bus, events } = recordingEventBus();
+
+    const deps: OrchestratorDeps = {
+      agentName: 'foo-agent',
+      proxyDomainList,
+      credentials,
+      stateStore,
+      eventBus: bus,
+      getBareRepoPath: () => bareRepoPath,
+      mcpApplier: {
+        apply: async () => { throw new Error('mcp boom'); },
+      },
+      proxyApplier: {
+        apply: async () => { throw new Error('proxy boom'); },
+      },
+    };
+
+    await reconcileAgent('agent-1', 'refs/heads/main', deps);
+
+    const types = events.map((e) => e.type);
+    expect(types).not.toContain('skills.live_state_applied');
+  });
+
+  it('emits skills.live_state_applied when only one applier succeeds', async () => {
+    seedRepo(bareRepoPath, { '.ax/skills/linear/SKILL.md': LINEAR_SKILL });
+    const stateStore = createSkillStateStore(dbHandle.db);
+    const proxyDomainList = {
+      getAllowedDomains: () => new Set<string>(['api.linear.app']),
+    } as unknown as ProxyDomainList;
+    const credentials = stubCredentials({
+      byPrefix: { 'user:foo-agent:': [{ scope: 'user:foo-agent:alice', envName: 'LINEAR_TOKEN' }] },
+    });
+    const { bus, events } = recordingEventBus();
+
+    const deps: OrchestratorDeps = {
+      agentName: 'foo-agent',
+      proxyDomainList,
+      credentials,
+      stateStore,
+      eventBus: bus,
+      getBareRepoPath: () => bareRepoPath,
+      mcpApplier: {
+        apply: async () => { throw new Error('mcp boom'); },
+      },
+      proxyApplier: {
+        apply: async () => ({ added: ['api.linear.app'], removed: [] }),
+      },
+    };
+
+    await reconcileAgent('agent-1', 'refs/heads/main', deps);
+
+    const applied = events.find((e) => e.type === 'skills.live_state_applied');
+    expect(applied).toBeDefined();
+    expect(applied?.data).toEqual({
+      mcp: undefined,
+      proxy: { added: ['api.linear.app'], removed: [] },
+    });
+  });
+
   it('skips appliers if orchestrator catches an error before DB write', async () => {
     // Force snapshot failure; appliers must NOT be called.
     const stateStore = createSkillStateStore(dbHandle.db);

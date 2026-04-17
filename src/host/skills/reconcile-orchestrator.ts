@@ -74,7 +74,10 @@ export async function reconcileAgent(
         });
       }
     }
-    if (deps.mcpApplier || deps.proxyApplier) {
+    // Only emit when at least one applier produced a result. When an applier
+    // throws, its summary stays undefined — if both throw, we skip the event
+    // so subscribers don't see a success signal for a failed apply.
+    if (applierSummary.mcp !== undefined || applierSummary.proxy !== undefined) {
       deps.eventBus.emit({
         type: 'skills.live_state_applied',
         requestId: agentId,

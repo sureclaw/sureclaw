@@ -4,6 +4,7 @@ Host process work: server, router, IPC handlers, event console, event bus, deleg
 
 ## Entries
 
+- 2026-04-17 08:10 — Phase 4 PR #179 review: bearer-rotation fix, proxy-applier removeAgent, gated live_state_applied event, non-blocking startup rehydrate [skills.md](skills.md)
 - 2026-04-17 07:40 — Phase 4 wrap-up: MCP + proxy appliers, startup rehydration, reconcile orchestrator wiring — `feat/skills-phase4-appliers` ready for review [skills.md](skills.md)
 - 2026-04-17 05:40 — Phase 2 PR #177 CodeRabbit review fixes (8 commits): orphan-repo cleanup, case-sensitive scope prefix, skip branch-deletion pushes, buffer-based HMAC, non-Error narrowing, atomic states+queue, curl --data-binary, ifExists down [skills.md](skills.md)
 - 2026-04-16 23:30 — Phase 2 Task 3: current-state loader aggregates approvals, credentials (both scopes via `listScopePrefix`), mcp, prior states [skills.md](skills.md)

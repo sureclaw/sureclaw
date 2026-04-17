@@ -62,4 +62,28 @@ describe('ProxyApplier', () => {
     expect(result.removed).toEqual(['api.linear.app']);
     expect(list.isAllowed('api.linear.app')).toBe(false);
   });
+
+  it('removeAgent drops the agent contribution and resets the prior baseline', async () => {
+    const list = new ProxyDomainList();
+    const applier = createProxyApplier({ proxyDomainList: list });
+
+    await applier.apply('a1', new Set(['api.linear.app']));
+    applier.removeAgent('a1');
+
+    // Contribution dropped from the allowlist.
+    expect(list.isAllowed('api.linear.app')).toBe(false);
+
+    // Next apply treats the agent as fresh: the domain should reappear as
+    // `added` (not seen as already-present from the stale prior).
+    const result = await applier.apply('a1', new Set(['api.linear.app']));
+    expect(result.added).toEqual(['api.linear.app']);
+    expect(result.removed).toEqual([]);
+  });
+
+  it('removeAgent is a no-op for unknown agents', () => {
+    const list = new ProxyDomainList();
+    const applier = createProxyApplier({ proxyDomainList: list });
+
+    expect(() => applier.removeAgent('never-seen')).not.toThrow();
+  });
 });

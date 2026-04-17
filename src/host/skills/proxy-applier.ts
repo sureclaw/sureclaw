@@ -30,6 +30,13 @@ export interface ProxyApplyResult {
 
 export interface ProxyApplier {
   apply(agentId: string, desired: ReadonlySet<string>): Promise<ProxyApplyResult>;
+  /**
+   * Drop all local state for an agent (e.g. when the agent is deleted).
+   * Clears the closure-scoped `prior` baseline and removes the agent's
+   * contribution from `proxyDomainList` so a later re-create starts fresh.
+   * No-op for unknown agentIds.
+   */
+  removeAgent(agentId: string): void;
 }
 
 export interface ProxyApplierDeps {
@@ -78,6 +85,10 @@ export function createProxyApplier(deps: ProxyApplierDeps): ProxyApplier {
       });
 
       return { added, removed };
+    },
+    removeAgent(agentId) {
+      prior.delete(agentId);
+      proxyDomainList.removeAgent(agentId);
     },
   };
 }

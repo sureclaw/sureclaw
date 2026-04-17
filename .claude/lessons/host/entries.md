@@ -1,5 +1,23 @@
 # Host
 
+### Applier no-op checks must compare *all* runtime-observable fields, not just the identity key
+**Date:** 2026-04-17
+**Context:** PR #179 review: `mcp-applier` used `if (currentUrl === entry.url) continue;` as its idempotence check. That meant rotating a bearer credential while keeping the URL unchanged was silently skipped — the live server kept running with the stale `Authorization: Bearer ${OLD_TOKEN}` placeholder, and credential rotations never reached the runtime. The URL is the natural identity key (agents route on it), but it's not the only field the runtime consumes.
+**Lesson:** Before treating a desired entry as "already applied," compare every field the live runtime actually uses — not just the identifier. For MCP entries that means URL *and* the computed header string (`Bearer ${TOKEN}`). Build the desired header up front, stash the current header in your `prior` map alongside the URL, and gate the no-op on both. Same pattern applies to any applier: enumerate runtime-observable fields, then compare all of them — missing one creates an invisible "stuck state" bug.
+**Tags:** applier, mcp, idempotence, credential-rotation, code-review
+
+### Closure-scoped `prior` maps need an explicit cleanup method for deleted keys
+**Date:** 2026-04-17
+**Context:** PR #179 review: `proxy-applier` used a `prior: Map<agentId, Set<domain>>` closure to diff desired vs previous. When an agent was deleted and later a new one created with the same ID, the stale `prior` entry caused the next apply to compute an incorrect diff (treating domains as already-present when the shared store had forgotten them). The fix was exposing a `removeAgent(agentId)` method that clears both the local `prior` and the shared store entry.
+**Lesson:** Any long-lived closure-scoped Map keyed by an entity ID (agent, user, session) needs a paired cleanup hook invoked on entity deletion. Otherwise re-creating the entity starts with a stale baseline. Expose the cleanup as an explicit method on the returned object (not just a dangling `map.delete(id)` the caller has to know about). Pair it with cleanup of any shared downstream state so baseline and store stay in sync.
+**Tags:** applier, closure-state, lifecycle, cleanup, code-review
+
+### Don't emit "applied" events when the underlying apply failed
+**Date:** 2026-04-17
+**Context:** PR #179 review: reconcile orchestrator emitted `skills.live_state_applied` whenever either applier was configured, even if *both* applier calls threw. The event data carried `{ mcp: undefined, proxy: undefined }` but consumers looking at event type alone saw a false success signal. Fix: gate the emit on at least one summary field being defined.
+**Lesson:** Event names communicate semantics. `foo.applied` means "foo was applied," not "we made an attempt." When applier calls are wrapped in per-call try/catch (so failures don't bubble), gate the success-shaped emit on "at least one non-undefined result," not on "the feature is enabled." Alternative: include explicit per-applier `ok` fields so subscribers can differentiate. Prefer gating unless failure is actually rare enough that downstream code wants to see both paths uniformly.
+**Tags:** event-bus, error-handling, applier, reconcile, code-review
+
 ### Appliers diff desired-state against live runtime with a closure-scoped prior map
 **Date:** 2026-04-17
 **Context:** Phase 4 git-native skills needed to bridge the reconciler's `desired.{mcpServers,proxyAllowlist}` to the live `McpConnectionManager` + `ProxyDomainList`. The naive version would "re-read the live map, compute the diff, apply it" — but that blends other-source entries (plugins, database MCP, other agents) into the diff and risks clobbering them. The solution was to give each applier its own closure-scoped `prior` map keyed by the entries *this agent* previously wrote, plus a `source: 'skill:<agentId>'` tag on every registration so cross-source entries are never inspected. Startup rehydration then works by simply re-running `reconcileAgent` per agent — no separate "rebuild from DB" code path.

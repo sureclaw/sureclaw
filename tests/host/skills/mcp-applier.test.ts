@@ -110,4 +110,56 @@ describe('McpApplier', () => {
     expect(meta?.source).toBe('skill:a1');
     expect(meta?.headers).toEqual({ Authorization: 'Bearer ${LINEAR_TOKEN}' });
   });
+
+  it('re-registers when bearerCredential changes (same URL)', async () => {
+    const mcp = makeManager();
+    const applier = createMcpApplier({ mcpManager: mcp });
+
+    await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app', bearerCredential: 'OLD_TOKEN' }],
+    ]));
+
+    const result = await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app', bearerCredential: 'NEW_TOKEN' }],
+    ]));
+
+    expect(result.unregistered).toEqual([{ name: 'linear' }]);
+    expect(result.registered).toEqual([{ name: 'linear', url: 'https://mcp.linear.app' }]);
+    expect(mcp.getServerMeta('_', 'linear')?.headers).toEqual({
+      Authorization: 'Bearer ${NEW_TOKEN}',
+    });
+  });
+
+  it('re-registers when bearerCredential is added (previously unset)', async () => {
+    const mcp = makeManager();
+    const applier = createMcpApplier({ mcpManager: mcp });
+
+    await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app' }],
+    ]));
+    const result = await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app', bearerCredential: 'LINEAR_TOKEN' }],
+    ]));
+
+    expect(result.unregistered).toEqual([{ name: 'linear' }]);
+    expect(result.registered).toEqual([{ name: 'linear', url: 'https://mcp.linear.app' }]);
+    expect(mcp.getServerMeta('_', 'linear')?.headers).toEqual({
+      Authorization: 'Bearer ${LINEAR_TOKEN}',
+    });
+  });
+
+  it('is idempotent when bearerCredential is unchanged', async () => {
+    const mcp = makeManager();
+    const applier = createMcpApplier({ mcpManager: mcp });
+
+    await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app', bearerCredential: 'LINEAR_TOKEN' }],
+    ]));
+    const result = await applier.apply('a1', new Map([
+      ['linear', { url: 'https://mcp.linear.app', bearerCredential: 'LINEAR_TOKEN' }],
+    ]));
+
+    expect(result.registered).toEqual([]);
+    expect(result.unregistered).toEqual([]);
+  });
 });

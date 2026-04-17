@@ -44,11 +44,14 @@ export function createMcpApplier(deps: McpApplierDeps): McpApplier {
     async apply(agentId, desired) {
       const source = sourceFor(agentId);
       const all = mcpManager.listServersWithMeta('_');
-      const ours = new Map<string, { url: string }>(); // name → current url (our source only)
+      // name → current { url, authHeader } for servers owned by this agent.
+      const ours = new Map<string, { url: string; authHeader?: string }>();
       const byName = new Map<string, { url: string; source?: string }>();
       for (const s of all) {
         byName.set(s.name, { url: s.url, source: s.source });
-        if (s.source === source) ours.set(s.name, { url: s.url });
+        if (s.source === source) {
+          ours.set(s.name, { url: s.url, authHeader: s.headers?.Authorization });
+        }
       }
 
       const registered: McpApplyResult['registered'] = [];
@@ -79,16 +82,27 @@ export function createMcpApplier(deps: McpApplierDeps): McpApplier {
           continue;
         }
 
-        const currentUrl = ours.get(name)?.url;
-        if (currentUrl === entry.url) continue; // no-op
+        const current = ours.get(name);
+        const desiredAuthHeader = entry.bearerCredential
+          ? `Bearer \${${entry.bearerCredential}}`
+          : undefined;
 
-        if (currentUrl !== undefined && currentUrl !== entry.url) {
+        if (
+          current !== undefined
+          && current.url === entry.url
+          && current.authHeader === desiredAuthHeader
+        ) {
+          continue; // no-op — url and auth header match
+        }
+
+        if (current !== undefined) {
+          // URL or credential changed — remove then add under this source.
           mcpManager.removeServer('_', name);
           unregistered.push({ name });
         }
 
-        const headers = entry.bearerCredential
-          ? { Authorization: `Bearer \${${entry.bearerCredential}}` }
+        const headers = desiredAuthHeader
+          ? { Authorization: desiredAuthHeader }
           : undefined;
         mcpManager.addServer(
           '_',
@@ -108,11 +122,12 @@ export function createMcpApplier(deps: McpApplierDeps): McpApplier {
         }
       }
 
-      // 2. Unregister anything of ours that's no longer desired
+      // 2. Unregister anything of ours that's no longer desired.
+      // Names still in `desired` were handled in step 1 (including the
+      // remove-then-add path for url/credential changes), so this loop only
+      // touches names fully dropped from `desired`.
       for (const [name] of ours) {
         if (desired.has(name)) continue;
-        // Already unregistered above if URL changed? No — the URL-change path
-        // removes-then-adds; the name is still in `desired` so we skip here.
         const wasRemoved = mcpManager.removeServer('_', name);
         if (wasRemoved) {
           unregistered.push({ name });

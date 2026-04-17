@@ -198,19 +198,26 @@ export async function createServer(
     // DB-persisted desired state after a host restart. Per-agent failures are
     // logged and swallowed inside rehydrateSkillsForAgents — best-effort; the
     // next push-time hook will also reconcile.
+    //
+    // Fire-and-forget: each agent's reconcile runs a git snapshot, so awaiting
+    // the whole loop blocks createServer from returning. Launching it in the
+    // background lets the socket bind promptly; the push-time hook covers any
+    // agent that gets a push before rehydration finishes.
     if (core.mcpApplier && core.proxyApplier) {
-      try {
-        const agents = await agentRegistry.list();
-        const { rehydrateSkillsForAgents } = await import('./skills/startup-rehydrate.js');
-        await rehydrateSkillsForAgents(
-          agents.map(a => a.id),
-          orchestratorDeps,
-        );
-      } catch (err) {
-        logger.warn('skills_startup_rehydrate_failed', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      void (async () => {
+        try {
+          const agents = await agentRegistry.list();
+          const { rehydrateSkillsForAgents } = await import('./skills/startup-rehydrate.js');
+          await rehydrateSkillsForAgents(
+            agents.map(a => a.id),
+            orchestratorDeps,
+          );
+        } catch (err) {
+          logger.warn('skills_startup_rehydrate_failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      })();
     }
   } else {
     logger.debug('skills_reconcile_hook_disabled_no_database');

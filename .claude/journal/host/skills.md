@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 08:10] — Phase 4 PR #179 review feedback
+
+**Task:** Address CodeRabbit actionable + high-value nitpick comments on PR #179 (feat/skills-phase4-appliers). Two actionable: (1) mcp-applier skips bearer-credential rotation when URL is unchanged; (2) proxy-applier's closure-scoped `prior` Map leaks entries for deleted agents. Two nitpicks adopted: (3) orchestrator emits `skills.live_state_applied` even when both appliers threw; (4) startup rehydration blocks `createServer` return.
+**What I did:** TDD per fix. (1) mcp-applier: added 3 tests (bearer rotation, bearer added to previously unset, idempotent same-bearer); extended `ours` map to track `authHeader`; no-op check now compares both URL and the computed `Bearer ${TOKEN}` header string; on mismatch, remove-then-add under same source. Simplified the confusing comment on the unregister loop. (2) proxy-applier: added `removeAgent(agentId)` method that does `prior.delete(agentId)` + `proxyDomainList.removeAgent(agentId)`; covered by 2 tests (happy-path cleanup + unknown-agent no-op). (3) orchestrator: condition for `skills.live_state_applied` emission tightened to "at least one applier produced a non-undefined result"; 2 tests: both-throw → no event, one-succeeds → event fires with `{ mcp: undefined, proxy: result }`. (4) server.ts: wrapped rehydration block in `void (async () => { ... })()` so socket bind isn't blocked; comment explains the fire-and-forget intent.
+**Files touched:** `src/host/skills/mcp-applier.ts`, `src/host/skills/proxy-applier.ts`, `src/host/skills/reconcile-orchestrator.ts`, `src/host/server.ts`, plus matching tests under `tests/host/skills/`.
+**Outcome:** Success — `npx vitest run tests/host/skills/ tests/host/proxy-domain-list.test.ts` = 134/134 pass. `tsc --noEmit` clean. Pre-existing EINVAL socket-path-length failures in `tests/host/server*.test.ts` are unchanged (phase 4 doesn't touch those test files).
+**Notes:** The bearer-rotation fix revealed that `listServersWithMeta` already exposes `.headers`, so comparing `headers.Authorization` against the computed desired header string is all it takes — no new manager API needed. The `prior.delete(agentId)` + `proxyDomainList.removeAgent(agentId)` pairing keeps local baseline and shared store in sync so a re-created agent starts from a clean slate.
+
 ## [2026-04-17 07:40] — Phase 4 wrap-up summary
 
 **Task:** Close out phase 4 of git-native skills: bridge the reconciler's computed `desired.{mcpServers,proxyAllowlist}` to live host surfaces, and make live state survive a restart. Phase 2 landed the push hook + DB persistence but intentionally discarded `output.desired`.
