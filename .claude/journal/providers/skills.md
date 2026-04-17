@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:44] — Git-native skills Phase 1 Task 7: computeSetupQueue
+
+**Task:** Phase 1 Task 7 of git-native skills effort — append `computeSetupQueue(snapshot, current): SetupRequest[]` to `src/host/skills/reconciler.ts`. Pure function that emits one dashboard setup card per skill with missing credentials and/or unapproved domains. Independent notion of "pending" — works directly against the snapshot + current state, not `computeSkillStates` output. TDD order: failing test, implementation, passing test.
+**What I did:** Merged `SetupRequest` into the existing `import type` block and appended `computeSetupQueue`. Walks the snapshot, skips invalid entries, filters credentials against `storedCredentials` (`${envName}@${scope}` key) and domains against `approvedDomains`. If both arrays are empty, the skill doesn't contribute an entry — matches the spec: "if nothing is missing, the skill simply doesn't appear on a setup card." OAuth block passes through verbatim on each missing credential. `mcpServers` carried for user visibility only (name + url).
+**Files touched:** `src/host/skills/reconciler.ts` (appended), `tests/host/skills/reconciler-setup.test.ts` (new)
+**Outcome:** Success — 4 new tests pass, all 33 tests in `tests/host/skills/` pass (schema + parser + reconciler-states + reconciler-mcp + reconciler-allowlist + reconciler-setup).
+**Notes:** Setup queue is independent of enablement state — a user might see a card for a skill even if other skills are already enabled, and a fully-satisfied skill produces no card at all. Drives the dashboard setup cards in phase 5.
+
 ## [2026-04-16 22:41] — Git-native skills Phase 1 Task 6: computeProxyAllowlist
 
 **Task:** Phase 1 Task 6 of git-native skills effort — append `computeProxyAllowlist(snapshot, states): Set<string>` to `src/host/skills/reconciler.ts`. Pure union of domains declared by enabled skills. Pending/invalid skills contribute nothing — that's the "defense in depth" gate from the design doc. TDD order: failing test, implementation, passing test.

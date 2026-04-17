@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-04-16 22:44 — Git-native skills Phase 1 Task 7: computeSetupQueue [skills.md](skills.md)
 - 2026-04-16 22:41 — Git-native skills Phase 1 Task 6: computeProxyAllowlist [skills.md](skills.md)
 - 2026-04-16 22:38 — Git-native skills Phase 1 Task 5: computeMcpDesired [skills.md](skills.md)
 - 2026-04-16 22:36 — Git-native skills Phase 1 Task 4: computeSkillStates [skills.md](skills.md)

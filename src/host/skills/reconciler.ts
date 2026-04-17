@@ -2,6 +2,7 @@ import type {
   SkillSnapshotEntry,
   SkillState,
   ReconcilerCurrentState,
+  SetupRequest,
 } from './types.js';
 
 /**
@@ -94,6 +95,35 @@ export function computeProxyAllowlist(
   for (const entry of snapshot) {
     if (!entry.ok || !enabledNames.has(entry.name)) continue;
     for (const d of entry.frontmatter.domains) out.add(d);
+  }
+  return out;
+}
+
+export function computeSetupQueue(
+  snapshot: SkillSnapshotEntry[],
+  current: Pick<ReconcilerCurrentState, 'approvedDomains' | 'storedCredentials'>,
+): SetupRequest[] {
+  const out: SetupRequest[] = [];
+  for (const entry of snapshot) {
+    if (!entry.ok) continue;
+    const fm = entry.frontmatter;
+    const missingCredentials = fm.credentials
+      .filter((c) => !current.storedCredentials.has(`${c.envName}@${c.scope}`))
+      .map((c) => ({
+        envName: c.envName,
+        authType: c.authType,
+        scope: c.scope,
+        oauth: c.oauth,
+      }));
+    const unapprovedDomains = fm.domains.filter((d) => !current.approvedDomains.has(d));
+    if (missingCredentials.length === 0 && unapprovedDomains.length === 0) continue;
+    out.push({
+      skillName: entry.name,
+      description: fm.description,
+      missingCredentials,
+      unapprovedDomains,
+      mcpServers: fm.mcpServers.map((m) => ({ name: m.name, url: m.url })),
+    });
   }
   return out;
 }
