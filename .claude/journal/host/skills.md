@@ -4,6 +4,14 @@ Git-native skills rollout: snapshot builder, state store, reconcile orchestrator
 
 ## Entries
 
+## [2026-04-17 07:10] — Phase 4 Task 2: Proxy applier + per-agent ProxyDomainList
+
+**Task:** Bridge reconciler's `desired.proxyAllowlist: Set<string>` to the live `ProxyDomainList` using agent-keyed replace semantics. Phase 4 needs an agent-scoped contribution so a reconcile for agent A doesn't clobber agent B's skill domains.
+**What I did:** TDD. (1) Appended 5 failing tests to `tests/host/proxy-domain-list.test.ts` covering `setAgentDomains` merge, replace-not-merge, empty-clears-only-this-agent, coexists with `addSkillDomains`/`approvePending`, and normalization (trim + lowercase + strip trailing dot). (2) Extended `ProxyDomainList` with `agentDomains: Map<agentId, Set<domain>>`, `setAgentDomains`, `removeAgent`, and updated `rebuildMerged` to walk BUILTIN ∪ skillDomains ∪ agentDomains ∪ adminApproved. (3) Wrote 4 failing applier tests and implemented `src/host/skills/proxy-applier.ts` with `createProxyApplier({ proxyDomainList, audit })` — internal `prior` map diffs O(|desired|), no-op early-exit skips audit, single `proxy_allowlist_updated` entry per non-empty diff. Legacy `addSkillDomains`/`removeSkillDomains` untouched (phase 7 kills them).
+**Files touched:** `src/host/proxy-domain-list.ts`, `src/host/skills/proxy-applier.ts` (new), `tests/host/skills/proxy-applier.test.ts` (new), `tests/host/proxy-domain-list.test.ts`.
+**Outcome:** Success — `npx vitest run tests/host/proxy-domain-list.test.ts tests/host/skills/proxy-applier.test.ts` = 20/20 pass (16 proxy-domain-list, 4 proxy-applier). `rebuildMerged` invalidation covered transitively by the existing `isAllowed` tests.
+**Notes:** The applier owns the diff state (closure-scoped `prior` map) rather than reading it back from `ProxyDomainList`. Keeps the public surface on the list minimal (`setAgentDomains` is write-only) and makes the applier equally testable with a mock list. Normalization lives in both modules — each has its own mandate: the list normalizes everything that enters it (defense in depth), the applier normalizes so its `prior` comparison uses the same keys the list would store.
+
 ## [2026-04-17 07:02] — Phase 4 Task 1: MCP applier module
 
 **Task:** Bridge reconciler's `desired.mcpServers` to live `McpConnectionManager` — diff by source tag `skill:<agentId>` and call `addServer`/`removeServer` without touching plugin/database/other-agent-owned entries.

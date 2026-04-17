@@ -37,6 +37,8 @@ interface PendingDomain {
 export class ProxyDomainList {
   /** skill name → Set<domain> */
   private skillDomains = new Map<string, Set<string>>();
+  /** agentId → Set<domain> — phase 4 per-agent skill contribution. */
+  private agentDomains = new Map<string, Set<string>>();
   /** Domains approved by admin (not from skills). */
   private adminApproved = new Set<string>();
   /** Domains pending admin review. Keyed by domain for dedup. */
@@ -52,6 +54,9 @@ export class ProxyDomainList {
   private rebuildMerged(): void {
     const all = new Set(BUILTIN_DOMAINS);
     for (const domains of this.skillDomains.values()) {
+      for (const d of domains) all.add(d);
+    }
+    for (const domains of this.agentDomains.values()) {
       for (const d of domains) all.add(d);
     }
     for (const d of this.adminApproved) all.add(d);
@@ -77,6 +82,32 @@ export class ProxyDomainList {
 
   removeSkillDomains(skillName: string): void {
     this.skillDomains.delete(skillName);
+    this.merged = null;
+  }
+
+  /**
+   * Phase 4: replace this agent's entire domain contribution in one call.
+   * Empty iterable deletes the agent's entry. Normalizes each domain (trim +
+   * lowercase + strip trailing dot) and drops blanks.
+   */
+  setAgentDomains(agentId: string, domains: Iterable<string>): void {
+    const normalized = new Set<string>();
+    for (const d of domains) {
+      const n = normalizeDomain(d);
+      if (n) normalized.add(n);
+    }
+    if (normalized.size === 0) {
+      this.agentDomains.delete(agentId);
+    } else {
+      this.agentDomains.set(agentId, normalized);
+    }
+    this.merged = null;
+    logger.info('agent_domains_set', { agentId, domains: [...normalized] });
+  }
+
+  /** Phase 4: drop an agent's entire contribution (e.g. agent deleted). */
+  removeAgent(agentId: string): void {
+    this.agentDomains.delete(agentId);
     this.merged = null;
   }
 

@@ -80,6 +80,47 @@ describe('ProxyDomainList', () => {
     expect(allowed.has('registry.npmjs.org')).toBe(true);
   });
 
+  test('setAgentDomains stores and merges per-agent contributions', () => {
+    const list = new ProxyDomainList();
+    list.setAgentDomains('a1', ['api.linear.app']);
+    list.setAgentDomains('a2', ['slack.com']);
+    expect(list.isAllowed('api.linear.app')).toBe(true);
+    expect(list.isAllowed('slack.com')).toBe(true);
+  });
+
+  test('setAgentDomains replaces (does not merge) prior value for same agent', () => {
+    const list = new ProxyDomainList();
+    list.setAgentDomains('a1', ['api.linear.app', 'example.com']);
+    list.setAgentDomains('a1', ['api.linear.app']); // drop example.com
+    expect(list.isAllowed('api.linear.app')).toBe(true);
+    expect(list.isAllowed('example.com')).toBe(false);
+  });
+
+  test('setAgentDomains with empty array clears that agent and does not affect others', () => {
+    const list = new ProxyDomainList();
+    list.setAgentDomains('a1', ['example.com']);
+    list.setAgentDomains('a2', ['slack.com']);
+    list.setAgentDomains('a1', []);
+    expect(list.isAllowed('example.com')).toBe(false);
+    expect(list.isAllowed('slack.com')).toBe(true);
+  });
+
+  test('setAgentDomains does not drop skill-keyed or admin-approved entries', () => {
+    const list = new ProxyDomainList();
+    list.addSkillDomains('old-skill', ['legacy.example']);
+    list.approvePending('admin.example');
+    list.setAgentDomains('a1', ['api.linear.app']);
+    expect(list.isAllowed('legacy.example')).toBe(true);
+    expect(list.isAllowed('admin.example')).toBe(true);
+    expect(list.isAllowed('api.linear.app')).toBe(true);
+  });
+
+  test('setAgentDomains normalizes (trim + lowercase + strip trailing dot)', () => {
+    const list = new ProxyDomainList();
+    list.setAgentDomains('a1', ['  API.LINEAR.APP.  ']);
+    expect(list.isAllowed('api.linear.app')).toBe(true);
+  });
+
   test('domains extracted from DB-stored skill instructions are allowed after reload', () => {
     // Simulates the host restart path: skill stored in DB as JSON, parsed on
     // startup, domains re-extracted from SKILL.md instructions via manifest generator.
