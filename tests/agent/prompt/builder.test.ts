@@ -35,7 +35,7 @@ describe('PromptBuilder', () => {
     expect(result.content).toContain('TestBot');
     expect(result.content).toContain('Injection Defense');
     expect(result.content).toContain('Security Boundaries');
-    expect(result.content).toContain('Skill');
+    expect(result.content).toContain('Available skills');
     expect(result.metadata.moduleCount).toBeGreaterThan(0);
     expect(result.metadata.estimatedTokens).toBeGreaterThan(0);
   });

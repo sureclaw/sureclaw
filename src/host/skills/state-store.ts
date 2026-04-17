@@ -10,6 +10,14 @@ export interface SkillStateStore {
   getPriorStates(agentId: string): Promise<Map<string, SkillStateKind>>;
 
   /**
+   * Return the full persisted SkillState rows for the given agent, sorted by
+   * name ascending. Empty array if none. Unset optional fields (description,
+   * pendingReasons, error) are omitted from the returned objects — callers can
+   * use `'x' in row` / `row.x === undefined` without ambiguity.
+   */
+  getStates(agentId: string): Promise<SkillState[]>;
+
+  /**
    * Authoritatively replace all skill_states rows for the agent with the given
    * list. Empty list clears the agent's rows. Single transaction.
    */
@@ -98,6 +106,39 @@ export function createSkillStateStore(db: Kysely<any>): SkillStateStore {
         out.set(r.skill_name, r.kind as SkillStateKind);
       }
       return out;
+    },
+
+    async getStates(agentId) {
+      const rows = await db
+        .selectFrom('skill_states')
+        .select(['skill_name', 'kind', 'description', 'pending_reasons', 'error'])
+        .where('agent_id', '=', agentId)
+        .orderBy('skill_name', 'asc')
+        .execute();
+      const typed = rows as Array<{
+        skill_name: string;
+        kind: string;
+        description: string | null;
+        pending_reasons: string | null;
+        error: string | null;
+      }>;
+      return typed.map(r => {
+        const out: SkillState = {
+          name: r.skill_name,
+          kind: r.kind as SkillStateKind,
+        };
+        if (typeof r.description === 'string' && r.description.length > 0) {
+          out.description = r.description;
+        }
+        if (typeof r.pending_reasons === 'string') {
+          const parsed = JSON.parse(r.pending_reasons) as string[];
+          if (parsed.length > 0) out.pendingReasons = parsed;
+        }
+        if (typeof r.error === 'string' && r.error.length > 0) {
+          out.error = r.error;
+        }
+        return out;
+      });
     },
 
     async putStates(agentId, states) {

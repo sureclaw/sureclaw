@@ -146,6 +146,96 @@ describe('SkillStateStore', () => {
     });
   });
 
+  describe('getStates', () => {
+    it('returns empty array when agent has no rows', async () => {
+      const { store } = await freshStore();
+      const rows = await store.getStates('agent-none');
+      expect(rows).toEqual([]);
+    });
+
+    it('round-trips full rows with description, pendingReasons, and error; omits unset optional fields', async () => {
+      const { store } = await freshStore();
+      const states: SkillState[] = [
+        // enabled — only name + kind + description, no pendingReasons, no error
+        {
+          name: 'alpha',
+          kind: 'enabled',
+          description: 'Alpha skill',
+        },
+        // pending — description + pendingReasons
+        {
+          name: 'beta',
+          kind: 'pending',
+          description: 'Beta skill',
+          pendingReasons: ['needs credential: SLACK_TOKEN', 'needs domain: api.slack.com'],
+        },
+        // invalid — error only, no description
+        {
+          name: 'gamma',
+          kind: 'invalid',
+          error: 'yaml parse error',
+        },
+      ];
+      await store.putStates('agent-1', states);
+
+      const got = await store.getStates('agent-1');
+
+      // Sorted by name ascending — alpha, beta, gamma
+      expect(got.length).toBe(3);
+      expect(got.map(r => r.name)).toEqual(['alpha', 'beta', 'gamma']);
+
+      const [alpha, beta, gamma] = got;
+
+      // alpha: enabled with description, no pendingReasons, no error
+      expect(alpha.name).toBe('alpha');
+      expect(alpha.kind).toBe('enabled');
+      expect(alpha.description).toBe('Alpha skill');
+      expect(alpha).not.toHaveProperty('pendingReasons');
+      expect(alpha).not.toHaveProperty('error');
+
+      // beta: pending with description + pendingReasons, no error
+      expect(beta.name).toBe('beta');
+      expect(beta.kind).toBe('pending');
+      expect(beta.description).toBe('Beta skill');
+      expect(beta.pendingReasons).toEqual([
+        'needs credential: SLACK_TOKEN',
+        'needs domain: api.slack.com',
+      ]);
+      expect(beta).not.toHaveProperty('error');
+
+      // gamma: invalid with error, no description, no pendingReasons
+      expect(gamma.name).toBe('gamma');
+      expect(gamma.kind).toBe('invalid');
+      expect(gamma.error).toBe('yaml parse error');
+      expect(gamma).not.toHaveProperty('description');
+      expect(gamma).not.toHaveProperty('pendingReasons');
+    });
+
+    it('scopes rows per agent — getStates(agent-1) does not return agent-2 rows', async () => {
+      const { store } = await freshStore();
+      await store.putStates('agent-1', [
+        { name: 'alpha', kind: 'enabled', description: 'Alpha a1' },
+        { name: 'beta', kind: 'pending', description: 'Beta a1', pendingReasons: ['r1'] },
+      ]);
+      await store.putStates('agent-2', [
+        { name: 'gamma', kind: 'invalid', error: 'bad' },
+      ]);
+
+      const a1 = await store.getStates('agent-1');
+      expect(a1.length).toBe(2);
+      expect(a1.map(r => r.name).sort()).toEqual(['alpha', 'beta']);
+      for (const r of a1) {
+        expect(r.name).not.toBe('gamma');
+      }
+
+      const a2 = await store.getStates('agent-2');
+      expect(a2.length).toBe(1);
+      expect(a2[0].name).toBe('gamma');
+      expect(a2[0].kind).toBe('invalid');
+      expect(a2[0].error).toBe('bad');
+    });
+  });
+
   describe('putSetupQueue + getSetupQueue', () => {
     it('returns empty array when no queue exists', async () => {
       const { store } = await freshStore();

@@ -2,6 +2,69 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-04-17 06:45] — Phase 3 PR #178 review fixes: SkillsModule render + git-native Creating Skills
+
+**Task:** Address two CodeRabbit review comments on PR #178 and the sandbox-isolation test that broke when we added `skills?:` to `AgentConfig`.
+**What I did:**
+1. Guard `s.description` in `SkillsModule.render` — legacy/invalid rows can arrive without a description. Output now drops the trailing em dash cleanly when both prefix and description are empty, so no more `— undefined` leaking into the prompt.
+2. Rewrote the "Creating Skills" section copy to the git-native flow: "write `SKILL.md` to `.ax/skills/<name>/SKILL.md` using your file-edit tools, then commit and push" (reconciler takes over). Replaces the legacy `skill({type:'create'}) → /workspace/skills/` guidance.
+3. Tightened the brittle `tests/sandbox-isolation.test.ts::StdinPayload does not include skills field` check so it scans only the `StdinPayload` interface body (not the whole file) — AgentConfig legitimately carries `skills?:` as the host-supplied index.
+4. Added `SkillsModule` test case for the undefined-description path (asserts no `undefined`, no trailing em dash, no extra whitespace).
+5. Updated `tests/agent/tool-catalog-sync.test.ts::skill creation instructions` to assert the new `.ax/skills/` + commit-and-push copy and that `/workspace/skills/` is gone.
+6. Updated `tests/agent/prompt/modules/skills.test.ts::includes skill creation instructions` similarly.
+
+**Files touched:**
+- src/agent/prompt/modules/skills.ts
+- tests/agent/prompt/modules/skills.test.ts
+- tests/agent/tool-catalog-sync.test.ts
+- tests/sandbox-isolation.test.ts
+- .claude/journal/agent/prompt.md
+
+**Outcome:** Success — 632/632 affected tests pass, `npm run build` clean.
+**Notes:** The `workspace/skills/` path referenced the pre-git-native `skill_create` IPC (still lives in `src/host/ipc-handlers/skills.ts` until phase 7 cleanup). Not deleting that handler in this PR — just fixing the prompt so the agent's default authoring flow is git-native.
+
+## [2026-04-17 06:26] — Phase 3 Task 7: runner fetches skills_index before prompt build
+
+**Task:** Git-native skills phase 3 Task 7 — wire the runner to fetch `skills_index` via IPC before building the system prompt, so the host-authoritative skill list (with `kind`, `pendingReasons`) wins over the workspace filesystem scan.
+**What I did:**
+1. Added `skills?: SkillSummary[]` to `AgentConfig` in `src/agent/runner.ts` (inline `import('./prompt/types.js')` type to avoid circular).
+2. Rewrote the skill load in `src/agent/agent-setup.ts` `buildSystemPrompt` to `config.skills ?? (() => loadSkillsMultiDir(...))()` — still sync, still falls back to the filesystem scan when absent.
+3. Added `fetchSkillsIndex(client)` helper in `agent-setup.ts`: calls `client.call({action:'skills_index'})`, returns `res.skills` on success, returns `undefined` on any throw/malformed shape (with a `logger.warn` on transport failure).
+4. Wired both runners (`pi-session.ts`, `claude-code.ts`) to call `fetchSkillsIndex` right after `await client.connect()` (and guarded on `config.skills === undefined` so injected skills from tests win).
+5. Added 7 new tests to `tests/agent/agent-setup.test.ts`: `buildSystemPrompt` short-circuits scan with `config.skills`, falls back to filesystem when undefined, empty-array skills short-circuits the scan, and 4 `fetchSkillsIndex` tests (success, throw, malformed, non-array).
+
+**Files touched:**
+- src/agent/runner.ts
+- src/agent/agent-setup.ts
+- src/agent/runners/pi-session.ts
+- src/agent/runners/claude-code.ts
+- tests/agent/agent-setup.test.ts
+
+**Outcome:** Success. `npx vitest run tests/agent/agent-setup.test.ts` → 9/9 pass. `npx vitest run tests/agent/runners/` → 29/29 pass. `npx vitest run tests/agent/ tests/host/` → 1458 pass / 29 fail — identical to base (the 29 failing are pre-existing socket-path-too-long EINVAL failures in `tests/host/server.test.ts`, unchanged by this patch). `npm run build` clean.
+
+**Notes:** The pi-session mock IPC server returns `{ok:true}` for unknown actions — that lands as a malformed response for `skills_index` and the helper correctly returns `undefined`, so the fallback filesystem scan runs. No mock updates needed. The listen-mode race I was asked to investigate is a non-issue: `applyPayload` runs `setContext` on the IPC client BEFORE dispatching into `run(config)`, so when the runner calls `fetchSkillsIndex` the session context is already applied.
+
+## [2026-04-17 06:20] — Phase 3 Tasks 5+6: SkillSummary extension + SkillsModule bullet format
+
+**Task:** Git-native skills phase 3 Tasks 5 (extend `SkillSummary`) + 6 (rewrite `SkillsModule.render` to design-doc bullet format).
+**What I did:**
+1. Extended `SkillSummary` in `src/agent/prompt/types.ts`: made `path` optional (host-indexed skills synthesize paths at render), added `kind?: 'enabled' | 'pending' | 'invalid'` and `pendingReasons?: string[]`.
+2. Rewrote `SkillsModule.render()` in `src/agent/prompt/modules/skills.ts` to emit the design-doc bullet list (`- **name** — [(setup pending: ...) | (invalid) ]description`) with `kind ?? 'enabled'` defaulting legacy rows to enabled. Dropped the markdown table and the "Missing Dependencies" block; left warnings as a compat-bridge `(missing: ...)` parenthetical until phase 4 migrates them to `pendingReasons`.
+3. Updated `renderMinimal` to reference `.ax/skills/<name>/SKILL.md` instead of "the skill path".
+4. Rewrote skill render tests in `tests/agent/prompt/modules/skills.test.ts` (deleted table-format assertions, added 5 new tests: pending-with-reasons, invalid marker, legacy-no-kind, pending-no-reasons fallback, renderMinimal path reference).
+5. Fixed two sibling-suite breaks: `tests/agent/prompt/builder.test.ts` matched the old "## Available Skills" title (updated to new "Available skills"); `tests/agent/tool-catalog-sync.test.ts` asserted `/workspace/skills/` in the no-workspace render (updated to set `hasWorkspace: true` + assert `.ax/skills/<name>/SKILL.md`). Also added `skills_index` to the known-internal IPC actions list (pre-existing failure from phase 3 Task 3 that my base commit inherited).
+
+**Files touched:**
+- src/agent/prompt/types.ts
+- src/agent/prompt/modules/skills.ts
+- tests/agent/prompt/modules/skills.test.ts
+- tests/agent/prompt/builder.test.ts
+- tests/agent/tool-catalog-sync.test.ts
+
+**Outcome:** Success. `npx vitest run tests/agent/prompt/` → 130/130 pass. `npm run build` clean. Full suite: 33 pre-existing failures in host/server & integration/smoke (unchanged by this patch), 2 formerly-failing tool-catalog-sync tests now passing.
+
+**Notes:** `path?` widening was low-risk — the only `.path` reader in src/ was `SkillsModule.render` itself; `loadSkills()`/`loadSkillsMultiDir()` still always set `path`. Runners keep using `loadSkillsMultiDir` until Task 7 wires the `skills_index` IPC call. The `(missing: ...)` compat bridge is deliberate and minimal — phase 4 will migrate it.
+
 ## [2026-03-31 12:00] — Add search tool guidance to ToolStyleModule
 
 **Task:** Update ToolStyleModule to advise the agent to prefer grep/glob over bash for search and file discovery.

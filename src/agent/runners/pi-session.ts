@@ -36,7 +36,7 @@ import { convertPiMessages, emitStreamEvents, injectFileBlocks } from '../stream
 import { createProxyStreamFn } from '../proxy-stream.js';
 import { makeProxyErrorMessage } from '../proxy-stream.js';
 import type { ContentBlock } from '../../types.js';
-import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
+import { buildSystemPrompt, fetchSkillsIndex, subscribeAgentEvents } from '../agent-setup.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { getLogger, truncate } from '../../logger.js';
 
@@ -532,6 +532,15 @@ export async function runPiSession(config: AgentConfig): Promise<void> {
   // Otherwise create a new client and connect.
   const client = config.ipcClient ?? new IPCClient({ socketPath: config.ipcSocket, listen: config.ipcListen, sessionId: config.sessionId, requestId: config.requestId, userId: config.userId, sessionScope: config.sessionScope });
   if (!config.ipcClient) await client.connect();
+
+  // Fetch host-authoritative skills index before building the prompt. Guard on
+  // `skills === undefined` so injected skills (e.g., tests) take precedence.
+  // fetchSkillsIndex returns undefined on transport errors — buildSystemPrompt
+  // then falls back to the workspace filesystem scan.
+  if (config.skills === undefined) {
+    const fetched = await fetchSkillsIndex(client);
+    if (fetched) config.skills = fetched;
+  }
 
   // Register LLM provider (replaces built-in providers — no network in sandbox)
   clearApiProviders();

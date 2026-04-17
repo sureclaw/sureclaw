@@ -46,9 +46,6 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { SharedCredentialRegistry } from './credential-placeholders.js';
 
 // Git-native skills: reconcile hook mount
-import { runMigrations } from '../utils/migrator.js';
-import { skillsMigrations } from '../migrations/skills.js';
-import { createSkillStateStore } from './skills/state-store.js';
 import { reconcileAgent, type OrchestratorDeps } from './skills/reconcile-orchestrator.js';
 import { createReconcileHookHandler } from './skills/hook-endpoint.js';
 
@@ -138,7 +135,7 @@ export async function createServer(
     completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore, gcsFileStorage,
     handleIPC, ipcServer, ipcSocketDir, orchestrator, disableAutoState,
     agentRegistry, agentId: agentName, adminCtx, sessionCanaries,
-    domainList, defaultUserId, modelId,
+    domainList, defaultUserId, modelId, stateStore,
   } = core;
 
   const isK8s = config.providers.sandbox === 'k8s';
@@ -151,16 +148,7 @@ export async function createServer(
   // git-http/k8s deployments the git-http container will need its own
   // reconcile path (phase-2 task 9), so this default only works for git-local.
   let reconcileHookHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
-  if (providers.database) {
-    const migResult = await runMigrations(
-      providers.database.db,
-      skillsMigrations,
-      'skills_migration',
-    );
-    if (migResult.error) throw migResult.error;
-
-    const stateStore = createSkillStateStore(providers.database.db);
-
+  if (stateStore) {
     // AX_HOOK_SECRET: shared HMAC secret for post-receive → host handshake.
     // Env-var preferred so the hook installer (task 8) can read the same
     // value; fall back to a random per-process secret with a loud warning

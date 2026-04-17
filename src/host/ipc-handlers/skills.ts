@@ -13,6 +13,7 @@ import type { ProviderRegistry } from '../../types.js';
 import type { IPCContext } from '../ipc-server.js';
 import type { EventBus } from '../event-bus.js';
 import type { ProxyDomainList } from '../proxy-domain-list.js';
+import type { SkillStateStore } from '../skills/state-store.js';
 import * as clawhub from '../../clawhub/registry-client.js';
 import { parseAgentSkill } from '../../utils/skill-format-parser.js';
 import { generateManifest } from '../../utils/manifest-generator.js';
@@ -28,6 +29,7 @@ export interface SkillsHandlerOptions {
   eventBus?: EventBus;
   domainList?: ProxyDomainList;
   adminCtx?: AdminContext;
+  stateStore?: SkillStateStore;
 }
 
 export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsHandlerOptions) {
@@ -232,6 +234,21 @@ export function createSkillsHandlers(providers: ProviderRegistry, opts?: SkillsH
       });
 
       return { ok: deleted, slug: req.slug };
+    },
+
+    skills_index: async (_req: unknown, ctx: IPCContext) => {
+      if (!opts?.stateStore) return { skills: [] };
+      const states = await opts.stateStore.getStates(ctx.agentId);
+      const skills = states.map(s => {
+        const out: { name: string; kind: string; description?: string; pendingReasons?: string[] } = {
+          name: s.name,
+          kind: s.kind,
+        };
+        if (s.description) out.description = s.description;
+        if (s.pendingReasons?.length) out.pendingReasons = s.pendingReasons;
+        return out;
+      });
+      return { skills };
     },
 
     audit_query: async (req: any) => {

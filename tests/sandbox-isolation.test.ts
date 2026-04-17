@@ -489,8 +489,15 @@ describe('skills loaded from git workspace', () => {
   test('StdinPayload does not include skills field (git-native)', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    // Skills are no longer in the payload — they live in the git workspace
-    expect(source).not.toContain('skills?:');
+    // Skills are no longer in the stdin payload — they live in the git
+    // workspace and/or come from the host via the skills_index IPC action.
+    // Scope the check to the StdinPayload interface body only — AgentConfig
+    // legitimately carries `skills?:` as the host-authoritative list set
+    // from the skills_index fetch before prompt build.
+    const match = source.match(/export interface StdinPayload \{([\s\S]*?)\n\}/);
+    expect(match, 'StdinPayload interface not found in runner.ts').not.toBeNull();
+    expect(match![1]).not.toContain('skills?:');
+    expect(match![1]).not.toMatch(/\bskills\s*:/);
   });
 });
 

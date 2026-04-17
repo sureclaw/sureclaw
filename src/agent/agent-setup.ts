@@ -11,8 +11,9 @@ import { loadSkillsMultiDir } from './stream-utils.js';
 import { detectSkillInstallIntent } from './prompt/modules/skills.js';
 import { join, resolve } from 'node:path';
 import { existsSync, readdirSync, statSync, accessSync, constants } from 'node:fs';
-import type { AgentConfig } from './runner.js';
+import type { AgentConfig, IIPCClient } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
+import type { SkillSummary } from './prompt/types.js';
 
 const logger = getLogger().child({ component: 'agent-setup' });
 
@@ -51,11 +52,15 @@ export interface PromptBuildResult {
  * → no HeartbeatModule → no scheduler tools).
  */
 export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
-  // Load skills from .ax/skills/ in the git workspace.
-  const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [
-    { dir: join(config.workspace, '.ax', 'skills'), scope: 'agent' as const },
-  ];
-  const skills = loadSkillsMultiDir(skillDirs);
+  // Prefer host-authoritative skills (fetched via skills_index IPC before prompt build).
+  // Falls back to filesystem scan of .ax/skills/ when the host-provided list is absent
+  // (e.g., tests or legacy paths that haven't wired skills_index).
+  const skills = config.skills ?? (() => {
+    const skillDirs: Array<{ dir: string; scope: 'agent' | 'user' }> = [
+      { dir: join(config.workspace, '.ax', 'skills'), scope: 'agent' as const },
+    ];
+    return loadSkillsMultiDir(skillDirs);
+  })();
 
   // Identity is pre-loaded from host (via stdin payload from committed git state).
   const identityFiles = loadIdentityFiles(config.identity);
@@ -186,4 +191,23 @@ export function subscribeAgentEvents(
     eventCount: () => eventCount,
     getBuffered: () => buffer ? buffer.join('') : '',
   };
+}
+
+/**
+ * Fetch the host-authoritative skills index via IPC.
+ * Returns the skills array on success, or undefined on any error (transport
+ * failure, malformed response, etc.). Callers should fall back to the
+ * filesystem scan when undefined is returned.
+ */
+export async function fetchSkillsIndex(client: IIPCClient): Promise<SkillSummary[] | undefined> {
+  try {
+    const res = await client.call({ action: 'skills_index' });
+    if (res && Array.isArray((res as { skills?: unknown }).skills)) {
+      return (res as { skills: SkillSummary[] }).skills;
+    }
+    return undefined;
+  } catch (err) {
+    logger.warn('skills_index_fetch_failed', { error: err instanceof Error ? err.message : String(err) });
+    return undefined;
+  }
 }

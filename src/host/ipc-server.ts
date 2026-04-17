@@ -4,6 +4,7 @@ import type { TaintBudget } from './taint-budget.js';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import { getLogger, truncate } from '../logger.js';
 import type { EventBus } from './event-bus.js';
+import type { SkillStateStore } from './skills/state-store.js';
 
 // Domain handler factories
 import { createLLMHandlers } from './ipc-handlers/llm.js';
@@ -93,6 +94,9 @@ export interface IPCHandlerOptions {
   onArtifactWritten?: (fileId: string, mimeType: string, filename: string) => void;
   /** Unified session manager — used by fetch_work handler to return queued work. */
   sessionManager?: import('./session-manager.js').SessionManager;
+  /** Git-native skills state store — powers the skills_index IPC handler.
+   *  When omitted, skills_index returns an empty list. */
+  stateStore?: SkillStateStore;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -110,6 +114,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
       eventBus: opts?.eventBus,
       domainList: opts?.domainList,
       adminCtx: opts?.adminCtx,
+      stateStore: opts?.stateStore,
     }),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentId),

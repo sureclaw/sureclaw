@@ -2,6 +2,14 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-04-17 12:00] — Expand phase 3 (skills_index prompt integration) into concrete TDD tasks
+
+**Task:** Rewrite `docs/plans/2026-04-16-phase3-skills-prompt-index.md` from a high-level stub into bite-sized TDD steps ready for subagent-driven-development.
+**What I did:** Broke phase 3 into 8 tasks: (1) `SkillStateStore.getStates()` returning full rows, (2) `skills_index` Zod schema with strict empty request, (3) IPC handler reading from state store, (4) thread `stateStore` through `IPCHandlerOptions` + `ipc-server.ts` + `server.ts`, (5) extend `SkillSummary` with `kind` + `pendingReasons`, (6) rewrite `SkillsModule.render` to design-doc bullet format, (7) runner calls `skills_index` after IPC connect and populates `config.skills`, (8) update `.claude/skills/ax/agent.md`. `buildSystemPrompt` stays synchronous — async fetch happens in runners.
+**Files touched:** `docs/plans/2026-04-16-phase3-skills-prompt-index.md`, `.claude/journal/docs/plans.md`
+**Outcome:** Success — plan ready to execute.
+**Notes:** Keeping filesystem fallback (`loadSkillsMultiDir`) as the "no stateStore/no IPC" path for CLI + tests. Full removal of the filesystem path plus DocumentStore writes lands in phase 7. The IPC response omits the raw parse `error` — agent only needs the "invalid" marker; dashboard still has the full string via `getStates`.
+
 ## [2026-04-16 16:30] — Split git-native skills rollout into per-phase plan files (phase 2-7)
 
 **Task:** Create one plan file per phase of the git-native skills design, starting with a fully-detailed phase 2 plan and stub plans for phases 3-7.

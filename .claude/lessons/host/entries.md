@@ -1,5 +1,11 @@
 # Host
 
+### Shared resources consumed by both core and server.ts belong in HostCore
+**Date:** 2026-04-17
+**Context:** Phase 3 Task 4 — `SkillStateStore` needed to be reachable by both `createIPCHandler` (built inside `initHostCore`) and the reconcile-hook wiring (set up later in `server.ts`). Phase 2 originally created it in `server.ts:162`, but `initHostCore` had already finished by then, so the IPC handler couldn't see it. Moving creation into `server-init.ts` and returning it on `HostCore` (same pattern as `domainList`, `adminCtx`) made one instance reach both callsites.
+**Lesson:** When a resource needs to be shared between `initHostCore` (which builds the IPC handler) and `server.ts` (which wires HTTP routes and external hooks), create it inside `initHostCore`, add it to the `HostCore` interface, and destructure it in `server.ts`. Don't create a second independent instance in `server.ts` — it silently desyncs from the one the IPC handler sees. The pattern already exists for `domainList`, `adminCtx`, `taintBudget`, `workspaceMap`.
+**Tags:** host-core, server-init, shared-resources, architecture, ipc-handler
+
 ### Git worktrees share dist/ and node_modules — tsx resolves from main tree
 **Date:** 2026-04-04
 **Context:** Implementing multi-agent features in a worktree. Tests passed even before creating source files because tsx module resolution found the main tree's version via the shared dist/ directory.

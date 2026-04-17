@@ -71,6 +71,8 @@ export interface AgentConfig {
   identity?: IdentityFiles;
   /** Compact tool module index for system prompt (one line per server). */
   toolModuleIndex?: string;
+  /** Host-authoritative skills list fetched via skills_index IPC before prompt build. Falls back to filesystem scan when absent. */
+  skills?: import('./prompt/types.js').SkillSummary[];
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */

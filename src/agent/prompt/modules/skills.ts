@@ -38,42 +38,28 @@ export class SkillsModule extends BasePromptModule {
     const lines: string[] = [];
 
     if (ctx.skills.length > 0) {
-      const rows = ctx.skills
-        .map(s => {
-          const warn = s.warnings?.length ? ` \u26A0 ${s.warnings.join(', ')}` : '';
-          return `| ${s.name} | ${s.description}${warn} | \`/workspace/skills/${s.path}\` |`;
-        })
-        .join('\n');
-
-      // Collect skills with missing deps for install guidance
-      const skillsWithWarnings = ctx.skills.filter(s => s.warnings?.length);
-
-      lines.push(
-        '## Available Skills (Already Installed)',
-        '',
-        'These skills are already installed locally. Do NOT download or re-install them.',
-        'Before replying, scan this list for a skill that matches the current task.',
-        '',
-        '**To use a skill:** call `read_file` with the exact path from the table, then follow its instructions.',
-        'That is the ONLY step needed — one read_file call, then act on what it says.',
-        'Do NOT use bash ls or any other discovery tool.',
-        '',
-        '| Skill | Description | Path |',
-        '|-------|-------------|------|',
-        rows,
-      );
-
-      // Surface install guidance when skills have missing dependencies
-      if (skillsWithWarnings.length > 0) {
-        lines.push(
-          '',
-          '### Missing Dependencies',
-          '',
-          'Some skills have missing binary dependencies (marked with \u26A0 above).',
-          'Install them directly using package managers (npm, pip, brew, etc.)',
-          'and place binaries in `./user/bin/` so they persist across sessions.',
-        );
+      lines.push('## Available skills', '');
+      for (const s of ctx.skills) {
+        const kind = s.kind ?? 'enabled';
+        let prefix = '';
+        if (kind === 'pending') {
+          prefix = s.pendingReasons?.length
+            ? `(setup pending: ${s.pendingReasons.join(', ')}) `
+            : '(setup pending) ';
+        } else if (kind === 'invalid') {
+          prefix = '(invalid) ';
+        }
+        // Compat bridge: legacy filesystem-backed rows still carry per-skill
+        // `warnings` (missing bins). Surface them parenthetically until phase 4
+        // migrates those into `pendingReasons`.
+        if (s.warnings?.length) {
+          prefix = `${prefix}(missing: ${s.warnings.join(', ')}) `;
+        }
+        const desc = s.description ?? '';
+        const tail = prefix || desc ? ` — ${prefix}${desc}`.trimEnd() : '';
+        lines.push(`- **${s.name}**${tail}`);
       }
+      lines.push('', 'To use a skill, read `.ax/skills/<name>/SKILL.md` and follow its instructions.');
     } else {
       lines.push(
         '## Skills',
@@ -87,8 +73,8 @@ export class SkillsModule extends BasePromptModule {
         '',
         '### Creating Skills',
         '',
-        'Use the `skill` tool with `type: "create"` to author a new skill.',
-        'Skills are saved to `/workspace/skills/`.',
+        'Skills are git-native: write `SKILL.md` to `.ax/skills/<name>/SKILL.md` using your file-edit tools, then commit and push.',
+        'The host reconciler picks up the push and enables the skill once any required credentials and domain approvals are in place.',
       );
     }
 
@@ -122,7 +108,7 @@ export class SkillsModule extends BasePromptModule {
     return [
       '## Skills',
       ctx.skills.length > 0
-        ? `${ctx.skills.length} skills available. Use read_file with the skill path to load one.`
+        ? `${ctx.skills.length} skills available. Read \`.ax/skills/<name>/SKILL.md\` to load one.`
         : 'No skills installed.',
     ];
   }

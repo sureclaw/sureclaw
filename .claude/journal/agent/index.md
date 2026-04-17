@@ -4,6 +4,8 @@ Agent process: runner, tools, prompt builder, MCP server, tool catalog.
 
 ## Entries
 
+- 2026-04-17 06:26 — Phase 3 Task 7: runner fetches skills_index before prompt build [prompt.md](prompt.md)
+- 2026-04-17 06:20 — Phase 3 Tasks 5+6: SkillSummary extension + SkillsModule bullet format [prompt.md](prompt.md)
 - 2026-04-01 01:20 — Fix multipart message display in chat history [runner.md](runner.md)
 - 2026-04-01 01:10 — Fix image attachments dropped by pi-session runner and proxy-stream [runner.md](runner.md)
 - 2026-03-31 18:31 — Fix PDF file attachments not reaching LLM in pi-session/claude-code runners [runner.md](runner.md)

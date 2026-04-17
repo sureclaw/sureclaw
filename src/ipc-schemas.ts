@@ -137,6 +137,22 @@ export const SkillDeleteSchema = ipcAction('skill_delete', {
   slug: safeString(200),
 });
 
+/**
+ * Agent asks the host for its authoritative skill index.
+ * Handler uses ctx.agentId from the IPC session — no request fields needed.
+ *
+ * Response shape (not schema-validated, but producer-guaranteed):
+ * {
+ *   skills: Array<{
+ *     name: string;
+ *     description?: string;
+ *     kind: 'enabled' | 'pending' | 'invalid';
+ *     pendingReasons?: string[];
+ *   }>
+ * }
+ */
+export const SkillsIndexSchema = ipcAction('skills_index', {});
+
 export const CredentialRequestSchema = ipcAction('credential_request', {
   envName: safeString(200),
 });

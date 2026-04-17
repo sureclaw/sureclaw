@@ -1,6 +1,10 @@
 # Architecture
 
-## Host-side path helpers can stay for backward compat during workspace simplification
+## IPC-sourced config with filesystem fallback: use `config.X ?? scan()` in sync builders
+**Date:** 2026-04-17
+**Context:** Phase 3 Task 7 wired `skills_index` IPC into the runner so the host-authoritative skill list wins over a filesystem scan, while keeping `buildSystemPrompt` synchronous. The natural pattern: a sync prompt builder that reads `config.skills ?? loadSkillsMultiDir(skillDirs)`, plus a separate async `fetchSkillsIndex()` the runner awaits right after `client.connect()` and before calling the builder. If the fetch throws or returns malformed data, the helper returns `undefined` and the builder falls through to the filesystem scan.
+**Lesson:** When moving data from filesystem-owned to host-owned via IPC, keep the synchronous builder/consumer untouched — just let it read `config.X ?? <legacy-scan>`. Do the async fetch in the runner wire-up layer. This keeps tests deterministic (no network needed — pass `config.skills` or let the fallback scan run), and transport errors degrade gracefully. Guard the mutation with `if (config.X === undefined)` so injected values (e.g., from tests) always win over IPC.
+**Tags:** ipc, runner, fallback-pattern, sync-builder, prompt, skills
 **Date:** 2026-04-06
 **Context:** During the single-workspace refactor (removing agent/user workspace split), host-side code like server-files.ts and server-channels.ts still uses `userWorkspaceDir()` for local file storage (upload/download). These are host-side paths, not sandbox paths.
 **Lesson:** When simplifying the sandbox workspace model, keep deprecated host-side path helpers (agentWorkspaceDir, userWorkspaceDir) available for backward compatibility in host-only code (file upload/download, image resolution). Mark them @deprecated. Only remove sandbox-facing code (SandboxConfig fields, env vars, payload fields). Host-side and sandbox-side are separate concerns.

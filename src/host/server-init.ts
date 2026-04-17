@@ -27,6 +27,7 @@ import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
 import { reloadPluginMcpServers, loadDatabaseMcpServers } from '../plugins/startup.js';
 import type { AdminContext } from './server-admin-helpers.js';
+import type { SkillStateStore } from './skills/state-store.js';
 
 const logger = getLogger();
 
@@ -68,6 +69,10 @@ export interface HostCore {
   defaultUserId: string;
   modelId: string;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
+  /** Git-native skills state store — shared between the IPC handler
+   *  (skills_index action) and server.ts's reconcile-hook wiring.
+   *  Undefined when no database provider is available. */
+  stateStore?: SkillStateStore;
 }
 
 /**
@@ -192,6 +197,24 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     }
   } catch { /* seed skills dir not available */ }
 
+  // ── Git-native skills state store ──
+  // Phase 3: powers the skills_index IPC handler and the reconcile hook.
+  // Only created when a database provider is available; otherwise the
+  // skills_index handler silently returns an empty list (Task 3 behavior).
+  let stateStore: SkillStateStore | undefined;
+  if (providers.database) {
+    const { runMigrations } = await import('../utils/migrator.js');
+    const { skillsMigrations } = await import('../migrations/skills.js');
+    const { createSkillStateStore } = await import('./skills/state-store.js');
+    const migResult = await runMigrations(
+      providers.database.db,
+      skillsMigrations,
+      'skills_migration',
+    );
+    if (migResult.error) throw migResult.error;
+    stateStore = createSkillStateStore(providers.database.db);
+  }
+
   // ── CompletionDeps ──
   const completionDeps: CompletionDeps = {
     config,
@@ -282,6 +305,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     requestedCredentials,
     domainList,
     adminCtx,
+    stateStore,
     // Legacy: providers.mcp (database MCP provider) is kept as fallback for
     // tool batching. When all callers migrate to McpConnectionManager, remove
     // providers.mcp and the legacy fallback paths in tool-router.ts,
@@ -365,5 +389,6 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
     defaultUserId,
     modelId,
     mcpManager,
+    stateStore,
   };
 }

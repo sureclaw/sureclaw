@@ -27,7 +27,7 @@ import { startWebProxyBridge, type WebProxyBridge } from '../web-proxy-bridge.js
 import { createIPCMcpServer } from '../mcp-server.js';
 import type { AgentConfig, IIPCClient } from '../runner.js';
 import type { ContentBlock } from '../../types.js';
-import { buildSystemPrompt } from '../agent-setup.js';
+import { buildSystemPrompt, fetchSkillsIndex } from '../agent-setup.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -221,6 +221,15 @@ export async function runClaudeCode(config: AgentConfig): Promise<void> {
   // Use pre-connected client if available (listen mode starts before stdin read).
   const client = config.ipcClient ?? new IPCClient({ socketPath: config.ipcSocket, listen: config.ipcListen, sessionId: config.sessionId, requestId: config.requestId, userId: config.userId, sessionScope: config.sessionScope });
   if (!config.ipcClient) await client.connect();
+
+  // Fetch host-authoritative skills index before building the prompt. Guard on
+  // `skills === undefined` so injected skills (e.g., tests) take precedence.
+  // fetchSkillsIndex returns undefined on transport errors — buildSystemPrompt
+  // then falls back to the workspace filesystem scan.
+  if (config.skills === undefined) {
+    const fetched = await fetchSkillsIndex(client);
+    if (fetched) config.skills = fetched;
+  }
 
   // 3. Build system prompt (also returns toolFilter for MCP tool filtering)
   const { systemPrompt, toolFilter } = buildSystemPrompt(config);

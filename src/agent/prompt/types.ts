@@ -9,8 +9,13 @@ import type { AgentType } from '../../types.js';
 export interface SkillSummary {
   name: string;
   description: string;
-  path: string;   // relative path to the skill markdown file
+  /** Relative path for legacy filesystem-backed skills. Optional — host-indexed skills synthesize `.ax/skills/<name>/SKILL.md` at render time. */
+  path?: string;
   warnings?: string[];  // missing bins or other load-time warnings from host
+  /** Host-authoritative enable state. Undefined for legacy filesystem-backed rows — treated as 'enabled' at render time. */
+  kind?: 'enabled' | 'pending' | 'invalid';
+  /** Reasons the skill is pending. Only set when kind='pending'. */
+  pendingReasons?: string[];
 }
 
 /**

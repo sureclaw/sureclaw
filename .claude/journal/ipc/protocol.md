@@ -2,6 +2,14 @@
 
 IPC protocol enhancements: heartbeat keep-alive, schema hardening, transport simplification.
 
+## [2026-04-17 05:58] — Phase 3 Task 2: skills_index IPC schema
+
+**Task:** Add a Zod `.strict()` schema for a new IPC action `skills_index` (request takes no fields; handler uses `ctx.agentId`).
+**What I did:** Wrote 4-case vitest TDD spec (registered, accepts empty envelope, rejects unknown fields, rejects wrong action literal); saw 2 fail as expected; added `SkillsIndexSchema = ipcAction('skills_index', {})` under the Skills section with a JSDoc documenting the (non-validated) response shape; tests green; build clean.
+**Files touched:** src/ipc-schemas.ts, tests/ipc/skills-index-schema.test.ts
+**Outcome:** Success — 4/4 tests pass, `npm run build` clean.
+**Notes:** The `ipcAction()` helper auto-registers via the module-level registry, so no additional wiring needed. Empty-body action follows the same pattern as `FetchWorkSchema`/`SchedulerListJobsSchema`. Tests directory `tests/ipc/` didn't exist — created it.
+
 ## [2026-03-20 12:20] — Remove AX_IPC_TRANSPORT env var, auto-detect HTTP mode from AX_HOST_URL
 
 **Task:** Remove dead NATS transport references and eliminate AX_IPC_TRANSPORT env var — HTTP mode is now auto-detected from AX_HOST_URL presence

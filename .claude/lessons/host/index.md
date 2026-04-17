@@ -4,6 +4,7 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- Shared resources consumed by both core and server.ts belong in HostCore [entries.md](entries.md)
 - Never have two independent timers managing the same resource lifecycle [entries.md](entries.md)
 - Admin state is filesystem-based and doesn't sync across k8s pods [entries.md](entries.md)
 - Admin TCP port must handle EADDRINUSE gracefully [entries.md](entries.md)
