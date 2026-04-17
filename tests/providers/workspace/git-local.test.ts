@@ -1,9 +1,11 @@
 import { describe, test, expect, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { create as createGitLocal } from '../../../src/providers/workspace/git-local.js';
+import type { Config } from '../../../src/types.js';
 
 describe('git-local workspace provider', () => {
   const dirs: string[] = [];
@@ -118,5 +120,76 @@ describe('git-local workspace provider', () => {
       cwd: ws2, encoding: 'utf-8', stdio: 'pipe',
     });
     expect(status.trim()).toBe('');
+  });
+
+  describe('post-receive hook installation', () => {
+    /**
+     * Run the provider against an isolated AX_HOME so the real ~/.ax is
+     * never touched. Returns the bare repo path derived from the returned
+     * file:// URL.
+     */
+    async function createRepoInIsolatedHome(agentId: string): Promise<{
+      url: string;
+      repoPath: string;
+      axHomeDir: string;
+    }> {
+      const axHomeDir = makeTmpDir('ax-home');
+      const prevAxHome = process.env.AX_HOME;
+      process.env.AX_HOME = axHomeDir;
+      try {
+        const provider = await createGitLocal({} as Config);
+        const { url } = await provider.getRepoUrl(agentId);
+        const repoPath = url.replace(/^file:\/\//, '');
+        await provider.close();
+        return { url, repoPath, axHomeDir };
+      } finally {
+        if (prevAxHome === undefined) delete process.env.AX_HOME;
+        else process.env.AX_HOME = prevAxHome;
+      }
+    }
+
+    test('getRepoUrl installs post-receive hook with embedded agentId', async () => {
+      const { repoPath } = await createRepoInIsolatedHome('agent-x');
+
+      const hookPath = join(repoPath, 'hooks', 'post-receive');
+      expect(existsSync(hookPath)).toBe(true);
+
+      const content = readFileSync(hookPath, 'utf8');
+      expect(content).toContain('AGENT_ID="agent-x"');
+      // No unsubstituted placeholders should remain.
+      expect(content).not.toContain('__AGENT_ID__');
+    });
+
+    test('calling getRepoUrl twice keeps the hook present (idempotent)', async () => {
+      const axHomeDir = makeTmpDir('ax-home');
+      const prevAxHome = process.env.AX_HOME;
+      process.env.AX_HOME = axHomeDir;
+      try {
+        const provider = await createGitLocal({} as Config);
+        const first = await provider.getRepoUrl('agent-y');
+        const second = await provider.getRepoUrl('agent-y');
+        await provider.close();
+
+        expect(first.url).toBe(second.url);
+        expect(first.created).toBe(true);
+
+        const repoPath = first.url.replace(/^file:\/\//, '');
+        const hookPath = join(repoPath, 'hooks', 'post-receive');
+        expect(existsSync(hookPath)).toBe(true);
+        const content = readFileSync(hookPath, 'utf8');
+        expect(content).toContain('AGENT_ID="agent-y"');
+      } finally {
+        if (prevAxHome === undefined) delete process.env.AX_HOME;
+        else process.env.AX_HOME = prevAxHome;
+      }
+    });
+
+    test('installed hook has owner-executable bit set', async () => {
+      const { repoPath } = await createRepoInIsolatedHome('agent-z');
+
+      const hookPath = join(repoPath, 'hooks', 'post-receive');
+      const mode = statSync(hookPath).mode & 0o777;
+      expect(mode & 0o700).toBe(0o700);
+    });
   });
 });

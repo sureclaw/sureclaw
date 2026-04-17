@@ -5,6 +5,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 ## Entries
 
 - 2026-04-17 05:15 — PR #176 review-comment fixes: hostname validation, MCP self-conflict dedup, clean event payload [skills.md](skills.md)
+- 2026-04-17 00:30 — Git-native skills Phase 2 Task 8: wire git-local to install hook [workspace.md](workspace.md)
 - 2026-04-17 00:00 — Git-native skills Phase 2 Task 7: post-receive hook installer [workspace.md](workspace.md)
 - 2026-04-16 22:44 — Git-native skills Phase 1 Task 7: computeSetupQueue [skills.md](skills.md)
 - 2026-04-16 22:41 — Git-native skills Phase 1 Task 6: computeProxyAllowlist [skills.md](skills.md)

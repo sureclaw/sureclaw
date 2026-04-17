@@ -1,5 +1,13 @@
 # Workspace Provider Journal
 
+## [2026-04-17 00:30] — Git-native skills Phase 2 Task 8: wire git-local to install hook
+
+**Task:** Wire the git-local workspace provider so every `getRepoUrl()` installs the post-receive hook into the bare repo (backfills pre-existing repos too).
+**What I did:** Added failing tests first — three under a new `post-receive hook installation` sub-describe in the existing git-local test file: (1) hook file present with `AGENT_ID="agent-x"` after `getRepoUrl`, (2) idempotent across two calls, (3) owner-executable mode bit set. Tests isolate via `AX_HOME=tmpdir` so `~/.ax` is never touched. Verified the 3 tests fail (hook file missing), then added `import { installPostReceiveHook } from './install-hook.js'` and a single `installPostReceiveHook(repoPath, agentId)` call right after `logger.debug('repo_initialized', ...)`. Re-ran: 7/7 pass.
+**Files touched:** src/providers/workspace/git-local.ts, tests/providers/workspace/git-local.test.ts
+**Outcome:** Success — all 89 tests pass across `tests/providers/workspace/` and `tests/host/skills/`, `npm run build` clean.
+**Notes:** The install call runs on EVERY call (not just `created===true`) so pre-feature repos get backfilled; the installer is a cheap idempotent overwrite. No try/catch around it — freshly-initialized repo under a path we just validated with `safePath`, so any failure is genuine and should surface. Tests restore `process.env.AX_HOME` in `finally` so they don't leak state between cases.
+
 ## [2026-04-17 00:00] — Git-native skills Phase 2 Task 7: post-receive hook installer
 
 **Task:** Create a reusable, idempotent installer that drops a post-receive hook into a bare git repo with the right permissions and substitutes the agent ID into the template.

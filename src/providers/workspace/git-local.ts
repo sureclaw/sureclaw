@@ -13,6 +13,7 @@ import type { Config } from '../../types.js';
 import { axHome } from '../../paths.js';
 import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
+import { installPostReceiveHook } from './install-hook.js';
 
 const logger = getLogger().child({ component: 'git-local-workspace' });
 
@@ -46,6 +47,11 @@ export async function create(_config: Config): Promise<WorkspaceProvider> {
           });
         } catch { /* old git — leave as system default */ }
         logger.debug('repo_initialized', { agentId, repoName, repoPath });
+        // Install the AX skills reconcile hook. Run on EVERY call (not just
+        // when created===true): the hook embeds the agentId, and pre-existing
+        // repos from before this feature existed need backfill. The installer
+        // is an idempotent overwrite, so cost is a single writeFileSync+chmod.
+        installPostReceiveHook(repoPath, agentId);
       } catch (err) {
         // git init --bare on an existing repo prints "Reinitialized" and
         // exits 0, so it never reaches here. Any error here is real.
