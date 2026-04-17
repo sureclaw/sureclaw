@@ -81,4 +81,16 @@ describe('installPostReceiveHook', () => {
     const content = readFileSync(join(bareRepo, 'hooks', 'post-receive'), 'utf8');
     expect(content).toContain('0000000000000000000000000000000000000000');
   });
+
+  test('hook uses curl --data-binary (not -d) to preserve exact body bytes', () => {
+    // The HMAC covers exact bytes of the JSON body. curl -d strips CR/LF
+    // and can mangle input; --data-binary sends the string as-is.
+    const bareRepo = initBareRepo();
+    installPostReceiveHook(bareRepo, 'agent-d');
+    const content = readFileSync(join(bareRepo, 'hooks', 'post-receive'), 'utf8');
+    expect(content).toContain('--data-binary');
+    // Make sure we didn't keep a stray `-d "$body"` — match with a boundary
+    // so `--data-binary` doesn't accidentally satisfy a plain `-d` check.
+    expect(content).not.toMatch(/\s-d\s+"\$body"/);
+  });
 });

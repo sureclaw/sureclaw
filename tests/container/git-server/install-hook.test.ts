@@ -66,6 +66,12 @@ describe('container/git-server install-hook', () => {
     expect(tpl).toContain('0000000000000000000000000000000000000000');
   });
 
+  test('template uses curl --data-binary to preserve exact body bytes', () => {
+    const tpl: string = containerInstaller.TEMPLATE;
+    expect(tpl).toContain('--data-binary');
+    expect(tpl).not.toMatch(/\s-d\s+"\$body"/);
+  });
+
   test('container and host templates produce byte-identical hook content for the same agentId', () => {
     // Read the host TS source directly and extract the TEMPLATE literal.
     // We can't import the TS file at test runtime without the TS compiler

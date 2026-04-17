@@ -56,10 +56,12 @@ while read -r oldSha newSha ref; do
   sig="sha256=\$(printf '%s' "\$body" | openssl dgst -sha256 -hmac "\$AX_HOOK_SECRET" -binary | od -An -tx1 | tr -d ' \\n')"
 
   # Best-effort. Failure of the hook MUST NOT block the push.
+  # --data-binary (not -d) preserves exact body bytes. curl -d strips CR/LF
+  # and can mangle binary input; the HMAC covers exact bytes so we must too.
   curl -fsS -m 10 \\
     -H "Content-Type: application/json" \\
     -H "X-AX-Hook-Signature: \$sig" \\
-    -d "\$body" \\
+    --data-binary "\$body" \\
     "\$HOST_URL/v1/internal/skills/reconcile" >/dev/null 2>&1 || true
 done
 `;
