@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-16 22:35] — Git-native skills Phase 1 Task 3: Reconciler types
+
+**Task:** Phase 1 Task 3 of git-native skills effort — declare the type surface used by the reconciler: `SkillSnapshotEntry`, `ReconcilerCurrentState`, `SkillStateKind`, `SkillState`, `SetupRequest`, `ReconcilerOutput`, `ReconcilerInput`. No test file — pure type declarations consumed by Tasks 4-9.
+**What I did:** Created `src/host/skills/types.ts` with exactly the types specified in the plan. Imports `SkillFrontmatter` from `./frontmatter-schema.js` (Task 1 output). Used `ReadonlySet`/`ReadonlyMap` for current-state shapes to signal they are inputs, plain `Map`/`Set` for the desired output since callers will consume them.
+**Files touched:** `src/host/skills/types.ts` (new)
+**Outcome:** Success — `npx tsc --noEmit` clean, no new warnings.
+**Notes:** Snapshot entry is a discriminated union on `ok` — same pattern as the parser's return. Storage credential key convention is `${envName}@${scope}`.
+
 ## [2026-04-16 22:29] — Git-native skills Phase 1 Task 2: SKILL.md parser
 
 **Task:** Phase 1 Task 2 of git-native skills effort — create `parseSkillFile(content)` that splits YAML frontmatter from body, validates through Task 1's Zod schema, and returns a discriminated union `{ ok, frontmatter, body } | { ok: false, error }`. TDD order: failing test, implementation, passing test.
