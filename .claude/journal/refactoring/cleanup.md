@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-17 19:10] — Phase 7 Task 6: Drop retired DB data via migration
+
+**Task:** Delete `documents` rows left behind by the retired plugin-install path and the pre-phase-3 DocumentStore-backed skills. Data is legacy; live code path now reads git-native skills + state-store.
+**What I did:** Added migration `storage_008_drop_legacy_documents` to `src/providers/storage/migrations.ts`. Uses Kysely's `deleteFrom('documents').where('collection', 'in', ['plugins', 'skills']).execute()` — dialect-agnostic for SQLite + Postgres. Wrapped in a try/catch that swallows only "no such table" / "does not exist" / "relation does not exist" errors so pre-004 DBs don't blow up; genuine errors still bubble. `down()` is a deliberate no-op — we don't resurrect retired data. Important: plan doc used `kind` as the column name, but the real schema uses `collection` (confirmed via `storage_004_documents` + `src/providers/storage/database.ts`). Added smoke test `tests/migrations/storage-drop-legacy-documents.test.ts` with three cases: (1) deletes plugins+skills rows while leaving identity/config intact, (2) idempotent re-run is a no-op, (3) calling `up()` directly against a DB with no `documents` table doesn't throw.
+**Files touched:** Modified: `src/providers/storage/migrations.ts`. Created: `tests/migrations/storage-drop-legacy-documents.test.ts`.
+**Outcome:** Success — `npm run build` clean; `npx vitest run tests/providers/storage tests/migrations` → 5 files / 51 tests green (including the 3 new ones).
+**Notes:** Chose Path A (add to the existing storage migration set) over Path B (new file under `src/migrations/`) because the `documents` table is owned by `src/providers/storage/migrations.ts`, and piggybacking on the existing `storage_migration` tracking table avoids spinning up yet another tracking table for a one-shot cleanup. Execution order guaranteed by alphanumeric key sort — `storage_008_*` runs after `storage_007_*` regardless of file position.
+
 ## [2026-04-17 18:22] — Phase 7 Task 5: Clean up skills prompt module + tool-catalog filter
 
 **Task:** Remove residual install-intent prompt artifacts — `detectSkillInstallIntent`, the four regex constants (`INSTALL_ACTIONS`, `SKILL_NOUNS`, `INQUIRY_PATTERNS`, `REGISTRY_REF`), the "Installing New Skills" prompt block, and `skillInstallEnabled` across `PromptContext`, `ToolFilterContext`, and all callers.

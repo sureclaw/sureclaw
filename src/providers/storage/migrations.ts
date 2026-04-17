@@ -279,5 +279,37 @@ export function storageMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet
         await db.schema.dropTable('agent_mcp_servers').ifExists().execute();
       },
     },
+
+    // Migration 008: Drop retired 'plugins' and 'skills' rows from the
+    // documents table. Phase 7 cleanup — the plugin-install path and the
+    // legacy DocumentStore-backed skills were retired. Reads moved to
+    // host/skills/state-store.ts and git-native skills under .ax/skills/.
+    // Note: the `documents` table uses `collection` (not `kind`) as the
+    // discriminator column. We keep the table itself — other collections
+    // still live there.
+    storage_008_drop_legacy_documents: {
+      async up(db: Kysely<any>) {
+        // Safe no-op when the table doesn't exist yet (fresh installs that
+        // skip storage_004 for some reason, or DBs that were wiped). We
+        // intentionally only swallow "missing table" errors — anything else
+        // bubbles up as a genuine migration failure.
+        try {
+          await db
+            .deleteFrom('documents')
+            .where('collection', 'in', ['plugins', 'skills'])
+            .execute();
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const isMissingTable =
+            /no such table/i.test(msg) ||
+            /does not exist/i.test(msg) ||
+            /relation .* does not exist/i.test(msg);
+          if (!isMissingTable) throw err;
+        }
+      },
+      async down(_db: Kysely<any>) {
+        // No-op: this is a one-way cleanup. We don't resurrect retired data.
+      },
+    },
   };
 }

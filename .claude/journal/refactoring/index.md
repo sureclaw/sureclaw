@@ -4,6 +4,7 @@ General refactoring, cleanup work, stale reference removal.
 
 ## Entries
 
+- 2026-04-17 19:10 — Phase 7 Task 6: Drop retired DB data via migration [cleanup.md](cleanup.md)
 - 2026-04-17 18:22 — Phase 7 Task 5: Clean up skills prompt module + tool-catalog filter [cleanup.md](cleanup.md)
 - 2026-04-17 18:05 — Phase 7 Task 4: Drop CLI plugin+mcp + admin plugin endpoints [cleanup.md](cleanup.md)
 - 2026-04-17 17:44 — Phase 7 Task 3: Strip legacy plugin machinery (keep MCP manager) [cleanup.md](cleanup.md)
