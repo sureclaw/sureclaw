@@ -274,7 +274,7 @@ The `tests/e2e/` suite runs against a live AX server deployed in kind, but with 
 
 ```
 global-setup.ts
-  ├── Starts mock-server (OpenRouter, ClawHub, GCS, Linear)
+  ├── Starts mock-server (OpenRouter, GCS, Linear)
   ├── Creates kind cluster (or uses AX_SERVER_URL if set)
   ├── Builds + loads Docker image
   ├── Deploys AX via Helm (kind-values.yaml)
@@ -288,7 +288,6 @@ regression.test.ts
 mock-server/
   ├── index.ts        — Router dispatching to handlers
   ├── openrouter.ts   — Scripted LLM responses (ScriptedTurn queue)
-  ├── clawhub.ts      — Mock skill registry
   ├── gcs.ts          — In-memory GCS storage
   └── linear.ts       — Mock Linear API
 

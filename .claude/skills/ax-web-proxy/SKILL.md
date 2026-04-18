@@ -37,7 +37,7 @@ MITM Proxy (host pod, port 3128)
 | `src/host/server-init.ts` | Creates `ProxyDomainList`, populates from installed skills at startup |
 | `src/host/server-k8s.ts` | Shared proxy startup for k8s |
 | `src/host/server-completions.ts` | Per-session proxy startup, credential registration, `startAgentResponseTimer` in `CompletionDeps` (defers agent_response timeout until after work is published so pre-processing time doesn't eat the timeout budget) |
-| `src/host/ipc-handlers/skills.ts` | `skill_install` handler — adds domains to allowlist on install |
+| `src/host/server-admin-skills-helpers.ts` | `approveSkillSetup()` — adds approved skill domains to the allowlist via `addSkillDomains()` |
 | `src/host/server-admin.ts` | Admin endpoints for domain management (GET/POST /admin/api/proxy/domains) |
 | `src/agent/runner.ts` | CA cert writing, `CURL_CA_BUNDLE`/`SSL_CERT_FILE` setup |
 | `src/agent/runners/pi-session.ts` | `HTTP_PROXY`/`HTTPS_PROXY` env var setup |
@@ -47,18 +47,18 @@ MITM Proxy (host pod, port 3128)
 Domains are allowed if they appear in any of these sources:
 
 1. **Built-in domains** — package manager registries (npmjs.org, pypi.org, etc.) and GitHub
-2. **Skill-declared domains** — auto-extracted from skill body URLs via `generateManifest()` when skills are installed via `skill_install` IPC handler
+2. **Skill-declared domains** — auto-extracted from skill body URLs via `generateManifest()` and added to the allowlist when an admin approves the skill's setup request
 3. **Admin-approved domains** — manually approved via `POST /admin/api/proxy/domains/approve`
 
 Unknown domains are **denied immediately** (no blocking, no deadlock) and queued for admin review.
 
-### How domains flow from skill install to proxy
+### How domains flow from skill approval to proxy
 
 ```
-1. Agent calls skill({ type: "install", query: "linear" })
-2. Host downloads skill from ClawHub, parses SKILL.md
-3. Host runs generateManifest() → extracts domains from URLs in skill body
-4. Host calls domainList.addSkillDomains("linear", ["api.linear.app"])
+1. User writes .ax/skills/<name>/SKILL.md with domains in the body
+2. Reconciler parses SKILL.md, writes a pending setup request
+3. Admin approves the skill in the dashboard (POST /admin/api/skills/setup/approve)
+4. approveSkillSetup() calls domainList.addSkillDomains(name, ["api.linear.app"])
 5. Next proxy request to api.linear.app → allowed (in allowlist)
 ```
 
@@ -123,7 +123,7 @@ Node.js 22+ has `--use-env-proxy` flag but it's not currently wired up.
 1. **Is the proxy running?** Look for `web_proxy_started` in host logs
 2. **Is `config.web_proxy` true?** Defaults to true for k8s/docker/apple sandboxes
 3. **Is the domain in the allowlist?** Check `GET /admin/api/proxy/domains`
-4. **Is the skill installed via `skill_install`?** Only host-installed skills add domains
+4. **Is the skill approved?** Only skills whose setup request has been approved add domains to the allowlist
 5. **Are credentials registered?** Look for `credential_injected` in host logs
 6. **Did replacement happen?** Check if `credentialMap` has placeholders for the session
 7. **Is the session still active?** Credentials deregistered at `session_completed`
@@ -134,5 +134,5 @@ Node.js 22+ has `--use-env-proxy` flag but it's not currently wired up.
 - **Node.js `fetch` ignores `HTTP_PROXY`** — only curl/wget/pip respect proxy env vars
 - **`SharedCredentialRegistry` is session-scoped** — credentials vanish after `session_completed`
 - **Always handle socket errors** in proxy code — unhandled `ECONNRESET` crashes the host process. Add `clientSocket.on('error', ...)` before TLS wrapping.
-- **Agent-authored skills don't get proxy access** — only skills installed via `skill_install` IPC handler add domains to the allowlist
+- **Unapproved skills don't get proxy access** — domains are added to the allowlist only after an admin approves the skill's setup request in the dashboard
 - **k8s clusters without host volume mounts** need Docker image rebuild + `kind load` to deploy code changes

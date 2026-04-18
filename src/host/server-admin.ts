@@ -20,7 +20,6 @@ import type { ProxyDomainList } from './proxy-domain-list.js';
 import type { SetupRequest } from './skills/types.js';
 import type { CredentialRequestQueue } from './credential-request-queue.js';
 import { ApproveBodySchema, approveSkillSetup } from './server-admin-skills-helpers.js';
-import { parseAgentSkill } from '../utils/skill-format-parser.js';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
 import { configPath as getConfigPath } from '../paths.js';
@@ -347,112 +346,6 @@ async function handleAdminAPI(
     }
     return;
   }
-
-  // GET /admin/api/agents/:id/skills/:name — read a single skill's content
-  const skillContentMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills\/([^/]+)$/);
-  if (skillContentMatch && method === 'GET') {
-    const id = decodeURIComponent(skillContentMatch[1]);
-    const skillName = decodeURIComponent(skillContentMatch[2]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const content = await findSkillContent(providers, id, skillName);
-      if (!content) { sendError(res, 404, 'Skill not found'); return; }
-      sendJSON(res, content);
-    } catch (err) {
-      logger.error('admin_skill_content_failed', { agentId: id, skill: skillName, error: (err as Error).message });
-      sendError(res, 500, `Failed to read skill: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // PUT /admin/api/agents/:id/skills/:name — update a skill's content
-  if (skillContentMatch && method === 'PUT') {
-    const id = decodeURIComponent(skillContentMatch[1]);
-    const skillName = decodeURIComponent(skillContentMatch[2]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    try {
-      const body = JSON.parse(await readBody(req));
-      const { content } = body;
-      if (typeof content !== 'string') { sendError(res, 400, 'Missing required field: content'); return; }
-      const { upsertSkill } = await import('../providers/storage/skills.js');
-      const { inferMcpApps } = await import('../providers/storage/skills.js');
-      const mcpApps = inferMcpApps(content);
-      await upsertSkill(providers.storage.documents, {
-        id: skillName,
-        agentId: id,
-        version: '1.0',
-        instructions: content,
-        mcpApps,
-      });
-      sendJSON(res, { ok: true });
-    } catch (err) {
-      sendError(res, 400, `Failed to update skill: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // DELETE /admin/api/agents/:id/skills/:name — delete a skill
-  if (skillContentMatch && method === 'DELETE') {
-    const id = decodeURIComponent(skillContentMatch[1]);
-    const skillName = decodeURIComponent(skillContentMatch[2]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    try {
-      const { deleteSkill } = await import('../providers/storage/skills.js');
-      const deleted = await deleteSkill(providers.storage.documents, id, skillName);
-      if (!deleted) { sendError(res, 404, 'Skill not found'); return; }
-      sendJSON(res, { ok: true });
-    } catch (err) {
-      sendError(res, 500, `Failed to delete skill: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // GET /admin/api/agents/:id/skills — list skills from workspace + plugins
-  const skillsListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/skills$/);
-  if (skillsListMatch && method === 'GET') {
-    const id = decodeURIComponent(skillsListMatch[1]);
-    const agent = await agentRegistry.get(id);
-    if (!agent) { sendError(res, 404, 'Agent not found'); return; }
-    try {
-      const skills = await listWorkspaceSkills(providers, id);
-      // Also include plugin-installed skills from DocumentStore
-      if (providers.storage?.documents) {
-        const allKeys = await providers.storage.documents.list('skills');
-        const prefix = `${id}/`;
-        for (const key of allKeys) {
-          if (!key.startsWith(prefix)) continue;
-          const raw = await providers.storage.documents.get('skills', key);
-          if (!raw) continue;
-          const skillId = key.slice(prefix.length);
-          // Parse stored skill JSON to extract name/description
-          try {
-            const stored = JSON.parse(raw);
-            const content = stored.instructions ?? raw;
-            const parsed = parseAgentSkill(content);
-            const name = parsed.name || skillId;
-            // Avoid duplicates (workspace skills take precedence)
-            if (!skills.some(s => s.name === name)) {
-              skills.push({ name, description: parsed.description, path: `plugin/${skillId}` });
-            }
-          } catch {
-            // Not JSON — try parsing as raw skill content
-            const parsed = parseAgentSkill(raw);
-            const name = parsed.name || skillId;
-            if (!skills.some(s => s.name === name)) {
-              skills.push({ name, description: parsed.description, path: `plugin/${skillId}` });
-            }
-          }
-        }
-      }
-      sendJSON(res, skills);
-    } catch (err) {
-      logger.error('admin_skills_list_failed', { agentId: id, error: (err as Error).message });
-      sendError(res, 500, `Failed to list skills: ${(err as Error).message}`);
-    }
-    return;
-  }
-
 
   // GET /admin/api/agents/:id/memory — list memory entries
   const memoryMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/memory$/);
@@ -1009,86 +902,6 @@ async function handleAdminAPI(
     return;
   }
 
-  // ── Plugin Management ──
-
-  // GET /admin/api/agents/:id/plugins — list installed plugins
-  const pluginListMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins$/);
-  if (pluginListMatch && method === 'GET') {
-    const id = decodeURIComponent(pluginListMatch[1]);
-    if (!providers.storage?.documents) { sendJSON(res, []); return; }
-    const { listPlugins } = await import('../plugins/store.js');
-    const plugins = await listPlugins(providers.storage.documents, id);
-    sendJSON(res, plugins.map(p => ({
-      name: p.pluginName,
-      version: p.version,
-      description: p.description,
-      source: p.source,
-      skills: p.skillCount,
-      commands: p.commandCount,
-      mcpServers: p.mcpServers.map(s => s.name),
-      installedAt: p.installedAt,
-    })));
-    return;
-  }
-
-  // POST /admin/api/agents/:id/plugins — install a plugin
-  if (pluginListMatch && method === 'POST') {
-    const id = decodeURIComponent(pluginListMatch[1]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    try {
-      const body = JSON.parse(await readBody(req));
-      const { source } = body;
-      if (typeof source !== 'string' || !source) { sendError(res, 400, 'Missing required field: source'); return; }
-      if (!deps.mcpManager) {
-        logger.warn('admin_plugin_install_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not persist' });
-      }
-      const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
-      const mcpManager = deps.mcpManager ?? new McpConnectionManager();
-      const { installPlugin } = await import('../plugins/install.js');
-      const result = await installPlugin({
-        source,
-        agentId: id,
-        documents: providers.storage.documents,
-        mcpManager,
-        audit: providers.audit,
-        domainList: deps.domainList,
-        sessionId: 'admin',
-        database: providers.database,
-      });
-      sendJSON(res, result, result.installed ? 201 : 400);
-    } catch (err) {
-      sendError(res, 400, `Install failed: ${(err as Error).message}`);
-    }
-    return;
-  }
-
-  // DELETE /admin/api/agents/:id/plugins/:name — uninstall a plugin
-  const pluginDeleteMatch = pathname.match(/^\/admin\/api\/agents\/([^/]+)\/plugins\/([^/]+)$/);
-  if (pluginDeleteMatch && method === 'DELETE') {
-    const id = decodeURIComponent(pluginDeleteMatch[1]);
-    const name = decodeURIComponent(pluginDeleteMatch[2]);
-    if (!providers.storage?.documents) { sendError(res, 500, 'No storage provider'); return; }
-    if (!deps.mcpManager) {
-      logger.warn('admin_plugin_uninstall_no_manager', { message: 'No McpConnectionManager configured — plugin MCP servers will not be cleaned up' });
-    }
-    const { McpConnectionManager } = await import('../plugins/mcp-manager.js');
-    const mcpManager = deps.mcpManager ?? new McpConnectionManager();
-    const { uninstallPlugin } = await import('../plugins/install.js');
-    const result = await uninstallPlugin({
-      pluginName: name,
-      agentId: id,
-      documents: providers.storage.documents,
-      mcpManager,
-      audit: providers.audit,
-      domainList: deps.domainList,
-      sessionId: 'admin',
-      database: providers.database,
-    });
-    if (!result.ok) { sendError(res, 404, result.reason ?? 'Not found'); return; }
-    sendJSON(res, { ok: true });
-    return;
-  }
-
   // GET /admin/api/events — SSE stream
   if (pathname.startsWith('/admin/api/events') && method === 'GET') {
     handleAdminSSE(req, res, deps);
@@ -1096,52 +909,6 @@ async function handleAdminAPI(
   }
 
   sendError(res, 404, 'Not found');
-}
-
-// ── Workspace Skills Helpers ──
-
-/** List skills from workspace directories (agent + user scopes). */
-async function listWorkspaceSkills(
-  providers: ProviderRegistry,
-  agentId: string,
-): Promise<Array<{ name: string; description?: string; path: string }>> {
-  const skills: Array<{ name: string; description?: string; path: string }> = [];
-
-  return skills;
-}
-
-/** Find and return a single skill's content by name. */
-async function findSkillContent(
-  providers: ProviderRegistry,
-  agentId: string,
-  skillName: string,
-): Promise<{ name: string; content: string } | undefined> {
-  // Search plugin skills in DocumentStore
-  if (providers.storage?.documents) {
-    const allKeys = await providers.storage.documents.list('skills');
-    const prefix = `${agentId}/`;
-    for (const key of allKeys) {
-      if (!key.startsWith(prefix)) continue;
-      const raw = await providers.storage.documents.get('skills', key);
-      if (!raw) continue;
-      try {
-        const stored = JSON.parse(raw);
-        const content = stored.instructions ?? raw;
-        const parsed = parseAgentSkill(content);
-        const name = parsed.name || key.slice(prefix.length);
-        if (name === skillName) {
-          return { name, content };
-        }
-      } catch {
-        const parsed = parseAgentSkill(raw);
-        const name = parsed.name || key.slice(prefix.length);
-        if (name === skillName) {
-          return { name, content: raw };
-        }
-      }
-    }
-  }
-  return undefined;
 }
 
 // ── SSE Event Stream ──

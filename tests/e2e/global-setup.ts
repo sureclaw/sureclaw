@@ -99,9 +99,9 @@ export async function setup(): Promise<void> {
 
   // Skip cluster if AX_SERVER_URL already set.
   // In local mode the caller is responsible for configuring the AX server's
-  // OPENROUTER_BASE_URL / CLAWHUB_API_URL / STORAGE_EMULATOR_HOST env vars
-  // to point at a running mock server. We don't start a mock here because we
-  // cannot inject env vars into an externally-managed server process.
+  // OPENROUTER_BASE_URL / STORAGE_EMULATOR_HOST env vars to point at a running
+  // mock server. We don't start a mock here because we cannot inject env vars
+  // into an externally-managed server process.
   if (process.env.AX_SERVER_URL) {
     console.log(`[setup] AX_SERVER_URL set — skipping kind cluster creation`);
     console.log(`[setup] Using server at ${process.env.AX_SERVER_URL}`);
@@ -175,7 +175,6 @@ export async function setup(): Promise<void> {
     `--from-literal=OPENROUTER_BASE_URL=${mockBaseUrl}/v1`,
     `--from-literal=STORAGE_EMULATOR_HOST=${mockBaseUrl}`,
     `--from-literal=GCS_WORKSPACE_BUCKET=ax-e2e-workspace`,
-    `--from-literal=CLAWHUB_API_URL=${mockBaseUrl}/clawhub/api/v1`,
     `--from-literal=DEEPINFRA_API_KEY=test-deepinfra-key`,
   ]);
 

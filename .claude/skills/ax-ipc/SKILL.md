@@ -86,8 +86,8 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Scheduler   | `scheduler_run_at`     | `datetime`, `prompt`, `maxTokenBudget?`, `delivery?`      | `jobId`                       |
 | Scheduler   | `scheduler_remove_cron`| `id`                                                      | `removed`                     |
 | Scheduler   | `scheduler_list_jobs`  | (none)                                                    | `jobs`                        |
-| Skills      | `skill_install`        | `skill`, `phase` (inspect/execute), `stepIndex?`, `inspectToken?` | (install result)       |
-| Skills      | `skill_install_status` | `skill`                                                   | (install status)              |
+| Skills      | `skills_index`         | (none)                                                    | `skills` (list of installed skills with state) |
+| Skills      | `skill_propose`        | `skill`, `content`, `reason?`                             | `proposalId`, `decision`      |
 | Sandbox     | `sandbox_bash`         | `command`                                                 | (exec result)                 |
 | Sandbox     | `sandbox_read_file`    | `path`                                                    | `content`                     |
 | Sandbox     | `sandbox_write_file`   | `path`, `content`                                         | `ok`                          |
@@ -96,9 +96,6 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Sandbox Audit | `sandbox_result`     | `operation` (bash/read/write/edit), `command?`, `path?`, `success?`, `output?`, `error?`, `exitCode?` | `ok` |
 | Plugin      | `plugin_list`          | (none)                                                    | `plugins`                     |
 | Plugin      | `plugin_status`        | `packageName`                                             | (status result)               |
-| Cowork Plugin | `plugin_install_cowork` | `source`                                                | (install result)              |
-| Cowork Plugin | `plugin_uninstall_cowork` | `name`                                                | `ok`                          |
-| Cowork Plugin | `plugin_list_cowork`   | (none)                                                    | `plugins`                     |
 | Tool Batch  | `tool_batch`           | `calls` (array with `__batchRef` pipelining)              | `results`                     |
 | Session     | `session_expiring`     | `sessionId`, `remainingSec`                               | `ok`                          |
 

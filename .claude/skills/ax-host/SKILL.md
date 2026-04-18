@@ -41,7 +41,6 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/skills/startup-rehydrate.ts` | On host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` for each. Rebuilds live `McpConnectionManager` + `ProxyDomainList` state from the last committed `.ax/skills/` tree. Per-agent errors log `startup_rehydrate_failed` and don't block the loop |
 | `src/host/ipc-handlers/web.ts` | Web fetch/search IPC handlers |
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
-| `src/host/ipc-handlers/cowork-plugins.ts` | Cowork plugin install/uninstall/list IPC handlers (uses McpConnectionManager for plugin server registration) |
 | `src/host/ipc-handlers/tool-batch.ts` | Tool batch IPC handler with `__batchRef` pipelining for Cap'n Web |
 | `src/host/toolgen/codegen.ts` | TypeScript tool stub generation with Proxy-based batching |
 | `src/host/toolgen/generate-and-cache.ts` | DB caching for generated tool stubs with schema hash invalidation |
@@ -195,14 +194,15 @@ The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration lo
 - **Timeouts**: startup (10s), call (30s)
 - **Graceful Shutdown**: send plugin_shutdown, wait 5s, force-kill
 
-### Cowork Plugin System
+### MCP Connection Manager
 
-Per-agent plugin lifecycle managed via IPC:
-- **IPC handlers** (`src/host/ipc-handlers/cowork-plugins.ts`): `plugin_install_cowork`, `plugin_uninstall_cowork`, `plugin_list_cowork`
-- **McpConnectionManager** (`src/plugins/mcp-manager.ts`): Unified MCP tool discovery and routing — tools from plugins, database MCP servers, and default provider discoverable in one pass
-- **Plugin store** (`src/plugins/store.ts`): Plugin CRUD via DocumentStore (plugins, commands collections)
-- **Plugin startup** (`src/plugins/startup.ts`): Bootstrap plugin MCP servers from DB and config on host init
-- **CLI**: `ax plugin install|remove|list`, `ax mcp add|remove|list|test`
+MCP servers are registered through two paths — the git-native skills pipeline and database-backed entries:
+- **McpConnectionManager** (`src/plugins/mcp-manager.ts`): Unified MCP tool discovery and routing — tools from skill-registered servers, database MCP servers, and default provider are discoverable in one pass
+- **MCP startup** (`src/plugins/startup.ts`): Bootstrap MCP servers from the database + config on host init
+- **Skill-driven registration** (`src/host/skills/mcp-applier.ts`): Registers servers declared in approved skills, tagged with `source: 'skill:<agentId>'`
+- **Admin API**: `/admin/api/agents/:id/mcp-servers` for ad-hoc database-backed entries (not tied to a specific skill)
+
+The old Cowork plugin IPC surface and `ax plugin`/`ax mcp` CLI have been retired.
 
 ### Provider Map (provider-map.ts)
 - **Built-in Allowlist** (`_PROVIDER_MAP`): static mapping of (kind, name) -> relative/package paths
@@ -385,4 +385,4 @@ Admin endpoints for agent management and diagnostics. Protected by admin token (
 - **Status SSE events**: `server-completions.ts` emits `type: 'status'` events via EventBus with `{operation, phase, message}` data. `server-request-handlers.ts` validates all three fields are strings before forwarding as SSE named events. Invalid payloads are logged and dropped.
 - **MCP fast path runs in host process**: `inprocess.ts` has no sandbox isolation — tools execute directly. Only safe for trusted MCP providers. `FAST_PATH_LIMITS` enforces per-turn resource limits.
 - **MCP provider category**: `mcp` category in provider-map.ts with `none` (no-op) and `database` implementations. The `database` provider requires `{ database, credentials }` deps passed via registry.ts (not the generic `loadProvider` path). Admin API endpoints under `/admin/api/agents/:id/mcp-servers`. Unified tool discovery via `McpConnectionManager` — tools from plugins, database MCP servers, and default provider resolved in one pass.
-- **`credential_request` handler in skills.ts**: The `credential_request` IPC handler lives in `src/host/ipc-handlers/skills.ts` (alongside `skill_install`), not in its own file.
+- **`credential_request` handler in skills.ts**: The `credential_request` IPC handler lives in `src/host/ipc-handlers/skills.ts`, not in its own file.

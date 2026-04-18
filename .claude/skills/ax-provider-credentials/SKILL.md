@@ -94,7 +94,7 @@ When a skill requires a credential that isn't in the store, the host prompts the
 
 ## credential_request IPC Handler
 
-When the agent calls `skill({ type: "request_credential", envName })`, the `credential_request` IPC handler:
+When the agent calls the standalone `request_credential` tool (`credential_request` IPC action, `envName` param), the handler:
 
 1. Records the `envName` in the session's `requestedCredentials` map
 2. Checks credential availability via `resolveCredential()` (user scope → agent scope)

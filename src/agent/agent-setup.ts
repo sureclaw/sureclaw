@@ -8,7 +8,6 @@ import { getLogger } from '../logger.js';
 import { PromptBuilder } from './prompt/builder.js';
 import { loadIdentityFiles } from './identity-loader.js';
 import { loadSkillsMultiDir } from './stream-utils.js';
-import { detectSkillInstallIntent } from './prompt/modules/skills.js';
 import { join, resolve } from 'node:path';
 import { existsSync, readdirSync, statSync, accessSync, constants } from 'node:fs';
 import type { AgentConfig, IIPCClient } from './runner.js';
@@ -67,15 +66,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
 
   const hasGovernance = false; // Governance removed — identity changes are validated at git commit time
 
-  // Detect skill install intent from user message
-  let skillInstallEnabled = false;
-  if (config.userMessage) {
-    const msgText = typeof config.userMessage === 'string'
-      ? config.userMessage
-      : config.userMessage.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join(' ');
-    skillInstallEnabled = detectSkillInstallIntent(msgText);
-  }
-
   const mcpCLIs = scanMcpCLIs(config.workspace);
 
   const promptBuilder = new PromptBuilder();
@@ -96,13 +86,11 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     hasGovernance,
     hasWorkspace: !!config.workspace,
     mcpCLIs,
-    skillInstallEnabled,
     toolModuleIndex: config.toolModuleIndex,
   });
 
   const toolFilter: ToolFilterContext = {
     hasHeartbeat: !!identityFiles.heartbeat?.trim(),
-    skillInstallEnabled,
   };
 
   logger.debug('prompt_built', { ...promptResult.metadata, toolFilter });

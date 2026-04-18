@@ -90,7 +90,7 @@ describe('PromptBuilder', () => {
     const ctx = makeContext();
     const result = builder.build(ctx);
 
-    // Skills module is always included for ClawHub install guidance
+    // Skills module is always included for install guidance
     expect(result.metadata.modules).toContain('skills');
   });
 

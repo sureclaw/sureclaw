@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, filterTools } from '../../s
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 15 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(15);
+  test('exports exactly 14 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(14);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -51,7 +51,7 @@ describe('tool-catalog', () => {
 
   test('contains all expected tool names', () => {
     const expected = [
-      'memory', 'web', 'scheduler', 'skill', 'request_credential',
+      'memory', 'web', 'scheduler', 'request_credential',
       'save_artifact',
       'audit', 'agent',
       'bash', 'read_file', 'write_file', 'edit_file',
@@ -67,36 +67,9 @@ describe('tool-catalog', () => {
     expect(spec!.category).toBe('workspace');
   });
 
-  test('skill tool exists in catalog with actionMap', () => {
+  test('skill tool has been removed from catalog', () => {
     const skillTool = TOOL_CATALOG.find(t => t.name === 'skill');
-    expect(skillTool).toBeDefined();
-    expect(skillTool!.actionMap).toBeDefined();
-    expect(skillTool!.actionMap!.install).toBe('skill_install');
-    expect(skillTool!.actionMap!.update).toBe('skill_update');
-    expect(skillTool!.actionMap!.delete).toBe('skill_delete');
-  });
-
-  test('skill tool has correct param keys', () => {
-    const keys = getToolParamKeys('skill');
-    expect(keys.sort()).toEqual(['content', 'path', 'query', 'slug']);
-  });
-
-  test('skill install variants each require slug or query (not both optional)', () => {
-    const skillTool = TOOL_CATALOG.find(t => t.name === 'skill')!;
-    const schema = skillTool.parameters as any;
-    const installVariants = schema.anyOf.filter(
-      (v: any) => v.properties?.type?.const === 'install',
-    );
-    // Should have two install variants: one with required slug, one with required query
-    expect(installVariants.length).toBe(2);
-    const hasSlugRequired = installVariants.some(
-      (v: any) => v.required?.includes('slug') && !v.required?.includes('query'),
-    );
-    const hasQueryRequired = installVariants.some(
-      (v: any) => v.required?.includes('query') && !v.required?.includes('slug'),
-    );
-    expect(hasSlugRequired).toBe(true);
-    expect(hasQueryRequired).toBe(true);
+    expect(skillTool).toBeUndefined();
   });
 
   test('request_credential tool exists in catalog as singleton', () => {
@@ -114,7 +87,7 @@ describe('tool-catalog', () => {
   test('every tool has a valid category', () => {
     const validCategories: ToolCategory[] = [
       'memory', 'web', 'audit',
-      'scheduler', 'skill', 'credential', 'delegation',
+      'scheduler', 'credential', 'delegation',
       'workspace', 'sandbox',
     ];
     for (const spec of TOOL_CATALOG) {
@@ -125,7 +98,7 @@ describe('tool-catalog', () => {
   test('every category has at least one tool', () => {
     const categories: ToolCategory[] = [
       'memory', 'web', 'audit',
-      'scheduler', 'skill', 'credential', 'delegation',
+      'scheduler', 'credential', 'delegation',
       'workspace', 'sandbox',
     ];
     for (const cat of categories) {
@@ -140,12 +113,10 @@ describe('tool-catalog', () => {
 describe('filterTools', () => {
   const ALL_FLAGS: ToolFilterContext = {
     hasHeartbeat: true,
-    skillInstallEnabled: true,
   };
 
   const NO_FLAGS: ToolFilterContext = {
     hasHeartbeat: false,
-    skillInstallEnabled: false,
   };
 
   test('all flags true returns full catalog', () => {
@@ -165,53 +136,9 @@ describe('filterTools', () => {
     expect(names).toContain('scheduler');
   });
 
-  test('skillInstallEnabled=true includes skill tool with install action', () => {
-    const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: true });
-    const skill = result.find(s => s.name === 'skill');
-    expect(skill).toBeDefined();
-    expect(skill!.actionMap).toHaveProperty('install');
-    // Schema should contain install variants
-    const schema = skill!.parameters as any;
-    const installVariants = schema.anyOf.filter(
-      (v: any) => v.properties?.type?.const === 'install',
-    );
-    expect(installVariants.length).toBeGreaterThan(0);
-  });
-
-  test('skill tool always present regardless of skillInstallEnabled flag', () => {
-    const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: false });
-    expect(result.map(s => s.name)).toContain('skill');
-    expect(result.map(s => s.name)).toContain('request_credential');
-  });
-
-  test('skillInstallEnabled=false strips install variants from skill tool', () => {
-    const result = filterTools({ ...NO_FLAGS, skillInstallEnabled: false });
-    const skill = result.find(s => s.name === 'skill');
-    expect(skill).toBeDefined();
-    // actionMap should not contain install
-    expect(skill!.actionMap).not.toHaveProperty('install');
-    // create/update/delete should remain
-    expect(skill!.actionMap).toHaveProperty('create');
-    expect(skill!.actionMap).toHaveProperty('update');
-    expect(skill!.actionMap).toHaveProperty('delete');
-    // Schema should not contain install variants
-    const schema = skill!.parameters as any;
-    const installVariants = schema.anyOf.filter(
-      (v: any) => v.properties?.type?.const === 'install',
-    );
-    expect(installVariants.length).toBe(0);
-    // Description should not advertise install as an available type
-    expect(skill!.description).not.toMatch(/- install:/);
-    expect(skill!.description).not.toMatch(/Create, install,/);
-  });
-
-  test('skillInstallEnabled undefined defaults to including skill tool without install', () => {
-    const ctx: ToolFilterContext = { hasHeartbeat: false };
-    const result = filterTools(ctx);
-    const skill = result.find(s => s.name === 'skill');
-    expect(skill).toBeDefined();
-    // undefined skillInstallEnabled should strip install (falsy)
-    expect(skill!.actionMap).not.toHaveProperty('install');
+  test('skill tool is not in catalog', () => {
+    const result = filterTools(NO_FLAGS);
+    expect(result.find(s => s.name === 'skill')).toBeUndefined();
   });
 
   test('request_credential is always present regardless of flags', () => {

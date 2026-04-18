@@ -7,12 +7,9 @@ import type {
   Session,
   StreamEvent,
   DocumentEntry,
-  SkillEntry,
-  SkillContent,
   WorkspaceFileEntry,
   MemoryEntryView,
   McpServer,
-  InstalledPlugin,
   McpTestResult,
   SkillSetupResponse,
   SkillApproveBody,
@@ -155,31 +152,6 @@ export const api = {
     return apiFetch<DocumentEntry[]>(`/agents/${encodeURIComponent(id)}/identity`);
   },
 
-  /** List skills for an agent. */
-  agentSkills(id: string): Promise<SkillEntry[]> {
-    return apiFetch<SkillEntry[]>(`/agents/${encodeURIComponent(id)}/skills`);
-  },
-
-  /** Read a single skill's content. */
-  agentSkillContent(id: string, name: string): Promise<SkillContent> {
-    return apiFetch<SkillContent>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`);
-  },
-
-  /** Update a skill's content. */
-  updateSkill(id: string, name: string, content: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ content }),
-    });
-  },
-
-  /** Delete a skill. */
-  deleteSkill(id: string, name: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/skills/${encodeURIComponent(name)}`, {
-      method: 'DELETE',
-    });
-  },
-
   /** List workspace files for an agent. */
   agentWorkspace(id: string, scope = 'agent'): Promise<WorkspaceFileEntry[]> {
     return apiFetch<WorkspaceFileEntry[]>(`/agents/${encodeURIComponent(id)}/workspace?scope=${scope}`);
@@ -247,28 +219,6 @@ export const api = {
   /** Unassign a MCP server from an agent. */
   unassignMcpServer(id: string, serverName: string): Promise<{ ok: boolean }> {
     return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/mcp-servers/${encodeURIComponent(serverName)}`, {
-      method: 'DELETE',
-    });
-  },
-
-  // ── Agent Plugins ──
-
-  /** List installed plugins for an agent. */
-  agentPlugins(id: string): Promise<InstalledPlugin[]> {
-    return apiFetch<InstalledPlugin[]>(`/agents/${encodeURIComponent(id)}/plugins`);
-  },
-
-  /** Install a plugin for an agent. */
-  installPlugin(id: string, source: string): Promise<{ installed: boolean; pluginName?: string; error?: string }> {
-    return apiFetch(`/agents/${encodeURIComponent(id)}/plugins`, {
-      method: 'POST',
-      body: JSON.stringify({ source }),
-    });
-  },
-
-  /** Uninstall a plugin from an agent. */
-  uninstallPlugin(id: string, name: string): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>(`/agents/${encodeURIComponent(id)}/plugins/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     });
   },

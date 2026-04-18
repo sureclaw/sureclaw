@@ -588,8 +588,10 @@ export async function processCompletion(
 
   if (turnLayer === 'in-process') {
     if (!providers.storage?.documents) {
-      reqLogger.warn('fast_path_skip_no_documents');
-      // Fall through to sandbox path below
+      // Can't determine sandbox liveness without the documents store
+      // (hasActiveSandbox above relied on it). Fall through to the sandbox
+      // path, which will boot a pod if needed.
+      reqLogger.warn('sandbox_state_unavailable_fallback');
     } else {
     const currentUserId = userId ?? 'anonymous';
     const resolvedAgent = userId && deps.provisioner
@@ -620,7 +622,6 @@ export async function processCompletion(
           config,
           providers,
           conversationStore,
-          documents: providers.storage.documents,
           router,
           taintBudget,
           sessionCanaries,

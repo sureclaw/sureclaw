@@ -77,8 +77,8 @@ export interface WebProxyOptions {
   onApprove?: (domain: string, method: string, url: string) => Promise<{ approved: boolean; reason?: string }>;
   /** Domains pre-approved without calling onApprove (e.g. from config allowlist).
    *  Accepts any object with a `has()` method — pass a live ProxyDomainList
-   *  wrapper so domains added mid-session (e.g. via skill_install) take effect
-   *  immediately without restarting the proxy. */
+   *  wrapper so domains added mid-session (e.g. via skill reconciliation) take
+   *  effect immediately without restarting the proxy. */
   allowedDomains?: { has(domain: string): boolean };
   /** Called when a request to an unapproved domain is denied. Use to queue for admin review. */
   onDenied?: (domain: string) => void;

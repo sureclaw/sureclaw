@@ -134,24 +134,31 @@ describe('IPC MCP Server', () => {
     expect(parsed[1].taint).toBeUndefined();
   });
 
-  test('includes skill and request_credential tools', () => {
+  test('includes request_credential tool', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
     const names = Object.keys(tools);
 
-    expect(names).toContain('skill');
     expect(names).toContain('request_credential');
   });
 
-  test('all 15 tools are registered without filter', () => {
+  test('skill tool is not registered', () => {
+    const client = createMockClient();
+    const server = createIPCMcpServer(client);
+    const tools = getTools(server);
+
+    expect(Object.keys(tools)).not.toContain('skill');
+  });
+
+  test('all 14 tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expectedTools = [
       'memory', 'web', 'audit',
-      'scheduler', 'skill', 'request_credential',
+      'scheduler', 'request_credential',
       'agent',
       'save_artifact',
       'bash', 'read_file', 'write_file', 'edit_file',
@@ -162,19 +169,18 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(15);
+    expect(registeredNames.length).toBe(14);
   });
 
   test('scheduler is always present regardless of hasHeartbeat', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false },
+      filter: { hasHeartbeat: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
 
     expect(names).toContain('scheduler');
-    expect(names).toContain('skill');
     expect(names).toContain('request_credential');
     expect(names).toContain('memory');
     expect(names).toContain('web');
@@ -184,7 +190,7 @@ describe('IPC MCP Server', () => {
   test('filter with all flags false returns all tools (no governance to exclude)', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client, {
-      filter: { hasHeartbeat: false, skillInstallEnabled: false },
+      filter: { hasHeartbeat: false },
     });
     const tools = getTools(server);
     const names = Object.keys(tools);
@@ -194,7 +200,6 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('audit');
     expect(names).toContain('agent');
     expect(names).toContain('request_credential');
-    expect(names).toContain('skill');
     expect(names).toContain('scheduler');
   });
 

@@ -259,7 +259,7 @@ describe('MCP exfiltration defenses', () => {
 
     // The tool call reaches MCP — it's MCP's job to reject unauthorized apps.
     // The fast path's defense is that tool schemas from uninstalled apps
-    // are never in the LLM's tool list (handled by discoverTools, not the router).
+    // are never in the LLM's tool list (handled at MCP tool discovery time, not the router).
     expect(callLog).toContain('uninstalled_app_tool');
   });
 });

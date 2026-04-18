@@ -129,7 +129,7 @@ export function validateManifest(raw: unknown): ManifestValidationResult {
 }
 
 /**
- * Format a manifest for human review (printed to stdout during `ax plugin add`).
+ * Format a manifest for human review (printed to stdout during `ax provider add`).
  */
 export function formatManifestForReview(manifest: PluginManifest): string {
   const lines: string[] = [];

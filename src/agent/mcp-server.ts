@@ -2,8 +2,8 @@
  * In-process MCP server wrapping AX's IPC tools for the Agent SDK.
  *
  * Uses createSdkMcpServer() and tool() from @anthropic-ai/claude-agent-sdk
- * to expose AX IPC tools (memory, web, audit, skills) as MCP tools that
- * the Agent SDK's Claude Code CLI subprocess can call.
+ * to expose AX IPC tools (memory, web, audit, scheduler, etc.) as MCP tools
+ * that the Agent SDK's Claude Code CLI subprocess can call.
  */
 
 import { z } from 'zod/v4';
@@ -130,35 +130,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
         const { type, ...rest } = args;
         const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
         return ipcCall(SCHEDULER_ACTIONS[type], params);
-      },
-    ),
-
-    // ── Skill ──
-    tool('skill', getToolDescription('skill'),
-      {
-        type: z.enum(['create', 'install', 'update', 'delete']),
-        slug: z.string().optional().describe('Skill slug'),
-        query: z.string().optional().describe('Search query'),
-        path: z.string().optional().describe('File path within the skill (e.g. "SKILL.md")'),
-        content: z.string().optional().describe('SKILL.md content (for create) or file content (for update)'),
-      },
-      async (args) => {
-        const SKILL_ACTIONS: Record<string, string> = {
-          create: 'skill_create', install: 'skill_install', update: 'skill_update', delete: 'skill_delete',
-        };
-        const { type, ...rest } = args;
-        // Validate required params per operation type
-        if (type === 'create' && (!rest.slug || !rest.content)) {
-          return errorResult(new Error('create requires slug and content'));
-        }
-        if (type === 'update' && (!rest.slug || !rest.path || !rest.content)) {
-          return errorResult(new Error('update requires slug, path, and content'));
-        }
-        if (type === 'delete' && !rest.slug) {
-          return errorResult(new Error('delete requires slug'));
-        }
-        const params = Object.fromEntries(Object.entries(rest).filter(([_, v]) => v !== undefined));
-        return ipcCall(SKILL_ACTIONS[type], params);
       },
     ),
 

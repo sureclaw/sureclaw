@@ -1,5 +1,11 @@
 # Storage Provider Lessons
 
+### The `documents` table uses `collection`, not `kind`
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 6 plan said "delete rows with `kind IN ('plugins', 'skills')`" but Kysely-generated SQL against that column errored. The actual schema (`storage_004_documents` in `src/providers/storage/migrations.ts` and the CRUD in `src/providers/storage/database.ts`) uses `collection` as the discriminator column. No `kind` column ever existed on `documents`.
+**Lesson:** When a plan or doc references a column name, verify it against `src/providers/storage/migrations.ts` before writing the migration. For the `documents` table specifically: primary key is `(collection, key)`, content in `content`, blob payload in `data`. Use `collection` for any WHERE/GROUP BY by type.
+**Tags:** documents, schema, migrations, collection, kind, DocumentStore
+
 ### Git repo is authoritative for identity; DocumentStore must be synced
 **Date:** 2026-04-15
 **Context:** After the git-native identity refactor, `loadIdentityFromGit()` reads from `git show HEAD:<path>`, but admin helpers (`isAgentBootstrapMode()`) still check DocumentStore. If DocumentStore isn't synced after git commits, admin state gets stuck.

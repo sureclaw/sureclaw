@@ -25,7 +25,7 @@ import { AgentProvisioner } from './agent-provisioner.js';
 import { ProxyDomainList } from './proxy-domain-list.js';
 import type { Server as NetServer } from 'node:net';
 import { callToolOnServer } from '../plugins/mcp-client.js';
-import { reloadPluginMcpServers, loadDatabaseMcpServers } from '../plugins/startup.js';
+import { loadDatabaseMcpServers } from '../plugins/startup.js';
 import type { AdminContext } from './server-admin-helpers.js';
 import type { SkillStateStore } from './skills/state-store.js';
 import type { McpApplier } from './skills/mcp-applier.js';
@@ -208,31 +208,13 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   const workspaceMap = new Map<string, string>();
   const requestedCredentials = new Map<string, Set<string>>();
 
-  // ── Domain allowlist for proxy — populated from DB-stored skills ──
-  const domainList = new ProxyDomainList();
-  if (providers.storage?.documents) {
-    const { parseAgentSkill } = await import('../utils/skill-format-parser.js');
-    const { generateManifest } = await import('../utils/manifest-generator.js');
-    const { listSkills } = await import('../providers/storage/skills.js');
-    try {
-      const skills = await listSkills(providers.storage.documents, agentId);
-      for (const skill of skills) {
-        try {
-          const parsed = parseAgentSkill(skill.instructions);
-          const manifest = generateManifest(parsed);
-          if (manifest.capabilities.domains.length > 0) {
-            domainList.addSkillDomains(parsed.name || skill.id, manifest.capabilities.domains);
-          }
-        } catch { /* skip unparseable */ }
-      }
-    } catch { /* documents not available */ }
-  }
-
   // ── Domain allowlist for proxy — populated from git-native seed skills ──
   // Skills seeded into .ax/skills/ by seedAxDirectory() are the canonical
   // source for git-native skills. Parse them here so their domains are in the
-  // proxy allowlist from the start (the DB block above only covers DB-stored
-  // skills, not filesystem-seeded ones).
+  // proxy allowlist from the start. (Phase 3 introduced a state-store driven
+  // path for post-boot reconciliation; this block bootstraps from the seed
+  // directory so the allowlist isn't empty before the reconciler runs.)
+  const domainList = new ProxyDomainList();
   try {
     const sDir = seedSkillsDir();
     if (existsSync(sDir)) {
@@ -496,10 +478,7 @@ export async function initHostCore(opts: HostCoreOptions): Promise<HostCore> {
   });
   completionDeps.ipcHandler = handleIPC;
 
-  // ── Load MCP servers into the manager from plugins and database ──
-  if (mcpManager && providers.storage?.documents) {
-    await reloadPluginMcpServers(providers.storage.documents, mcpManager);
-  }
+  // ── Load MCP servers into the manager from the database ──
   if (mcpManager && providers.database) {
     await loadDatabaseMcpServers(providers.database, mcpManager);
   }

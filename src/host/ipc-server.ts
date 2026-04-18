@@ -81,7 +81,7 @@ export interface IPCHandlerOptions {
   workspaceMap?: Map<string, string>;
   /** Tracks credential_request IPC calls per session. Consumed by processCompletion post-agent loop. */
   requestedCredentials?: Map<string, Set<string>>;
-  /** Proxy domain allowlist — skill_install adds domains from skill manifests. */
+  /** Proxy domain allowlist — populated from skill manifests during reconciliation. */
   domainList?: import('../host/proxy-domain-list.js').ProxyDomainList;
   /** Returns the MCP provider for tool batch execution (null = not configured).
    *  Accepts either a simple callback or full ToolBatchOptions with plugin MCP routing. */
@@ -112,8 +112,6 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...createSkillsHandlers(providers, {
       requestedCredentials: opts?.requestedCredentials,
       eventBus: opts?.eventBus,
-      domainList: opts?.domainList,
-      adminCtx: opts?.adminCtx,
       stateStore: opts?.stateStore,
     }),
     ...createDelegationHandlers(providers, opts),

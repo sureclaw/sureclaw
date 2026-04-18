@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveTurnLayer, extractAppHints, runFastPath } from '../../src/host/inprocess.js';
+import { resolveTurnLayer, runFastPath } from '../../src/host/inprocess.js';
 import type { Config, ProviderRegistry } from '../../src/types.js';
 import type { LLMProvider, ChatChunk, ChatRequest } from '../../src/providers/llm/types.js';
-import type { ConversationStoreProvider, DocumentStore } from '../../src/providers/storage/types.js';
+import type { ConversationStoreProvider } from '../../src/providers/storage/types.js';
 import type { Router } from '../../src/host/router.js';
 import type { TaintBudget } from '../../src/host/taint-budget.js';
 import type { Logger } from '../../src/logger.js';
@@ -36,15 +36,6 @@ function mockLLM(responses: ChatChunk[][]): LLMProvider {
       for (const c of chunks) yield c;
     },
     async models() { return ['mock-model']; },
-  };
-}
-
-function mockDocuments(data: Record<string, Record<string, string>> = {}): DocumentStore {
-  return {
-    async get(collection: string, key: string) { return data[collection]?.[key]; },
-    async put() {},
-    async delete() { return true; },
-    async list(collection: string) { return Object.keys(data[collection] ?? {}); },
   };
 }
 
@@ -98,32 +89,6 @@ describe('resolveTurnLayer', () => {
 });
 
 // ---------------------------------------------------------------------------
-// extractAppHints
-// ---------------------------------------------------------------------------
-
-describe('extractAppHints', () => {
-  it('returns matching apps from message', () => {
-    expect(extractAppHints('Create a linear issue', ['linear', 'gmail'])).toEqual(['linear']);
-  });
-
-  it('returns multiple matches', () => {
-    expect(extractAppHints('Send gmail and check linear', ['linear', 'gmail', 'slack'])).toEqual(['linear', 'gmail']);
-  });
-
-  it('returns empty for no matches', () => {
-    expect(extractAppHints('hello world', ['linear', 'gmail'])).toEqual([]);
-  });
-
-  it('is case insensitive', () => {
-    expect(extractAppHints('Check LINEAR', ['linear'])).toEqual(['linear']);
-  });
-
-  it('returns empty for empty message', () => {
-    expect(extractAppHints('', ['linear'])).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // runFastPath
 // ---------------------------------------------------------------------------
 
@@ -148,7 +113,6 @@ describe('runFastPath', () => {
         config: stubConfig(),
         providers: { llm, mcp: undefined } as unknown as ProviderRegistry,
         conversationStore: mockConversationStore(),
-        documents: mockDocuments(),
         router: {} as Router,
         taintBudget: {} as TaintBudget,
         sessionCanaries: new Map(),
@@ -199,7 +163,6 @@ describe('runFastPath', () => {
         config: stubConfig(),
         providers: { llm, mcp: mockMcp } as unknown as ProviderRegistry,
         conversationStore: mockConversationStore(),
-        documents: mockDocuments(),
         router: {} as Router,
         taintBudget: {} as TaintBudget,
         sessionCanaries: new Map(),
@@ -239,7 +202,6 @@ describe('runFastPath', () => {
         config: stubConfig(),
         providers: { llm, mcp: undefined } as unknown as ProviderRegistry,
         conversationStore: convStore,
-        documents: mockDocuments(),
         router: {} as Router,
         taintBudget: {} as TaintBudget,
         sessionCanaries: new Map(),
@@ -253,49 +215,4 @@ describe('runFastPath', () => {
     expect(appendSpy).toHaveBeenCalledWith('persistent-sess-1', 'assistant', 'Stored response.');
   });
 
-  it('loads skill instructions from DB and includes in prompt', async () => {
-    let capturedSystemPrompt = '';
-    const llm: LLMProvider = {
-      name: 'mock',
-      async *chat(req: ChatRequest) {
-        const sysMsg = req.messages.find(m => m.role === 'system');
-        capturedSystemPrompt = typeof sysMsg?.content === 'string' ? sysMsg.content : '';
-        yield { type: 'text', content: 'ok' } as ChatChunk;
-        yield { type: 'done', usage: { inputTokens: 5, outputTokens: 1 } } as ChatChunk;
-      },
-      async models() { return ['mock']; },
-    };
-
-    const docs = mockDocuments({
-      skills: {
-        'test-agent/linear-skill': JSON.stringify({
-          instructions: 'Use linear_get_issues to find issues.',
-          mcpApps: ['linear'],
-        }),
-      },
-    });
-
-    await runFastPath(
-      {
-        message: 'test',
-        sessionId: 'sess-3',
-        requestId: 'req-3',
-        agentId: 'test-agent',
-        userId: 'user-1',
-      },
-      {
-        config: stubConfig(),
-        providers: { llm, mcp: undefined } as unknown as ProviderRegistry,
-        conversationStore: mockConversationStore(),
-        documents: docs,
-        router: {} as Router,
-        taintBudget: {} as TaintBudget,
-        sessionCanaries: new Map(),
-        logger: mockLogger(),
-        workspaceBasePath: '/tmp/ax-test-ws',
-      },
-    );
-
-    expect(capturedSystemPrompt).toContain('Use linear_get_issues to find issues.');
-  });
 });

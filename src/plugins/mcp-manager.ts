@@ -1,6 +1,15 @@
-import type { PluginMcpServer } from './types.js';
 import { listToolsFromServer } from './mcp-client.js';
 import type { McpToolSchema } from '../providers/mcp/types.js';
+
+/** An MCP server registered with the connection manager. */
+export interface PluginMcpServer {
+  /** Logical name (e.g., 'slack', 'hubspot'). */
+  name: string;
+  /** Server type (always 'http' for now). */
+  type: string;
+  /** MCP server endpoint URL. */
+  url: string;
+}
 
 interface ManagedServer extends PluginMcpServer {
   pluginName?: string;

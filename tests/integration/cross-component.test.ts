@@ -441,8 +441,6 @@ describe('Tool Catalog → IPC Handler Completeness', () => {
         ...(action === 'browser_type' ? { session: 'sess', ref: 0, text: 'test' } : {}),
         ...(action === 'browser_screenshot' ? { session: 'sess' } : {}),
         ...(action === 'browser_close' ? { session: 'sess' } : {}),
-        ...(action === 'skill_update' ? { slug: 'test', path: 'SKILL.md', content: 'test' } : {}),
-        ...(action === 'skill_delete' ? { slug: 'test' } : {}),
         ...(action === 'skill_propose' ? { skill: 'test', content: 'test' } : {}),
         ...(action === 'audit_query' ? {} : {}),
         ...(action === 'agent_delegate' ? { task: 'test' } : {}),

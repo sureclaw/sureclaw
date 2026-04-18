@@ -680,7 +680,7 @@ describe('web-proxy', () => {
       );
       expect(denied.status).toBe(403);
 
-      // Now add the domain to the live allowlist (simulates skill_install mid-session)
+      // Now add the domain to the live allowlist (simulates skill approval mid-session)
       allowed.add('127.0.0.1');
 
       // Same domain should now be allowed

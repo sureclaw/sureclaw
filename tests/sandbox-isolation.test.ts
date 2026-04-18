@@ -368,13 +368,13 @@ describe('spawn command construction', () => {
 // ── MCP Server Tool Registry ─────────────────────────────────────────
 
 describe('MCP server tool registry security', () => {
-  test('exposes exactly 15 IPC tools', () => {
+  test('exposes exactly 14 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expected = [
-      'memory', 'web', 'scheduler', 'skill', 'request_credential',
+      'memory', 'web', 'scheduler', 'request_credential',
       'audit', 'agent',
       // Enterprise tools
       'save_artifact',
@@ -384,7 +384,7 @@ describe('MCP server tool registry security', () => {
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(15);
+    expect(Object.keys(tools).length).toBe(14);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {
@@ -504,7 +504,7 @@ describe('skills loaded from git workspace', () => {
 // ── IPC Tools ────────────────────────────────────────────────────────
 
 describe('IPC tools do not expose paths', () => {
-  test('ipc-tools exports consolidated memory, web, audit, and skill tools', async () => {
+  test('ipc-tools exports consolidated memory, web, audit, and agent tools', async () => {
     const { createIPCTools } = await import('../src/agent/ipc-tools.js');
     const client = createMockClient();
     const tools = createIPCTools(client);
@@ -513,7 +513,6 @@ describe('IPC tools do not expose paths', () => {
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('audit');
-    expect(names).toContain('skill');
     expect(names).toContain('agent');
   });
 });

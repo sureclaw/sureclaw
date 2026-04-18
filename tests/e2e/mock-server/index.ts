@@ -4,7 +4,6 @@
  * Routes:
  * - /v1/chat/completions, /v1/models  → OpenRouter
  * - /storage/..., /upload/...          → GCS
- * - /api/v1/..., /clawhub/...         → ClawHub
  * - /graphql                           → Linear
  * - /health                            → health check
  * - /web-fetch-target                  → canned HTML for web_fetch tests
@@ -14,7 +13,6 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { handleGCS, resetGCS } from './gcs.js';
 import { handleOpenRouter, resetOpenRouter } from './openrouter.js';
-import { handleClawHub } from './clawhub.js';
 import { handleLinear, resetLinear } from './linear.js';
 
 let server: Server | null = null;
@@ -83,12 +81,6 @@ function routeRequest(req: IncomingMessage, res: ServerResponse): void {
   // GCS — /storage/..., /upload/...
   if (url.startsWith('/storage/') || url.startsWith('/upload/')) {
     handleGCS(req, res);
-    return;
-  }
-
-  // ClawHub — /api/v1/..., /clawhub/api/v1/...
-  if (url.startsWith('/api/v1/') || url.startsWith('/clawhub/')) {
-    handleClawHub(req, res);
     return;
   }
 

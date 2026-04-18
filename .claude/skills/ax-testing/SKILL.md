@@ -200,8 +200,6 @@ tests/
   provider-sdk/        # Provider SDK harness and interface tests
     harness.test.ts
     interfaces.test.ts
-  clawhub/             # Registry client tests
-    registry-client.test.ts
   cli/
     index.test.ts
     send.test.ts
@@ -247,7 +245,6 @@ tests/
     mock-server/         # Mock external services
       index.ts           # Router combining all mock providers
       openrouter.ts      # Mock OpenRouter with scripted LLM turns
-      clawhub.ts         # Mock ClawhHub registry
       gcs.ts             # Mock GCS storage
       gcs.test.ts        # GCS mock unit tests
       linear.ts          # Mock Linear API

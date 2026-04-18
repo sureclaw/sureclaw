@@ -1,5 +1,29 @@
 # Architecture
 
+## When deleting a REST endpoint, grep the admin UI client for its caller
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 7 removed the backend handlers for `GET /admin/api/agents/:id/skills` (+ the per-skill CRUD routes) — but the admin dashboard client in `ui/admin/src/lib/api.ts` still exported `agentSkills` / `agentSkillContent` / `updateSkill` / `deleteSkill` methods, and `agents-page.tsx` still rendered a `SkillsTab` wired to them via a sidebar nav entry + `activeSection === 'skills'` render branch. The whole tab was silently 404'ing from the moment Task 7 landed. The main `npm run build` + `tsc` in `src/` stayed green because the admin UI has its own `tsconfig.json` under `ui/admin/` that the root build doesn't touch.
+**Lesson:** When removing a REST handler in `src/host/server-admin.ts`, always grep `ui/admin/` for callers — the `api` client in `ui/admin/src/lib/api.ts` is a separate codebase with its own typecheck (`cd ui/admin && npx tsc --noEmit`). Look for: API method definitions, `activeSection === '<id>'` branches in agents-page, SectionId union entries, Playwright route mocks in `ui/admin/tests/fixtures.ts`, and spec files importing the mock data. The dashboard is the last consumer and the easiest one to forget.
+**Tags:** refactoring, deletion, admin-ui, rest-api, phase-7, dead-code
+
+## Multi-task deletion phases leave "dormant-caller" dead code that only a final sweep finds
+**Date:** 2026-04-17
+**Context:** Phase 7 tasks 1–6 deleted the skill_install IPC, ClawHub client, plugin manifest machinery, CLI, and DB data. The build stayed green through each task because tasks were scoped to remove entire subsystems at a time. But the host still had dormant readers of the empty `documents.skills` collection (`findSkillContent` in `server-admin.ts`, `loadSkillsFromDB` in `inprocess.ts`) that ran on every request, returned empty results, and were never grep-visible from the retired IPC-action names. Task 7's grep of `DocumentStore.*skill` is what flushed them out.
+**Lesson:** When a multi-task phase rips out a storage-backed feature, the final cleanup task should grep for *readers* of the backing store (`documents.get('<collection>'`, `documents.list('<collection>'`), not just writers / IPC handlers / CLI entry points. Silent empty-result callers keep pulling their weight in deps interfaces, mock fixtures, and test matrices long after the feature is dead. Remove them with the rest or the next person will.
+**Tags:** refactoring, deletion, phase-7, dead-code, grep-discipline
+
+## When deleting a subsystem, inline its last-surviving type into the sibling that uses it
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 3 deleted `src/plugins/{fetcher,install,parser,store,types}.ts`. The `types.ts` file was going away, but `src/plugins/mcp-manager.ts` (which stays — phase-4 depends on it) still imported `PluginMcpServer` from `./types.js`. Leaving `types.ts` alive just for one interface used by one file would have kept a stub alive for no reason.
+**Lesson:** When a shared-types module has only one surviving consumer after a deletion pass, inline the type into the consumer rather than keeping the module as a shell. This leaves the codebase with strictly fewer files and strictly fewer cross-file imports. If/when a second consumer shows up, you can re-extract. Don't preserve structure "just in case" — that's how you end up with 6-line modules that future greps mistake for important seams.
+**Tags:** refactoring, deletion, types, module-boundaries, phase-7
+
+## Deletion tasks need a dependency audit, not just a grep of "what imports the target"
+**Date:** 2026-04-17
+**Context:** Phase 7 Task 2 (delete `src/clawhub/registry-client.ts` + `src/providers/storage/skills.ts`) assumed the previous task's cleanup was sufficient to leave zero live importers. It wasn't — `server-admin.ts` (admin CRUD routes), `server-init.ts` (a dead DB-allowlist block), and `plugins/install.ts` (skill upserts) still pulled from the target modules. The plan scoped each of those to future tasks, but the build broke immediately without touching them.
+**Lesson:** Before running a pure-deletion task, `rg "<module>" src tests` and confirm every hit is either (a) another file being deleted in the same task or (b) tolerable for a minimal local patch. If a file imports the target and is scoped to a later task, decide upfront: patch it now (smallest incursion), or reorder tasks. Don't discover mid-build that Task N requires part of Task N+1. Cross-task dependencies in deletion plans are the rule, not the exception.
+**Tags:** refactoring, deletion, planning, cross-task-dependency, phase-7
+
 ## IPC-sourced config with filesystem fallback: use `config.X ?? scan()` in sync builders
 **Date:** 2026-04-17
 **Context:** Phase 3 Task 7 wired `skills_index` IPC into the runner so the host-authoritative skill list wins over a filesystem scan, while keeping `buildSystemPrompt` synchronous. The natural pattern: a sync prompt builder that reads `config.skills ?? loadSkillsMultiDir(skillDirs)`, plus a separate async `fetchSkillsIndex()` the runner awaits right after `client.connect()` and before calling the builder. If the fetch throws or returns malformed data, the helper returns `undefined` and the builder falls through to the filesystem scan.
