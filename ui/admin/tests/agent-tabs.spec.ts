@@ -14,15 +14,16 @@ test.describe('Agent Detail Tabs', () => {
     await page.getByRole('row', { name: /research-bot/ }).click();
   });
 
-  test('shows all four tabs', async ({ page }) => {
-    await expect(page.getByRole('button', { name: 'Info' })).toBeVisible();
+  test('shows all five sections', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Identity' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Connectors' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Workspace' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Memory' })).toBeVisible();
   });
 
-  test('Info tab is active by default', async ({ page }) => {
-    // Info tab should show agent metadata
+  test('Overview section is active by default', async ({ page }) => {
+    // Overview should show agent metadata
     await expect(page.getByText('agent-001-abcdef123456')).toBeVisible();
   });
 

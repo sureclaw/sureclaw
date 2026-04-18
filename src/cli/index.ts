@@ -112,8 +112,18 @@ export async function main(): Promise<void> {
   }
 
   const knownCommands = new Set(['serve', 'send', 'configure', 'bootstrap', 'provider', 'k8s', 'help']);
+  const retiredCommands = new Map([
+    ['plugin', 'The `ax plugin` command has been retired. Use `ax provider` for provider plugins, or manage skills by editing `.ax/skills/<name>/SKILL.md` in the agent workspace and committing.'],
+    ['mcp', 'The `ax mcp` command has been retired. Manage MCP servers via skill frontmatter (`.ax/skills/<name>/SKILL.md`) or the admin dashboard.'],
+  ]);
   let command: string;
   let restArgs: string[];
+
+  if (rawArgs.length > 0 && retiredCommands.has(rawArgs[0])) {
+    console.error(retiredCommands.get(rawArgs[0]));
+    process.exitCode = 1;
+    return;
+  }
 
   if (rawArgs.length > 0 && knownCommands.has(rawArgs[0])) {
     command = rawArgs[0];

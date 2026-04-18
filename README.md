@@ -61,7 +61,7 @@ A few things are non-negotiable regardless of which profile you choose. These ar
 - Every action is **audited**. Containers cannot modify the audit log.
 - The agent **cannot modify its own sandbox**.
 - Provider loading uses a **static allowlist** — no dynamic imports from config values. Ever.
-- **No web UI**. OpenClaw's dashboard was its #1 attack vector, so we solved that problem by not having one.
+- **No public web UI**. OpenClaw's end-user dashboard was its #1 attack vector, so we don't expose one. The admin dashboard is a separate, token-gated surface used only by operators for approvals and audit — not reachable by agents or end users.
 
 ### Container Architecture
 
@@ -562,6 +562,7 @@ ax send "message"       # Send a one-shot message
 ax configure            # Setup wizard (profile, LLM provider, API key)
 ax k8s init             # K8s setup wizard (generates Helm values + secrets)
 ax provider add <pkg>   # Install a third-party provider plugin
+ax provider remove <pkg> # Remove a third-party provider plugin
 ax provider list        # List installed provider plugins
 ax provider verify      # Check provider plugin integrity
 ```

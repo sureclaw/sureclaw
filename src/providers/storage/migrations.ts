@@ -289,10 +289,12 @@ export function storageMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet
     // still live there.
     storage_008_drop_legacy_documents: {
       async up(db: Kysely<any>) {
-        // Safe no-op when the table doesn't exist yet (fresh installs that
-        // skip storage_004 for some reason, or DBs that were wiped). We
-        // intentionally only swallow "missing table" errors — anything else
-        // bubbles up as a genuine migration failure.
+        // Safe no-op when the `documents` table doesn't exist yet (fresh
+        // installs that skip storage_004 for some reason, or DBs that were
+        // wiped). We narrow the suppression to the specific "documents table
+        // is missing" case — anything else (missing column, syntax error,
+        // permission denied, undefined function) bubbles up as a genuine
+        // migration failure.
         try {
           await db
             .deleteFrom('documents')
@@ -300,11 +302,16 @@ export function storageMigrations(dbType: 'sqlite' | 'postgresql'): MigrationSet
             .execute();
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          const isMissingTable =
-            /no such table/i.test(msg) ||
-            /does not exist/i.test(msg) ||
-            /relation .* does not exist/i.test(msg);
-          if (!isMissingTable) throw err;
+          const code = typeof err === 'object' && err !== null && 'code' in err
+            ? String((err as { code?: unknown }).code)
+            : undefined;
+          // SQLite: `no such table: documents` (with optional schema prefix).
+          // Postgres: SQLSTATE 42P01 `relation "documents" does not exist`.
+          const isMissingDocumentsTable =
+            code === '42P01' ||
+            /no such table:\s*(?:\w+\.)?documents\b/i.test(msg) ||
+            /relation\s+"?(?:\w+\.)?documents"?\s+does not exist/i.test(msg);
+          if (!isMissingDocumentsTable) throw err;
         }
       },
       async down(_db: Kysely<any>) {
