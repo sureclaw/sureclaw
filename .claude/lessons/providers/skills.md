@@ -1,5 +1,17 @@
 # Provider Lessons: Skills
 
+### Validate skillName with a positive-match allowlist, not a denylist
+**Date:** 2026-04-18
+**Context:** Code review on `tool-module-sync.ts` flagged `assertSkillNameSafe` for using a denylist of `/`, `\`, `..`, `\0`, `''`. The frontmatter schema allows any Unicode, so `\r`, `\n`, spaces, and leading dashes would pass — landing in both a repo-relative path AND a git commit message.
+**Lesson:** Any skill-name (or user-supplied identifier) that reaches a filesystem path, git commit message, or git ref MUST be validated with a positive-match regex, not a denylist. For AX skill names the accepted pattern is `/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/` plus an explicit `..` check (the dot in the char class would otherwise allow `foo..bar` path-traversal). Denylists always miss something — newlines and leading dashes are typical blind spots.
+**Tags:** skills, validation, security, path-traversal, commit-message, allowlist
+
+### MCP `authForServer` at tool discovery must read `skill_credentials`, not the unscoped credential store
+**Date:** 2026-04-18
+**Context:** Live bug — after approving a skill with a Linear MCP server, zero tool modules got generated because `authForServer` looked up `LINEAR_API_KEY` via `providers.credentials.get` (unscoped, falls back to `process.env`) and returned null. New skill creds only land in `skill_credentials` (tuple-keyed).
+**Lesson:** Every host-side code path that needs to authenticate a skill-declared MCP server MUST read from `deps.skillCredStore.listForAgent(agentId)`, applying the same user-scope precedence as turn-time credential injection (user-scoped row > agent-scope sentinel `''`). A `process.env` last-resort fallback is OK for dev/infra creds but is expressly NOT the primary path. When adding any new MCP-auth code, grep for `authForServer` — server-completions, server-init, and inprocess all have copies and they can drift.
+**Tags:** skills, mcp, credentials, authForServer, skill_credentials, tuple-keyed
+
 ### Shared service adapters scale better than per-skill credential routes
 **Date:** 2026-03-19
 **Context:** Explaining how AX should generalize the `/internal/linear-proxy` idea as more credentialed skills are installed.

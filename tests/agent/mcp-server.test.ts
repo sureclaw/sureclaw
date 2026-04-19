@@ -134,13 +134,11 @@ describe('IPC MCP Server', () => {
     expect(parsed[1].taint).toBeUndefined();
   });
 
-  test('includes request_credential tool', () => {
+  test('request_credential tool is not registered (removed)', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
-    const names = Object.keys(tools);
-
-    expect(names).toContain('request_credential');
+    expect(Object.keys(tools)).not.toContain('request_credential');
   });
 
   test('skill tool is not registered', () => {
@@ -151,14 +149,14 @@ describe('IPC MCP Server', () => {
     expect(Object.keys(tools)).not.toContain('skill');
   });
 
-  test('all 14 tools are registered without filter', () => {
+  test('all 13 tools are registered without filter', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expectedTools = [
       'memory', 'web', 'audit',
-      'scheduler', 'request_credential',
+      'scheduler',
       'agent',
       'save_artifact',
       'bash', 'read_file', 'write_file', 'edit_file',
@@ -169,7 +167,7 @@ describe('IPC MCP Server', () => {
     for (const name of expectedTools) {
       expect(registeredNames, `expected tool "${name}" to be registered`).toContain(name);
     }
-    expect(registeredNames.length).toBe(14);
+    expect(registeredNames.length).toBe(13);
   });
 
   test('scheduler is always present regardless of hasHeartbeat', () => {
@@ -181,7 +179,6 @@ describe('IPC MCP Server', () => {
     const names = Object.keys(tools);
 
     expect(names).toContain('scheduler');
-    expect(names).toContain('request_credential');
     expect(names).toContain('memory');
     expect(names).toContain('web');
     expect(names).toContain('save_artifact');
@@ -199,7 +196,6 @@ describe('IPC MCP Server', () => {
     expect(names).toContain('web');
     expect(names).toContain('audit');
     expect(names).toContain('agent');
-    expect(names).toContain('request_credential');
     expect(names).toContain('scheduler');
   });
 

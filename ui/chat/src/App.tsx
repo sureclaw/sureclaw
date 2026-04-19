@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AssistantRuntimeProvider, useAui } from '@assistant-ui/react';
+import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
-import type { CredentialRequiredEvent, StatusEvent } from './lib/ax-chat-transport';
+import type { StatusEvent } from './lib/ax-chat-transport';
 import { signInWithGoogle, signOut, type AuthUser } from './lib/auth';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
-import { CredentialModal } from './components/credential-modal';
 import { Hexagon, Moon, Sun, LogOut } from 'lucide-react';
 
 type AuthState = 'loading' | 'authenticated' | 'login';
@@ -28,19 +27,28 @@ const useTheme = () => {
 /** Login page shown when BetterAuth is configured but user has no session. */
 function LoginPage() {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-950">
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 mb-6">
-          <Hexagon className="h-7 w-7 text-amber-400" strokeWidth={1.8} />
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="w-full max-w-sm animate-fade-in-up">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-foreground/[0.04] border border-border/50 mb-4">
+            <Hexagon className="h-7 w-7 text-amber" strokeWidth={1.8} />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">AX Chat</h1>
+          <p className="text-[13px] text-muted-foreground mt-2">
+            Sign in to start chatting
+          </p>
         </div>
-        <h1 className="text-2xl font-bold text-white mb-2">AX Chat</h1>
-        <p className="text-gray-400 mb-8">Sign in to start chatting</p>
-        <button
-          onClick={() => signInWithGoogle()}
-          className="px-6 py-3 bg-white text-gray-900 rounded-lg font-medium hover:bg-gray-100 transition-colors cursor-pointer"
-        >
-          Sign in with Google
-        </button>
+
+        <div className="card">
+          <div className="p-6 space-y-4">
+            <button
+              onClick={() => signInWithGoogle()}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-foreground text-background text-[13px] font-medium hover:bg-foreground/90 transition-colors cursor-pointer"
+            >
+              Sign in with Google
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -48,38 +56,16 @@ function LoginPage() {
 
 /** Inner component that has access to the runtime context for sending messages. */
 const AppContent = ({
-  credentialRequest,
   statusMessage,
   user,
-  onCredentialProvided,
-  onCredentialCancelled,
 }: {
-  credentialRequest: CredentialRequiredEvent | null;
   statusMessage: string | null;
   user: AuthUser | null;
-  onCredentialProvided: () => void;
-  onCredentialCancelled: () => void;
 }) => {
-  const aui = useAui();
   const { isDark, toggle: toggleTheme } = useTheme();
 
-  const handleSubmit = useCallback(
-    () => {
-      onCredentialProvided();
-      // Auto-send a follow-up message so the agent retries
-      try {
-        aui.thread().append({
-          role: 'user',
-          content: [{ type: 'text', text: 'Credentials provided, please continue.' }],
-        });
-      } catch { /* thread may not be ready */ }
-    },
-    [aui, onCredentialProvided],
-  );
-
   return (
-    <>
-      <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background">
         {/* Sidebar */}
         <aside className="flex h-screen w-[220px] flex-col border-r border-border/50 bg-sidebar">
           {/* Logo */}
@@ -132,25 +118,13 @@ const AppContent = ({
             <Thread statusMessage={statusMessage} />
           </div>
         </main>
-      </div>
-
-      {/* Credential modal */}
-      {credentialRequest && (
-        <CredentialModal
-          request={credentialRequest}
-          onSubmit={handleSubmit}
-          onCancel={onCredentialCancelled}
-        />
-      )}
-    </>
+    </div>
   );
 };
 
 export const App = () => {
   const [authState, setAuthState] = useState<AuthState>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [credentialRequest, setCredentialRequest] =
-    useState<CredentialRequiredEvent | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   // Check authentication on mount
@@ -194,13 +168,6 @@ export const App = () => {
     };
   }, []);
 
-  const handleCredentialRequired = useCallback(
-    (event: CredentialRequiredEvent) => {
-      setCredentialRequest(event);
-    },
-    [],
-  );
-
   const handleStatus = useCallback(
     (event: StatusEvent) => {
       setStatusMessage(event.message || null);
@@ -213,7 +180,6 @@ export const App = () => {
   }, []);
 
   const runtime = useAxChatRuntime(
-    handleCredentialRequired,
     handleStatus,
     handleRunStart,
     user?.id,
@@ -238,13 +204,7 @@ export const App = () => {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AppContent
-        credentialRequest={credentialRequest}
-        statusMessage={statusMessage}
-        user={user}
-        onCredentialProvided={() => setCredentialRequest(null)}
-        onCredentialCancelled={() => setCredentialRequest(null)}
-      />
+      <AppContent statusMessage={statusMessage} user={user} />
     </AssistantRuntimeProvider>
   );
 };

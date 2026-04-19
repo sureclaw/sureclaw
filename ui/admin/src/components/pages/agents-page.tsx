@@ -13,6 +13,7 @@ import {
   Activity,
   User,
   Globe,
+  Sparkles,
   Trash2,
   ChevronDown,
   ChevronUp,
@@ -25,11 +26,12 @@ import type {
   WorkspaceFileEntry,
   MemoryEntryView,
   McpServer,
+  SkillState,
 } from '../../lib/types';
 
 // ── Types ──
 
-type SectionId = 'overview' | 'identity' | 'connectors' | 'workspace' | 'memory';
+type SectionId = 'overview' | 'identity' | 'connectors' | 'skills' | 'workspace' | 'memory';
 
 // ── Helpers ──
 
@@ -211,6 +213,7 @@ const NAV_GROUPS: {
   {
     label: 'TOOLS',
     items: [
+      { id: 'skills', label: 'Skills', icon: Sparkles },
       { id: 'connectors', label: 'Connectors', icon: Globe },
     ],
   },
@@ -442,6 +445,132 @@ function InfoTab({
           Delete agent
         </button>
       </div>
+    </div>
+  );
+}
+
+function SkillsTab({ agentId }: { agentId: string }) {
+  const { data, loading, error } = useApi<{ skills: SkillState[] }>(
+    () => api.agentSkills(agentId),
+    [agentId]
+  );
+
+  if (loading) return <TabSkeleton />;
+  if (error) return <TabError message={error.message} />;
+  const skills = data?.skills ?? [];
+  if (skills.length === 0) return <TabEmpty label="No skills yet. Agents author skills by writing `.ax/skills/<name>/SKILL.md` in the workspace; pending ones show up on the Approvals page." />;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between px-1 pb-2">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
+          Installed skills
+        </p>
+        <span className="text-[10px] text-muted-foreground">{skills.length} skill{skills.length === 1 ? '' : 's'}</span>
+      </div>
+      {skills.map((s) => (
+        <SkillCard key={s.name} agentId={agentId} skill={s} />
+      ))}
+    </div>
+  );
+}
+
+function SkillCard({ agentId, skill: s }: { agentId: string; skill: SkillState }) {
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<
+    | { kind: 'success'; moduleCount: number; toolCount: number }
+    | { kind: 'error'; message: string }
+    | null
+  >(null);
+
+  const stateClasses =
+    s.kind === 'enabled'
+      ? 'text-emerald bg-emerald/5 border border-emerald/20'
+      : s.kind === 'pending'
+        ? 'text-amber bg-amber/5 border border-amber/20'
+        : 'text-rose bg-rose/5 border border-rose/20';
+
+  async function onRefresh() {
+    setRefreshing(true);
+    setRefreshResult(null);
+    try {
+      const res = await api.refreshTools(agentId, s.name);
+      setRefreshResult({
+        kind: 'success',
+        moduleCount: res.moduleCount,
+        toolCount: res.toolCount,
+      });
+    } catch (err) {
+      setRefreshResult({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  return (
+    <div
+      className="rounded-lg border border-border/30 px-3 py-2"
+      data-testid={`agent-skill-${s.name}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles size={12} className="text-amber shrink-0" />
+          <span className="text-[13px] font-medium text-foreground truncate">{s.name}</span>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateClasses}`}
+          >
+            {s.kind}
+          </span>
+        </div>
+        {s.kind === 'enabled' && (
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            data-testid={`agent-skill-${s.name}-refresh`}
+            className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh tools'}
+          </button>
+        )}
+      </div>
+      {s.description && (
+        <p className="mt-1 text-[12px] text-muted-foreground">{s.description}</p>
+      )}
+      {s.kind === 'pending' && s.pendingReasons && s.pendingReasons.length > 0 && (
+        <ul className="mt-1 ml-4 list-disc text-[12px] text-amber/80 space-y-0.5">
+          {s.pendingReasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {s.kind === 'invalid' && s.error && (
+        <p className="mt-1 text-[12px] text-rose/80 font-mono">{s.error}</p>
+      )}
+      {refreshResult?.kind === 'success' && (
+        <div
+          className="mt-2 flex items-center gap-2 p-2 rounded-md bg-emerald/5 border border-emerald/15"
+          data-testid={`agent-skill-${s.name}-refresh-success`}
+        >
+          <CheckCircle size={12} className="text-emerald shrink-0" />
+          <p className="text-[12px] text-emerald">
+            Refreshed: {refreshResult.moduleCount} module{refreshResult.moduleCount === 1 ? '' : 's'},
+            {' '}{refreshResult.toolCount} tool{refreshResult.toolCount === 1 ? '' : 's'}.
+          </p>
+        </div>
+      )}
+      {refreshResult?.kind === 'error' && (
+        <div
+          className="mt-2 flex items-center gap-2 p-2 rounded-md bg-rose/5 border border-rose/15"
+          data-testid={`agent-skill-${s.name}-refresh-error`}
+        >
+          <AlertTriangle size={12} className="text-rose shrink-0" />
+          <p className="text-[12px] text-rose">{refreshResult.message}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -732,6 +861,7 @@ function ContentArea({
             />
           )}
           {activeSection === 'identity' && <IdentityTab agentId={agent.id} />}
+          {activeSection === 'skills' && <SkillsTab agentId={agent.id} />}
           {activeSection === 'connectors' && <ConnectorsSection agentId={agent.id} />}
           {activeSection === 'workspace' && <WorkspaceTab agentId={agent.id} />}
           {activeSection === 'memory' && <MemoryTab agentId={agent.id} />}

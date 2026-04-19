@@ -206,6 +206,18 @@ export const MOCK_MEMORY = [
   { id: 'mem-1', scope: 'general', content: 'User prefers concise answers', tags: ['preference'], createdAt: '2026-03-06T10:00:00Z' },
 ];
 
+export const MOCK_AGENT_SKILLS = {
+  skills: [
+    { name: 'skill-creator', kind: 'enabled' as const, description: 'Creates new skills from user intent' },
+    {
+      name: 'linear',
+      kind: 'pending' as const,
+      description: 'Query Linear issues for the team',
+      pendingReasons: ['missing credential LINEAR_API_KEY (user)', 'domain not approved: mcp.linear.app'],
+    },
+  ],
+};
+
 /** Set up all standard API mocks for an authenticated dashboard session. */
 export async function mockAllAPIs(page: Page) {
   await mockSetupStatus(page, true);
@@ -217,7 +229,6 @@ export async function mockAllAPIs(page: Page) {
   await mockSessions(page);
   await mockEvents(page);
   await mockSkillsSetup(page);
-  await mockCredentialRequests(page);
 }
 
 export async function mockSetupStatus(page: Page, configured: boolean) {
@@ -300,6 +311,38 @@ export async function mockAgentTabs(page: Page) {
       body: JSON.stringify(MOCK_MEMORY),
     }),
   );
+
+  // Mock per-agent skills endpoint. Matches only the exact
+  // `/admin/api/agents/:agentId/skills` shape — the more specific
+  // `.../skills/:skillName/refresh-tools` endpoint is registered separately
+  // below so its POST responses win.
+  await page.route('**/admin/api/agents/*/skills', (route) => {
+    const url = new URL(route.request().url());
+    if (!/^\/admin\/api\/agents\/[^/]+\/skills$/.test(url.pathname)) {
+      return route.fallback();
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MOCK_AGENT_SKILLS),
+    });
+  });
+
+  // Mock per-skill refresh-tools endpoint (default success). Tests that need
+  // a failure response register their own route after gotoAuthenticated().
+  await page.route('**/admin/api/agents/*/skills/*/refresh-tools', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        commit: 'abc123',
+        moduleCount: 2,
+        toolCount: 5,
+      }),
+    });
+  });
 }
 
 export async function mockAudit(page: Page, data = MOCK_AUDIT) {
@@ -409,18 +452,6 @@ export const MOCK_SKILL_SETUP = {
   ],
 };
 
-export const MOCK_CREDENTIAL_REQUESTS = {
-  requests: [
-    {
-      sessionId: 'sess-credreq-1111aaaa',
-      envName: 'STRIPE_API_KEY',
-      agentName: 'billing-bot',
-      userId: 'user-42',
-      createdAt: 1_710_000_000_000,
-    },
-  ],
-};
-
 export async function mockSkillsSetup(
   page: Page,
   data: typeof MOCK_SKILL_SETUP = MOCK_SKILL_SETUP,
@@ -491,19 +522,6 @@ export async function mockSkillsSetupWithOAuth(
       body: JSON.stringify(data),
     });
   });
-}
-
-export async function mockCredentialRequests(
-  page: Page,
-  data: typeof MOCK_CREDENTIAL_REQUESTS = MOCK_CREDENTIAL_REQUESTS,
-) {
-  await page.route('**/admin/api/credentials/requests', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(data),
-    }),
-  );
 }
 
 /** Navigate to the dashboard with a pre-set auth token. */

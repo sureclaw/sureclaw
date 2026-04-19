@@ -1,6 +1,6 @@
 ---
 name: ax-web-proxy
-description: Use when debugging MITM proxy issues, credential placeholder replacement failures, domain allowlist problems, sandbox HTTPS connectivity problems, curl exit 60 SSL errors, ECONNRESET crashes in the proxy, or modifying web-proxy.ts / credential-placeholders.ts / proxy-domain-list.ts
+description: Use when debugging MITM proxy issues, credential placeholder replacement failures, domain allowlist problems, sandbox HTTPS connectivity problems, curl exit 60 SSL errors, ECONNRESET crashes in the proxy, or modifying web-proxy.ts / credential-placeholders.ts / skills/domain-allowlist.ts
 ---
 
 ## Overview
@@ -15,7 +15,7 @@ Agent sandbox pod (no port 443 egress)
   ↓ curl/wget use proxy; Node.js fetch does NOT
 MITM Proxy (host pod, port 3128)
   ├── Receives CONNECT host:443
-  ├── Checks domain against ProxyDomainList (synchronous, no blocking)
+  ├── Checks domain against a session-frozen Set (synchronous, no blocking)
   ├── Terminates TLS with generated domain cert
   ├── Scans decrypted traffic for ax-cred: placeholders
   ├── Replaces placeholders with real credential values
@@ -23,52 +23,51 @@ MITM Proxy (host pod, port 3128)
 ```
 
 **Two proxy instances in k8s:**
-- **Shared proxy** (`server-k8s.ts`): Listens on port 3128 via `ax-web-proxy` Service. Uses `SharedCredentialRegistry`. Session ID = `host-process`.
-- **Per-session proxy** (`server-completions.ts`): For Docker/Apple sandboxes (Unix socket). Uses per-session `CredentialPlaceholderMap`.
+- **Shared proxy** (`server.ts`, k8s only): Listens on port 3128 via `ax-web-proxy` Service. `allowedDomains` is BUILTIN_DOMAINS only (infrastructure traffic). Uses `SharedCredentialRegistry`. Session ID = `host-process`.
+- **Per-session proxy** (`server-completions.ts`): For Docker/Apple sandboxes (Unix socket) and local TCP. `allowedDomains` is computed per-session via `getAllowedDomainsForAgent(agentId, ...)`. Uses per-session `CredentialPlaceholderMap`.
 
 ## Key Files
 
 | File | Role |
 |------|------|
 | `src/host/web-proxy.ts` | Proxy server: HTTP forward, CONNECT tunnel, MITM TLS interception |
-| `src/host/proxy-domain-list.ts` | `ProxyDomainList` — domain allowlist from skill manifests + admin approvals |
+| `src/host/skills/domain-allowlist.ts` | `BUILTIN_DOMAINS` set + `getAllowedDomainsForAgent()` per-agent allowlist query |
+| `src/host/skills/skill-domain-store.ts` | `skill_domain_approvals` read/write (tuple-keyed `agent_id, skill_name, domain`) |
 | `src/host/credential-placeholders.ts` | `CredentialPlaceholderMap` (per-session) and `SharedCredentialRegistry` (k8s) |
 | `src/host/proxy-ca.ts` | CA key generation, domain cert signing |
-| `src/host/server-init.ts` | Creates `ProxyDomainList`, populates from installed skills at startup |
-| `src/host/server-k8s.ts` | Shared proxy startup for k8s |
-| `src/host/server-completions.ts` | Per-session proxy startup, credential registration, `startAgentResponseTimer` in `CompletionDeps` (defers agent_response timeout until after work is published so pre-processing time doesn't eat the timeout budget) |
-| `src/host/server-admin-skills-helpers.ts` | `approveSkillSetup()` — adds approved skill domains to the allowlist via `addSkillDomains()` |
-| `src/host/server-admin.ts` | Admin endpoints for domain management (GET/POST /admin/api/proxy/domains) |
+| `src/host/server-completions.ts` | Per-session proxy startup — computes allowlist via `getAllowedDomainsForAgent` at session start, hands frozen Set to proxy |
+| `src/host/server.ts` | Host-process shared proxy for k8s; `allowedDomains` is BUILTIN_DOMAINS only |
+| `src/host/server-admin-skills-helpers.ts` | `approveSkillSetup()` — writes domain approvals to `skill_domain_approvals` |
 | `src/agent/runner.ts` | CA cert writing, `CURL_CA_BUNDLE`/`SSL_CERT_FILE` setup |
 | `src/agent/runners/pi-session.ts` | `HTTP_PROXY`/`HTTPS_PROXY` env var setup |
 
 ## Domain Allowlist
 
-Domains are allowed if they appear in any of these sources:
+A domain is on the per-agent allowlist iff:
 
-1. **Built-in domains** — package manager registries (npmjs.org, pypi.org, etc.) and GitHub
-2. **Skill-declared domains** — auto-extracted from skill body URLs via `generateManifest()` and added to the allowlist when an admin approves the skill's setup request
-3. **Admin-approved domains** — manually approved via `POST /admin/api/proxy/domains/approve`
+1. It's in **`BUILTIN_DOMAINS`** (package manager registries: npmjs.org, pypi.org, GitHub, etc.), OR
+2. **Some enabled skill for the agent declares it AND there's an approval row** in `skill_domain_approvals` for that `(agent_id, skill_name, domain)` tuple.
 
-Unknown domains are **denied immediately** (no blocking, no deadlock) and queued for admin review.
+"Enabled skill" = all declared credentials stored + all declared domains approved (live-computed by `getAgentSkills`). A skill that's pending for any reason contributes nothing to the allowlist.
+
+Unknown domains are denied immediately at the proxy boundary; the proxy logs `domain_denied` to its audit trail.
 
 ### How domains flow from skill approval to proxy
 
 ```
-1. User writes .ax/skills/<name>/SKILL.md with domains in the body
-2. Reconciler parses SKILL.md, writes a pending setup request
-3. Admin approves the skill in the dashboard (POST /admin/api/skills/setup/approve)
-4. approveSkillSetup() calls domainList.addSkillDomains(name, ["api.linear.app"])
-5. Next proxy request to api.linear.app → allowed (in allowlist)
+1. User writes .ax/skills/<name>/SKILL.md with domains in frontmatter or body
+2. Agent pushes via sidecar; host drops cached snapshot
+3. Admin opens the Approvals page; getAgentSkills surfaces the pending card
+4. Admin approves the skill (POST /admin/api/skills/setup/approve)
+5. approveSkillSetup() writes rows to skill_domain_approvals per (agentId, skillName, domain)
+6. Next session, processCompletion calls getAllowedDomainsForAgent which builds
+   a frozen Set and hands it to startWebProxy.allowedDomains
+7. Subsequent proxy CONNECTs to the domain return 200 Connection Established
 ```
 
-### Admin domain management
+### Session-scoped allowlist freezing
 
-```
-GET  /admin/api/proxy/domains         → { allowed: [...], pending: [...] }
-POST /admin/api/proxy/domains/approve → { domain: "api.example.com" }
-POST /admin/api/proxy/domains/deny    → { domain: "api.example.com" }
-```
+The allowlist is computed once at session start and frozen for the session's lifetime. Mid-session admin approvals take effect on the NEXT session — this matches prior behavior and keeps the proxy's `has(domain)` check synchronous on the hot path.
 
 ## Credential Replacement Flow
 
@@ -122,8 +121,8 @@ Node.js 22+ has `--use-env-proxy` flag but it's not currently wired up.
 
 1. **Is the proxy running?** Look for `web_proxy_started` in host logs
 2. **Is `config.web_proxy` true?** Defaults to true for k8s/docker/apple sandboxes
-3. **Is the domain in the allowlist?** Check `GET /admin/api/proxy/domains`
-4. **Is the skill approved?** Only skills whose setup request has been approved add domains to the allowlist
+3. **Is the domain allowed for this agent?** Check the skill is enabled (`getAgentSkills`) AND there's a row in `skill_domain_approvals`. Approve via the Approvals page if missing.
+4. **Did you start a fresh session after approving?** The per-session allowlist freezes at session start — mid-session approvals don't apply until the next session.
 5. **Are credentials registered?** Look for `credential_injected` in host logs
 6. **Did replacement happen?** Check if `credentialMap` has placeholders for the session
 7. **Is the session still active?** Credentials deregistered at `session_completed`
@@ -134,5 +133,7 @@ Node.js 22+ has `--use-env-proxy` flag but it's not currently wired up.
 - **Node.js `fetch` ignores `HTTP_PROXY`** — only curl/wget/pip respect proxy env vars
 - **`SharedCredentialRegistry` is session-scoped** — credentials vanish after `session_completed`
 - **Always handle socket errors** in proxy code — unhandled `ECONNRESET` crashes the host process. Add `clientSocket.on('error', ...)` before TLS wrapping.
-- **Unapproved skills don't get proxy access** — domains are added to the allowlist only after an admin approves the skill's setup request in the dashboard
+- **Unapproved skills don't get proxy access** — domains are added to the allowlist only after an admin approves the skill's setup request, which writes to `skill_domain_approvals`. And the allowlist is per-agent: one agent's approvals don't leak to another.
+- **Allowlist is frozen per session** — mid-session admin approvals apply on the NEXT session, not the current one.
+- **Host-process proxy (k8s) is BUILTIN_DOMAINS only** — it handles infrastructure traffic, not agent traffic. Agent traffic routes through per-session proxies with per-agent allowlists.
 - **k8s clusters without host volume mounts** need Docker image rebuild + `kind load` to deploy code changes

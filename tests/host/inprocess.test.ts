@@ -140,7 +140,6 @@ describe('runFastPath', () => {
     ]);
 
     const mockMcp = {
-      async listTools() { return []; },
       callTool: vi.fn().mockResolvedValue({
         content: '[{"id":1},{"id":2},{"id":3}]',
         isError: false,

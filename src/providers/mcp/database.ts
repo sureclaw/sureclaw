@@ -115,8 +115,6 @@ class DatabaseMcpProvider implements McpProvider {
   private readonly db: Kysely<any>;
   private readonly credentials: CredentialProvider;
   private readonly breakers = new Map<string, CircuitBreaker>();
-  private readonly toolCache = new Map<string, { tools: McpToolSchema[]; expires: number }>();
-  private readonly cacheTtlMs = 60_000;
 
   constructor(db: Kysely<any>, credentials: CredentialProvider) {
     this.db = db;
@@ -130,54 +128,6 @@ class DatabaseMcpProvider implements McpProvider {
       this.breakers.set(serverName, breaker);
     }
     return breaker;
-  }
-
-  async listTools(filter?: { apps?: string[]; query?: string; agentId?: string }): Promise<McpToolSchema[]> {
-    if (!filter?.agentId) return [];
-
-    const servers = await getEnabledServers(this.db, filter.agentId);
-    const allTools: McpToolSchema[] = [];
-
-    for (const server of servers) {
-      // If apps filter is provided, only include matching servers
-      if (filter.apps?.length && !filter.apps.includes(server.name)) continue;
-
-      const breaker = this.getBreaker(server.name);
-      if (breaker.isOpen) continue; // graceful degradation
-
-      // Check cache
-      const cacheKey = `${filter.agentId}:${server.name}`;
-      const cached = this.toolCache.get(cacheKey);
-      if (cached && cached.expires > Date.now()) {
-        allTools.push(...cached.tools);
-        continue;
-      }
-
-      try {
-        const headers = await resolveHeaders(server.headers, this.credentials);
-        const rawTools = await connectAndListTools(server.url, { headers });
-        const tools = rawTools.map(t => ({
-          ...t,
-          name: `${server.name}__${t.name}`,
-        }));
-        breaker.reset();
-        this.toolCache.set(cacheKey, { tools, expires: Date.now() + this.cacheTtlMs });
-        allTools.push(...tools);
-      } catch {
-        breaker.recordFailure();
-        // Continue to next server — one server failing doesn't affect others
-      }
-    }
-
-    // Apply query filter if provided
-    if (filter.query) {
-      const q = filter.query.toLowerCase();
-      return allTools.filter(t =>
-        t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)
-      );
-    }
-
-    return allTools;
   }
 
   async callTool(call: McpToolCall): Promise<McpToolResult> {
@@ -198,9 +148,6 @@ class DatabaseMcpProvider implements McpProvider {
       const result = await callToolOnServer(server.url, parsed.tool, call.arguments ?? {}, { headers });
 
       breaker.reset();
-
-      // Invalidate cache for this server (tool state may have changed)
-      this.toolCache.delete(`${call.agentId}:${server.name}`);
 
       const taint: TaintTag = {
         source: `mcp:${server.name}:${parsed.tool}`,

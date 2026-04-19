@@ -35,10 +35,13 @@ import type { EventBus } from './event-bus.js';
 import { maybeSummarizeHistory, type SummarizationConfig } from './history-summarizer.js';
 import { recallMemoryForMessage, type MemoryRecallConfig } from './memory-recall.js';
 import { createEmbeddingClient } from '../utils/embedding-client.js';
-import { credentialScope, setSessionCredentialContext } from './credential-scopes.js';
+import { setSessionCredentialContext } from './session-credential-context.js';
 import { generateSessionTitle } from './session-title.js';
 import type { McpConnectionManager } from '../plugins/mcp-manager.js';
 import { validateCommit, AX_DIFF_PATHSPEC } from './validate-commit.js';
+import { getAgentSkills, loadSnapshot, type GetAgentSkillsDeps } from './skills/get-agent-skills.js';
+import type { SkillState } from './skills/types.js';
+import type { SkillSummary } from '../agent/prompt/types.js';
 
 // ── Session ID placeholder rewriting ──
 // HTTP sessions use '_' as the workspace placeholder in the SessionAddress.
@@ -72,8 +75,6 @@ export interface CompletionDeps {
   eventBus?: EventBus;
   /** Maps sessionId → workspace directory path. Shared with sandbox tool IPC handlers. */
   workspaceMap?: Map<string, string>;
-  /** Tracks credential_request IPC calls per session. Consumed by post-agent credential loop. */
-  requestedCredentials?: Map<string, Set<string>>;
   /** IPC handler function for reverse bridge connections (Apple containers). */
   ipcHandler?: (raw: string, ctx: import('./ipc-server.js').IPCContext) => Promise<string>;
   /** Extra env vars to inject into sandbox pods (per-turn IPC token, request ID). */
@@ -85,8 +86,10 @@ export interface CompletionDeps {
    *  Per-session credential maps are registered/deregistered here so the
    *  shared proxy can replace placeholders from any active session. */
   sharedCredentialRegistry?: import('./credential-placeholders.js').SharedCredentialRegistry;
-  /** Domain allowlist for proxy — populated from installed skill manifests. */
-  domainList?: import('./proxy-domain-list.js').ProxyDomainList;
+  /** Tuple-keyed skill domain approval store. Turn-time proxy allowlist is
+   *  computed from `skill_domain_approvals` joined with declared domains on
+   *  enabled skills. */
+  skillDomainStore: import('./skills/skill-domain-store.js').SkillDomainStore;
   /** Callback to start the agent_response timeout timer (k8s HTTP mode).
    *  Called after work is published so the timer doesn't include pre-processing time
    *  (scanner LLM calls, workspace provisioning, etc.). */
@@ -99,6 +102,12 @@ export interface CompletionDeps {
   provisioner?: import('./agent-provisioner.js').AgentProvisioner;
   /** When true, sandbox exits after completing this turn (cron, heartbeat, delegation). */
   singleTurn?: boolean;
+  /** Dependencies for live `getAgentSkills` computation — used to build the
+   *  per-turn skills list pushed to the sandbox via the stdin payload. */
+  agentSkillsDeps: GetAgentSkillsDeps;
+  /** Tuple-keyed skill credential store. Turn-time credential injection
+   *  reads `(agentId, skillName, envName, userId|'')` rows from it. */
+  skillCredStore: import('./skills/skill-cred-store.js').SkillCredStore;
 }
 
 export interface ExtractedFile {
@@ -138,6 +147,56 @@ export interface IdentityPayload {
   bootstrap?: string;
   userBootstrap?: string;
   heartbeat?: string;
+}
+
+/** Project a live `SkillState` onto the compact shape the agent prompt reads.
+ *  Description and pendingReasons are included only when set on the source,
+ *  matching the shape the agent's SkillsModule expects. Exported for
+ *  stdin-payload tests that need to assert on the mapped shape. */
+export function toSkillSummary(s: SkillState): SkillSummary {
+  return {
+    name: s.name,
+    description: s.description ?? '',
+    kind: s.kind,
+    ...(s.pendingReasons?.length ? { pendingReasons: s.pendingReasons } : {}),
+  };
+}
+
+/** Resolve MCP auth headers for a server by looking up skill-declared
+ *  credentials for `(agentId, envName, userId)`. Tries the canonical
+ *  suffixes (`_API_KEY`, `_ACCESS_TOKEN`, `_OAUTH_TOKEN`, `_TOKEN`) in
+ *  order and prefers a user-scoped row over the agent-scope sentinel (''),
+ *  matching the precedence used by turn-time credential injection.
+ *
+ *  Last-resort fallback reads `process.env` when no matching row exists —
+ *  covers dev/infra creds that were never written to `skill_credentials`. */
+export async function resolveMcpAuthHeaders(args: {
+  serverName: string;
+  agentId: string;
+  userId: string;
+  skillCredStore: import('./skills/skill-cred-store.js').SkillCredStore;
+}): Promise<Record<string, string> | undefined> {
+  const { serverName, agentId, userId, skillCredStore } = args;
+  const prefix = serverName.toUpperCase().replace(/-/g, '_');
+  const candidates = [
+    `${prefix}_API_KEY`,
+    `${prefix}_ACCESS_TOKEN`,
+    `${prefix}_OAUTH_TOKEN`,
+    `${prefix}_TOKEN`,
+  ];
+  const rows = await skillCredStore.listForAgent(agentId);
+  for (const envName of candidates) {
+    const matching = rows.filter(r => r.envName === envName);
+    if (matching.length === 0) {
+      if (process.env[envName]) return { Authorization: `Bearer ${process.env[envName]}` };
+      continue;
+    }
+    const user = matching.find(r => r.userId === userId);
+    const agent = matching.find(r => r.userId === '');
+    const value = user?.value ?? agent?.value ?? matching[0].value;
+    if (value) return { Authorization: `Bearer ${value}` };
+  }
+  return undefined;
 }
 
 /**
@@ -393,8 +452,8 @@ function seedAxDirectory(workspace: string, gitDir: string, logger: Logger): voi
   }
 
   // Seed default skills from project skills/ directory into .ax/skills/.
-  // File-based skills (default.md) become .ax/skills/default/SKILL.md.
-  // Directory-based skills (deploy/SKILL.md) keep their structure.
+  // File-based skills (<name>.md) become .ax/skills/<name>/SKILL.md.
+  // Directory-based skills (<name>/SKILL.md + companions) keep their structure.
   let sDir: string;
   try { sDir = resolveSeedSkillsDir(); } catch { sDir = ''; }
   if (sDir && existsSync(sDir)) {
@@ -402,7 +461,7 @@ function seedAxDirectory(workspace: string, gitDir: string, logger: Logger): voi
       const entries = readdirSync(sDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith('.md')) {
-          // File-based skill: default.md → .ax/skills/default/SKILL.md
+          // File-based skill: <name>.md → .ax/skills/<name>/SKILL.md
           const skillName = entry.name.replace(/\.md$/, '');
           const destDir = join(workspace, '.ax', 'skills', skillName);
           const destPath = join(destDir, 'SKILL.md');
@@ -629,6 +688,7 @@ export async function processCompletion(
           eventBus,
           workspaceBasePath: '~/.ax/workspaces',
           mcpManager: deps.mcpManager,
+          skillCredStore: deps.skillCredStore,
         },
       );
 
@@ -980,8 +1040,14 @@ export async function processCompletion(
         credentials: credentialMap,
         bypassDomains: new Set(config.mitm_bypass_domains ?? []),
       };
-      const allowedDomains = deps.domainList ? { has: (d: string) => deps.domainList!.isAllowed(d) } : undefined;
-      const onDenied = (domain: string) => deps.domainList?.addPending(domain, sessionId);
+      // Per-session frozen set; per-CONNECT lookup stays synchronous.
+      // The set may include `*.parent` wildcard entries — `matchesDomain`
+      // normalizes the candidate and walks the set for both exact and
+      // wildcard hits.
+      const { getAllowedDomainsForAgent, matchesDomain } =
+        await import('./skills/domain-allowlist.js');
+      const allowedSet = await getAllowedDomainsForAgent(agentId, deps.agentSkillsDeps);
+      const allowedDomains = { has: (d: string) => matchesDomain(allowedSet, d) };
       const urlRewrites = config.url_rewrites
         ? new Map(Object.entries(config.url_rewrites))
         : undefined;
@@ -992,15 +1058,15 @@ export async function processCompletion(
         const webProxy = await startWebProxy({
           listen: webProxySocketPath,
           sessionId, canaryToken, onAudit: webProxyAudit,
-          allowedDomains, onDenied, mitm: mitmConfig, urlRewrites,
+          allowedDomains, mitm: mitmConfig, urlRewrites,
         });
         webProxyCleanup = webProxy.stop;
       } else {
-        // TCP mode — docker or k8s (k8s uses separate port in host-process.ts)
+        // TCP mode — docker or k8s (k8s uses separate port)
         const webProxy = await startWebProxy({
           listen: 0,
           sessionId, canaryToken, onAudit: webProxyAudit,
-          allowedDomains, onDenied, mitm: mitmConfig, urlRewrites,
+          allowedDomains, mitm: mitmConfig, urlRewrites,
         });
         webProxyPort = webProxy.address as number;
         webProxyCleanup = webProxy.stop;
@@ -1153,32 +1219,40 @@ export async function processCompletion(
       content = resolvedContent;
     }
 
-    // Pre-load all stored credentials for this agent/user into the sandbox env.
-    // When web_proxy is enabled: register as MITM proxy placeholders (the proxy
-    // replaces them with real values in intercepted HTTPS traffic).
-    // When web_proxy is disabled (local mode): inject real values directly
-    // since there's no proxy to do placeholder replacement.
-    // Also check global (unscoped) credentials — catches credentials stored
-    // without session context or via process.env fallback in the plaintext provider.
-    for (const scope of [credentialScope(agentId, currentUserId), credentialScope(agentId), undefined]) {
-      try {
-        const storedNames = await providers.credentials.list(scope);
-        for (const envName of storedNames) {
-          // Skip if already registered (user scope takes precedence over agent, agent over global)
-          if (credentialMap.toEnvMap()[envName] || credentialEnv[envName]) continue;
-          const realValue = await providers.credentials.get(envName, scope);
-          if (realValue) {
-            if (config.web_proxy) {
-              // Container sandboxes: web_proxy is always true — use placeholder
-              credentialMap.register(envName, realValue);
-            } else {
-              // Subprocess sandbox: no proxy — inject real values directly
-              credentialEnv[envName] = realValue;
-            }
-            reqLogger.info('credential_injected', { envName, scope: scope ?? 'global' });
-          }
+    // Pre-load skill-declared credentials into the sandbox env. Every row in
+    // skill_credentials for this agentId that matches the caller's userId (or
+    // the '' sentinel for agent-scope) is injected. User-scoped rows win over
+    // agent-scope when both exist for the same envName.
+    //
+    // web_proxy enabled  → register as MITM proxy placeholders (the proxy
+    //                      substitutes real values in intercepted traffic).
+    // web_proxy disabled → inject real values into the subprocess env directly.
+    try {
+      const rows = await deps.skillCredStore.listForAgent(agentId);
+      // Sort user-scoped rows ahead of agent-scope so the already-filled guard
+      // lets the user's value win — regardless of DB row order.
+      rows.sort((a, b) => {
+        const aScore = a.userId === currentUserId ? 0 : 1;
+        const bScore = b.userId === currentUserId ? 0 : 1;
+        return aScore - bScore;
+      });
+      for (const row of rows) {
+        const applicable = row.userId === currentUserId || row.userId === '';
+        if (!applicable) continue;
+        if (credentialMap.toEnvMap()[row.envName] || credentialEnv[row.envName]) continue;
+        if (config.web_proxy) {
+          credentialMap.register(row.envName, row.value);
+        } else {
+          credentialEnv[row.envName] = row.value;
         }
-      } catch { /* list may not be supported */ }
+        reqLogger.info('credential_injected', {
+          envName: row.envName,
+          skillName: row.skillName,
+          userScoped: row.userId !== '',
+        });
+      }
+    } catch (err) {
+      reqLogger.warn('credential_injection_failed', { error: (err as Error).message });
     }
 
     // Create canonical workspace mount info for sandbox tool IPC handlers.
@@ -1228,77 +1302,55 @@ export async function processCompletion(
     // Skills live in the git workspace at .ax/skills/ — no DB loading needed.
     // The agent reads them directly from the workspace filesystem.
 
-    // ── Generate MCP CLI tools + tool modules ──
-    let mcpCLIsPayload: Array<{ path: string; content: string }> | undefined;
-    let toolModuleIndex: string | undefined;
+    // Identity and skills are delivered to the agent via stdin payload (below).
+
+    // ── Live skill index for the system prompt ──
+    // Computed fresh per turn from the git snapshot + host approvals/creds.
+    const skillsPayload: SkillSummary[] = (
+      await getAgentSkills(agentId, deps.agentSkillsDeps)
+    ).map(toSkillSummary);
+
+    // ── Populate per-agent tool routes for skill-declared MCP servers ──
+    // The subprocess sandbox path relies on `mcpManager.toolServerMap` to
+    // resolve tool names → server URLs at IPC tool-batch time. Nothing on the
+    // subprocess turn path populated that map — the inprocess fast-path does
+    // its own discovery at turn start, and admin refresh-tools populates it on
+    // demand, but between pod restart and the next admin click the map stayed
+    // empty. Result: imported stubs in the agent's workspace were syntactically
+    // fine, but the first call surfaced "MCP gateway not configured for this
+    // tool". HEAD-cached dedup keeps the network cost at once per
+    // (agent, HEAD) per pod.
     if (deps.mcpManager) {
       try {
-        const resolveHeaders = providers.credentials
-          ? async (h: Record<string, string>) => {
-              const { resolveHeaders: rh } = await import('../providers/mcp/database.js');
-              return rh(JSON.stringify(h), providers.credentials);
-            }
-          : undefined;
-        // For servers without explicit headers, try to find a matching credential
-        // by convention: SERVER_NAME_API_KEY, SERVER_NAME_ACCESS_TOKEN, etc.
-        const authForServer = providers.credentials
-          ? async (server: { name: string; url: string }) => {
-              const prefix = server.name.toUpperCase().replace(/-/g, '_');
-              const candidates = [
-                `${prefix}_API_KEY`,
-                `${prefix}_ACCESS_TOKEN`,
-                `${prefix}_OAUTH_TOKEN`,
-                `${prefix}_TOKEN`,
-              ];
-              for (const envName of candidates) {
-                const value = await providers.credentials.get(envName);
-                if (value) return { Authorization: `Bearer ${value}` };
-              }
-              return undefined;
-            }
-          : undefined;
-        // Only discover tools from servers assigned to this agent (agent_mcp_servers).
-        // If no assignments exist, discover from all servers (backward compat).
-        let serverFilter: Set<string> | undefined;
-        if (providers.database) {
-          try {
-            const { listAgentServerNames } = await import('../providers/mcp/database.js');
-            const assigned = await listAgentServerNames(providers.database.db, agentId);
-            serverFilter = new Set(assigned);
-          } catch { /* table may not exist yet — leave filter undefined (all servers) */ }
+        const snapshot = await loadSnapshot(agentId, deps.agentSkillsDeps);
+        const skillServerNames = new Set<string>();
+        for (const entry of snapshot) {
+          if (!entry.ok) continue;
+          for (const s of entry.frontmatter.mcpServers) skillServerNames.add(s.name);
         }
-        const mcpTools = await deps.mcpManager.discoverAllTools(agentId, { resolveHeaders, authForServer, serverFilter });
-        if (mcpTools.length > 0) {
-          const { prepareMcpCLIs, prepareToolModules } = await import('./toolgen/generate-and-cache.js');
-          const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
-          if (clis && clis.length > 0) mcpCLIsPayload = clis;
-          const modules = await prepareToolModules({ agentName: agentId, tools: mcpTools });
-          if (modules) {
-            mcpCLIsPayload = [...(mcpCLIsPayload ?? []), ...modules.files];
-            toolModuleIndex = modules.compactIndex;
-          }
+        if (skillServerNames.size > 0) {
+          const headSha = await deps.agentSkillsDeps.probeHead(agentId);
+          await deps.mcpManager.ensureToolsDiscoveredForHead(agentId, headSha, {
+            serverFilter: skillServerNames,
+            authForServer: (server) =>
+              resolveMcpAuthHeaders({
+                serverName: server.name,
+                agentId,
+                userId: currentUserId,
+                skillCredStore: deps.skillCredStore,
+              }),
+          });
         }
       } catch (err) {
-        reqLogger.warn('mcp_cli_generation_failed', { error: (err as Error).message });
-      }
-    } else if (providers.mcp && providers.mcp.listTools) {
-      // @deprecated Legacy fallback: no manager, use providers.mcp directly.
-      try {
-        const { prepareMcpCLIs, prepareToolModules } = await import('./toolgen/generate-and-cache.js');
-        const mcpTools = await providers.mcp.listTools();
-        const clis = await prepareMcpCLIs({ agentName: agentId, tools: mcpTools });
-        if (clis && clis.length > 0) mcpCLIsPayload = clis;
-        const modules = await prepareToolModules({ agentName: agentId, tools: mcpTools });
-        if (modules) {
-          mcpCLIsPayload = [...(mcpCLIsPayload ?? []), ...modules.files];
-          toolModuleIndex = modules.compactIndex;
-        }
-      } catch (err) {
-        reqLogger.warn('mcp_cli_generation_failed', { error: (err as Error).message });
+        // Partial tool map is better than a refused turn — agent may still
+        // succeed via tools that were discovered earlier, or surface a more
+        // actionable error at the specific call site.
+        reqLogger.warn('ensure_tools_discovered_failed', {
+          agentId,
+          error: (err as Error).message,
+        });
       }
     }
-
-    // Identity and skills are delivered to the agent via stdin payload (below).
 
     // ── Workspace GCS prefixes ──
     // Build stdin payload once — reused across retry attempts.
@@ -1321,10 +1373,9 @@ export async function processCompletion(
       webProxyUrl: deps.extraSandboxEnv?.AX_WEB_PROXY_URL,
       // Enterprise fields
       agentId,
-      // Identity from git, skills from .ax/skills/ in workspace
+      // Identity from git; skills derived live from the agent's bare repo.
       identity: identityPayload,
-      mcpCLIs: mcpCLIsPayload,
-      toolModuleIndex,
+      skills: skillsPayload,
       // Credential placeholders — k8s pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
       credentialEnv: {
@@ -1840,8 +1891,6 @@ export async function processCompletion(
     sessionCanaries.delete(queued.session_id);
     return { responseContent: 'Internal processing error', finishReason: 'stop' };
   } finally {
-    // Clean up per-session credential request tracking.
-    deps.requestedCredentials?.delete(sessionId);
     // Deregister workspace from the shared map so sandbox tool handlers
     // can't access it after the agent finishes.
     if (deps.workspaceMap) {

@@ -1,10 +1,7 @@
 /**
- * Generates executable CLI tools from MCP tool schemas.
+ * Generates importable JS modules from MCP tool schemas.
  *
- * Output: one self-contained JS file per MCP server with #!/usr/bin/env node
- * shebang. Each file contains an IPC client (HTTP fetch), a declarative tool
- * registry, and a generic argv parser with --help. Written to /workspace/bin/
- * and already in PATH.
+ * Output: one module per MCP server, plus a barrel index.
  */
 
 import type { McpToolSchema } from '../../providers/mcp/types.js';
@@ -21,168 +18,6 @@ export interface ToolStubGroup {
 }
 
 // ---------------------------------------------------------------------------
-// CLI generation
-// ---------------------------------------------------------------------------
-
-/**
- * Convert an MCP tool name to a kebab-case CLI subcommand.
- * list_issues → 'list-issues'
- * get_authenticated_user → 'get-authenticated-user'
- */
-export function mcpToolToCLICommand(toolName: string): string {
-  return toolName.replace(/_/g, '-');
-}
-
-/**
- * Infer a group name from a kebab-case command (strip verb, title-case noun, pluralize).
- * list-issues → Issues, get-team → Teams, save-customer-need → Customer Needs
- */
-function inferGroup(cmd: string): string {
-  const parts = cmd.split('-');
-  const noun = parts.slice(1).join(' ');
-  if (!noun) return 'Commands';
-  const titled = noun.replace(/\b\w/g, c => c.toUpperCase());
-  if (!titled.endsWith('s') && !titled.endsWith('tion')) return titled + 's';
-  return titled;
-}
-
-/**
- * Generate a self-contained CLI executable for an MCP server.
- */
-export function generateCLI(
-  server: string,
-  tools: McpToolSchema[],
-): string {
-  // Build the TOOLS registry
-  const toolEntries = tools.map(tool => {
-    const cmd = mcpToolToCLICommand(tool.name);
-    const params = tool.inputSchema?.properties
-      ? Object.keys(tool.inputSchema.properties as Record<string, unknown>)
-      : [];
-    const group = inferGroup(cmd);
-    const desc = tool.description?.split('\n')[0]?.slice(0, 80) ?? tool.name;
-    return `  ${JSON.stringify(cmd)}: { tool: ${JSON.stringify(tool.name)}, desc: ${JSON.stringify(desc)}, group: ${JSON.stringify(group)}, params: [${params.map(p => JSON.stringify(p)).join(', ')}] }`;
-  });
-
-  return `#!/usr/bin/env node
-// Auto-generated CLI for ${server} MCP server. Do not edit.
-'use strict';
-
-// ── IPC ──────────────────────────────────────────────
-async function ipc(tool, params) {
-  const hostUrl = process.env.AX_HOST_URL;
-  const token = process.env.AX_IPC_TOKEN;
-  if (!hostUrl) { process.stderr.write('Error: AX_HOST_URL not set\\n'); process.exit(1); }
-  const res = await fetch(hostUrl + '/internal/ipc', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: JSON.stringify({ action: 'tool_batch', calls: [{ tool, args: params }] }),
-    signal: AbortSignal.timeout(120000),
-  });
-  if (!res.ok) { process.stderr.write('Error: HTTP ' + res.status + ' ' + (await res.text()) + '\\n'); process.exit(1); }
-  const data = await res.json();
-  const result = data.results?.[0];
-  if (result && typeof result === 'object' && 'ok' in result && !result.ok) {
-    process.stderr.write('Error: ' + (result.error || 'tool call failed') + '\\n');
-    process.exit(1);
-  }
-  return result;
-}
-
-// ── Tools ────────────────────────────────────────────
-const TOOLS = {
-${toolEntries.join(',\n')}
-};
-
-// ── Help ─────────────────────────────────────────────
-function showHelp() {
-  process.stdout.write('Usage: ${server} <command> [--flag value ...]\\n\\n');
-  const groups = {};
-  for (const [cmd, t] of Object.entries(TOOLS)) {
-    if (!groups[t.group]) groups[t.group] = [];
-    groups[t.group].push({ cmd, ...t });
-  }
-  for (const [group, cmds] of Object.entries(groups)) {
-    process.stdout.write(group + ':\\n');
-    for (const c of cmds) {
-      const flags = c.params.length ? ' [--' + c.params.join(', --') + ']' : '';
-      process.stdout.write('  ' + c.cmd.padEnd(24) + c.desc + flags + '\\n');
-    }
-    process.stdout.write('\\n');
-  }
-}
-
-// ── Argv parser ──────────────────────────────────────
-function parseArgs(argv) {
-  const params = {};
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) {
-      const key = argv[i].slice(2);
-      const val = argv[i + 1];
-      if (val === undefined || val.startsWith('--')) { params[key] = true; i++; continue; }
-      // Try to parse as number/boolean/JSON
-      if (val === 'true') params[key] = true;
-      else if (val === 'false') params[key] = false;
-      else if (/^-?\\d+(\\.\\d+)?$/.test(val)) params[key] = Number(val);
-      else params[key] = val;
-      i++;
-    }
-  }
-  return params;
-}
-
-// ── Stdin ────────────────────────────────────────────
-async function readStdin() {
-  if (process.stdin.isTTY) return null;
-  // Only read if data is already available or pipe is being closed.
-  // Avoid blocking forever when spawned as a subprocess with open stdin pipe.
-  return new Promise((resolve) => {
-    let data = '';
-    let timer = setTimeout(() => { process.stdin.pause(); resolve(null); }, 50);
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { clearTimeout(timer); data += chunk; });
-    process.stdin.on('end', () => { clearTimeout(timer); if (!data.trim()) { resolve(null); return; } try { resolve(JSON.parse(data.trim())); } catch { resolve(null); } });
-    process.stdin.on('error', () => { clearTimeout(timer); resolve(null); });
-    process.stdin.resume();
-  });
-}
-
-// ── Main ─────────────────────────────────────────────
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0 || args[0] === '--help' || args[0] === '-h') { showHelp(); return; }
-
-  const cmd = args[0];
-  const entry = TOOLS[cmd];
-  if (!entry) {
-    const match = Object.keys(TOOLS).find(k => k.startsWith(cmd));
-    if (match) { process.stderr.write('Unknown: ' + cmd + '. Did you mean: ' + match + '?\\n'); }
-    else { process.stderr.write('Unknown command: ' + cmd + '. Run ${server} --help\\n'); }
-    process.exit(1);
-  }
-
-  const flagParams = parseArgs(args.slice(1));
-  const stdinParams = await readStdin();
-  const params = { ...(stdinParams && typeof stdinParams === 'object' && !Array.isArray(stdinParams) ? stdinParams : {}), ...flagParams };
-
-  const result = await ipc(entry.tool, params);
-
-  // Unwrap single-key objects with array values for cleaner piping
-  if (result && typeof result === 'object' && !Array.isArray(result)) {
-    const keys = Object.keys(result);
-    if (keys.length === 1 && Array.isArray(result[keys[0]])) {
-      process.stdout.write(JSON.stringify(result[keys[0]], null, 2) + '\\n');
-      return;
-    }
-  }
-  process.stdout.write(JSON.stringify(result, null, 2) + '\\n');
-}
-
-main().catch(e => { process.stderr.write('Error: ' + (e.message || e) + '\\n'); process.exit(1); });
-`;
-}
-
-// ---------------------------------------------------------------------------
 // Module generation (PTC model)
 // ---------------------------------------------------------------------------
 
@@ -195,18 +30,51 @@ export function snakeToCamel(name: string): string {
 
 /**
  * Generate a JSDoc block from tool description and input schema.
+ *
+ * Emits the object-form (`@param {object} params` + `@param {T} params.name`
+ * per property) to match the generated function signature, which always takes
+ * a single object argument. Earlier versions wrote bare positional tags like
+ * `@param {string} teamId` — agents read that as "pass a string positionally"
+ * and called `listCycles("uuid")`, which then hit the IPC Zod validator
+ * (`args: z.record(...)`) with a cryptic "expected record, received string"
+ * error and spiraled into retry loops.
  */
 function buildJSDoc(description: string, schema: Record<string, unknown>): string {
-  const lines = ['/**', ` * ${description}`];
-  const props = (schema.properties ?? {}) as Record<string, { type?: string; description?: string }>;
+  const props = (schema.properties ?? {}) as Record<string, {
+    type?: string;
+    description?: string;
+    enum?: unknown[];
+  }>;
   const required = new Set((schema.required ?? []) as string[]);
-  for (const [name, prop] of Object.entries(props)) {
-    const opt = required.has(name) ? '' : ' [optional]';
-    const desc = prop.description ? ` — ${prop.description}` : '';
-    lines.push(` * @param {${prop.type ?? 'unknown'}} ${name}${opt}${desc}`);
+  const propEntries = Object.entries(props);
+  const lines = ['/**', ` * ${description}`];
+  if (propEntries.length > 0) {
+    lines.push(' * @param {object} params');
+    for (const [name, prop] of propEntries) {
+      const typeAnnotation = jsdocType(prop);
+      const desc = prop.description ? ` — ${prop.description}` : '';
+      const pathName = required.has(name) ? `params.${name}` : `[params.${name}]`;
+      lines.push(` * @param {${typeAnnotation}} ${pathName}${desc}`);
+    }
   }
   lines.push(' */');
   return lines.join('\n');
+}
+
+/**
+ * Pick the JSDoc type for a property. Prefer an enum union (`"a"|"b"|"c"`)
+ * over the plain type because an agent reading `@param {string}` will
+ * freely hallucinate adjacent values — the union type refuses to let
+ * those go unnoticed. Falls back to the raw `type` (or `unknown`) when
+ * the enum is missing, empty, or contains non-string values.
+ */
+function jsdocType(prop: { type?: string; enum?: unknown[] }): string {
+  const values = Array.isArray(prop.enum) ? prop.enum : [];
+  const strings = values.filter((v): v is string => typeof v === 'string');
+  if (strings.length > 0 && strings.length === values.length) {
+    return strings.map((v) => JSON.stringify(v)).join('|');
+  }
+  return prop.type ?? 'unknown';
 }
 
 /**
@@ -221,15 +89,45 @@ export function generateModule(
     const fnName = snakeToCamel(tool.name);
     const props = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
     const paramNames = Object.keys(props);
+    const required = (tool.inputSchema?.required ?? []) as string[];
     const jsDoc = buildJSDoc(tool.description ?? tool.name, tool.inputSchema ?? {});
 
+    if (paramNames.length === 0) {
+      return `${jsDoc}
+export async function ${fnName}() {
+  return _call(${JSON.stringify(tool.name)}, {});
+}`;
+    }
+
+    // Runtime guard: bail out with an actionable TypeError before we put a
+    // non-object on the wire. Without this, a wrong-shaped call produces
+    // "expected record, received string" from the IPC Zod validator, which
+    // agents interpret as "the request format is wrong" and retry with
+    // random new shapes instead of fixing the argument type.
+    //
+    // When all params are optional, default `params = {}` so no-args calls
+    // (e.g. `listTeams()`) work — typeof undefined !== 'object' would
+    // otherwise mistakenly reject the legitimate zero-arg case.
+    const keyHint = paramNames.slice(0, 3).join(', ');
+    const paramDecl = required.length === 0 ? 'params = {}' : 'params';
     return `${jsDoc}
-export async function ${fnName}(${paramNames.length ? 'params' : ''}) {
-  return _call(${JSON.stringify(tool.name)}${paramNames.length ? ', params' : ', {}'});
+export async function ${fnName}(${paramDecl}) {
+  if (params === null || typeof params !== 'object') {
+    throw new TypeError(
+      '${fnName} expects a single object argument (keys: ${keyHint}), e.g. ${fnName}({ ${paramNames[0]}: ... })'
+    );
+  }
+  return _call(${JSON.stringify(tool.name)}, params);
 }`;
   });
 
   return `// Auto-generated tool module for ${server}. Do not edit.
+//
+// Response shapes: many MCP servers wrap list results in an object keyed by
+// the plural resource name — e.g. list_issues returns { issues: [...],
+// pageInfo: {...} }, NOT a bare array. Destructure or use result.issues.map
+// accordingly. When unsure, log the raw response first before iterating:
+//   const r = await listIssues({...}); console.log(JSON.stringify(r, null, 2));
 'use strict';
 
 const _hostUrl = process.env.AX_HOST_URL;
@@ -260,34 +158,26 @@ ${functions.join('\n\n')}
 }
 
 /**
- * Generate a barrel index.js that re-exports all server modules.
+ * Generate a barrel index.js that re-exports every tool function from every
+ * server module at the top level. This lets the agent import functions
+ * directly:
+ *
+ *   import { listIssues } from '/workspace/.ax/tools/linear/index.js';
+ *   await listIssues({ ... });
+ *
+ * instead of the namespaced form (`import { linear } ... linear.listIssues()`)
+ * which the model tends not to discover from examples.
+ *
+ * Collisions: if two servers within the same skill both export a function
+ * with the same name, ES-module link-time will raise an "ambiguous export"
+ * error the first time something tries to import that name. The error is
+ * clear enough for the admin to disambiguate (rename one server or split
+ * the skills). Accepts the small risk for a much cleaner agent-facing API
+ * in the common single-server case.
  */
 export function generateIndex(servers: string[]): string {
-  const toIdentifier = (s: string) => {
-    const safe = s.replace(/[^a-zA-Z0-9_$]/g, '_');
-    return /^[0-9]/.test(safe) ? `_${safe}` : safe;
-  };
-  const exports = servers.map(s => `export * as ${toIdentifier(s)} from './${s}.js';`);
+  const exports = servers.map(s => `export * from './${s}.js';`);
   return `// Auto-generated tool index. Do not edit.\n${exports.join('\n')}\n`;
-}
-
-/**
- * Generate a compact one-line-per-server summary for the system prompt.
- * Minimizes token cost while giving the LLM enough info to write scripts.
- */
-export function generateCompactIndex(groups: ToolStubGroup[]): string {
-  return groups.map(group => {
-    const fns = group.tools.map(tool => {
-      const fnName = snakeToCamel(tool.name);
-      const props = (tool.inputSchema?.properties ?? {}) as Record<string, unknown>;
-      const required = new Set((tool.inputSchema?.required ?? []) as string[]);
-      const params = Object.keys(props)
-        .map(p => required.has(p) ? p : `${p}?`)
-        .join(', ');
-      return `${fnName}(${params})`;
-    });
-    return `  ${group.server}: ${fns.join(', ')}`;
-  }).join('\n');
 }
 
 // ---------------------------------------------------------------------------

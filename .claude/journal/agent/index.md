@@ -4,6 +4,8 @@ Agent process: runner, tools, prompt builder, MCP server, tool catalog.
 
 ## Entries
 
+- 2026-04-18 14:35 — Tool-modules Task 6: agent loads tool index from committed `.ax/tools/<skill>/_index.json` at turn start via new `tool-index-loader.ts`; runtime render block re-added (new-PTC only, no legacy CLI fallback); 10 new loader tests + 2 agent-setup integration tests [prompt.md](prompt.md)
+- 2026-04-18 11:58 — Move `/workspace/tools/` → `/workspace/.ax/tools/`: AX-managed artifacts consolidated under `.ax/`; seedAxDirectory writes `.ax/.gitignore` with `tools/` so per-turn auto-generated modules never land in git; prompt/tool-catalog/mcp-server strings + runner resolve path + one test all updated [runner.md](runner.md)
 - 2026-04-17 06:26 — Phase 3 Task 7: runner fetches skills_index before prompt build [prompt.md](prompt.md)
 - 2026-04-17 06:20 — Phase 3 Tasks 5+6: SkillSummary extension + SkillsModule bullet format [prompt.md](prompt.md)
 - 2026-04-01 01:20 — Fix multipart message display in chat history [runner.md](runner.md)

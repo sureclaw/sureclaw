@@ -1,20 +1,19 @@
 import type { SkillFrontmatter } from './frontmatter-schema.js';
 
-/** One parsed SKILL.md or a parse failure. Input to the reconciler. */
+/** One parsed SKILL.md or a parse failure. Input to the state-derivation helpers. */
 export type SkillSnapshotEntry =
   | { name: string; ok: true; frontmatter: SkillFrontmatter; body: string }
   | { name: string; ok: false; error: string };
 
-/** Approvals + storage state the host already holds. */
-export interface ReconcilerCurrentState {
-  /** Domains the user has approved on the setup card, by exact host match. */
+/** Approvals + storage state the host holds. Input alongside the snapshot
+ *  for `computeSkillStates` / `computeSetupQueue`. Keys are skill-scoped so
+ *  a deleted-and-re-added skill doesn't auto-satisfy from a prior skill's
+ *  leftover rows. */
+export interface SkillDerivationState {
+  /** Approved domains, keyed by `${skillName}/${normalizedDomain}`. */
   approvedDomains: ReadonlySet<string>;
-  /** Credentials currently stored, keyed by `${envName}@${scope}` ('user' or 'agent'). */
+  /** Stored credentials, keyed by `${skillName}/${envName}@${scope}` (scope ∈ 'user' | 'agent'). */
   storedCredentials: ReadonlySet<string>;
-  /** MCP servers currently registered, keyed by name. */
-  registeredMcpServers: ReadonlyMap<string, { url: string }>;
-  /** Prior reconcile's enable state per skill — drives event diffs. */
-  priorSkillStates: ReadonlyMap<string, SkillStateKind>;
 }
 
 export type SkillStateKind = 'enabled' | 'pending' | 'invalid';
@@ -49,24 +48,4 @@ export interface SetupRequest {
   unapprovedDomains: string[];
   /** Informational — user sees the URLs they are effectively authorizing. */
   mcpServers: Array<{ name: string; url: string }>;
-}
-
-/** The reconciler's verdict. Effects live with the caller (phase 2+). */
-export interface ReconcilerOutput {
-  skills: SkillState[];
-  desired: {
-    /** MCP servers to register after this cycle, keyed by name. */
-    mcpServers: Map<string, { url: string; bearerCredential?: string }>;
-    /** Union of domains from enabled skills, intersected with approved domains. */
-    proxyAllowlist: Set<string>;
-  };
-  /** Setup cards to surface/update in the dashboard. */
-  setupQueue: SetupRequest[];
-  /** Events to emit on the event bus. Dot-namespaced types. */
-  events: Array<{ type: string; data: Record<string, unknown> }>;
-}
-
-export interface ReconcilerInput {
-  snapshot: SkillSnapshotEntry[];
-  current: ReconcilerCurrentState;
 }

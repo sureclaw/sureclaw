@@ -3,8 +3,8 @@ import { TOOL_CATALOG, TOOL_NAMES, getToolParamKeys, filterTools } from '../../s
 import type { ToolFilterContext, ToolCategory } from '../../src/agent/tool-catalog.js';
 
 describe('tool-catalog', () => {
-  test('exports exactly 14 tools', () => {
-    expect(TOOL_CATALOG.length).toBe(14);
+  test('exports exactly 13 tools', () => {
+    expect(TOOL_CATALOG.length).toBe(13);
   });
 
   test('TOOL_NAMES matches TOOL_CATALOG names', () => {
@@ -51,7 +51,7 @@ describe('tool-catalog', () => {
 
   test('contains all expected tool names', () => {
     const expected = [
-      'memory', 'web', 'scheduler', 'request_credential',
+      'memory', 'web', 'scheduler',
       'save_artifact',
       'audit', 'agent',
       'bash', 'read_file', 'write_file', 'edit_file',
@@ -72,11 +72,8 @@ describe('tool-catalog', () => {
     expect(skillTool).toBeUndefined();
   });
 
-  test('request_credential tool exists in catalog as singleton', () => {
-    const credTool = TOOL_CATALOG.find(t => t.name === 'request_credential');
-    expect(credTool).toBeDefined();
-    expect(credTool!.singletonAction).toBe('credential_request');
-    expect(credTool!.category).toBe('credential');
+  test('request_credential tool has been removed from catalog', () => {
+    expect(TOOL_CATALOG.find(t => t.name === 'request_credential')).toBeUndefined();
   });
 
   test('scheduler tool has correct param keys (union of all members)', () => {
@@ -87,7 +84,7 @@ describe('tool-catalog', () => {
   test('every tool has a valid category', () => {
     const validCategories: ToolCategory[] = [
       'memory', 'web', 'audit',
-      'scheduler', 'credential', 'delegation',
+      'scheduler', 'delegation',
       'workspace', 'sandbox',
     ];
     for (const spec of TOOL_CATALOG) {
@@ -98,7 +95,7 @@ describe('tool-catalog', () => {
   test('every category has at least one tool', () => {
     const categories: ToolCategory[] = [
       'memory', 'web', 'audit',
-      'scheduler', 'credential', 'delegation',
+      'scheduler', 'delegation',
       'workspace', 'sandbox',
     ];
     for (const cat of categories) {
@@ -139,11 +136,6 @@ describe('filterTools', () => {
   test('skill tool is not in catalog', () => {
     const result = filterTools(NO_FLAGS);
     expect(result.find(s => s.name === 'skill')).toBeUndefined();
-  });
-
-  test('request_credential is always present regardless of flags', () => {
-    const result = filterTools(NO_FLAGS);
-    expect(result.map(s => s.name)).toContain('request_credential');
   });
 
   test('core tools are always present regardless of flags', () => {

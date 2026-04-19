@@ -2,6 +2,14 @@
 
 Agent orchestration system: supervisor, directory, agent-loop, event store, heartbeat, policy tags.
 
+## [2026-04-18 13:42] — Hook syncToolModulesForSkill into approveSkillSetup (Task 3 of tool-modules-git-native)
+
+**Task:** Wire the Task-2 tool-module sync helper into the skill-approval admin flow so a successful approval that reaches `kind: 'enabled'` and declares MCP servers triggers a commit of `.ax/tools/<skill>/` modules into the agent's workspace repo. Errors must not fail the approval.
+**What I did:** Added `syncToolModules` as a required dep on `ApproveDeps` + `AdminDeps` (fail-loud contract — test fixtures get a stub). After step 9 (read fresh state), the helper calls `loadSnapshot`, finds the skill's frontmatter, and invokes the closure if `mcpServers.length > 0` + `state.kind === 'enabled'`. Result merges into the audit `args` payload as `toolSync: { moduleCount, toolCount, commit }` on success or `toolSyncError: <msg>` on failure. Constructed the closure in `initHostCore` bound to `mcpManager`, `skillCredStore`, and `providers.workspace`; threaded through `HostCore → server.ts → setupAdminHandler → createAdminHandler → approveSkillSetup`. Added 6 new tests: calls with correct input, skips when no MCP servers, skips when still pending, audit success shape, audit error shape, threads authenticated userId.
+**Files touched:** src/host/server-admin-skills-helpers.ts, src/host/server-admin.ts, src/host/server-init.ts, src/host/server-webhook-admin.ts, src/host/server.ts, tests/host/server-admin-skills.test.ts (6 new tests + stub), tests/host/server-admin.test.ts, tests/host/server-admin-oauth-start.test.ts, tests/host/server-admin-oauth-providers.test.ts (stubs for new required dep)
+**Outcome:** Success — `npm run build` clean, 83 admin-test-file tests pass, 105 skills tests pass. Pre-existing socket-path integration failures on main are unrelated.
+**Notes:** Dropped the explicit `snapshotCache.invalidateAgent` call that used to run between step 8 and step 10 — the cache is keyed on `(agentId, HEAD sha)` and the projection reads DB rows live, so writing new creds/domains doesn't invalidate the cached snapshot. `getAgentSkills` still reads fresh.
+
 ## [2026-03-24 09:15] — Status SSE events for workspace and sandbox provisioning
 
 **Task:** Surface long-running backend operations (workspace mount, sandbox spawn) to frontend via SSE status events

@@ -94,6 +94,8 @@
 
 ### providers
 
+- `git update-index --remove` needs `GIT_WORK_TREE` even against a bare repo [providers/workspace.md](providers/workspace.md)
+- `git clone --mirror` locks out single-ref pushes; unset `remote.origin.mirror` after [providers/workspace.md](providers/workspace.md)
 - Async toAnthropicContent requires Promise.all for message arrays [providers/llm.md](providers/llm.md)
 - Anthropic thinking deltas use 'thinking' key, not 'text' [providers/llm.md](providers/llm.md)
 - OpenRouter image generation uses /chat/completions, not /images/generations [providers/llm.md](providers/llm.md)

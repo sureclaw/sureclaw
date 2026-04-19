@@ -8,8 +8,8 @@ import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
 import type { IdentityFiles } from './prompt/types.js';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { join, dirname, resolve, sep } from 'node:path';
+import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 const logger = getLogger().child({ component: 'runner' });
 
@@ -69,9 +69,7 @@ export interface AgentConfig {
   agentId?: string;
   /** Pre-loaded identity files from host (via stdin payload). Skips filesystem reads when present. */
   identity?: IdentityFiles;
-  /** Compact tool module index for system prompt (one line per server). */
-  toolModuleIndex?: string;
-  /** Host-authoritative skills list fetched via skills_index IPC before prompt build. Falls back to filesystem scan when absent. */
+  /** Host-authoritative skills list delivered via the stdin payload. */
   skills?: import('./prompt/types.js').SkillSummary[];
 }
 
@@ -277,10 +275,8 @@ export interface StdinPayload {
   caCert?: string;
   /** When true, sandbox exits after completing this turn (cron, heartbeat, etc.). */
   singleTurn?: boolean;
-  /** MCP CLI executables — one file per server, written to /workspace/bin/. */
-  mcpCLIs?: Array<{ path: string; content: string }>;
-  /** Compact tool module index for system prompt (one line per server). */
-  toolModuleIndex?: string;
+  /** Host-authoritative skills list, derived live from the agent's git snapshot. */
+  skills?: import('./prompt/types.js').SkillSummary[];
 }
 
 /**
@@ -329,8 +325,7 @@ export function parseStdinPayload(data: string): StdinPayload {
           : undefined,
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         singleTurn: parsed.singleTurn === true,
-        mcpCLIs: Array.isArray(parsed.mcpCLIs) ? parsed.mcpCLIs : undefined,
-        toolModuleIndex: typeof parsed.toolModuleIndex === 'string' ? parsed.toolModuleIndex : undefined,
+        skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
       };
     }
   } catch {
@@ -496,68 +491,8 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   // Enterprise fields
   config.agentId = payload.agentId;
 
-  // Skills live in the git workspace at .ax/skills/ — no payload writing needed.
-  // The agent reads them directly from the workspace filesystem.
-
-  // ── Write MCP CLI executables to /workspace/bin/ ──
-  if (Array.isArray(payload.mcpCLIs) && config.workspace) {
-    const binDir = resolve(config.workspace, 'bin');
-    mkdirSync(binDir, { recursive: true });
-    // Remove stale wrappers not in the current payload
-    const incomingPaths = new Set(payload.mcpCLIs.map(f => f.path));
-    try {
-      for (const existing of readdirSync(binDir)) {
-        if (!incomingPaths.has(existing)) {
-          const fullPath = resolve(binDir, existing);
-          if (fullPath.startsWith(binDir + sep) && statSync(fullPath).isFile()) {
-            unlinkSync(fullPath);
-          }
-        }
-      }
-    } catch { /* binDir may not exist yet */ }
-    for (const file of payload.mcpCLIs) {
-      const filePath = resolve(binDir, file.path);
-      if (!filePath.startsWith(binDir + sep) && filePath !== binDir) {
-        logger.warn('mcp_cli_path_traversal_blocked', { path: file.path });
-        continue;
-      }
-      writeFileSync(filePath, file.content, { mode: 0o755 });
-    }
-    logger.info('mcp_clis_written', { count: payload.mcpCLIs.length, dir: binDir });
-  }
-
-  // ── Write tool modules to /workspace/tools/ ──
-  if (Array.isArray(payload.mcpCLIs) && config.workspace) {
-    // Tool modules are .js files included alongside CLIs in the mcpCLIs payload
-    const moduleFiles = payload.mcpCLIs.filter(f => f.path.endsWith('.js'));
-    const toolsDir = resolve(config.workspace, 'tools');
-    mkdirSync(toolsDir, { recursive: true });
-    // Always prune stale modules, even when no new modules exist
-    const incomingModulePaths = new Set(moduleFiles.map(f => f.path));
-    try {
-      for (const existing of readdirSync(toolsDir)) {
-        if (!incomingModulePaths.has(existing)) {
-          const fullPath = resolve(toolsDir, existing);
-          if (fullPath.startsWith(toolsDir + sep) && statSync(fullPath).isFile()) {
-            unlinkSync(fullPath);
-          }
-        }
-      }
-    } catch { /* toolsDir may not exist yet */ }
-    for (const file of moduleFiles) {
-      const filePath = resolve(toolsDir, file.path);
-      if (!filePath.startsWith(toolsDir + sep) && filePath !== toolsDir) {
-        logger.warn('tool_module_path_traversal_blocked', { path: file.path });
-        continue;
-      }
-      writeFileSync(filePath, file.content, { mode: 0o644 });
-    }
-    logger.info('tool_modules_written', { count: moduleFiles.length, dir: toolsDir });
-  }
-
-  // Store toolModuleIndex on config for prompt building
-  if (payload.toolModuleIndex) {
-    config.toolModuleIndex = payload.toolModuleIndex;
+  if (payload.skills !== undefined) {
+    config.skills = payload.skills;
   }
 
   if (payload.identity) {

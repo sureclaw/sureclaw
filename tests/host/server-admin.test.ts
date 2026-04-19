@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import { createAdminHandler, _rateLimits, type AdminDeps } from '../../src/host/server-admin.js';
-import { ProxyDomainList } from '../../src/host/proxy-domain-list.js';
 import type { Config } from '../../src/types.js';
 import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 import { createEventBus } from '../../src/host/event-bus.js';
@@ -104,6 +103,11 @@ async function mockDeps(configOverrides: Partial<Config['admin']> = {}): Promise
     eventBus: createEventBus(),
     agentRegistry: registry,
     startTime: Date.now() - 60_000,
+    // Generic admin tests don't exercise the tool-module sync path; stub with
+    // a fail-loud closure so accidental invocations show up as failures.
+    syncToolModules: async () => {
+      throw new Error('syncToolModules stub — not exercised in these tests');
+    },
   };
 }
 
@@ -544,6 +548,9 @@ describe('tab endpoints handle provider errors gracefully', () => {
       eventBus: createEventBus(),
       agentRegistry: registry,
       startTime: Date.now() - 60_000,
+      syncToolModules: async () => {
+        throw new Error('syncToolModules stub — not exercised in these tests');
+      },
     };
 
     const handler = createAdminHandler(deps);
@@ -594,172 +601,6 @@ describe('setup endpoints', () => {
     expect(res.status).toBe(200);
     const data = res.body as Record<string, unknown>;
     expect(typeof data.configured).toBe('boolean');
-  });
-});
-
-describe('proxy domain management endpoints', () => {
-  let server: Server;
-  let port: number;
-  let domainList: ProxyDomainList;
-
-  beforeEach(async () => {
-    _rateLimits.clear();
-    domainList = new ProxyDomainList();
-    const deps = await mockDeps();
-    deps.domainList = domainList;
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-  });
-
-  afterEach(() => { server.close(); });
-
-  it('GET /admin/api/proxy/domains returns allowed and pending lists', async () => {
-    domainList.addPending('evil.com', 'sess-1');
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains', { token: 'test-secret-token' });
-    expect(res.status).toBe(200);
-    const data = res.body as { allowed: string[]; pending: Array<{ domain: string }> };
-    expect(Array.isArray(data.allowed)).toBe(true);
-    expect(data.allowed.length).toBeGreaterThan(0); // builtins
-    expect(data.pending).toEqual([
-      expect.objectContaining({ domain: 'evil.com', sessionId: 'sess-1' }),
-    ]);
-  });
-
-  it('GET /admin/api/proxy/domains returns empty when domainList is not set', async () => {
-    // Recreate without domainList
-    server.close();
-    const deps = await mockDeps();
-    // deps.domainList is undefined
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains', { token: 'test-secret-token' });
-    expect(res.status).toBe(200);
-    const data = res.body as { allowed: string[]; pending: unknown[] };
-    expect(data.allowed).toEqual([]);
-    expect(data.pending).toEqual([]);
-  });
-
-  it('POST /admin/api/proxy/domains/approve moves pending to allowed', async () => {
-    domainList.addPending('example.com', 'sess-1');
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/approve', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: { domain: 'example.com' },
-    });
-    expect(res.status).toBe(200);
-    const data = res.body as { ok: boolean; domain: string };
-    expect(data.ok).toBe(true);
-    expect(data.domain).toBe('example.com');
-
-    // Verify domain is now allowed and no longer pending
-    expect(domainList.isAllowed('example.com')).toBe(true);
-    expect(domainList.getPending()).toEqual([]);
-  });
-
-  it('POST /admin/api/proxy/domains/approve rejects missing domain', async () => {
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/approve', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: {},
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it('POST /admin/api/proxy/domains/deny removes pending domain', async () => {
-    domainList.addPending('malware.com', 'sess-1');
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/deny', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: { domain: 'malware.com' },
-    });
-    expect(res.status).toBe(200);
-    const data = res.body as { ok: boolean; domain: string };
-    expect(data.ok).toBe(true);
-    expect(data.domain).toBe('malware.com');
-
-    // Verify domain is NOT allowed and no longer pending
-    expect(domainList.isAllowed('malware.com')).toBe(false);
-    expect(domainList.getPending()).toEqual([]);
-  });
-
-  it('POST /admin/api/proxy/domains/deny rejects missing domain', async () => {
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/deny', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: {},
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it('POST /admin/api/proxy/domains/approve returns 500 when domainList is not configured', async () => {
-    server.close();
-    const deps = await mockDeps();
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/approve', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: { domain: 'example.com' },
-    });
-    expect(res.status).toBe(500);
-  });
-
-  it('POST /admin/api/proxy/domains/deny returns 500 when domainList is not configured', async () => {
-    server.close();
-    const deps = await mockDeps();
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-
-    const res = await fetchAdmin(port, '/admin/api/proxy/domains/deny', {
-      token: 'test-secret-token',
-      method: 'POST',
-      body: { domain: 'example.com' },
-    });
-    expect(res.status).toBe(500);
-  });
-});
-
-describe('AdminDeps Phase 5 skill fields (back-compat)', () => {
-  let server: Server;
-  let port: number;
-
-  afterEach(() => { server?.close(); });
-
-  it('accepts skillStateStore, reconcileAgent, defaultUserId without breaking existing endpoints', async () => {
-    _rateLimits.clear();
-    const deps = await mockDeps();
-
-    // Phase 5: stub SkillStateStore — every method a vi.fn() with reasonable defaults.
-    deps.skillStateStore = {
-      getPriorStates: vi.fn().mockResolvedValue(new Map()),
-      getStates: vi.fn().mockResolvedValue([]),
-      putStates: vi.fn().mockResolvedValue(undefined),
-      putSetupQueue: vi.fn().mockResolvedValue(undefined),
-      getSetupQueue: vi.fn().mockResolvedValue([]),
-      putStatesAndQueue: vi.fn().mockResolvedValue(undefined),
-    };
-    deps.reconcileAgent = vi.fn().mockResolvedValue({ skills: 0, events: 0 });
-    deps.defaultUserId = 'test-user';
-
-    const handler = createAdminHandler(deps);
-    const result = await startTestServer(handler);
-    server = result.server;
-    port = result.port;
-
-    // Hitting /admin/api/status with correct token should still return 200 —
-    // adding the new optional deps must not break existing endpoints.
-    const res = await fetchAdmin(port, '/admin/api/status', { token: 'test-secret-token' });
-    expect(res.status).toBe(200);
   });
 });
 

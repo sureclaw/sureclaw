@@ -117,11 +117,12 @@ describe('tool-catalog <-> system prompt sync', () => {
     });
     const rendered = mod.render(ctx).join('\n');
     // Git-native skills: reader uses .ax/skills/<name>/SKILL.md for both loading
-    // existing skills and authoring new ones. The `/workspace/skills/` legacy
-    // path is gone — the agent writes SKILL.md files and commits them.
+    // existing skills and authoring new ones. The sidecar auto-commits at
+    // end-of-turn; the agent writes SKILL.md files and does not run git itself.
     expect(rendered, 'skill read path missing from SkillsModule system prompt').toContain('.ax/skills/<name>/SKILL.md');
-    expect(rendered, 'creating skills section missing from SkillsModule system prompt').toContain('Creating Skills');
-    expect(rendered, 'creating skills should reference commit-and-push flow').toContain('commit and push');
+    expect(rendered, 'creating skills section missing from SkillsModule system prompt').toContain('Creating new skills');
+    expect(rendered, 'creating skills should point at the skill-creator seed skill').toContain('skill-creator');
+    expect(rendered, 'creating skills should reference sidecar auto-commit').toContain('sidecar commits at end-of-turn');
   });
 
   test('delegate tool is documented in DelegationModule', () => {
@@ -218,8 +219,6 @@ describe('tool-catalog <-> IPC schemas sync', () => {
       'fetch_work',
       // Commit validation (git sidecar → host, validates .ax/ diffs before committing)
       'validate_commit',
-      // Skills index (host-authoritative skill state for system prompt; not an agent tool)
-      'skills_index',
     ]);
 
     for (const action of schemaActions) {

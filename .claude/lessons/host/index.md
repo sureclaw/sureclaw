@@ -4,6 +4,15 @@ Host process lessons: IPC server, orchestration, plugin framework, delegation, a
 
 ## Entries
 
+- In-memory registries need an automatic repopulation trigger on every pod-restart path — don't leave them dependent on a human click [entries.md](entries.md)
+- When multiple dispatcher paths do "the same thing", parity drift between them is a latent regression — funnel through a single helper [entries.md](entries.md)
+- Codegen JSDoc must match the generated function signature exactly — mismatch causes agent retry spirals [entries.md](entries.md)
+- `safePath` guards filesystem paths; use fail-fast segment check for repo-relative commit paths [entries.md](entries.md)
+- Don't mark deps optional "for test fixtures" — required-in-production means required [entries.md](entries.md)
+- Use empty-string sentinel in composite PKs when "null" needs to participate in the key [entries.md](entries.md)
+- One clock not two — DB-side `sqlEpoch(dbType)` for both defaults AND `ON CONFLICT` updates [entries.md](entries.md)
+- Cache-hit tests must delete the underlying resource to prove I/O didn't run [entries.md](entries.md)
+- Use `Map`-backed LRU in Node — insertion order is guaranteed, no dep needed [entries.md](entries.md)
 - Admin auth is bypassed on loopback when BIND_HOST defaults to 127.0.0.1 [entries.md](entries.md)
 - Appliers diff desired-state against live runtime with a closure-scoped prior map [entries.md](entries.md)
 - Shared resources consumed by both core and server.ts belong in HostCore [entries.md](entries.md)

@@ -24,17 +24,17 @@ import { createAdminHandler, _rateLimits, type AdminDeps } from '../../src/host/
 import type { Config } from '../../src/types.js';
 import { createSqliteRegistry } from '../../src/host/agent-registry-db.js';
 import { createEventBus } from '../../src/host/event-bus.js';
-import { ProxyDomainList } from '../../src/host/proxy-domain-list.js';
 import { runMigrations } from '../../src/utils/migrator.js';
 import { adminOAuthMigrations } from '../../src/migrations/admin-oauth-providers.js';
-import { skillsMigrations } from '../../src/migrations/skills.js';
 import {
   createAdminOAuthProviderStore,
   type AdminOAuthProviderStore,
 } from '../../src/host/admin-oauth-providers.js';
-import { createSkillStateStore, type SkillStateStore } from '../../src/host/skills/state-store.js';
 import { createAdminOAuthFlow, type AdminOAuthFlow } from '../../src/host/admin-oauth-flow.js';
-import type { SetupRequest } from '../../src/host/skills/types.js';
+import type { SetupRequest, SkillSnapshotEntry } from '../../src/host/skills/types.js';
+import type { GetAgentSkillsDeps } from '../../src/host/skills/get-agent-skills.js';
+import type { SkillCredStore } from '../../src/host/skills/skill-cred-store.js';
+import type { SkillDomainStore } from '../../src/host/skills/skill-domain-store.js';
 import { initLogger } from '../../src/logger.js';
 
 vi.mock('../../src/host/identity-reader.js', () => ({
@@ -111,8 +111,8 @@ function oauthCard(overrides: Partial<SetupRequest> = {}): SetupRequest {
 }
 
 interface MockDepsOpts {
-  /** When false, do NOT wire a skillStateStore — endpoint must 503. */
-  withStateStore?: boolean;
+  /** When false, do NOT wire agentSkillsDeps — endpoint must 503. */
+  withAgentSkills?: boolean;
   /** When false, do NOT wire adminOAuthFlow — endpoint must 503. */
   withOAuthFlow?: boolean;
   /** When false, do NOT wire adminOAuthProviderStore — admin overrides unavailable. */
@@ -123,15 +123,61 @@ interface MockDepsOpts {
 
 interface MockDepsResult {
   deps: AdminDeps;
-  stateStore: SkillStateStore | undefined;
+  setupByAgentId: Map<string, SetupRequest[]>;
   oauthStore: AdminOAuthProviderStore | undefined;
   adminOAuthFlow: AdminOAuthFlow | undefined;
   auditLog: ReturnType<typeof vi.fn>;
   cleanup: () => Promise<void>;
 }
 
+/**
+ * Build a minimal `agentSkillsDeps` whose snapshot cache synthesizes the
+ * declared setup queue for each agentId. Lets the OAuth-start endpoint see
+ * a pending card without a real git repo.
+ */
+function stubAgentSkillsDeps(opts: {
+  setupByAgentId: Map<string, SetupRequest[]>;
+  skillCredStore: SkillCredStore;
+  skillDomainStore: SkillDomainStore;
+}): GetAgentSkillsDeps {
+  const byAgentId = opts.setupByAgentId;
+  return {
+    skillCredStore: opts.skillCredStore,
+    skillDomainStore: opts.skillDomainStore,
+    async getBareRepoPath() { return '/unused'; },
+    async probeHead(agentId) { return `stub@${agentId}`; },
+    snapshotCache: {
+      get(key) {
+        const agentId = key.split('@')[0];
+        const cards = byAgentId.get(agentId) ?? [];
+        return cards.map((c): SkillSnapshotEntry => ({
+          name: c.skillName,
+          ok: true,
+          body: '',
+          frontmatter: {
+            name: c.skillName,
+            description: c.description,
+            credentials: c.missingCredentials.map(m => ({
+              envName: m.envName,
+              authType: m.authType,
+              scope: m.scope,
+              oauth: m.oauth,
+            })),
+            domains: c.unapprovedDomains,
+            mcpServers: c.mcpServers,
+          },
+        }));
+      },
+      put() { /* no-op — get synthesizes every time */ },
+      invalidateAgent() { return 0; },
+      clear() { /* no-op */ },
+      size() { return 0; },
+    },
+  };
+}
+
 async function mockDeps(opts: MockDepsOpts = {}): Promise<MockDepsResult> {
-  const withStateStore = opts.withStateStore !== false;
+  const withAgentSkills = opts.withAgentSkills !== false;
   const withOAuthFlow = opts.withOAuthFlow !== false;
   const withOAuthProviderStore = opts.withOAuthProviderStore !== false;
 
@@ -152,7 +198,6 @@ async function mockDeps(opts: MockDepsOpts = {}): Promise<MockDepsResult> {
       set: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
-      listScopePrefix: vi.fn().mockResolvedValue([]),
     },
   };
 
@@ -162,24 +207,37 @@ async function mockDeps(opts: MockDepsOpts = {}): Promise<MockDepsResult> {
     eventBus: createEventBus(),
     agentRegistry: registry,
     startTime: Date.now() - 60_000,
+    // OAuth-start tests don't exercise the tool-module sync path; stub with
+    // a fail-loud closure so accidental invocations show up as test failures.
+    syncToolModules: async () => {
+      throw new Error('syncToolModules stub — not exercised in these tests');
+    },
   };
-  deps.domainList = new ProxyDomainList();
-
   if (opts.defaultUserId !== undefined) {
     deps.defaultUserId = opts.defaultUserId;
   }
 
   const closers: Array<() => Promise<void>> = [];
+  const setupByAgentId = new Map<string, SetupRequest[]>();
+  const skillCredStore: SkillCredStore = {
+    async put() { /* no-op */ },
+    async get() { return null; },
+    async listForAgent() { return []; },
+    async listEnvNames() { return new Set(); },
+  };
+  const skillDomainStore: SkillDomainStore = {
+    async approve() { /* no-op */ },
+    async listForAgent() { return []; },
+  };
+  deps.skillCredStore = skillCredStore;
+  deps.skillDomainStore = skillDomainStore;
 
-  let stateStore: SkillStateStore | undefined;
-  if (withStateStore) {
-    const sqliteDb = new Database(':memory:');
-    const db = new Kysely<any>({ dialect: new SqliteDialect({ database: sqliteDb }) });
-    const mig = await runMigrations(db, skillsMigrations, 'skills_migration');
-    if (mig.error) throw mig.error;
-    stateStore = createSkillStateStore(db);
-    deps.skillStateStore = stateStore;
-    closers.push(async () => { await db.destroy(); });
+  if (withAgentSkills) {
+    deps.agentSkillsDeps = stubAgentSkillsDeps({
+      setupByAgentId,
+      skillCredStore,
+      skillDomainStore,
+    });
   }
 
   let oauthStore: AdminOAuthProviderStore | undefined;
@@ -202,7 +260,7 @@ async function mockDeps(opts: MockDepsOpts = {}): Promise<MockDepsResult> {
 
   return {
     deps,
-    stateStore,
+    setupByAgentId,
     oauthStore,
     adminOAuthFlow,
     auditLog,
@@ -271,9 +329,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('happy path: frontmatter-only clientId, returns { authUrl, state }', async () => {
-    const { deps, stateStore, adminOAuthFlow, auditLog, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, adminOAuthFlow, auditLog, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -322,9 +380,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('admin-registered override: admin clientId + redirectUri win; secret stored but NEVER leaks', async () => {
-    const { deps, stateStore, oauthStore, adminOAuthFlow, auditLog, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, oauthStore, adminOAuthFlow, auditLog, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     await oauthStore!.upsert({
       provider: 'linear',
@@ -373,9 +431,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('skill not in setup queue → 404', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard({ skillName: 'other-skill' })]);
+    setupByAgentId.set('main', [oauthCard({ skillName: 'other-skill' })]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -396,9 +454,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('envName not in missingCredentials → 404', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -419,9 +477,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('api_key credential (not oauth) → 404 (OAuth-only)', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [
+    setupByAgentId.set('main', [
       {
         skillName: 'api-only',
         description: 'API key skill',
@@ -450,9 +508,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('agent not in registry → 404', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -470,8 +528,8 @@ describe('POST /admin/api/skills/oauth/start', () => {
     expect((res.body as { error: { message: string } }).error.message).toBe('Agent not found');
   });
 
-  it('503 when skillStateStore missing', async () => {
-    const { deps, cleanup } = await mockDeps({ withStateStore: false });
+  it('503 when agentSkillsDeps missing', async () => {
+    const { deps, cleanup } = await mockDeps({ withAgentSkills: false });
     cleanupStore = cleanup;
 
     const handler = createAdminHandler(deps);
@@ -491,9 +549,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('503 when adminOAuthFlow missing', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps({ withOAuthFlow: false });
+    const { deps, setupByAgentId, cleanup } = await mockDeps({ withOAuthFlow: false });
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -512,9 +570,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('Zod validation — missing required fields → 400', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -528,11 +586,11 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('userId fallback chain — body.userId wins over deps.defaultUserId', async () => {
-    const { deps, stateStore, adminOAuthFlow, cleanup } = await mockDeps({
+    const { deps, setupByAgentId, adminOAuthFlow, cleanup } = await mockDeps({
       defaultUserId: 'from-deps',
     });
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -555,11 +613,11 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('userId fallback chain — deps.defaultUserId used when body omits it', async () => {
-    const { deps, stateStore, adminOAuthFlow, cleanup } = await mockDeps({
+    const { deps, setupByAgentId, adminOAuthFlow, cleanup } = await mockDeps({
       defaultUserId: 'from-deps',
     });
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -581,9 +639,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it("userId fallback chain — 'admin' used when both body.userId and deps.defaultUserId are absent", async () => {
-    const { deps, stateStore, adminOAuthFlow, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, adminOAuthFlow, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -610,9 +668,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
     // a malformed `javascript://host/v1/oauth/callback/...` redirect_uri.
     // Admin token is required on this endpoint, so the blast radius was
     // already small — but defense-in-depth is cheap here.
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));
@@ -637,9 +695,9 @@ describe('POST /admin/api/skills/oauth/start', () => {
   });
 
   it('normalizes x-forwarded-proto case (HTTPS -> https)', async () => {
-    const { deps, stateStore, cleanup } = await mockDeps();
+    const { deps, setupByAgentId, cleanup } = await mockDeps();
     cleanupStore = cleanup;
-    await stateStore!.putSetupQueue('main', [oauthCard()]);
+    setupByAgentId.set('main', [oauthCard()]);
 
     const handler = createAdminHandler(deps);
     ({ server, port } = await startTestServer(handler));

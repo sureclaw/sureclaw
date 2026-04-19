@@ -1,8 +1,5 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { convertPiMessages, emitStreamEvents, injectFileBlocks, loadSkills, loadSkillsMultiDir } from '../../src/agent/stream-utils.js';
+import { describe, test, expect } from 'vitest';
+import { convertPiMessages, emitStreamEvents, injectFileBlocks } from '../../src/agent/stream-utils.js';
 
 // ── convertPiMessages ────────────────────────────────────────────────
 
@@ -332,74 +329,3 @@ describe('injectFileBlocks', () => {
   });
 });
 
-// ── loadSkills ───────────────────────────────────────────────────────
-
-describe('loadSkills', () => {
-  const tmpDir = join(tmpdir(), 'ax-test-stream-utils-skills-' + Date.now());
-
-  beforeEach(() => mkdirSync(tmpDir, { recursive: true }));
-  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
-
-  test('reads .md files from skills directory as SkillSummary[]', () => {
-    writeFileSync(join(tmpDir, 'skill1.md'), '# Safety Check\nEnsures code safety.');
-    writeFileSync(join(tmpDir, 'skill2.md'), '# Memory Mgmt\nManages memory entries.');
-    writeFileSync(join(tmpDir, 'readme.txt'), 'not a skill');
-    const skills = loadSkills(tmpDir);
-    expect(skills).toHaveLength(2);
-    // Returns SkillSummary objects, not raw strings
-    expect(skills[0]).toHaveProperty('name');
-    expect(skills[0]).toHaveProperty('description');
-    expect(skills[0]).toHaveProperty('path');
-    // Extracts H1 title
-    const names = skills.map(s => s.name);
-    expect(names).toContain('Safety Check');
-    expect(names).toContain('Memory Mgmt');
-  });
-
-  test('returns empty array when directory does not exist', () => {
-    expect(loadSkills('/nonexistent/path')).toEqual([]);
-  });
-});
-
-// ── loadSkillsMultiDir ────────────────────────────────────────────────
-
-describe('loadSkillsMultiDir', () => {
-  const agentDir = join(tmpdir(), 'ax-test-multidir-agent-' + Date.now());
-  const userDir = join(tmpdir(), 'ax-test-multidir-user-' + Date.now());
-
-  beforeEach(() => {
-    mkdirSync(agentDir, { recursive: true });
-    mkdirSync(userDir, { recursive: true });
-  });
-  afterEach(() => {
-    rmSync(agentDir, { recursive: true, force: true });
-    rmSync(userDir, { recursive: true, force: true });
-  });
-
-  test('merges skills from multiple directories, user shadows agent', () => {
-    // Agent has deploy.md and shared.md
-    writeFileSync(join(agentDir, 'deploy.md'), '# Deploy\nDeploy to production');
-    writeFileSync(join(agentDir, 'shared.md'), '# Shared\nShared skill');
-
-    // User has deploy.md (shadows agent) and private.md
-    writeFileSync(join(userDir, 'deploy.md'), '# Deploy\nUser custom deploy');
-    writeFileSync(join(userDir, 'private.md'), '# Private\nUser only skill');
-
-    const skills = loadSkillsMultiDir([
-      { dir: agentDir, scope: 'agent' },
-      { dir: userDir, scope: 'user' },
-    ]);
-
-    expect(skills).toHaveLength(3); // deploy (user), shared (agent), private (user)
-    const deploy = skills.find(s => s.name === 'Deploy');
-    expect(deploy?.description).toBe('User custom deploy');
-  });
-
-  test('returns empty array when directories do not exist', () => {
-    const skills = loadSkillsMultiDir([
-      { dir: '/nonexistent/agent', scope: 'agent' },
-      { dir: '/nonexistent/user', scope: 'user' },
-    ]);
-    expect(skills).toEqual([]);
-  });
-});

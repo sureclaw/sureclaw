@@ -11,7 +11,6 @@ import type { CredentialProvider } from './types.js';
 import type { Config } from '../../types.js';
 import type { DatabaseProvider } from '../database/types.js';
 import type { Kysely } from 'kysely';
-import { sql } from 'kysely';
 
 const DEFAULT_SCOPE = 'global';
 
@@ -39,7 +38,6 @@ export async function create(
   if (result.error) throw result.error;
 
   const db: Kysely<any> = database.db;
-  const dialect = database.type;
 
   return {
     async get(service: string, scope?: string): Promise<string | null> {
@@ -102,28 +100,6 @@ export async function create(
         .where('scope', '=', effectiveScope)
         .execute();
       return rows.map(r => r.env_name as string);
-    },
-
-    async listScopePrefix(prefix: string): Promise<Array<{ scope: string; envName: string }>> {
-      // Reject callers that sneak in GLOB/LIKE wildcards — scopes we generate
-      // never contain these metacharacters, so this is a bug-or-attack signal.
-      // The guard covers both dialects: GLOB metachars (* ? [ ]) and LIKE
-      // metachars (% _ \).
-      if (/[*?[\]%_\\]/.test(prefix)) {
-        throw new Error(`listScopePrefix: prefix contains GLOB/LIKE metacharacters: ${prefix}`);
-      }
-      // Case-sensitivity matters: "user:main:Alice" and "user:main:alice" must
-      // stay distinct. SQLite's LIKE is ASCII-case-insensitive by default, so
-      // we use GLOB there (always case-sensitive). PostgreSQL's LIKE is
-      // case-sensitive by default, so plain LIKE is fine.
-      const matcher = dialect === 'sqlite'
-        ? sql<boolean>`scope GLOB ${prefix + '*'}`
-        : sql<boolean>`scope LIKE ${prefix + '%'}`;
-      const rows = await db.selectFrom('credential_store')
-        .select(['scope', 'env_name'])
-        .where(matcher)
-        .execute();
-      return rows.map(r => ({ scope: r.scope as string, envName: r.env_name as string }));
     },
   };
 }

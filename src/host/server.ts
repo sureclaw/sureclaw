@@ -44,9 +44,9 @@ import type { IPCContext } from './ipc-server.js';
 import { dataDir } from '../paths.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { SharedCredentialRegistry } from './credential-placeholders.js';
+import { BUILTIN_DOMAINS, normalizeDomain } from './skills/domain-allowlist.js';
 
-// Git-native skills: reconcile hook mount
-import { reconcileAgent, type OrchestratorDeps } from './skills/reconcile-orchestrator.js';
+// Git-native skills: post-receive hook mount (cache-bust).
 import { createReconcileHookHandler } from './skills/hook-endpoint.js';
 
 /**
@@ -135,33 +135,25 @@ export async function createServer(
     completionDeps, conversationStore, sessionStore, router, taintBudget, fileStore, gcsFileStorage,
     handleIPC, ipcServer, ipcSocketDir, orchestrator, disableAutoState,
     agentRegistry, agentId: agentName, adminCtx, sessionCanaries,
-    domainList, defaultUserId, modelId, stateStore,
+    defaultUserId, modelId, skillCredStore, skillDomainStore,
+    agentSkillsDeps,
   } = core;
 
   const isK8s = config.providers.sandbox === 'k8s';
 
-  // ── Git-native skills: migrations, state store, reconcile hook ──
+  // ── Git-native skills: post-receive hook (cache-bust) ──
   //
-  // Runs regardless of deployment mode, but the hook endpoint is only useful
-  // when a post-receive hook is installed (phase-2 task 8 wires that for
-  // git-local). The resolver here mirrors git-local's path layout — for
-  // git-http/k8s deployments the git-http container will need its own
-  // reconcile path (phase-2 task 9), so this default only works for git-local.
-  //
-  // Phase 4 shares one `orchestratorDeps` across the hook handler (per-push
-  // reconcile) and the startup rehydration pass (boot-time reconcile) so both
-  // paths drive the same live-state appliers.
+  // The per-agent git post-receive hook POSTs to `/v1/internal/skills/reconcile`
+  // after every ref move. The handler HMAC-verifies the payload and drops the
+  // agent's cached snapshots so the next live read walks git afresh.
   let reconcileHookHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<void>) | undefined;
-  // Phase 5: reconcile closure hoisted out of the `if (stateStore)` block so the
-  // admin handler can trigger reconcile after an approve. `undefined` when no
-  // state store is configured (back-compat — admin skills endpoints will 503).
-  let adminReconcileAgent: ((agentId: string, ref: string) => Promise<{ skills: number; events: number }>) | undefined;
-  if (stateStore) {
+
+  if (agentSkillsDeps) {
     // AX_HOOK_SECRET: shared HMAC secret for post-receive → host handshake.
-    // Env-var preferred so the hook installer (task 8) can read the same
-    // value; fall back to a random per-process secret with a loud warning
-    // when unset. Stash on process.env so downstream code (task 8) picks
-    // it up without re-plumbing.
+    // Env-var preferred so the hook installer can read the same value; fall
+    // back to a random per-process secret with a loud warning when unset.
+    // Stash on process.env so the hook installer picks it up without
+    // re-plumbing.
     let hookSecret = process.env.AX_HOOK_SECRET;
     if (!hookSecret) {
       hookSecret = randomBytes(32).toString('hex');
@@ -171,62 +163,11 @@ export async function createServer(
       });
     }
 
-    // Phase-2 resolver: git-local layout only. Other deployments will bring
-    // their own hook path. encodeURIComponent mirrors git-local.ts.
-    const getBareRepoPath = (agentId: string): string =>
-      join(axHome(), 'repos', encodeURIComponent(agentId));
-
-    const orchestratorDeps: OrchestratorDeps = {
-      agentName,
-      proxyDomainList: domainList,
-      credentials: providers.credentials,
-      stateStore,
-      eventBus,
-      getBareRepoPath,
-      // Phase 4: live MCP + proxy appliers — constructed by initHostCore so
-      // the hook + rehydrate both push through them. When the state store
-      // exists but appliers don't (shouldn't happen with current
-      // server-init.ts wiring), reconcileAgent's optional-applier branches
-      // silently no-op.
-      mcpApplier: core.mcpApplier,
-      proxyApplier: core.proxyApplier,
-    };
-
     reconcileHookHandler = createReconcileHookHandler({
       secret: hookSecret,
-      reconcileAgent: (agentId, ref) => reconcileAgent(agentId, ref, orchestratorDeps),
+      snapshotCache: agentSkillsDeps.snapshotCache,
+      agentSkillsDeps,
     });
-
-    // Phase 5: admin uses the same orchestratorDeps so approve-triggered
-    // reconciles share the same appliers as the push-time hook.
-    adminReconcileAgent = (agentId, ref) => reconcileAgent(agentId, ref, orchestratorDeps);
-
-    // Phase 4: startup rehydration — re-run reconcile for every known agent
-    // so the McpConnectionManager + ProxyDomainList catch up with the
-    // DB-persisted desired state after a host restart. Per-agent failures are
-    // logged and swallowed inside rehydrateSkillsForAgents — best-effort; the
-    // next push-time hook will also reconcile.
-    //
-    // Fire-and-forget: each agent's reconcile runs a git snapshot, so awaiting
-    // the whole loop blocks createServer from returning. Launching it in the
-    // background lets the socket bind promptly; the push-time hook covers any
-    // agent that gets a push before rehydration finishes.
-    if (core.mcpApplier && core.proxyApplier) {
-      void (async () => {
-        try {
-          const agents = await agentRegistry.list();
-          const { rehydrateSkillsForAgents } = await import('./skills/startup-rehydrate.js');
-          await rehydrateSkillsForAgents(
-            agents.map(a => a.id),
-            orchestratorDeps,
-          );
-        } catch (err) {
-          logger.warn('skills_startup_rehydrate_failed', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      })();
-    }
   } else {
     logger.debug('skills_reconcile_hook_disabled_no_database');
   }
@@ -275,8 +216,11 @@ export async function createServer(
           durationMs: entry.durationMs,
         }).catch(() => {});
       },
-      allowedDomains: { has: (d: string) => domainList.isAllowed(d) },
-      onDenied: (domain) => domainList.addPending(domain, 'host-process'),
+      // Host-process proxy only handles infrastructure traffic (admin dashboard
+      // callouts, host-side fetches). Agent traffic runs through per-session
+      // proxies with per-agent allowlists. BUILTIN_DOMAINS covers package
+      // managers + GitHub — anything else gets denied at the proxy boundary.
+      allowedDomains: { has: (d: string) => BUILTIN_DOMAINS.has(normalizeDomain(d)) },
       mitm: {
         ca,
         credentials: sharedCredentialRegistry!,
@@ -337,15 +281,24 @@ export async function createServer(
     agentRegistry,
     startTime,
     localDevMode,
-    domainList: core.domainList,
     mcpManager: core.mcpManager,
     externalAuth: !!providers.auth?.length,
-    skillStateStore: stateStore,
-    reconcileAgent: adminReconcileAgent,
+    skillCredStore,
+    skillDomainStore,
+    agentSkillsDeps,
     defaultUserId,
-    credentialRequestQueue: core.credentialRequestQueue,
+    resolveAuthenticatedUser: providers.auth?.length
+      ? async (req) => {
+          const { authenticateRequest } = await import('./server-request-handlers.js');
+          const result = await authenticateRequest(req, providers.auth!);
+          return result.authenticated && result.user
+            ? { id: result.user.id, email: result.user.email }
+            : undefined;
+        }
+      : undefined,
     adminOAuthProviderStore: core.adminOAuthProviderStore,
     adminOAuthFlow: core.adminOAuthFlow,
+    syncToolModules: core.syncToolModules,
   });
 
   let httpServer: HttpServer | null = null;
@@ -584,7 +537,8 @@ export async function createServer(
     webhookHandler,
     adminHandler,
     adminOAuthFlow: core.adminOAuthFlow,
-    reconcileAgent: adminReconcileAgent,
+    skillCredStore: core.skillCredStore,
+    snapshotCache: agentSkillsDeps.snapshotCache,
     authProviders: providers.auth,
     isDraining: () => draining,
     trackRequestStart,

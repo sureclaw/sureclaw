@@ -1,5 +1,11 @@
 # Provider Lessons: Auth
 
+### BetterAuth needs baseURL set explicitly; AX exposes it via `auth.better_auth.base_url`
+**Date:** 2026-04-17
+**Context:** On a kind deployment the AX host logged `[Better Auth]: Base URL could not be determined.` BetterAuth autoresolves from `BETTER_AUTH_URL` env or the incoming request, but Kubernetes ingress/service paths often break request inference.
+**Lesson:** AX's better-auth provider now reads `config.auth.better_auth.base_url` and falls back to `process.env.BETTER_AUTH_URL`. Set the config field to the externally-reachable URL (what the browser actually hits — e.g. `http://localhost:8080` for port-forward, `https://ax.example.com` for ingress). Whatever value is used must also appear in the Google Cloud OAuth client's authorized redirect URIs as `<base_url>/api/auth/callback/google`.
+**Tags:** better-auth, oauth, config, kubernetes, base-url
+
 ### BetterAuth database option requires raw DB instances, not URL strings
 **Date:** 2026-04-05
 **Context:** Implementing the BetterAuth provider. The task plan specified `database: { url: dbUrl, type: dbType }` but BetterAuth v1.5.6 does not accept that shape.

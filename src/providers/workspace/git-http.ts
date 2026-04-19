@@ -11,14 +11,27 @@
  * - Safe error handling (repo creation failures don't crash agent)
  */
 
-import type { WorkspaceProvider } from './types.js';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { CommitFilesInput, CommitFilesResult, WorkspaceProvider } from './types.js';
 import type { Config } from '../../types.js';
+import { axHome } from '../../paths.js';
+import { safePath } from '../../utils/safe-path.js';
 import { getLogger } from '../../logger.js';
+import { execFileNoThrow } from '../../utils/execFileNoThrow.js';
+import { commitFilesInBareRepo } from './commit-tree.js';
 
 const logger = getLogger().child({ component: 'git-http-workspace' });
 
 const MAX_REPO_CREATION_RETRIES = 3;
 const REPO_CREATION_RETRY_DELAY_MS = 1000;
+
+async function runGit(args: string[], cwd?: string): Promise<void> {
+  const r = await execFileNoThrow('git', args, { cwd, maxBuffer: 16 * 1024 * 1024 });
+  if (r.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed (exit ${r.status}): ${r.stderr.trim() || r.stdout.trim()}`);
+  }
+}
 
 export async function create(config: Config): Promise<WorkspaceProvider> {
   // Construct fully qualified service name: ax-git.namespace.svc.cluster.local
@@ -27,7 +40,45 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
   const gitHost = config.gitServer?.host || `${serviceName}.${namespace}.svc.cluster.local`;
   const gitHttpPort = config.gitServer?.httpPort || 8000;
 
-  return {
+  const reposDir = join(axHome(), 'repos');
+  const seededMirrors = new Set<string>();
+
+  /**
+   * Ensure a local bare-repo mirror exists for `agentId`, seeded from the
+   * remote git-http origin. Mirrors what `server-init.ts::getBareRepoPath`
+   * does — kept self-contained here so the provider owns its on-disk state.
+   */
+  async function ensureMirror(agentId: string, originUrl: string): Promise<string> {
+    const localPath = safePath(reposDir, encodeURIComponent(agentId));
+    const alreadySeeded = seededMirrors.has(agentId) || existsSync(join(localPath, 'HEAD'));
+    if (!alreadySeeded) {
+      // Clone + reconfigure must all succeed, or the on-disk mirror is torn
+      // down so the next call re-clones cleanly. Any half-configured state
+      // (e.g. clone succeeded but unset-mirror failed) would otherwise be
+      // mistaken for a valid seed on the next call (HEAD exists →
+      // alreadySeeded=true) and every subsequent push would fail with
+      // "--mirror can't be combined with refspecs".
+      mkdirSync(dirname(localPath), { recursive: true });
+      try { rmSync(localPath, { recursive: true, force: true }); } catch { /* best effort */ }
+      try {
+        await runGit(['clone', '--mirror', originUrl, localPath]);
+        // `--mirror` sets `remote.origin.mirror=true`, which forbids pushing a
+        // single refspec. We want to own the push ref list explicitly, so drop
+        // the mirror flag while keeping the bare layout.
+        await runGit(['-C', localPath, 'config', '--unset', 'remote.origin.mirror']);
+        await runGit(['-C', localPath, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/heads/*']);
+      } catch (err) {
+        try { rmSync(localPath, { recursive: true, force: true }); } catch { /* best effort */ }
+        throw err;
+      }
+      seededMirrors.add(agentId);
+    } else {
+      await runGit(['-C', localPath, 'fetch', '--prune', 'origin']);
+    }
+    return localPath;
+  }
+
+  const provider: WorkspaceProvider = {
     async getRepoUrl(agentId: string): Promise<{ url: string; created: boolean }> {
       // Lossless encoding — prevents aliasing (e.g. user:alice vs user-alice)
       const repoName = encodeURIComponent(agentId);
@@ -108,10 +159,34 @@ export async function create(config: Config): Promise<WorkspaceProvider> {
       return { url: `http://${gitHost}:${gitHttpPort}/${repoName}.git`, created };
     },
 
+    async ensureLocalMirror(agentId: string): Promise<string> {
+      // Public entry point into the local-mirror machinery. `server-init.ts`
+      // and `commitFiles` share this so there's one seededMirrors set and
+      // one clone-config path — avoids the drift bug where a caller that
+      // only cloned (no unset of `remote.origin.mirror`) left the mirror
+      // in a state that broke subsequent refspec-pushes.
+      const { url: originUrl } = await provider.getRepoUrl(agentId);
+      return ensureMirror(agentId, originUrl);
+    },
+
+    async commitFiles(agentId: string, input: CommitFilesInput): Promise<CommitFilesResult> {
+      // Resolve the remote clone URL, seed or refresh the local mirror, then
+      // apply the commit against the mirror and push it upstream.
+      const { url: originUrl } = await provider.getRepoUrl(agentId);
+      const mirrorPath = await ensureMirror(agentId, originUrl);
+      const result = await commitFilesInBareRepo(mirrorPath, input);
+      if (result.changed) {
+        await runGit(['-C', mirrorPath, 'push', 'origin', 'refs/heads/main']);
+      }
+      return result;
+    },
+
     async close(): Promise<void> {
       // No resources to clean up
     },
   };
+
+  return provider;
 }
 
 export type GitHttpWorkspaceProvider = Awaited<ReturnType<typeof create>>;

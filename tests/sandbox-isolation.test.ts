@@ -368,13 +368,13 @@ describe('spawn command construction', () => {
 // ── MCP Server Tool Registry ─────────────────────────────────────────
 
 describe('MCP server tool registry security', () => {
-  test('exposes exactly 14 IPC tools', () => {
+  test('exposes exactly 13 IPC tools', () => {
     const client = createMockClient();
     const server = createIPCMcpServer(client);
     const tools = getTools(server);
 
     const expected = [
-      'memory', 'web', 'scheduler', 'request_credential',
+      'memory', 'web', 'scheduler',
       'audit', 'agent',
       // Enterprise tools
       'save_artifact',
@@ -384,7 +384,7 @@ describe('MCP server tool registry security', () => {
     ];
 
     expect(Object.keys(tools).sort()).toEqual(expected.sort());
-    expect(Object.keys(tools).length).toBe(14);
+    expect(Object.keys(tools).length).toBe(13);
   });
 
   test('tool results are JSON strings, not raw objects with taint', () => {
@@ -478,26 +478,13 @@ describe('lifecycle dispatch replaces three-phase orchestration', () => {
 
 // ── Work Payload Workspace Provisioning Fields ───────────────────────
 
-describe('skills loaded from git workspace', () => {
-  test('agent-setup loads skills from .ax/skills/ in workspace', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(resolve('src/agent/agent-setup.ts'), 'utf-8');
-    expect(source).toContain('.ax');
-    expect(source).toContain('skills');
-  });
-
-  test('StdinPayload does not include skills field (git-native)', async () => {
+describe('skills delivered via stdin payload', () => {
+  test('StdinPayload declares a skills field', async () => {
     const { readFileSync } = await import('node:fs');
     const source = readFileSync(resolve('src/agent/runner.ts'), 'utf-8');
-    // Skills are no longer in the stdin payload — they live in the git
-    // workspace and/or come from the host via the skills_index IPC action.
-    // Scope the check to the StdinPayload interface body only — AgentConfig
-    // legitimately carries `skills?:` as the host-authoritative list set
-    // from the skills_index fetch before prompt build.
     const match = source.match(/export interface StdinPayload \{([\s\S]*?)\n\}/);
     expect(match, 'StdinPayload interface not found in runner.ts').not.toBeNull();
-    expect(match![1]).not.toContain('skills?:');
-    expect(match![1]).not.toMatch(/\bskills\s*:/);
+    expect(match![1]).toMatch(/\bskills\??\s*:/);
   });
 });
 

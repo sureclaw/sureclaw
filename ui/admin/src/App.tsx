@@ -21,14 +21,14 @@ import SecurityPage from './components/pages/security-page';
 import LogsPage from './components/pages/logs-page';
 import SettingsPage from './components/pages/settings-page';
 import ConnectorsPage from './components/pages/connectors-page';
-import SkillsPage from './components/pages/skills-page';
+import ApprovalsPage from './components/pages/approvals-page';
 
-type Page = 'overview' | 'agents' | 'connectors' | 'skills' | 'security' | 'logs' | 'settings';
+type Page = 'overview' | 'agents' | 'connectors' | 'approvals' | 'security' | 'logs' | 'settings';
 const VALID_PAGES: Page[] = [
   'overview',
   'agents',
   'connectors',
-  'skills',
+  'approvals',
   'security',
   'logs',
   'settings',
@@ -57,7 +57,7 @@ type AuthState = 'loading' | 'authenticated' | 'login' | 'access-denied' | 'setu
 const NAV_ITEMS: { id: Page; label: string; icon: typeof Shield }[] = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'agents', label: 'Agents', icon: Users },
-  { id: 'skills', label: 'Skills', icon: Sparkles },
+  { id: 'approvals', label: 'Approvals', icon: Sparkles },
   { id: 'connectors', label: 'Connectors', icon: Globe },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'logs', label: 'Logs', icon: FileText },
@@ -308,7 +308,7 @@ export default function App() {
             {activePage === 'overview' && <OverviewPage />}
             {activePage === 'agents' && <AgentsPage />}
             {activePage === 'connectors' && <ConnectorsPage />}
-            {activePage === 'skills' && <SkillsPage />}
+            {activePage === 'approvals' && <ApprovalsPage />}
             {activePage === 'security' && <SecurityPage />}
             {activePage === 'logs' && <LogsPage />}
             {activePage === 'settings' && <SettingsPage />}

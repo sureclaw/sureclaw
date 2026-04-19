@@ -3,7 +3,7 @@
  *
  * Manages pending OAuth flows (start → callback → token exchange → store),
  * and handles token refresh for expired credentials. Uses event bus for
- * cross-replica coordination instead of in-memory resolveCredential().
+ * cross-replica coordination between flow-start and token-exchange handlers.
  */
 
 import { generateCodeVerifier, generateCodeChallenge, generateState } from './oauth.js';

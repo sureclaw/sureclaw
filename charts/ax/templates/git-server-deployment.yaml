@@ -36,6 +36,16 @@ spec:
         env:
         - name: LOG_LEVEL
           value: {{ .Values.gitServer.logLevel | default "info" }}
+        # Post-receive hook wiring — see container/git-server/install-hook.js.
+        # Without these two env vars the hook no-ops, pushes never reach the
+        # reconciler, and drafted skills never surface in the admin dashboard.
+        - name: AX_HOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "ax.fullname" . }}-hook
+              key: secret
+        - name: AX_HOST_URL
+          value: "http://{{ include "ax.fullname" . }}-host"
         volumeMounts:
         - name: git-repos
           mountPath: /var/git

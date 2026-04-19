@@ -1,5 +1,17 @@
 # K8s Deployment Journal
 
+## [2026-04-17 20:45] — Fix Postgres startup: unixepoch() error + BetterAuth base_url config
+
+**Task:** User's kind-deployed AX host crashed on startup with `function unixepoch() does not exist` against Postgres, plus a warning `[Better Auth]: Base URL could not be determined`.
+**What I did:**
+- Root cause 1: `src/host/server-init.ts` imported the SQLite-hardcoded default exports `skillsMigrations` and `adminOAuthMigrations` (baked with `buildX('sqlite')`) and ran them against whatever DB the provider returned. Swapped to the dialect-aware factories `buildSkillsMigrations(providers.database.type)` and `buildAdminOAuthMigrations(providers.database.type)`.
+- Root cause 2: BetterAuth requires `baseURL` (env `BETTER_AUTH_URL` or option) for OAuth redirects. Added `auth.better_auth.base_url` to the Zod schema in `src/config.ts`, Config type in `src/types.ts`, and threaded it into `betterAuth({ baseURL })` in `src/providers/auth/better-auth.ts` (falls back to `process.env.BETTER_AUTH_URL`).
+- Also fixed user's `ax-values.yaml`: `better-auth:` → `better_auth:` to match Zod schema's snake_case key.
+- Restyled `ui/chat/src/App.tsx` LoginPage to match admin's login (same `.card` wrapper, `text-amber`, `bg-foreground/[0.04]`, `border-border/50`, and `bg-foreground text-background` button). Added the `.card` component class to `ui/chat/src/index.css` so chat can reuse it.
+**Files touched:** `src/host/server-init.ts`, `src/config.ts`, `src/types.ts`, `src/providers/auth/better-auth.ts`, `ui/chat/src/App.tsx`, `ui/chat/src/index.css`, `ax-values.yaml` (user's local)
+**Outcome:** Success — `npm run build` clean, migrations + config tests pass (5 + 26), chat UI typecheck clean.
+**Notes:** The hardcoded-'sqlite' defaults in `src/migrations/{skills,admin-oauth-providers,files,jobs}.ts` are landmines for Postgres deployments; only the two imported by server-init were active bugs, but the others should eventually be deleted or migrated to build-style callers.
+
 ## [2026-03-25 20:35] — Remove skill_list/skill_read IPC and workspace GCS provisioning
 
 **Task:** Remove dead IPC actions and dead workspace GCS provisioning code

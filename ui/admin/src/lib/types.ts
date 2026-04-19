@@ -147,6 +147,11 @@ export interface SetupCardCredential {
     tokenUrl: string;
     scopes: string[];
   };
+  /** True when the server already has a value for this envName at any
+   * matching scope. Lets the UI show a "reuse existing value" hint and
+   * relax the "Approve" button-disable rule; when set, leaving the input
+   * blank on submit tells the approve handler to auto-fill from storage. */
+  hasExistingValue?: boolean;
 }
 
 /** A pending skill setup card for a single skill on a single agent. */
@@ -197,22 +202,23 @@ export interface SkillApproveResponse {
   state?: SkillState;
 }
 
+/** Response from GET /admin/api/agents/:agentId/skills — full list of skills the reconciler knows about for this agent. */
+export interface AgentSkillsResponse {
+  skills: SkillState[];
+}
+
 /** Response from POST /admin/api/skills/oauth/start. */
 export interface StartOAuthResponse {
   authUrl: string;
   state: string;
 }
 
-/** Ad-hoc credential request from the request_credential agent tool. */
-export interface CredentialRequest {
-  sessionId: string;
-  envName: string;
-  agentName: string;
-  userId?: string;
-  createdAt: number;
-}
-
-/** Response from GET /admin/api/credentials/requests. */
-export interface CredentialRequestsResponse {
-  requests: CredentialRequest[];
+/** Response from POST /admin/api/agents/:agentId/skills/:skillName/refresh-tools. */
+export interface RefreshToolsResponse {
+  ok: boolean;
+  /** SHA of the new commit, or `null` when the skill declares no MCP servers
+   *  (nothing to generate) or discovery returned zero tools. */
+  commit: string | null;
+  moduleCount: number;
+  toolCount: number;
 }

@@ -2,6 +2,36 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-04-18 14:35] — Tool-modules Task 6: agent loads tool index from committed `.ax/tools/`
+
+**Task:** Task 5 dropped the per-turn `toolModuleIndex` stdin payload. Task 6 re-adds the render block to the Runtime prompt module, but now sourced agent-side from the `_index.json` files that `syncToolModulesForSkill` commits to the workspace repo during skill approval / admin refresh.
+**What I did:** TDD — wrote 10 failing tests in `tests/agent/prompt/tool-index-loader.test.ts` covering: empty index when workspace or `.ax/tools/` missing, single-skill render with camelCased names and `?`-marked optionals, multi-skill one-line-per-skill render, tool without `parameters` field, malformed-JSON skill skipped (others still load), missing `tools` field skipped, empty `tools[]` skipped, subdirs without `_index.json` ignored, property ordering preserved. Implemented `src/agent/prompt/tool-index-loader.ts` — `readdirSync` + explicit path joins (no glob lib), per-skill fail-open (log + skip), inline 3-line `snakeToCamel` duplicate to keep agent code free of host-layer imports. Added `toolModuleIndex?: string` back to `PromptContext`, re-added the render block to `runtime.ts` (under the `hasWorkspace` branch, only the new PTC block — no legacy CLI fallback; wording changed to "committed to git per skill" and "Read /workspace/.ax/tools/<skill>/index.js"). Wired `loadToolIndex(config.workspace)` into `buildSystemPrompt` in `agent-setup.ts`, passing `toolIndex.render || undefined` into the `PromptBuilder.build` context. Added 2 agent-setup integration tests exercising the full path end-to-end.
+**Files touched:** src/agent/prompt/tool-index-loader.ts (new), tests/agent/prompt/tool-index-loader.test.ts (new), src/agent/prompt/types.ts (+1 field), src/agent/prompt/modules/runtime.ts (re-added render block), src/agent/agent-setup.ts (wired loader), tests/agent/agent-setup.test.ts (+2 integration tests)
+**Outcome:** Success — `npm run build` clean, all 367 agent tests green (10 new loader tests + 2 new agent-setup tests + pre-existing 355). Pre-existing failures in `tests/host/server*.test.ts` + `tests/integration/smoke.test.ts` confirmed to also fail on `main` pre-change; unrelated.
+**Notes:** Decisions on the 3 pre-flight questions: (1) Group by skill (matches `_index.json` shape — one JSON per skill, no per-tool server info to preserve). (2) Duplicate `snakeToCamel` (3 lines) rather than import from `src/host/toolgen/` — keeps agent-side loader free of host-layer cross-imports. (3) Confirmed: `_index.json.tools[].parameters` is the full `inputSchema` (`tool-module-sync.ts:97` writes `parameters: t.inputSchema`), so `parameters.properties` / `parameters.required` are used the same way `generateCompactIndex` used the schema.
+
+
+## [2026-04-17 22:15] — Fix empty host skills_index masking filesystem-resident skills
+
+**Task:** Even with the skill-creator seed file present at `.ax/skills/skill-creator/SKILL.md` in the user's agent workspace, the agent reported "no skills" when asked. The prompt's "Available skills" section rendered as empty, so the LLM never learned skill-creator was an option and went on improvising `execute_script` + npm install flows for Linear.
+**Root cause:** `src/agent/agent-setup.ts:57` used `config.skills ?? fallbackScan()`. The host's `skills_index` IPC (`src/host/ipc-handlers/skills.ts:26`) returns `{ skills: [] }` whenever the reconciler state store is empty — which happens when the reconciler hasn't run (push hook no-op, host restart before rehydrate completes, existing agent whose repo predates a newly-added seed skill). An empty array is not nullish, so `??` kept it, and the filesystem-scan fallback never ran. The seeded `.ax/skills/skill-creator/SKILL.md` was invisible to the prompt.
+**What I did:** Switched the guard to `config.skills?.length ? config.skills : fallbackScan()`. Empty array now triggers the scan, matching the intent ("use host data when present, fall back to filesystem otherwise"). Updated the sole test that codified the old short-circuit behavior (`tests/agent/agent-setup.test.ts:82`) — it now asserts the new fallback behavior by seeding a valid SKILL.md on disk and verifying it surfaces in the prompt when `config.skills: []`.
+**Files touched:** `src/agent/agent-setup.ts`, `tests/agent/agent-setup.test.ts`
+**Outcome:** Success — `npm run build` clean; `tests/agent/agent-setup.test.ts` 9/9 pass.
+**Notes:** We also discussed a parallel fix — making `seedRemoteRepo` always run (not gated on `repoCreated`) so existing git-http agents backfill newly-added seed skills. User opted to destroy+recreate their agent manually for now; the seeding-always-runs change was reverted. Worth picking up as a follow-up when we add the next default seed skill.
+
+## [2026-04-17 21:40] — Fix prompt misdirecting agent away from .ax/skills/ and skill-creator
+
+**Task:** User's chat agent was asked for Linear tickets and responded by doing `ls /workspace/tools/` and looking for a pre-existing `/workspace/tools/linear.js` — totally missing the new skill-creator we seeded. Two prompt bugs surfaced.
+**What I did:**
+1. `runtime.ts:61` said `/workspace/skills/ — installed skills` — stale from the pre–phase 6/7 era. Skills actually land at `/workspace/.ax/skills/<name>/SKILL.md` (seeded by `seedAxDirectory` in `server-completions.ts`). Fixed the line to point at the real path and parameterize the name.
+2. `runtime.ts:64` describing `/workspace/tools/` is accurate (MCP tool-wrapper modules written by `runner.ts:533`), but the phrasing "importable tool modules" invited the agent to hand-write files there. Clarified to "MCP tool wrapper modules (auto-generated; do NOT hand-write files here)".
+3. `skills.ts:50-56` "Creating Skills" still said "commit and push" — contradicting the git-sidecar auto-commit model the user asked me to respect (and the sandbox pod can't even run git). Rewrote to: (a) point at the `skill-creator` seed skill as the starting trigger, (b) say the sidecar auto-commits at end-of-turn, (c) mention the admin approval gate, (d) warn that the proxy denies undeclared hostnames so ad-hoc `fetch()` won't work.
+4. Updated 2 assertion strings in `tests/agent/prompt/modules/skills.test.ts` and `tests/agent/tool-catalog-sync.test.ts` that were pinned on the old wording (`commit and push`, `Creating Skills`).
+**Files touched:** `src/agent/prompt/modules/runtime.ts`, `src/agent/prompt/modules/skills.ts`, `tests/agent/prompt/modules/skills.test.ts`, `tests/agent/tool-catalog-sync.test.ts`
+**Outcome:** Success — `npm run build` clean; 122/122 prompt + tool-catalog-sync tests pass.
+**Notes:** The prompt fix alone won't make the user's existing agent find skill-creator. Seeding only runs on `repoCreated=true` (`server-completions.ts:767`), so agents created before the skill-creator commit don't have it. User is going to test by destroying+recreating the agent for now; idempotent backfill-on-startup is the proper fix and is deferred.
+
 ## [2026-04-17 06:45] — Phase 3 PR #178 review fixes: SkillsModule render + git-native Creating Skills
 
 **Task:** Address two CodeRabbit review comments on PR #178 and the sandbox-isolation test that broke when we added `skills?:` to `AgentConfig`.

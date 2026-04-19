@@ -63,14 +63,34 @@ export interface ToolRouterContext {
 
   /** Unified MCP tool resolver -- returns server URL for any MCP tool (database, plugin, etc.) */
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
-  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
-  mcpCallTool?: (serverUrl: string, toolName: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (name, headers) for credential resolution by server URL */
-  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { name?: string; source?: string; headers?: Record<string, string> } | undefined;
+  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers + transport */
+  mcpCallTool?: (
+    serverUrl: string,
+    toolName: string,
+    args: Record<string, unknown>,
+    opts?: { headers?: Record<string, string>; transport?: 'http' | 'sse' },
+  ) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+  /** Get server metadata (name, headers, transport) for credential resolution by server URL */
+  getServerMetaByUrl?: (
+    agentId: string,
+    serverUrl: string,
+  ) => {
+    name?: string;
+    source?: string;
+    headers?: Record<string, string>;
+    transport?: 'http' | 'sse';
+  } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
-  /** Provide auth headers for servers without explicit headers (credential auto-discovery). */
-  authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
+  /** Provide auth headers for servers without explicit headers (credential
+   *  auto-discovery). Receives the per-request agentId + userId so the
+   *  implementation can look up tuple-keyed skill credentials. */
+  authForServer?: (server: {
+    name: string;
+    url: string;
+    agentId: string;
+    userId: string;
+  }) => Promise<Record<string, string> | undefined>;
 
   /** @deprecated Use resolveServer instead */
   mcp?: McpProvider;
@@ -147,13 +167,15 @@ async function handleMcpToolCall(
   if (ctx.resolveServer) {
     const serverUrl = ctx.resolveServer(ctx.agentId, call.name);
     if (serverUrl && ctx.mcpCallTool) {
-      // Resolve headers from server metadata if available
+      // Resolve headers + transport from server metadata if available
       let headers: Record<string, string> | undefined;
       let serverName: string | undefined;
+      let transport: 'http' | 'sse' | undefined;
       try {
         if (ctx.getServerMetaByUrl) {
           const meta = ctx.getServerMetaByUrl(ctx.agentId, serverUrl);
           serverName = meta?.name;
+          transport = meta?.transport;
           if (meta?.headers) {
             headers = ctx.resolveHeaders
               ? await ctx.resolveHeaders(meta.headers)
@@ -162,12 +184,17 @@ async function handleMcpToolCall(
         }
         // For servers without explicit headers, try credential auto-discovery
         if (!headers && ctx.authForServer && serverName) {
-          headers = await ctx.authForServer({ name: serverName, url: serverUrl });
+          headers = await ctx.authForServer({
+            name: serverName,
+            url: serverUrl,
+            agentId: ctx.agentId,
+            userId: ctx.userId,
+          });
         }
       } catch {
         // Header resolution failure should not block the tool call
       }
-      return handleUnifiedMcpCall(call, serverUrl, headers, ctx);
+      return handleUnifiedMcpCall(call, serverUrl, headers, transport, ctx);
     }
   }
 
@@ -259,10 +286,14 @@ async function handleUnifiedMcpCall(
   call: ToolCall,
   serverUrl: string,
   headers: Record<string, string> | undefined,
+  transport: 'http' | 'sse' | undefined,
   ctx: ToolRouterContext,
 ): Promise<ToolResult> {
   try {
-    const result = await ctx.mcpCallTool!(serverUrl, call.name, call.args, headers ? { headers } : undefined);
+    const callOpts = (headers || transport)
+      ? { ...(headers ? { headers } : {}), ...(transport ? { transport } : {}) }
+      : undefined;
+    const result = await ctx.mcpCallTool!(serverUrl, call.name, call.args, callOpts);
 
     const content = typeof result.content === 'string'
       ? result.content

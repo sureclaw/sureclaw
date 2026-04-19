@@ -28,6 +28,8 @@ describe('bootstrap command', () => {
 
     workspace = {
       async getRepoUrl() { return { url: `file://${repoDir}`, created: false }; },
+      async ensureLocalMirror() { return repoDir; },
+      async commitFiles() { return { commit: null, changed: false }; },
       async close() {},
     };
   });

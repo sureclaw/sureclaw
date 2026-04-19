@@ -1,5 +1,11 @@
 # Testing Patterns
 
+### A bare repo with no commits is invisible to `git ls-tree refs/heads/main`
+**Date:** 2026-04-18
+**Context:** Writing `tests/host/server-admin-skills.test.ts` for skills-SSoT step 3. A helper created a bare repo per agent via `git init --bare` + wrote `HEAD → refs/heads/main` but seeded no files. Calling `GET /admin/api/skills/setup` returned 500 because `buildSnapshotFromBareRepo` runs `git ls-tree -r refs/heads/main` and that ref doesn't exist without a commit.
+**Lesson:** Any test that wires `agentSkillsDeps` (or anything else calling `buildSnapshotFromBareRepo`) must seed each per-agent bare repo with at least one real commit, even if the test expects an empty skills list. Pass `{ 'README.md': '# x\n' }` to your `seedRepo` helper as a default — don't skip the seed when the test case is "agent with no skills." The reconciler returns `[]` for a repo with a commit but no `.ax/skills/**`; it throws for a repo with no commit at all.
+**Tags:** git, bare-repo, testing, skills, reconciler
+
 ### Playwright route overrides need "last wins" ordering
 **Date:** 2026-04-17
 **Context:** Writing `ui/admin/tests/skills.spec.ts`. An empty-state test called `mockSkillsSetup(page, { agents: [] })` before `gotoAuthenticated`, but `gotoAuthenticated` internally runs `mockAllAPIs` which re-registers the default non-empty route. The page fetched the defaults, not the empty override.

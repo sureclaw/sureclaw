@@ -4,6 +4,8 @@ General refactoring, cleanup work, stale reference removal.
 
 ## Entries
 
+- 2026-04-18 16:37 — Tool-modules final review cleanup: drop `compactIndex` + `ToolStubCache` helpers + Task-N refs [cleanup.md](cleanup.md)
+- 2026-04-18 14:45 — Tool-modules Task 8: scrub dead `generateCLI` + `McpProvider.listTools` [cleanup.md](cleanup.md)
 - 2026-04-17 19:58 — Phase 7 Task 7 post-review fixes (1 critical + 3 important) [cleanup.md](cleanup.md)
 - 2026-04-17 19:45 — Phase 7 Task 7 (final): Docs sweep + dead-code cleanup + full verification [cleanup.md](cleanup.md)
 - 2026-04-17 19:10 — Phase 7 Task 6: Drop retired DB data via migration [cleanup.md](cleanup.md)

@@ -2,6 +2,14 @@
 
 Skills import pipeline, screener, manifest generator, ClawHub client, architecture comparison, install orchestration.
 
+## [2026-04-18 13:35] — Code-review fixes on tool-module-sync helper (commit ce009a90)
+
+**Task:** Address two Important review comments on `tool-module-sync.ts`: (1) tighten `assertSkillNameSafe` to a positive-match allowlist so newlines/spaces/leading-dashes can't reach disk or the commit message, (2) turn the `if (!modules)` silent-return into a fail-fast invariant throw.
+**What I did:** Replaced the denylist in `assertSkillNameSafe` with `/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/` plus a belt-and-braces `..` check. Replaced the dead `!modules` silent-return with `throw new Error(...)`. Expanded the rejection test into a parametrized loop covering `../evil`, `foo/bar`, empty, `'linear\nfoo'`, `' linear'`, `'linear '`, `'-linear'`. Amended the existing commit (one-commit-per-task plan preserved).
+**Files touched:** `src/host/skills/tool-module-sync.ts`, `tests/host/skills/tool-module-sync.test.ts`
+**Outcome:** Success — `npm run build` clean, 8/8 tests pass in `tool-module-sync.test.ts`. Commit amended in place.
+**Notes:** Widened the character class beyond the plan's `[a-z0-9-_]` — included `A-Z` and `.` because Unicode-uppercase skill names are allowed by the frontmatter schema and `.` is a plausible future naming convention (`foo.bar`). The `..` explicit check handles the `foo..bar` case that would otherwise slip through.
+
 ## [2026-04-17 06:10] — Phase 3 Task 4: wire SkillStateStore into IPC handler
 
 **Task:** Phase 3 Task 4 of git-native skills rollout — thread the `SkillStateStore` instance through IPC handler plumbing so the `skills_index` handler (Task 3) gets a live state store instead of the `undefined` fallback. Previously `server.ts:162` created the store *after* `initHostCore()` already built the IPC handler, so the IPC handler never saw it. Goal: single shared `stateStore` reaches `createSkillsHandlers` via `createIPCHandler` → `IPCHandlerOptions`, and `server.ts` reuses the SAME instance for its reconcile-hook wiring.

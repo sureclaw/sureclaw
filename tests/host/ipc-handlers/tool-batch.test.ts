@@ -237,6 +237,102 @@ describe('createToolBatchHandlers', () => {
     );
   });
 
+  it('should pass transport from getServerMetaByUrl to mcpCallTool', async () => {
+    // Regression: when a skill declares `transport: sse`, the call-time
+    // dispatch must carry that through to `mcpCallTool` so the SDK picks
+    // the right transport. Previously only headers flowed through;
+    // transport defaulted to http and SSE-only servers like
+    // Linear returned `invalid_token` (the request never reached the
+    // correct endpoint path).
+    const mcpCallSpy = vi.fn(async () => ({ content: 'sse response' }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://mcp.linear.app/sse',
+      mcpCallTool: mcpCallSpy,
+      getServerMetaByUrl: () => ({
+        name: 'linear',
+        source: 'skill',
+        headers: { Authorization: 'Bearer lin_api_xxx' },
+        transport: 'sse' as const,
+      }),
+    });
+
+    const result = await handlers.tool_batch({
+      calls: [{ tool: 'list_issues', args: {} }],
+    }, ctx);
+
+    expect(result.results[0]).toBe('sse response');
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://mcp.linear.app/sse',
+      'list_issues',
+      {},
+      { headers: { Authorization: 'Bearer lin_api_xxx' }, transport: 'sse' },
+    );
+  });
+
+  it('passes agentId + userId into authForServer so it can look up skill-scoped credentials', async () => {
+    // Regression: the skill_credentials table is tuple-keyed on
+    // (agent_id, skill_name, env_name, user_id). A context-free
+    // `authForServer({name, url})` has no way to query it correctly.
+    // Turn-time dispatch must thread the per-request agentId + userId
+    // so the lookup finds the right row. Previously the receiver was
+    // `providers.credentials.get(envName)` which skipped skill_credentials
+    // entirely and returned undefined — no Authorization header was sent,
+    // and Linear (which expects a valid API key via Bearer) responded
+    // with invalid_token.
+    const authSpy = vi.fn(async (_s) => ({ Authorization: 'Bearer tok' }));
+    const mcpCallSpy = vi.fn(async () => ({ content: 'ok' }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://mcp.linear.app/sse',
+      mcpCallTool: mcpCallSpy,
+      getServerMetaByUrl: () => ({ name: 'linear', source: 'skill' }),
+      authForServer: authSpy,
+    });
+
+    await handlers.tool_batch(
+      { calls: [{ tool: 'list_teams', args: {} }] },
+      { ...ctx, agentId: 'agent-42', userId: 'alice' },
+    );
+
+    expect(authSpy).toHaveBeenCalledWith({
+      name: 'linear',
+      url: 'https://mcp.linear.app/sse',
+      agentId: 'agent-42',
+      userId: 'alice',
+    });
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://mcp.linear.app/sse',
+      'list_teams',
+      {},
+      { headers: { Authorization: 'Bearer tok' } },
+    );
+  });
+
+  it('should pass transport alone when no headers are present', async () => {
+    // Rare case: server declares transport but has no auth headers
+    // (e.g., a public MCP server speaking SSE).
+    const mcpCallSpy = vi.fn(async () => ({ content: 'ok' }));
+
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://public.mcp.example/sse',
+      mcpCallTool: mcpCallSpy,
+      getServerMetaByUrl: () => ({ name: 'public', source: 'skill', transport: 'sse' as const }),
+    });
+
+    await handlers.tool_batch({ calls: [{ tool: 'ping', args: {} }] }, ctx);
+
+    expect(mcpCallSpy).toHaveBeenCalledWith(
+      'https://public.mcp.example/sse',
+      'ping',
+      {},
+      { transport: 'sse' },
+    );
+  });
+
   it('should call resolveHeaders before passing to mcpCallTool', async () => {
     const mcpCallSpy = vi.fn(async () => ({
       content: 'resolved response',
@@ -362,6 +458,78 @@ describe('createToolBatchHandlers', () => {
 
     expect(result.results[0]).toEqual({ ok: false, error: 'plugin server down' });
     expect(result.results[1]).toBe('ok');
+  });
+
+  // ── JSON payload parsing on success paths ──
+
+  it('parses a JSON-string content from unified mcpCallTool into an object', async () => {
+    // Regression: Linear's MCP returns tool payloads as text blocks
+    // containing serialized JSON. Our mcp-client joins the text blocks
+    // into `content: string`. Previously the unified path pushed the raw
+    // string, so agents doing `const team = await getTeam({query: "Product"}); team.id`
+    // got `undefined` and sent `teamId: undefined` back to Linear, which
+    // then rejected the call as "expected string". Dispatcher path
+    // already parses — unified path now matches.
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://mcp.linear.app/sse',
+      mcpCallTool: async () => ({
+        content: JSON.stringify({ id: 'team-abc-123', name: 'Product' }),
+      }),
+    });
+
+    const result = await handlers.tool_batch(
+      { calls: [{ tool: 'get_team', args: { query: 'Product' } }] },
+      ctx,
+    );
+    expect(result.results[0]).toEqual({ id: 'team-abc-123', name: 'Product' });
+  });
+
+  it('passes a non-JSON string content through unchanged', async () => {
+    // Fallback: tools that return plain text (rare, but valid) shouldn't
+    // be mangled by the parse attempt.
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolveServer: () => 'https://mcp.example/mcp',
+      mcpCallTool: async () => ({ content: 'pong' }),
+    });
+
+    const result = await handlers.tool_batch(
+      { calls: [{ tool: 'ping', args: {} }] },
+      ctx,
+    );
+    expect(result.results[0]).toBe('pong');
+  });
+
+  it('passes an already-object content through unchanged (default-provider path)', async () => {
+    // Some provider shims return pre-parsed objects rather than strings.
+    // Don't round-trip them through JSON — preserve the reference.
+    const obj = { count: 42, items: [1, 2, 3] };
+    const handlers = createToolBatchHandlers(() => ({
+      async callTool() { return { content: obj }; },
+    }));
+
+    const result = await handlers.tool_batch(
+      { calls: [{ tool: 'stats', args: {} }] },
+      ctx,
+    );
+    expect(result.results[0]).toEqual(obj);
+  });
+
+  it('parses JSON content from the plugin (deprecated) path', async () => {
+    // Consistency: plugin path should behave the same as unified path
+    // for any skill still using it.
+    const handlers = createToolBatchHandlers({
+      getProvider: () => null,
+      resolvePluginServer: () => 'https://plugin.server/mcp',
+      pluginMcpCallTool: async () => ({ content: JSON.stringify([{ a: 1 }]) }),
+    });
+
+    const result = await handlers.tool_batch(
+      { calls: [{ tool: 'list', args: {} }] },
+      ctx,
+    );
+    expect(result.results[0]).toEqual([{ a: 1 }]);
   });
 
   it('should return error when no default provider for non-plugin tool', async () => {

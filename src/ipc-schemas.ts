@@ -115,28 +115,6 @@ export const WebExtractSchema = ipcAction('web_extract', {
   url: z.url().max(2048),
 });
 
-// ── Skills ───────────────────────────────────────────
-
-/**
- * Agent asks the host for its authoritative skill index.
- * Handler uses ctx.agentId from the IPC session — no request fields needed.
- *
- * Response shape (not schema-validated, but producer-guaranteed):
- * {
- *   skills: Array<{
- *     name: string;
- *     description?: string;
- *     kind: 'enabled' | 'pending' | 'invalid';
- *     pendingReasons?: string[];
- *   }>
- * }
- */
-export const SkillsIndexSchema = ipcAction('skills_index', {});
-
-export const CredentialRequestSchema = ipcAction('credential_request', {
-  envName: safeString(200),
-});
-
 // ── Audit ────────────────────────────────────────────
 
 export const AuditQuerySchema = ipcAction('audit_query', {

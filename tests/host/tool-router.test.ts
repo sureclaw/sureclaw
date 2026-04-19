@@ -23,7 +23,6 @@ function makeCtx(overrides: Partial<ToolRouterContext> = {}): ToolRouterContext 
 
 function mockMcp(handler: McpProvider['callTool']): McpProvider {
   return {
-    async listTools() { return []; },
     callTool: handler,
     async credentialStatus() { return { available: true, app: 'test', authType: 'api_key' as const }; },
     async storeCredential() {},

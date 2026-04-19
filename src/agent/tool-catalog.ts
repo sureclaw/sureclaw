@@ -14,7 +14,7 @@ import { Type, type TSchema } from '@sinclair/typebox';
 
 export type ToolCategory =
   | 'memory' | 'web' | 'audit'
-  | 'scheduler' | 'credential' | 'delegation'
+  | 'scheduler' | 'delegation'
   | 'workspace' | 'sandbox';
 
 export interface ToolSpec {
@@ -162,27 +162,6 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       remove: 'scheduler_remove_cron',
       list: 'scheduler_list_jobs',
     },
-  },
-
-  // ── Credential ──
-  {
-    name: 'request_credential',
-    label: 'Request Credential',
-    description:
-      'Request a credential (e.g. API key) that a skill or web API call needs.\n' +
-      'The host will prompt the user to provide it.\n\n' +
-      'IMPORTANT: If the response shows available=false, you MUST stop immediately.\n' +
-      'Tell the user what credential is needed and why, then end your turn.\n' +
-      'Do NOT attempt to use the skill, call APIs, or run scripts without the credential.\n' +
-      'The credential will be available as an environment variable when you are re-invoked on the next turn.',
-    parameters: Type.Object({
-      envName: Type.String({
-        pattern: '^[A-Z][A-Z0-9_]{1,63}$',
-        description: 'Environment variable name needed (e.g. LINEAR_API_KEY). Must be uppercase with underscores only.',
-      }),
-    }),
-    category: 'credential',
-    singletonAction: 'credential_request',
   },
 
   // ── Workspace ──
@@ -344,19 +323,19 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     label: 'Execute Script',
     description:
       'Run a JavaScript script with access to tool modules.\n\n' +
-      'The script can import modules from /workspace/tools/ to call external tools ' +
+      'The script can import modules from /workspace/.ax/tools/ to call external tools ' +
       '(MCP servers, APIs). Only the script\'s stdout output is returned — ' +
       'intermediate tool calls do NOT enter your context window.\n\n' +
       'Use this for multi-step tool pipelines instead of calling tools individually.\n\n' +
       'Example:\n' +
       '```\n' +
-      'import { listIssues } from \'/workspace/tools/linear.js\';\n' +
+      'import { listIssues } from \'/workspace/.ax/tools/linear/index.js\';\n' +
       'const bugs = await listIssues({ query: \'bug\', limit: 5 });\n' +
       'console.log(JSON.stringify(bugs, null, 2));\n' +
       '```\n\n' +
       'IMPORTANT: Use console.log() for output. Only stdout is captured.',
     parameters: Type.Object({
-      code: Type.String({ maxLength: 500_000, description: 'JavaScript code to execute. Can import from /workspace/tools/.' }),
+      code: Type.String({ maxLength: 500_000, description: 'JavaScript code to execute. Can import from /workspace/.ax/tools/.' }),
       timeoutMs: Type.Optional(Type.Integer({ minimum: 1000, maximum: 120_000, description: 'Execution timeout in ms (default: 30000, max: 120000)' })),
     }),
     category: 'sandbox',

@@ -7,7 +7,7 @@
 // flow returns { matched: false }. These tests spin up a real HTTP server
 // around the createRequestHandler dispatcher with ONLY the deps the
 // callback branch touches — credentials, audit, adminOAuthFlow,
-// reconcileAgent, eventBus. Everything else is cast/mocked: the callback
+// snapshotCache, eventBus. Everything else is cast/mocked: the callback
 // branch exits early, and the rest never runs.
 //
 // Unit coverage for resolveCallback's full behavior lives in
@@ -35,7 +35,6 @@ function makeCredentials(): CredentialProvider {
     async set() { /* noop */ },
     async delete() { /* noop */ },
     async list() { return []; },
-    async listScopePrefix() { return []; },
   };
 }
 
@@ -43,6 +42,25 @@ function makeAudit(): AuditProvider {
   return {
     async log() { /* noop */ },
     async query() { return []; },
+  };
+}
+
+function makeSkillCredStore() {
+  return {
+    async put() { /* noop */ },
+    async get() { return null; },
+    async listForAgent() { return []; },
+    async listEnvNames() { return new Set<string>(); },
+  };
+}
+
+function makeSnapshotCache() {
+  return {
+    get() { return undefined; },
+    put() { /* noop */ },
+    invalidateAgent() { return 0; },
+    clear() { /* noop */ },
+    size() { return 0; },
   };
 }
 
@@ -58,7 +76,7 @@ function mockFetchResponse(status: number, body: unknown): Response {
 
 function buildRequestOpts(extra: Partial<RequestHandlerOpts>): RequestHandlerOpts {
   // The callback branch touches: providers.credentials, providers.audit,
-  // eventBus (for fall-through), adminOAuthFlow, reconcileAgent. Everything
+  // eventBus (for fall-through), adminOAuthFlow, snapshotCache. Everything
   // else is a type-shape filler — casts are acceptable because the branch
   // returns before any of those fields are dereferenced.
   return {
@@ -143,7 +161,8 @@ describe('/v1/oauth/callback/:provider', () => {
 
     const harness = await withServer(buildRequestOpts({
       adminOAuthFlow,
-      reconcileAgent: async () => ({ skills: 0, events: 0 }),
+      skillCredStore: makeSkillCredStore(),
+      snapshotCache: makeSnapshotCache(),
     }));
 
     try {
@@ -175,7 +194,10 @@ describe('/v1/oauth/callback/:provider', () => {
       redirectUri: 'http://127.0.0.1/v1/oauth/callback/linear',
     });
 
-    const harness = await withServer(buildRequestOpts({ adminOAuthFlow }));
+    const harness = await withServer(buildRequestOpts({
+      adminOAuthFlow,
+      skillCredStore: makeSkillCredStore(),
+    }));
 
     try {
       // Mismatched provider in URL — state is admin's, should be claimed + fail.
@@ -199,7 +221,10 @@ describe('/v1/oauth/callback/:provider', () => {
     const adminOAuthFlow = createAdminOAuthFlow();
     // No admin flow started — any state is unknown to admin.
 
-    const harness = await withServer(buildRequestOpts({ adminOAuthFlow }));
+    const harness = await withServer(buildRequestOpts({
+      adminOAuthFlow,
+      skillCredStore: makeSkillCredStore(),
+    }));
 
     try {
       const url = `${harness.url}/v1/oauth/callback/linear?code=x&state=not-admin-state`;
@@ -216,7 +241,10 @@ describe('/v1/oauth/callback/:provider', () => {
 
   it('missing code/state → 400 "Bad request" HTML', async () => {
     const adminOAuthFlow = createAdminOAuthFlow();
-    const harness = await withServer(buildRequestOpts({ adminOAuthFlow }));
+    const harness = await withServer(buildRequestOpts({
+      adminOAuthFlow,
+      skillCredStore: makeSkillCredStore(),
+    }));
 
     try {
       const res = await fetch(`${harness.url}/v1/oauth/callback/linear`);

@@ -258,6 +258,38 @@ describe('parseStdinPayload with taint state', () => {
     const result = parseStdinPayload(payload);
     expect(result.ipcToken).toBeUndefined();
   });
+
+  test('extracts skills from payload', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      skills: [
+        { name: 'linear', description: 'Linear issues', kind: 'pending', pendingReasons: ['needs LINEAR_TOKEN'] },
+        { name: 'weather', description: 'Weather data', kind: 'enabled' },
+      ],
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.skills).toEqual([
+      { name: 'linear', description: 'Linear issues', kind: 'pending', pendingReasons: ['needs LINEAR_TOKEN'] },
+      { name: 'weather', description: 'Weather data', kind: 'enabled' },
+    ]);
+  });
+
+  test('defaults skills to undefined when absent', () => {
+    const payload = JSON.stringify({ message: 'hello', history: [] });
+    const result = parseStdinPayload(payload);
+    expect(result.skills).toBeUndefined();
+  });
+
+  test('ignores non-array skills value', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      skills: 'not-an-array',
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.skills).toBeUndefined();
+  });
 });
 
 // buildSystemPrompt tests removed — behavior is now covered by

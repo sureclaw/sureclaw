@@ -41,7 +41,7 @@ describe('SkillsModule', () => {
     expect(text).toContain('No skills are currently installed');
   });
 
-  test('renders bullet list of skills (design-doc format)', () => {
+  test('renders bullet list of skills with state labels', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({
       skills: [
@@ -51,12 +51,12 @@ describe('SkillsModule', () => {
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('## Available skills');
-    expect(text).toContain('- **daily-standup** — Generates daily standup summaries');
-    expect(text).toContain('- **code-review** — Reviews pull requests for quality');
+    expect(text).toContain('- [ENABLED] **daily-standup** — Generates daily standup summaries');
+    expect(text).toContain('- [ENABLED] **code-review** — Reviews pull requests for quality');
     expect(text).toContain('`.ax/skills/<name>/SKILL.md`');
   });
 
-  test('renders bullet with pending reasons (design-doc format)', () => {
+  test('renders pending state with waiting-on suffix and warning banner', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({
       skills: [
@@ -66,32 +66,34 @@ describe('SkillsModule', () => {
     });
     const text = mod.render(ctx).join('\n');
     expect(text).toContain('## Available skills');
-    expect(text).toMatch(/- \*\*linear\*\* — \(setup pending: needs LINEAR_TOKEN, awaiting approval for mcp\.linear\.app\) When the user wants/);
-    expect(text).toMatch(/- \*\*weather\*\* — When the user asks/);
+    expect(text).toContain('A skill is usable ONLY when its state is `[ENABLED]`');
+    expect(text).toMatch(/- \[PENDING\] \*\*linear\*\* — When the user wants.* \(waiting on: needs LINEAR_TOKEN, awaiting approval for mcp\.linear\.app\)/);
+    expect(text).toMatch(/- \[ENABLED\] \*\*weather\*\* — When the user asks/);
     expect(text).toContain('`.ax/skills/<name>/SKILL.md`');
   });
 
-  test('renders invalid skills with marker', () => {
+  test('renders invalid skills with [INVALID] state label', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [{ name: 'bad', description: 'broken', kind: 'invalid' }] });
     const text = mod.render(ctx).join('\n');
-    expect(text).toMatch(/- \*\*bad\*\* — \(invalid\) broken/);
+    expect(text).toContain('- [INVALID] **bad** — broken');
   });
 
   test('treats legacy SkillSummary (no kind) as enabled', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [{ name: 'legacy', description: 'old skill', path: 'legacy.md' }] });
     const text = mod.render(ctx).join('\n');
-    expect(text).toContain('- **legacy** — old skill');
+    expect(text).toContain('- [ENABLED] **legacy** — old skill');
     expect(text).not.toContain('pending');
     expect(text).not.toContain('invalid');
   });
 
-  test('falls back to "(setup pending)" when pending has no reasons', () => {
+  test('pending with no reasons omits the waiting-on suffix', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [{ name: 'foo', description: 'foo skill', kind: 'pending' }] });
     const text = mod.render(ctx).join('\n');
-    expect(text).toMatch(/- \*\*foo\*\* — \(setup pending\) foo skill/);
+    expect(text).toContain('- [PENDING] **foo** — foo skill');
+    expect(text).not.toContain('waiting on');
   });
 
   test('omits dash + description cleanly when description is missing', () => {
@@ -107,10 +109,10 @@ describe('SkillsModule', () => {
     });
     const text = mod.render(ctx).join('\n');
     expect(text).not.toContain('undefined');
-    // Enabled with no description → just the name bullet, no trailing em dash.
-    expect(text).toMatch(/^- \*\*bare-enabled\*\*$/m);
-    // Invalid with no description → kind prefix but no trailing whitespace.
-    expect(text).toMatch(/^- \*\*bare-invalid\*\* — \(invalid\)$/m);
+    // Enabled with no description → state label + name bullet, no trailing em dash.
+    expect(text).toMatch(/^- \[ENABLED\] \*\*bare-enabled\*\*$/m);
+    // Invalid with no description → state label + name bullet, no trailing em dash.
+    expect(text).toMatch(/^- \[INVALID\] \*\*bare-invalid\*\*$/m);
   });
 
   test('priority is 70', () => {
@@ -123,8 +125,10 @@ describe('SkillsModule', () => {
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
     const rendered = mod.render(ctx).join('\n');
     expect(rendered).toContain('.ax/skills/<name>/SKILL.md');
-    expect(rendered).toContain('commit and push');
+    expect(rendered).toContain('skill-creator');
+    expect(rendered).toContain('sidecar commits at end-of-turn');
     expect(rendered).not.toContain('/workspace/skills/');
+    expect(rendered).not.toContain('commit and push');
     expect(rendered).not.toContain('type: "create"');
   });
 
@@ -132,14 +136,34 @@ describe('SkillsModule', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')] });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).not.toContain('Creating Skills');
+    expect(rendered).not.toContain('Creating new skills');
   });
 
   test('includes creating skills section when workspace available', () => {
     const mod = new SkillsModule();
     const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
     const rendered = mod.render(ctx).join('\n');
-    expect(rendered).toContain('Creating Skills');
+    expect(rendered).toContain('Creating new skills');
+  });
+
+  test('warns against Claude-Desktop-style frontmatter anti-patterns in the creating-skills section', () => {
+    // Regression: the model tends to produce `claude_desktop_config.json`
+    // shape (title:, bare credential strings, stdio MCP) when improvising
+    // skill creation. The prompt has to name those anti-patterns explicitly
+    // so the "I know MCP configs" reflex trips a guardrail.
+    const mod = new SkillsModule();
+    const ctx = makeContext({ skills: [makeSkill('Test Skill', 'Do stuff')], hasWorkspace: true });
+    const rendered = mod.render(ctx).join('\n');
+    expect(rendered).toContain('MUST read `.ax/skills/skill-creator/SKILL.md`');
+    expect(rendered).toContain('claude_desktop_config.json');
+    // Each common mistake is called out individually.
+    expect(rendered).toContain('fenced code block');
+    expect(rendered).toContain('`title:` instead of `name:`');
+    expect(rendered).toContain('Bare credential strings');
+    expect(rendered).toContain('stdio MCP');
+    expect(rendered).toContain('Unknown top-level keys');
+    // The INVALID self-correct hint survives too.
+    expect(rendered).toContain('`[INVALID]`');
   });
 
   test('includes skill usage guidance', () => {

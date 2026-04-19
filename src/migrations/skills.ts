@@ -47,6 +47,89 @@ export function buildSkillsMigrations(dbType: DbDialect): MigrationSet {
         await db.schema.dropTable('skill_states').ifExists().execute();
       },
     },
+
+    skills_002_tuple_tables: {
+      async up(db: Kysely<any>) {
+        await db.schema
+          .createTable('skill_credentials')
+          .ifNotExists()
+          .addColumn('agent_id', 'text', col => col.notNull())
+          .addColumn('skill_name', 'text', col => col.notNull())
+          .addColumn('env_name', 'text', col => col.notNull())
+          // Empty string is the agent-scope sentinel ("shared across users").
+          // Postgres disallows NULLs in a PK constraint, so we use '' instead
+          // of NULL. Turn-time lookup becomes:
+          //   WHERE user_id = $session_user_id OR user_id = ''
+          .addColumn('user_id', 'text', col => col.notNull().defaultTo(''))
+          .addColumn('value', 'text', col => col.notNull())
+          .addColumn('created_at', 'integer', col =>
+            col.notNull().defaultTo(sqlEpoch(dbType)),
+          )
+          .addColumn('updated_at', 'integer', col =>
+            col.notNull().defaultTo(sqlEpoch(dbType)),
+          )
+          .addPrimaryKeyConstraint('pk_skill_credentials', [
+            'agent_id',
+            'skill_name',
+            'env_name',
+            'user_id',
+          ])
+          .execute();
+
+        await db.schema
+          .createTable('skill_domain_approvals')
+          .ifNotExists()
+          .addColumn('agent_id', 'text', col => col.notNull())
+          .addColumn('skill_name', 'text', col => col.notNull())
+          .addColumn('domain', 'text', col => col.notNull())
+          .addColumn('approved_at', 'integer', col =>
+            col.notNull().defaultTo(sqlEpoch(dbType)),
+          )
+          .addPrimaryKeyConstraint('pk_skill_domain_approvals', [
+            'agent_id',
+            'skill_name',
+            'domain',
+          ])
+          .execute();
+
+        await db.schema
+          .createIndex('idx_skill_credentials_agent_skill')
+          .ifNotExists()
+          .on('skill_credentials')
+          .columns(['agent_id', 'skill_name'])
+          .execute();
+
+        await db.schema
+          .createIndex('idx_skill_domain_approvals_agent_skill')
+          .ifNotExists()
+          .on('skill_domain_approvals')
+          .columns(['agent_id', 'skill_name'])
+          .execute();
+      },
+      async down(db: Kysely<any>) {
+        await db.schema
+          .dropIndex('idx_skill_domain_approvals_agent_skill')
+          .ifExists()
+          .execute();
+        await db.schema
+          .dropIndex('idx_skill_credentials_agent_skill')
+          .ifExists()
+          .execute();
+        await db.schema.dropTable('skill_domain_approvals').ifExists().execute();
+        await db.schema.dropTable('skill_credentials').ifExists().execute();
+      },
+    },
+
+    skills_003_drop_retired_tables: {
+      async up(db: Kysely<any>) {
+        await db.schema.dropTable('skill_setup_queue').ifExists().execute();
+        await db.schema.dropTable('skill_states').ifExists().execute();
+      },
+      async down(_db: Kysely<any>) {
+        // One-way migration. Rolling back requires reverting the code that
+        // removed the readers; re-creating empty shells would be misleading.
+      },
+    },
   };
 }
 

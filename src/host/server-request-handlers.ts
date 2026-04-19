@@ -225,12 +225,6 @@ export async function handleCompletions(
             authorizeUrl: event.data.authorizeUrl as string,
             requestId,
           });
-        } else if (event.type === 'credential.required' && event.data.envName) {
-          sendSSENamedEvent(res, 'credential_required', {
-            envName: event.data.envName as string,
-            sessionId: event.data.sessionId as string,
-            requestId,
-          });
         } else if (
           event.type === 'status' &&
           typeof event.data.operation === 'string' &&
@@ -505,11 +499,18 @@ export interface RequestHandlerOpts {
   adminHandler: AdminHandler | null;
 
   // Admin-initiated OAuth flow (phase 6) — used by /v1/oauth/callback/* to
-  // resolve admin-provenance states (set.skillStateStore dashboard) before
-  // falling through to the agent-initiated path (oauth-skills.ts).
+  // resolve admin-provenance states before falling through to the
+  // agent-initiated path (oauth-skills.ts).
   adminOAuthFlow?: import('./admin-oauth-flow.js').AdminOAuthFlow;
-  /** Paired with adminOAuthFlow — fire-and-forget after tokens are written. */
-  reconcileAgent?: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Tuple-keyed skill credential store. Required whenever `adminOAuthFlow`
+   *  is wired — tokens from OAuth callbacks land here. */
+  skillCredStore?: import('./skills/skill-cred-store.js').SkillCredStore;
+  /** Paired with adminOAuthFlow — the OAuth callback invalidates the
+   *  agent's snapshot cache after tokens land so the next turn reads
+   *  fresh skill state. */
+  snapshotCache?: import('./skills/snapshot-cache.js').SnapshotCache<
+    import('./skills/types.js').SkillSnapshotEntry[]
+  >;
 
   // Drain state — caller manages the boolean; handler reads it
   isDraining: () => boolean;
@@ -530,7 +531,7 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
   const {
     modelId, eventBus, providers, fileStore, gcsFileStorage,
     completionOpts, webhookPrefix, webhookHandler, adminHandler,
-    adminOAuthFlow, reconcileAgent,
+    adminOAuthFlow, skillCredStore, snapshotCache,
     isDraining, trackRequestStart, trackRequestEnd, extraRoutes,
     authProviders,
   } = opts;
@@ -669,38 +670,6 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
       return;
     }
 
-    // Credential provide
-    if (url === '/v1/credentials/provide' && req.method === 'POST') {
-      try {
-        const body = JSON.parse(await readBody(req));
-        const { envName, value, sessionId: credSessionId } = body;
-        if (typeof envName !== 'string' || !envName || typeof value !== 'string') {
-          sendError(res, 400, 'Missing required fields: envName, value');
-          return;
-        }
-        const { credentialScope, getSessionCredentialContext } = await import('./credential-scopes.js');
-        // Resolve agentName/userId from session context (set during completion)
-        const ctx = credSessionId ? getSessionCredentialContext(credSessionId) : undefined;
-        if (ctx) {
-          // Store user-scoped if userId known
-          if (ctx.userId) {
-            await providers.credentials.set(envName, value, credentialScope(ctx.agentName, ctx.userId));
-          }
-          // Always store at agent scope
-          await providers.credentials.set(envName, value, credentialScope(ctx.agentName));
-        } else {
-          // No session context — store unscoped (backward compat)
-          await providers.credentials.set(envName, value);
-        }
-        const responseBody = JSON.stringify({ ok: true });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(responseBody)) });
-        res.end(responseBody);
-      } catch (err) {
-        sendError(res, 400, `Invalid request: ${(err as Error).message}`);
-      }
-      return;
-    }
-
     // OAuth callback — admin-initiated flow tries first (claims the state on
     // match, success or failure), then falls through to the agent-initiated
     // path in oauth-skills.ts when no admin flow is pending for this state.
@@ -722,13 +691,13 @@ export function createRequestHandler(opts: RequestHandlerOpts): (req: IncomingMe
         // we do NOT fall through — matched:true means the state was
         // consumed, and leaking it back to the agent module would defeat
         // the single-use replay defense.
-        if (adminOAuthFlow) {
+        if (adminOAuthFlow && skillCredStore) {
           const adminResult = await adminOAuthFlow.resolveCallback({
             provider,
             code,
             state,
-            credentials: providers.credentials,
-            reconcileAgent,
+            skillCredStore,
+            snapshotCache,
             audit: providers.audit,
           });
           if (adminResult.matched) {

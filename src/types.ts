@@ -157,6 +157,7 @@ export interface Config {
   };
   auth?: {
     better_auth?: {
+      base_url?: string;
       google?: {
         client_id: string;
         client_secret: string;

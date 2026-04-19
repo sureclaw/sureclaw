@@ -4,9 +4,7 @@
  * duplicated conversion logic across IPC and proxy LLM transports.
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import type { ContentBlock } from '../types.js';
-import { join } from 'node:path';
 import type { TextContent, ToolCall, AssistantMessage } from '@mariozechner/pi-ai';
 
 /** Cap tool result content to avoid blowing up the LLM context window. */
@@ -173,77 +171,3 @@ export function createLazyAnthropicClient(proxySocket: string): () => Promise<an
   };
 }
 
-// ── Filesystem helpers ───────────────────────────────────────────────
-
-import type { SkillSummary } from './prompt/types.js';
-
-/**
- * Extract skill metadata from a markdown file.
- * Takes the H1 title as the name and the first non-empty paragraph as the
- * description. Falls back to the filename (without extension) if no H1 found.
- */
-function extractSkillMeta(content: string, filename: string): { name: string; description: string } {
-  const lines = content.split('\n');
-  let name = filename.replace(/\.md$/i, '');
-  let description = '';
-
-  for (const line of lines) {
-    const h1Match = line.match(/^#\s+(.+)/);
-    if (h1Match && !name.includes('/')) {
-      name = h1Match[1].trim();
-      continue;
-    }
-    // First non-empty, non-heading line is the description
-    if (!description && line.trim() && !line.startsWith('#')) {
-      description = line.trim();
-      break;
-    }
-  }
-
-  return { name, description: description || 'No description' };
-}
-
-/**
- * Read skill files from a directory, returning metadata for prompt injection.
- * Supports both file-based (.md) and directory-based (subdir/SKILL.md) skills.
- * The agent reads full SKILL.md via read_file when it decides to use a skill.
- */
-export function loadSkills(skillsDir: string): SkillSummary[] {
-  try {
-    const entries = readdirSync(skillsDir, { withFileTypes: true });
-    const results: SkillSummary[] = [];
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        // File-based skill: greeting.md
-        const content = readFileSync(join(skillsDir, entry.name), 'utf-8');
-        const { name, description } = extractSkillMeta(content, entry.name);
-        results.push({ name, description, path: entry.name });
-      } else if (entry.isDirectory()) {
-        // Directory-based skill: deploy/SKILL.md
-        const skillMdPath = join(skillsDir, entry.name, 'SKILL.md');
-        if (existsSync(skillMdPath)) {
-          const content = readFileSync(skillMdPath, 'utf-8');
-          const { name, description } = extractSkillMeta(content, entry.name);
-          results.push({ name, description, path: join(entry.name, 'SKILL.md') });
-        }
-      }
-    }
-    return results;
-  } catch { return []; }
-}
-
-/**
- * Load and merge skills from multiple directories (user shadows agent).
- * Directories are processed in order; later entries shadow earlier ones by name.
- */
-export function loadSkillsMultiDir(
-  dirs: Array<{ dir: string; scope: 'agent' | 'user' }>,
-): SkillSummary[] {
-  const merged = new Map<string, SkillSummary>();
-  for (const { dir } of dirs) {
-    for (const skill of loadSkills(dir)) {
-      merged.set(skill.name, skill);
-    }
-  }
-  return [...merged.values()];
-}

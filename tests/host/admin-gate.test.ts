@@ -12,6 +12,8 @@ import type { WorkspaceProvider } from '../../src/providers/workspace/types.js';
 function createMockWorkspace(identityMap: Record<string, string> = {}): WorkspaceProvider {
   return {
     async getRepoUrl() { return { url: 'file:///mock-repo', created: false }; },
+    async ensureLocalMirror() { return '/mock-repo'; },
+    async commitFiles() { return { commit: null, changed: false }; },
     async close() {},
   };
 }

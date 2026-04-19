@@ -51,13 +51,12 @@ export interface PromptContext {
   hasGovernance?: boolean;
   /** Whether the workspace is available. */
   hasWorkspace?: boolean;
-  /** MCP CLI tool names available in PATH (e.g. ['linear', 'github']). */
-  mcpCLIs?: string[];
-  /** Tool module compact index for system prompt (replaces mcpCLIs). */
-  toolModuleIndex?: string;
 
   /** Plugin slash commands surfaced in the system prompt. */
   commands?: Array<{ name: string; pluginName: string; content: string }>;
+
+  /** Compact render of committed tool-module index (`.ax/tools/<skill>/_index.json`). */
+  toolModuleIndex?: string;
 }
 
 export interface IdentityFiles {

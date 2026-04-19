@@ -1,5 +1,15 @@
 # Agent
 
+### Soft "read X and follow it" prompts lose to familiar training patterns — name the anti-patterns explicitly
+**Date:** 2026-04-18
+**Context:** Admin reported the agent produced a `.ax/skills/linear/SKILL.md` that parsed as INVALID. The agent wrote `claude_desktop_config.json`-style YAML (`title:`, bare credential strings, `mcp: { type: stdio, command: npx, args: [...] }`) inside a ```yaml fenced block, with a `# Linear Skill` heading on line 1 instead of frontmatter. AX's parser requires `---` on line 1 with strict Zod fields. The skills module prompt said "read `.ax/skills/skill-creator/SKILL.md` and follow it" — too soft; the model pattern-matched to "I know MCP configs" and improvised from training.
+**Lesson:** When the model has a strong, familiar pattern from training (Claude Desktop MCP config, generic `.env` files, etc.) that conflicts with our actual format, a "read X and follow it" instruction is not enough. Name the anti-patterns explicitly ("do NOT improvise from training; the parser rejects: YAML in a fenced code block, `title:` instead of `name:`, bare credential strings, stdio MCP, unknown top-level keys") AND include a WRONG/RIGHT side-by-side in the target doc. The anti-pattern list is what trips the guardrail — the model's "I know this" reflex has to collide with a named rejection to stop. Also pin those strings with a regression test so future edits can't quietly soften the guardrails back.
+**Tags:** prompt-engineering, skills, anti-patterns, training-priors, skill-creator, frontmatter
+**Date:** 2026-04-18
+**Context:** Adding an integration test in `tests/agent/agent-setup.test.ts` that asserted on the Runtime module's `/workspace/.ax/tools/` render block. Test failed because the rendered prompt contained only `## Skills`, not the Runtime section at all.
+**Lesson:** `RuntimeModule.shouldInclude(ctx)` short-circuits to `false` in bootstrap mode — and `isBootstrapMode(ctx)` is true whenever `identityFiles.soul` OR `identityFiles.identity` is empty. The default `loadIdentityFiles(undefined)` zeroes every field, so ANY agent-setup integration test that asserts on Runtime output (or any non-bootstrap module) must pass `config.identity: { soul: 'X', identity: 'Y', ... }`. Unit tests at the module level already know this; the gotcha is only at the `buildSystemPrompt` integration boundary.
+**Tags:** prompt, runtime-module, bootstrap-mode, integration-test, agent-setup
+
 ### ALL LLM providers must handle image_data and file_data ContentBlocks — not just Anthropic
 **Date:** 2026-04-01
 **Context:** After fixing runners to inject `file_data` blocks into IPC messages, PDFs still weren't summarized. The Anthropic provider's `toAnthropicContent()` handled `file_data` → `document` blocks correctly, but the deployed model was `openrouter/google/gemini-3-flash-preview` which routes through `openai.ts`. Its `toOpenAIMessages()` only extracted `text` blocks from `ContentBlock[]`, silently dropping `file_data` and `image_data`.

@@ -17,12 +17,6 @@ import { HttpChatTransport, type UIMessage, type UIMessageChunk } from 'ai';
 
 const DEFAULT_USER = 'guest';
 
-export interface CredentialRequiredEvent {
-  envName: string;
-  sessionId: string;
-  requestId: string;
-}
-
 export interface StatusEvent {
   operation: string;
   phase: string;
@@ -33,7 +27,6 @@ interface AxChatTransportOptions {
   api?: string;
   user?: string;
   model?: string;
-  onCredentialRequired?: (event: CredentialRequiredEvent) => void;
   onStatus?: (event: StatusEvent) => void;
   onRunStart?: () => void;
 }
@@ -50,7 +43,6 @@ function extractText(msg: UIMessage): string {
 }
 
 export class AxChatTransport extends HttpChatTransport<UIMessage> {
-  private onCredentialRequired?: (event: CredentialRequiredEvent) => void;
   private onStatus?: (event: StatusEvent) => void;
   private onRunStart?: () => void;
 
@@ -92,7 +84,6 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
         },
       }),
     });
-    this.onCredentialRequired = opts.onCredentialRequired;
     this.onStatus = opts.onStatus;
     this.onRunStart = opts.onRunStart;
   }
@@ -109,7 +100,6 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
     let started = false;
     // Track named SSE events (event: line precedes data: line)
     let pendingEventName: string | null = null;
-    const credentialCallback = this.onCredentialRequired;
     const statusCallback = this.onStatus;
 
     // Buffer for incomplete SSE lines split across TextDecoderStream chunks
@@ -159,14 +149,6 @@ export class AxChatTransport extends HttpChatTransport<UIMessage> {
               if (!trimmed.startsWith('data: ')) continue;
 
               // Handle named events
-              if (pendingEventName === 'credential_required' && credentialCallback) {
-                try {
-                  const payload = JSON.parse(trimmed.slice(6));
-                  credentialCallback(payload);
-                } catch { /* malformed event, skip */ }
-                pendingEventName = null;
-                continue;
-              }
               if (pendingEventName === 'status') {
                 try {
                   const payload = JSON.parse(trimmed.slice(6));

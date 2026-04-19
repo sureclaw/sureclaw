@@ -4,7 +4,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createAdminOAuthFlow, type StartFlowInput } from '../../src/host/admin-oauth-flow.js';
-import type { CredentialProvider } from '../../src/providers/credentials/types.js';
 import type { AuditProvider } from '../../src/providers/audit/types.js';
 import { initLogger } from '../../src/logger.js';
 
@@ -163,32 +162,53 @@ describe('createAdminOAuthFlow', () => {
 // the cheapest practical check that tokens never leak into logs or args.
 // ──────────────────────────────────────────────────────────────────────
 
-interface CredSetCall {
-  envName: string;
-  value: string;
-  scope?: string;
-}
-
-function makeCredentials(): CredentialProvider & { setCalls: CredSetCall[] } {
-  const setCalls: CredSetCall[] = [];
-  return {
-    setCalls,
-    async get() { return null; },
-    async set(envName, value, scope) {
-      setCalls.push({ envName, value, scope });
-    },
-    async delete() { /* noop */ },
-    async list() { return []; },
-    async listScopePrefix() { return []; },
-  };
-}
-
 function makeAudit(): AuditProvider & { calls: Array<Partial<import('../../src/providers/audit/types.js').AuditEntry>> } {
   const calls: Array<Partial<import('../../src/providers/audit/types.js').AuditEntry>> = [];
   return {
     calls,
     async log(entry) { calls.push(entry); },
     async query() { return []; },
+  };
+}
+
+interface SkillCredPutCall {
+  agentId: string;
+  skillName: string;
+  envName: string;
+  userId: string;
+  value: string;
+}
+
+function makeSkillCredStore(): {
+  put(input: SkillCredPutCall): Promise<void>;
+  get(): Promise<null>;
+  listForAgent(): Promise<[]>;
+  listEnvNames(): Promise<Set<string>>;
+  putCalls: SkillCredPutCall[];
+} {
+  const putCalls: SkillCredPutCall[] = [];
+  return {
+    putCalls,
+    async put(input) { putCalls.push(input); },
+    async get() { return null; },
+    async listForAgent() { return []; },
+    async listEnvNames() { return new Set(); },
+  };
+}
+
+function makeSnapshotCache(): {
+  get: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+  invalidateAgent: ReturnType<typeof vi.fn>;
+  clear: ReturnType<typeof vi.fn>;
+  size: ReturnType<typeof vi.fn>;
+} {
+  return {
+    get: vi.fn(),
+    put: vi.fn(),
+    invalidateAgent: vi.fn().mockReturnValue(0),
+    clear: vi.fn(),
+    size: vi.fn().mockReturnValue(0),
   };
 }
 
@@ -221,32 +241,38 @@ describe('resolveCallback', () => {
       mockFetchResponse(200, { access_token: 'at-123', refresh_token: 'rt-456', expires_in: 3600 }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
-    const reconcile = vi.fn(async () => ({ skills: 1, events: 0 }));
+    const snapshotCache = makeSnapshotCache();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code-x',
       state,
-      credentials,
+      skillCredStore,
       audit,
-      reconcileAgent: reconcile,
+      snapshotCache,
     });
 
     expect(result).toEqual({ matched: true, ok: true });
 
-    // access_token written at user scope.
-    const tokenCall = credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN');
-    expect(tokenCall).toBeDefined();
-    expect(tokenCall!.value).toBe('at-123');
-    expect(tokenCall!.scope).toBe('user:main:alice');
-
-    // refresh blob written at same scope.
-    const blobCall = credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob');
-    expect(blobCall).toBeDefined();
-    expect(blobCall!.scope).toBe('user:main:alice');
-    const blob = JSON.parse(blobCall!.value);
+    // Tuple-keyed write: access_token lands in skill_credentials at
+    // (agentId, skillName, envName, userId). Refresh blob lands under a
+    // sibling envName in the same tuple row.
+    const tokenPut = skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN');
+    expect(tokenPut).toEqual({
+      agentId: 'main',
+      skillName: 'linear-tracker',
+      envName: 'LINEAR_TOKEN',
+      userId: 'alice',
+      value: 'at-123',
+    });
+    const blobPut = skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob');
+    expect(blobPut).toBeDefined();
+    expect(blobPut!.agentId).toBe('main');
+    expect(blobPut!.skillName).toBe('linear-tracker');
+    expect(blobPut!.userId).toBe('alice');
+    const blob = JSON.parse(blobPut!.value);
     expect(blob.access_token).toBe('at-123');
     expect(blob.refresh_token).toBe('rt-456');
     expect(blob.token_url).toBe('https://api.linear.app/oauth/token');
@@ -268,8 +294,8 @@ describe('resolveCallback', () => {
     expect(auditText).not.toContain('at-123');
     expect(auditText).not.toContain('rt-456');
 
-    // Reconcile called with (agentId, main ref).
-    expect(reconcile).toHaveBeenCalledWith('main', 'refs/heads/main');
+    // Snapshot cache invalidated for this agent so the next live read is fresh.
+    expect(snapshotCache.invalidateAgent).toHaveBeenCalledWith('main');
 
     // Token request body — no client_secret (PKCE public client).
     const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -291,14 +317,14 @@ describe('resolveCallback', () => {
       mockFetchResponse(200, { access_token: 'at-z', refresh_token: 'rt-y', expires_in: 1800 }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code-conf',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
@@ -314,43 +340,75 @@ describe('resolveCallback', () => {
     expect(JSON.stringify(audit.calls)).not.toContain('shh');
 
     // blob stores clientId but NOT the secret.
-    const blobCall = credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob');
-    expect(blobCall).toBeDefined();
-    const blob = JSON.parse(blobCall!.value);
+    const blobPut = skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob');
+    expect(blobPut).toBeDefined();
+    const blob = JSON.parse(blobPut!.value);
     expect(blob.client_id).toBe('cid');
     expect(JSON.stringify(blob)).not.toContain('shh');
   });
 
+  it('agent-scope flow writes skill_credentials row with user_id = "" sentinel', async () => {
+    const flow = createAdminOAuthFlow();
+    const { state } = flow.start(baseInput({ scope: 'agent', userId: undefined }));
+
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      mockFetchResponse(200, { access_token: 'shared-tok' }),
+    );
+
+    const skillCredStore = makeSkillCredStore();
+    const audit = makeAudit();
+
+    const result = await flow.resolveCallback({
+      provider: 'linear',
+      code: 'code-agent',
+      state,
+      skillCredStore,
+      audit,
+    });
+
+    expect(result).toEqual({ matched: true, ok: true });
+
+    // Tuple write uses `user_id: ''` as the agent-scope sentinel.
+    const tokenPut = skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN');
+    expect(tokenPut).toEqual({
+      agentId: 'main',
+      skillName: 'linear-tracker',
+      envName: 'LINEAR_TOKEN',
+      userId: '',
+      value: 'shared-tok',
+    });
+  });
+
   it('unknown state → {matched:false}, no fetch call', async () => {
     const flow = createAdminOAuthFlow();
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state: 'not-a-real-state',
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result).toEqual({ matched: false });
     expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(credentials.setCalls).toEqual([]);
+    expect(skillCredStore.putCalls).toEqual([]);
     expect(audit.calls).toEqual([]);
   });
 
   it('provider mismatch → matched:true, ok:false, invalid_response, no fetch, no cred write', async () => {
     const flow = createAdminOAuthFlow();
     const { state } = flow.start(baseInput()); // provider = 'linear'
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'evil',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
@@ -361,7 +419,7 @@ describe('resolveCallback', () => {
       details: 'provider mismatch',
     });
     expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(credentials.setCalls).toEqual([]);
+    expect(skillCredStore.putCalls).toEqual([]);
 
     // Audit failure emitted so mismatches are visible.
     const fail = audit.calls.find(c => c.action === 'oauth_callback_failed');
@@ -376,19 +434,19 @@ describe('resolveCallback', () => {
       mockFetchResponse(400, 'invalid_grant'),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result).toEqual({ matched: true, ok: false, reason: 'token_exchange_failed' });
-    expect(credentials.setCalls).toEqual([]);
+    expect(skillCredStore.putCalls).toEqual([]);
 
     const fail = audit.calls.find(c => c.action === 'oauth_callback_failed');
     expect(fail).toBeDefined();
@@ -402,20 +460,20 @@ describe('resolveCallback', () => {
       mockFetchResponse(200, { error: 'wat' }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result.matched).toBe(true);
     expect(result).toMatchObject({ ok: false, reason: 'invalid_response' });
-    expect(credentials.setCalls).toEqual([]);
+    expect(skillCredStore.putCalls).toEqual([]);
 
     const fail = audit.calls.find(c => c.action === 'oauth_callback_failed');
     expect(fail).toBeDefined();
@@ -428,118 +486,72 @@ describe('resolveCallback', () => {
       mockFetchResponse(200, { access_token: 'at-only' }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result).toEqual({ matched: true, ok: true });
-    expect(credentials.setCalls).toHaveLength(1);
-    expect(credentials.setCalls[0].envName).toBe('LINEAR_TOKEN');
-    expect(credentials.setCalls[0].value).toBe('at-only');
-    expect(credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob')).toBeUndefined();
+    expect(skillCredStore.putCalls).toHaveLength(1);
+    expect(skillCredStore.putCalls[0].envName).toBe('LINEAR_TOKEN');
+    expect(skillCredStore.putCalls[0].value).toBe('at-only');
+    expect(skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN__oauth_blob')).toBeUndefined();
 
     const success = audit.calls.find(c => c.action === 'oauth_callback_success');
     expect(success).toBeDefined();
     expect((success!.args as { hasRefreshToken?: boolean }).hasRefreshToken).toBe(false);
   });
 
-  it('reconcile throws → still returns ok (fire-and-forget swallows rejection)', async () => {
-    // The reconcile is fire-and-forget: resolveCallback returns BEFORE the
-    // reconcile promise settles, so credentials + audit + the HTML response
-    // aren't held up by a slow/broken reconcile. A rejection from reconcile
-    // must not escape as an unhandled promise — the `.catch` inside
-    // admin-oauth-flow.ts swallows + logs. We flush the microtask queue
-    // (setImmediate) to let the rejection run, then assert no leaked error.
-    const flow = createAdminOAuthFlow();
-    const { state } = flow.start(baseInput());
-    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      mockFetchResponse(200, { access_token: 'at', refresh_token: 'rt' }),
-    );
-
-    const credentials = makeCredentials();
-    const audit = makeAudit();
-    const reconcile = vi.fn(async () => { throw new Error('kaboom'); });
-
-    // Surface any unhandled rejection — if the .catch inside the module is
-    // missing or misplaced, this listener fires and we fail the test.
-    const unhandled: unknown[] = [];
-    const handler = (reason: unknown) => unhandled.push(reason);
-    process.on('unhandledRejection', handler);
-
-    try {
-      const result = await flow.resolveCallback({
-        provider: 'linear',
-        code: 'code',
-        state,
-        credentials,
-        audit,
-        reconcileAgent: reconcile,
-      });
-
-      expect(result).toEqual({ matched: true, ok: true });
-      expect(reconcile).toHaveBeenCalled();
-      expect(credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN')).toBeDefined();
-
-      // Flush the microtask queue so the void-reconcile .catch runs before
-      // we check for unhandled rejections.
-      await new Promise(r => setImmediate(r));
-      expect(unhandled).toEqual([]);
-    } finally {
-      process.off('unhandledRejection', handler);
-    }
-  });
-
-  it('no reconcileAgent dep → succeeds without calling it', async () => {
+  it('no snapshotCache dep → succeeds without calling invalidate', async () => {
     const flow = createAdminOAuthFlow();
     const { state } = flow.start(baseInput());
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       mockFetchResponse(200, { access_token: 'at' }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result).toEqual({ matched: true, ok: true });
-    expect(credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN')).toBeDefined();
+    expect(skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN')).toBeDefined();
   });
 
-  it('agent-scoped credential → written at agent scope, not user scope', async () => {
+  it('agent-scoped credential → written with userId = "" sentinel', async () => {
     const flow = createAdminOAuthFlow();
     const { state } = flow.start(baseInput({ scope: 'agent', userId: undefined }));
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       mockFetchResponse(200, { access_token: 'at', refresh_token: 'rt' }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code',
       state,
-      credentials,
+      skillCredStore,
       audit,
     });
 
     expect(result).toEqual({ matched: true, ok: true });
-    const tokenCall = credentials.setCalls.find(c => c.envName === 'LINEAR_TOKEN');
-    expect(tokenCall).toBeDefined();
-    expect(tokenCall!.scope).toBe('agent:main');
+    const tokenPut = skillCredStore.putCalls.find(c => c.envName === 'LINEAR_TOKEN');
+    expect(tokenPut).toBeDefined();
+    expect(tokenPut!.userId).toBe('');
   });
 
   it('returns error when token endpoint hangs (AbortSignal.timeout fires)', async () => {
@@ -560,26 +572,26 @@ describe('resolveCallback', () => {
       }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
-    const reconcile = vi.fn(async () => ({ skills: 0, events: 0 }));
+    const snapshotCache = makeSnapshotCache();
 
     const result = await flow.resolveCallback({
       provider: 'linear',
       code: 'code-hang',
       state,
-      credentials,
+      skillCredStore,
       audit,
-      reconcileAgent: reconcile,
+      snapshotCache,
     });
 
     expect(result.matched).toBe(true);
     expect(result).toMatchObject({ ok: false, reason: 'error' });
 
-    // No credential write, no reconcile call — the hang must not leave
+    // No credential write, no cache invalidation — the hang must not leave
     // partial state behind.
-    expect(credentials.setCalls).toEqual([]);
-    expect(reconcile).not.toHaveBeenCalled();
+    expect(skillCredStore.putCalls).toEqual([]);
+    expect(snapshotCache.invalidateAgent).not.toHaveBeenCalled();
 
     // Audit records the failure so the DoS attempt is visible.
     const fail = audit.calls.find(c => c.action === 'oauth_callback_failed');
@@ -597,16 +609,16 @@ describe('resolveCallback', () => {
       mockFetchResponse(200, { access_token: 'at' }),
     );
 
-    const credentials = makeCredentials();
+    const skillCredStore = makeSkillCredStore();
     const audit = makeAudit();
 
     const first = await flow.resolveCallback({
-      provider: 'linear', code: 'c1', state, credentials, audit,
+      provider: 'linear', code: 'c1', state, skillCredStore, audit,
     });
     expect(first).toEqual({ matched: true, ok: true });
 
     const second = await flow.resolveCallback({
-      provider: 'linear', code: 'c2', state, credentials, audit,
+      provider: 'linear', code: 'c2', state, skillCredStore, audit,
     });
     expect(second).toEqual({ matched: false });
     // Only one fetch — the second call short-circuited.

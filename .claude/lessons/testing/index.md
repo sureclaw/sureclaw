@@ -12,6 +12,7 @@ Lessons about test patterns, infrastructure, mocking strategies, and test enviro
 - Changing prompt module output breaks tests in multiple locations [patterns.md](patterns.md)
 - When adding new prompt modules, update integration test module count [patterns.md](patterns.md)
 - Use createHttpServer for isolated SSE endpoint tests instead of full AxServer [patterns.md](patterns.md)
+- Bare repo with no commits → `git ls-tree refs/heads/main` fails; always seed a file even for "empty" test cases [patterns.md](patterns.md)
 - Playwright reuseExistingServer:true silently serves a stale bundle from another worktree [infrastructure.md](infrastructure.md)
 - Tool count tests are scattered across many test files [infrastructure.md](infrastructure.md)
 - Adding a new tool category requires updating ToolFilterContext in test filter objects [infrastructure.md](infrastructure.md)

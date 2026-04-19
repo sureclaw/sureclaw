@@ -76,6 +76,67 @@ describe('HttpIPCClient', () => {
     expect(lastRequest!.body._sessionScope).toBe('dm');
   });
 
+  test('retries once when the initial fetch fails with UND_ERR_SOCKET "other side closed"', async () => {
+    // Regression: sandbox <-> host uses Node fetch() with undici's connection
+    // pool under the hood. A stale keep-alive connection — one the server
+    // closed while it sat idle in the pool — throws UND_ERR_SOCKET immediately
+    // (~1ms duration) on the next request that tries to reuse it. The failing
+    // call carries no bytes to the server, so one transparent retry is safe
+    // (the second request opens a fresh connection) and turns a flaky dev-loop
+    // hiccup into a non-event.
+    await startServer(() => ({ result: 'ok-after-retry' }));
+
+    const { vi } = await import('vitest');
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (...args) => {
+      calls++;
+      if (calls === 1) {
+        // Shape the error like undici's: outer "fetch failed" with a .cause
+        // carrying the real code. Same as what the user's log showed.
+        const cause: Error & { code?: string } = new Error('other side closed');
+        cause.code = 'UND_ERR_SOCKET';
+        throw Object.assign(new Error('fetch failed'), { cause });
+      }
+      return realFetch(...(args as Parameters<typeof fetch>));
+    });
+
+    try {
+      const client = new HttpIPCClient({ hostUrl: `http://127.0.0.1:${port}` });
+      client.setContext({ token: 't', sessionId: 's' });
+      const result = await client.call({ action: 'memory_read', key: 'k' });
+      expect(result).toEqual({ result: 'ok-after-retry' });
+      expect(calls).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('does NOT retry on non-socket errors (e.g., ECONNREFUSED) — surfaces the original failure', async () => {
+    // Only stale-keepalive looks safe to auto-retry. Other errors (server
+    // actually down, DNS failure, auth failure) should bubble up without
+    // the extra round-trip so the caller sees the real problem.
+    const { vi } = await import('vitest');
+    let calls = 0;
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      calls++;
+      const cause: Error & { code?: string } = new Error('connect ECONNREFUSED 127.0.0.1:1');
+      cause.code = 'ECONNREFUSED';
+      throw Object.assign(new Error('fetch failed'), { cause });
+    });
+
+    try {
+      const client = new HttpIPCClient({ hostUrl: 'http://127.0.0.1:1' });
+      client.setContext({ token: 't', sessionId: 's' });
+      await expect(
+        client.call({ action: 'memory_read', key: 'k' }),
+      ).rejects.toThrow(/ECONNREFUSED/);
+      expect(calls).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test('throws on timeout', async () => {
     await startServer(() => ({ ok: true }), 500);
 

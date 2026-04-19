@@ -86,7 +86,6 @@ This interface enables transport-agnostic IPC usage in runners and tools (e.g. `
 | Scheduler   | `scheduler_run_at`     | `datetime`, `prompt`, `maxTokenBudget?`, `delivery?`      | `jobId`                       |
 | Scheduler   | `scheduler_remove_cron`| `id`                                                      | `removed`                     |
 | Scheduler   | `scheduler_list_jobs`  | (none)                                                    | `jobs`                        |
-| Skills      | `skills_index`         | (none)                                                    | `skills` (list of installed skills with state) |
 | Skills      | `skill_propose`        | `skill`, `content`, `reason?`                             | `proposalId`, `decision`      |
 | Sandbox     | `sandbox_bash`         | `command`                                                 | (exec result)                 |
 | Sandbox     | `sandbox_read_file`    | `path`                                                    | `content`                     |

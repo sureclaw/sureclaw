@@ -1,26 +1,27 @@
 // src/host/skills/hook-endpoint.ts — HMAC-authenticated HTTP handler for
-// the post-receive reconcile hook.
+// the post-receive hook.
 //
-// The git push hook (installed per-agent) POSTs a small JSON body to the host
+// The per-agent git post-receive hook POSTs a small JSON body to the host
 // whenever a ref moves. Because the push pipeline is local (unix socket or
 // git-http in-cluster) but still flows over HTTP, we authenticate each call
-// with an HMAC-SHA256 of the raw body, using a shared secret. mTLS would be
-// overkill for phase 2 — rotating an env var is easier than rotating certs.
+// with an HMAC-SHA256 of the raw body, using a shared secret.
 //
 // Responsibilities:
 //   1. Read the raw body (cap 64 KiB → 413 above that).
 //   2. Verify `X-AX-Hook-Signature: sha256=<hex>` against sha256-HMAC of the
 //      raw bytes, in constant time. Missing / malformed / wrong → 401.
 //   3. Parse + Zod-strict-validate the JSON body. Failure → 400.
-//   4. `await reconcileAgent(agentId, ref)`. Throw → 500 (logged, but the
-//      server keeps running).
-//
-// Only the factory is exported. Task 6 mounts this onto the real router.
+//   4. Invalidate the agent's snapshot-cache entries so the next live read
+//      (`getAgentSkills` / `getAgentSetupQueue`) walks git afresh.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { getLogger } from '../../logger.js';
+import type { SnapshotCache } from './snapshot-cache.js';
+import type { SkillSnapshotEntry } from './types.js';
+import type { GetAgentSkillsDeps } from './get-agent-skills.js';
+import { loadSnapshot, sweepOrphanedRows } from './get-agent-skills.js';
 
 /** Max request body size for the hook endpoint. A real post-receive payload
  *  is ~200 bytes; 64 KiB is a paranoid DoS cap. */
@@ -38,10 +39,16 @@ const BodySchema = z
 export interface HookEndpointDeps {
   /** Shared secret used on both sides of the HMAC. */
   secret: string;
-  /** Orchestrator entry point. Task 4 already catches internally, but we
-   *  wrap the await with try/catch here too — the server process must not
-   *  die on a bad reconcile. */
-  reconcileAgent: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Snapshot cache used by `getAgentSkills`. The handler drops every entry
+   *  whose key starts with `${agentId}@` after signature + schema pass. */
+  snapshotCache: SnapshotCache<SkillSnapshotEntry[]>;
+  /** Full `agentSkillsDeps` so the hook can sweep orphaned rows immediately
+   *  after a push lands. Without this, a sequence of agent turns that
+   *  delete then re-add a skill within one session never triggers the
+   *  sweep (which normally runs at turn-start `loadSnapshot`), and the
+   *  re-added skill auto-enables from a stale credential row. Optional
+   *  so setups without a database still get the cache-bust behaviour. */
+  agentSkillsDeps?: GetAgentSkillsDeps;
 }
 
 export function createReconcileHookHandler(
@@ -93,23 +100,37 @@ export function createReconcileHookHandler(
       return;
     }
 
-    // 4. Run the reconcile. Any throw becomes a 500 — the orchestrator
-    //    already catches internally (phase-2 design), but belt and braces.
-    const { agentId, ref } = validation.data;
-    let result: { skills: number; events: number };
-    try {
-      result = await deps.reconcileAgent(agentId, ref);
-    } catch (err) {
-      log.error('reconcile_hook_failed', {
-        agentId,
-        ref,
-        error: (err as Error).message,
-      });
-      sendError(res, 500, 'Reconcile failed');
-      return;
+    // 4. Invalidate the agent's cached snapshots. Next read walks git again.
+    const { agentId } = validation.data;
+    const dropped = deps.snapshotCache.invalidateAgent(agentId);
+    log.debug('hook_cache_invalidated', { agentId, dropped });
+
+    // 5. Run the orphan sweep against the FRESH snapshot. Catches the
+    //    "delete skill in turn N, re-add in turn N+1" race: without this,
+    //    sweep runs via `loadSnapshot` only at turn-start, which may see
+    //    a snapshot where the skill is already back (because both commits
+    //    landed between the two getAgentSkills calls), letting the stale
+    //    credential row auto-enable the re-added skill. Running here, right
+    //    after each push, means the moment the skill disappears from git,
+    //    its rows are cleaned — a later re-add sees an empty projection
+    //    and correctly surfaces a setup card.
+    if (deps.agentSkillsDeps) {
+      try {
+        const fresh = await loadSnapshot(agentId, deps.agentSkillsDeps);
+        const swept = await sweepOrphanedRows(agentId, fresh, deps.agentSkillsDeps);
+        if (swept.length > 0) {
+          log.info('hook_orphan_sweep', { agentId, sweptSkills: swept });
+        }
+      } catch (err) {
+        // Sweep failures shouldn't fail the push — log and continue.
+        log.warn('hook_orphan_sweep_failed', {
+          agentId,
+          error: (err as Error).message,
+        });
+      }
     }
 
-    sendJson(res, 200, { ok: true, skills: result.skills, events: result.events });
+    sendJson(res, 200, { ok: true, invalidated: dropped });
   };
 }
 

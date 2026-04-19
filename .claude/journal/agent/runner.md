@@ -2,6 +2,21 @@
 
 Agent runner implementations, process management, dev/production mode split.
 
+## [2026-04-18 14:30] — Remove orphaned imports in runner.ts (Task 5 follow-up)
+
+**Task:** Code reviewer flagged 4 named imports with zero remaining usages after Task 5's deletion of per-turn tool-module generation: `mkdirSync`, `rmSync` from `node:fs`, and `dirname`, `resolve` from `node:path`. TypeScript didn't catch them because `noUnusedLocals` is off. Violated CLAUDE.md "no dead code."
+**What I did:** Word-bounded grep confirmed all 4 appeared only on their import lines (11–12); remaining names (writeFileSync, readFileSync, existsSync, readdirSync, join) all had real call sites. Narrowed import statements to only the in-use names. `npm run build` clean; all 355 tests in tests/agent/ pass. Amended commit afbce180 in place.
+**Files touched:** src/agent/runner.ts
+**Outcome:** Success — import block now reflects actual usage; dead-code invariant restored for this file.
+**Notes:** `noUnusedLocals` is still off in tsconfig.json — broader hygiene work, out of Task 5 scope.
+
+## [2026-04-18 11:58] — Move `/workspace/tools/` → `/workspace/.ax/tools/`
+
+**Task:** Auto-generated MCP tool modules were polluting the user's workspace root alongside user-authored content. Move them under `.ax/` so all AX-managed artifacts live in one directory.
+**What I did:** (1) runner writes tool modules to `resolve(config.workspace, '.ax', 'tools')` instead of `'tools'`. (2) Prompt runtime module + tool-catalog + mcp-server descriptions all reference the new path. (3) `seedAxDirectory` now writes a tiny `.ax/.gitignore` with `tools/` so the auto-generated modules never end up committed (they're regenerated every turn). (4) Local-sandbox test updated to assert on the new path. User-authored `.ax/skills/` stays committed; auto-generated `.ax/tools/` stays ignored — the distinction is load-bearing.
+**Files touched:** src/agent/runner.ts, src/agent/prompt/modules/runtime.ts, src/agent/tool-catalog.ts, src/agent/mcp-server.ts, src/host/server-completions.ts, tests/agent/local-sandbox.test.ts
+**Outcome:** Success — `npm run build` clean, 495/495 targeted tests pass across tests/agent + tests/host/skills + tests/host/server-completions* + tests/host/server-admin-skills.
+
 ## [2026-04-01 01:20] — Fix multipart message display in chat history
 
 **Task:** User messages with file/image attachments displayed as raw JSON in chat history (e.g., `[{"type":"text","text":"Describe..."}]`) instead of clean text.

@@ -7,7 +7,7 @@ import { initLogger } from '../../../src/logger.js';
 initLogger({ file: false, level: 'silent' });
 
 describe('toolgen e2e', () => {
-  it('MCP tools → modules + compact index', async () => {
+  it('MCP tools → modules + index', async () => {
     const mcpTools: McpToolSchema[] = [
       { name: 'list_issues', description: 'List issues', inputSchema: { type: 'object', properties: { query: { type: 'string' } } }, server: 'linear' },
       { name: 'create_issue', description: 'Create issue', inputSchema: { type: 'object', properties: { title: { type: 'string' } }, required: ['title'] }, server: 'linear' },
@@ -25,15 +25,10 @@ describe('toolgen e2e', () => {
     // Index file exists
     const indexFile = result!.files.find(f => f.path === 'index.js');
     expect(indexFile).toBeDefined();
-    expect(indexFile!.content).toContain("export * as linear from './linear.js'");
-
-    // Compact index is prompt-ready
-    expect(result!.compactIndex).toContain('linear:');
-    expect(result!.compactIndex).toContain('listIssues(query?)');
-    expect(result!.compactIndex).toContain('createIssue(title)');
+    expect(indexFile!.content).toContain("export * from './linear.js'");
   });
 
-  it('OpenAPI spec → modules + compact index', async () => {
+  it('OpenAPI spec → modules + index', async () => {
     const spec = {
       openapi: '3.0.0',
       info: { title: 'Billing', version: '1.0.0' },
@@ -65,9 +60,6 @@ describe('toolgen e2e', () => {
     expect(billingModule).toBeDefined();
     expect(billingModule!.content).toContain('export async function listInvoices');
     expect(billingModule!.content).toContain('export async function getInvoice');
-    expect(result!.compactIndex).toContain('billing:');
-    expect(result!.compactIndex).toContain('listInvoices(customer?)');
-    expect(result!.compactIndex).toContain('getInvoice(id)');
   });
 
   it('mixed MCP + OpenAPI tools in one pipeline', async () => {
@@ -92,7 +84,5 @@ describe('toolgen e2e', () => {
     expect(result).not.toBeNull();
     expect(result!.files.find(f => f.path === 'linear.js')).toBeTruthy();
     expect(result!.files.find(f => f.path === 'billing.js')).toBeTruthy();
-    expect(result!.compactIndex).toContain('linear:');
-    expect(result!.compactIndex).toContain('billing:');
   });
 });

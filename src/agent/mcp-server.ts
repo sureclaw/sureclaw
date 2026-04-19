@@ -133,14 +133,6 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
       },
     ),
 
-    // ── Credential ──
-    tool('request_credential', getToolDescription('request_credential'),
-      {
-        envName: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).describe('Environment variable name needed (e.g. LINEAR_API_KEY). Must be uppercase with underscores only.'),
-      },
-      (args) => ipcCall('credential_request', args),
-    ),
-
     // ── Workspace ──
     tool('save_artifact', getToolDescription('save_artifact'),
       {
@@ -254,7 +246,7 @@ export function createIPCMcpServer(client: IIPCClient, opts?: MCPServerOptions):
     // ── Execute Script (PTC) — always runs locally, no IPC needed ──
     tool('execute_script', getToolDescription('execute_script'),
       {
-        code: z.string().max(500_000).describe('JavaScript code to execute. Can import from /workspace/tools/.'),
+        code: z.string().max(500_000).describe('JavaScript code to execute. Can import from /workspace/.ax/tools/.'),
         timeoutMs: z.number().int().min(1000).max(120_000).optional().describe('Execution timeout in ms (default: 30000, max: 120000)'),
       },
       async (args) => textResult(executeScript(args, opts?.localSandbox?.workspace ?? process.cwd())),

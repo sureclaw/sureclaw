@@ -4,13 +4,12 @@ import type { TaintBudget } from './taint-budget.js';
 import { IPC_SCHEMAS, IPCEnvelopeSchema } from '../ipc-schemas.js';
 import { getLogger, truncate } from '../logger.js';
 import type { EventBus } from './event-bus.js';
-import type { SkillStateStore } from './skills/state-store.js';
 
 // Domain handler factories
 import { createLLMHandlers } from './ipc-handlers/llm.js';
 import { createMemoryHandlers } from './ipc-handlers/memory.js';
 import { createWebHandlers } from './ipc-handlers/web.js';
-import { createSkillsHandlers } from './ipc-handlers/skills.js';
+import { createAuditHandlers } from './ipc-handlers/audit.js';
 import { createDelegationHandlers } from './ipc-handlers/delegation.js';
 import { createSchedulerHandlers } from './ipc-handlers/scheduler.js';
 import { createArtifactHandlers } from './ipc-handlers/artifact.js';
@@ -79,10 +78,6 @@ export interface IPCHandlerOptions {
   orchestrator?: Orchestrator;
   /** Maps sessionId → workspace directory path. Populated by processCompletion(), consumed by sandbox tool handlers. */
   workspaceMap?: Map<string, string>;
-  /** Tracks credential_request IPC calls per session. Consumed by processCompletion post-agent loop. */
-  requestedCredentials?: Map<string, Set<string>>;
-  /** Proxy domain allowlist — populated from skill manifests during reconciliation. */
-  domainList?: import('../host/proxy-domain-list.js').ProxyDomainList;
   /** Returns the MCP provider for tool batch execution (null = not configured).
    *  Accepts either a simple callback or full ToolBatchOptions with plugin MCP routing. */
   toolBatchProvider?: ((ctx: IPCContext) => ToolBatchProvider | null) | ToolBatchOptions;
@@ -94,9 +89,6 @@ export interface IPCHandlerOptions {
   onArtifactWritten?: (fileId: string, mimeType: string, filename: string) => void;
   /** Unified session manager — used by fetch_work handler to return queued work. */
   sessionManager?: import('./session-manager.js').SessionManager;
-  /** Git-native skills state store — powers the skills_index IPC handler.
-   *  When omitted, skills_index returns an empty list. */
-  stateStore?: SkillStateStore;
 }
 
 export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerOptions) {
@@ -109,11 +101,7 @@ export function createIPCHandler(providers: ProviderRegistry, opts?: IPCHandlerO
     ...createLLMHandlers(providers, opts?.configModel, agentId, opts?.eventBus, opts?.workspaceMap),
     ...createMemoryHandlers(providers),
     ...createWebHandlers(providers),
-    ...createSkillsHandlers(providers, {
-      requestedCredentials: opts?.requestedCredentials,
-      eventBus: opts?.eventBus,
-      stateStore: opts?.stateStore,
-    }),
+    ...createAuditHandlers(providers),
     ...createDelegationHandlers(providers, opts),
     ...createSchedulerHandlers(providers, agentId),
     ...createArtifactHandlers(providers, { agentId, gcsFileStorage: opts?.gcsFileStorage, fileStore: opts?.fileStore, onArtifactWritten: opts?.onArtifactWritten }),

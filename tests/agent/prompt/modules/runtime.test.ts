@@ -88,6 +88,33 @@ describe('RuntimeModule', () => {
     expect(match![1]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/);
   });
 
+  test('when toolModuleIndex is present, warns the agent about MCP response wrapping', () => {
+    // Regression: agents read `listIssues(team?, cycle?, limit?)` from the
+    // tool index and assume `.map` on the result. Many MCP servers (Linear,
+    // etc.) wrap collections in `{ <plural>: [...], pageInfo: {...} }`.
+    // Without this prompt-side hint, every first-use of a list_* tool costs
+    // a turn to discover the shape. The generated module's file header
+    // documents the same pattern, but the agent doesn't read the module —
+    // it reads the prompt, so the hint has to live here too.
+    const mod = new RuntimeModule();
+    const text = mod.render(makeContext({
+      toolModuleIndex: '  linear: listIssues(team?, cycle?)',
+      hasWorkspace: true,
+    })).join('\n');
+    expect(text).toContain('listIssues(team?, cycle?)');
+    expect(text).toMatch(/wrap|\{ ?\w+: ?\[/);
+    expect(text).toMatch(/log|JSON\.stringify|inspect/i);
+  });
+
+  test('omits the wrapping hint when there are no tool modules', () => {
+    // If no skills are installed there's no need to spend prompt tokens
+    // explaining a pattern the agent won't encounter. Keep the minimal
+    // footprint when toolModuleIndex is absent.
+    const mod = new RuntimeModule();
+    const text = mod.render(makeContext({ hasWorkspace: true })).join('\n');
+    expect(text).not.toMatch(/wrap|pageInfo/);
+  });
+
   test('cache-stable time has seconds set to 00 and minutes rounded to 5', () => {
     const mod = new RuntimeModule();
     const text = mod.render(makeContext()).join('\n');

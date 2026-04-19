@@ -2,6 +2,14 @@
 
 Plugin framework design, provider SDK, monorepo split planning, CI fixes.
 
+## [2026-04-18 11:51] — Fix: MCP authForServer reads skill_credentials, not the unscoped credential store
+
+**Task:** After admin approves a skill with an MCP server (Linear), no `/workspace/tools/<skill>.js` module gets generated. Agent sees an empty tools dir and improvises bad scripts.
+**What I did:** The `authForServer` callback in `server-completions.ts` was calling `providers.credentials.get(envName)` (unscoped, falls back to `process.env`). After the skills single-source-of-truth migration, new skill credentials only land in `skill_credentials` (tuple-keyed by agent/skill/env/user), so the unscoped lookup returns null → MCP auth fails → zero tools discovered → zero module files written. Rewired the callback to read from `deps.skillCredStore.listForAgent(agentId)`, with user-scope preference matching the turn-time injection. Extracted the lookup into an exportable `resolveMcpAuthHeaders` helper so it can be unit tested. Kept a `process.env` last-resort fallback for dev/infra creds that were never written to the store.
+**Files touched:** src/host/server-completions.ts, tests/host/server-completions-mcp-auth.test.ts
+**Outcome:** Success — 8 new unit tests cover user-scope preference, agent-scope fallback, hyphen normalization, env fallback, and the store-wins-over-env case. Build + targeted tests pass.
+**Notes:** Did not touch the legacy `providers.mcp && providers.mcp.listTools` fallback branch (deprecated path). `server-init.ts` and `inprocess.ts` also have the same unscoped `authForServer` pattern but they cover tool-batching (runtime call-tool), not tool-module discovery, and aren't the live bug — leaving them for a follow-up.
+
 ## [2026-03-30 02:15] — Fix tool stub server grouping: namespace by MCP server name
 
 **Task:** Tool stubs were generating flat directories (create/, delete/, get/, etc.) instead of namespaced under the server name (linear/)

@@ -65,27 +65,37 @@ export interface AdminSetupOpts {
   startTime: number;
   /** When true, skip token auth for localhost connections (local dev mode). */
   localDevMode?: boolean;
-  domainList?: import('./proxy-domain-list.js').ProxyDomainList;
   mcpManager?: import('../plugins/mcp-manager.js').McpConnectionManager;
   /** When true, auth is handled externally by auth middleware. */
   externalAuth?: boolean;
-  /** Phase 5: persisted skill setup queue. When absent, /admin/api/skills/* returns 503. */
-  skillStateStore?: import('./skills/state-store.js').SkillStateStore;
-  /** Phase 5: re-trigger reconcile after approve. When absent, /admin/api/skills/setup/approve returns 503. */
-  reconcileAgent?: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Tuple-keyed skill credential store. */
+  skillCredStore?: import('./skills/skill-cred-store.js').SkillCredStore;
+  /** Tuple-keyed skill domain approval store. */
+  skillDomainStore?: import('./skills/skill-domain-store.js').SkillDomainStore;
+  /** Live git-backed skill state loader. Shares one snapshot cache per host
+   *  process. When absent, skill endpoints return 503. */
+  agentSkillsDeps?: import('./skills/get-agent-skills.js').GetAgentSkillsDeps;
   /** Phase 5: default user ID for credentials with scope='user' when the request doesn't specify one. */
   defaultUserId?: string;
-  /** Phase 5 Task 5: in-memory queue of ad-hoc credential requests. */
-  credentialRequestQueue?: import('./credential-request-queue.js').CredentialRequestQueue;
+  /** Resolver that maps an incoming request to its BetterAuth user (when
+   * external auth is configured). Passed through to the admin handler so the
+   * approve endpoint writes user-scoped credentials under the caller's real
+   * BetterAuth UUID, not the container's defaultUserId. */
+  resolveAuthenticatedUser?: (req: import('node:http').IncomingMessage) => Promise<{ id: string; email?: string } | undefined>;
   /** Phase 6: admin-registered OAuth providers. When absent, /admin/api/oauth/* returns 503. */
   adminOAuthProviderStore?: import('./admin-oauth-providers.js').AdminOAuthProviderStore;
   /** Phase 6: admin-initiated OAuth flow module. When absent, /admin/api/skills/oauth/* returns 503. */
   adminOAuthFlow?: import('./admin-oauth-flow.js').AdminOAuthFlow;
+  /** Commits a skill's MCP tool modules into the agent's repo. Threaded from
+   *  HostCore → server.ts → setupAdminHandler → createAdminHandler. */
+  syncToolModules: (
+    input: import('./skills/tool-module-sync.js').ToolModuleSyncInput,
+  ) => Promise<import('./skills/tool-module-sync.js').ToolModuleSyncResult>;
 }
 
 export function setupAdminHandler(opts: AdminSetupOpts) {
-  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth, skillStateStore, reconcileAgent, defaultUserId, credentialRequestQueue, adminOAuthProviderStore, adminOAuthFlow } = opts;
+  const { config, providers, eventBus, agentRegistry, startTime, localDevMode, mcpManager, externalAuth, skillCredStore, skillDomainStore, agentSkillsDeps, defaultUserId, resolveAuthenticatedUser, adminOAuthProviderStore, adminOAuthFlow, syncToolModules } = opts;
   return config.admin?.enabled
-    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, domainList, mcpManager, externalAuth, skillStateStore, reconcileAgent, defaultUserId, credentialRequestQueue, adminOAuthProviderStore, adminOAuthFlow })
+    ? createAdminHandler({ config, providers, eventBus, agentRegistry, startTime, localDevMode, mcpManager, externalAuth, skillCredStore, skillDomainStore, agentSkillsDeps, defaultUserId, resolveAuthenticatedUser, adminOAuthProviderStore, adminOAuthFlow, syncToolModules })
     : null;
 }

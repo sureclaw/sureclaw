@@ -138,6 +138,45 @@ describe('McpConnectionManager', () => {
     expect(meta!.headers).toEqual({ Authorization: 'Bearer sk_live_xxx' });
   });
 
+  it('stores transport on registered servers + exposes it via getServerMeta', () => {
+    manager.addServer('pi', {
+      name: 'linear',
+      type: 'http',
+      url: 'https://mcp.linear.app/sse',
+      transport: 'sse',
+    });
+    const meta = manager.getServerMeta('pi', 'linear');
+    expect(meta).toBeDefined();
+    expect(meta!.transport).toBe('sse');
+  });
+
+  it('getServerMetaByUrl returns transport when declared', () => {
+    manager.addServer('pi', {
+      name: 'linear',
+      type: 'http',
+      url: 'https://mcp.linear.app/sse',
+      transport: 'sse',
+    });
+    const meta = manager.getServerMetaByUrl('pi', 'https://mcp.linear.app/sse');
+    expect(meta).toBeDefined();
+    expect(meta!.name).toBe('linear');
+    expect(meta!.transport).toBe('sse');
+  });
+
+  it('getServerMeta returns transport undefined when not declared (http default is set at the schema layer)', () => {
+    // `McpConnectionManager` doesn't impose a default — the
+    // frontmatter schema + provider layer handle that. Raw addServer
+    // without transport leaves meta.transport unset.
+    manager.addServer('pi', {
+      name: 'slack',
+      type: 'http',
+      url: 'https://mcp.slack.com/mcp',
+    });
+    const meta = manager.getServerMeta('pi', 'slack');
+    expect(meta).toBeDefined();
+    expect(meta!.transport).toBeUndefined();
+  });
+
   it('removeServersBySource removes all servers from a source', () => {
     manager.addServer('pi', { name: 'github', type: 'http', url: 'https://mcp.github.com/mcp' }, {
       source: 'db:org-tools',
@@ -190,6 +229,68 @@ describe('McpConnectionManager', () => {
 
   it('getServerMeta returns undefined for unknown server', () => {
     expect(manager.getServerMeta('pi', 'nonexistent')).toBeUndefined();
+  });
+
+  it('ensureToolsDiscoveredForHead runs discovery only once per (agent, head)', async () => {
+    // Regression: subprocess-sandbox completions used to rely on
+    // admin refresh-tools to populate the toolServerMap. On pod restart
+    // the in-memory map got wiped, and the turn path had no trigger to
+    // repopulate it — so generated tool stubs compiled fine, but at
+    // call time `resolveServer(agentId, 'get_team')` returned undefined
+    // and the handler emitted "MCP gateway not configured for this tool".
+    // This cache-keyed dedup lets the completion path ask for discovery
+    // every turn while actually running it only once per (agent, HEAD
+    // SHA) — cheap on cache hit, automatic on pod restart.
+    manager.addServer('_', { name: 'linear', type: 'http', url: 'https://mcp.linear.app/sse' }, { source: 'skill' });
+
+    const { vi } = await import('vitest');
+    const mcpClient = await import('../../src/plugins/mcp-client.js');
+    let callCount = 0;
+    const spy = vi.spyOn(mcpClient, 'listToolsFromServer').mockImplementation(async () => {
+      callCount++;
+      return [{ name: 'list_teams', description: 't', inputSchema: {} }];
+    });
+
+    // First call at HEAD sha-aaa → runs discovery
+    await manager.ensureToolsDiscoveredForHead('pi', 'sha-aaa', {});
+    expect(callCount).toBe(1);
+    expect(manager.getToolServerUrl('pi', 'list_teams')).toBe('https://mcp.linear.app/sse');
+
+    // Second call at same HEAD → no-op
+    await manager.ensureToolsDiscoveredForHead('pi', 'sha-aaa', {});
+    expect(callCount).toBe(1);
+
+    // Third call at a different HEAD → runs discovery again (workspace changed)
+    await manager.ensureToolsDiscoveredForHead('pi', 'sha-bbb', {});
+    expect(callCount).toBe(2);
+
+    // Per-agent isolation — a different agent starts cold even at the same HEAD
+    await manager.ensureToolsDiscoveredForHead('other-agent', 'sha-aaa', {});
+    expect(callCount).toBe(3);
+
+    spy.mockRestore();
+  });
+
+  it('ensureToolsDiscoveredForHead skips cache on force:true', async () => {
+    // Escape hatch for admin refresh-tools: the button click should re-run
+    // discovery even if the HEAD hasn't changed, because the admin may
+    // have tweaked credentials or swapped an MCP server version out.
+    manager.addServer('_', { name: 'linear', type: 'http', url: 'https://mcp.linear.app/sse' }, { source: 'skill' });
+
+    const { vi } = await import('vitest');
+    const mcpClient = await import('../../src/plugins/mcp-client.js');
+    let callCount = 0;
+    const spy = vi.spyOn(mcpClient, 'listToolsFromServer').mockImplementation(async () => {
+      callCount++;
+      return [];
+    });
+
+    await manager.ensureToolsDiscoveredForHead('pi', 'sha-aaa', {});
+    expect(callCount).toBe(1);
+    await manager.ensureToolsDiscoveredForHead('pi', 'sha-aaa', { force: true });
+    expect(callCount).toBe(2);
+
+    spy.mockRestore();
   });
 
   it('discoverAllTools respects serverFilter', async () => {

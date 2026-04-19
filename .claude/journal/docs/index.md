@@ -4,6 +4,9 @@ Documentation, plans, architecture docs, website updates, GitHub Pages.
 
 ## Entries
 
+- 2026-04-18 16:30 — Plan: tool modules as git-native artifacts [plans.md](plans.md)
+- 2026-04-18 07:02 — Design: skills as git-native only (single source of truth) [plans.md](plans.md)
+- 2026-04-17 05:45 — Exploration: coding agents platform on AX (sidecar services + delegation) [plans.md](plans.md)
 - 2026-04-17 13:00 — Phase 3 Task 8: update ax-agent skill doc for host-authoritative skills_index [website.md](website.md)
 - 2026-04-17 12:00 — Expand phase 3 (skills_index prompt integration) into concrete TDD tasks [plans.md](plans.md)
 - 2026-04-16 16:30 — Split git-native skills rollout into per-phase plan files (phase 2-7) [plans.md](plans.md)

@@ -14,8 +14,9 @@ import type {
   SkillSetupResponse,
   SkillApproveBody,
   SkillApproveResponse,
-  CredentialRequestsResponse,
   StartOAuthResponse,
+  AgentSkillsResponse,
+  RefreshToolsResponse,
 } from './types';
 
 const BASE = '/admin/api';
@@ -259,22 +260,19 @@ export const api = {
     );
   },
 
-  /** List pending ad-hoc credential requests from the request_credential agent tool. */
-  credentialRequests(): Promise<CredentialRequestsResponse> {
-    return apiFetch<CredentialRequestsResponse>('/credentials/requests');
+  /** List every skill (enabled, pending, invalid) the reconciler knows about for one agent. */
+  agentSkills(agentId: string): Promise<AgentSkillsResponse> {
+    return apiFetch<AgentSkillsResponse>(`/agents/${encodeURIComponent(agentId)}/skills`);
   },
 
-  /** Provide a credential value for a pending request (drains the queue on success). */
-  provideCredential(
-    envName: string,
-    value: string,
-    sessionId?: string
-  ): Promise<{ ok: boolean }> {
-    return apiFetch<{ ok: boolean }>('/credentials/provide', {
-      method: 'POST',
-      body: JSON.stringify({ envName, value, sessionId }),
-    });
+  /** Regenerate the committed `.ax/tools/<skillName>/` tree for an enabled skill. */
+  refreshTools(agentId: string, skillName: string): Promise<RefreshToolsResponse> {
+    return apiFetch<RefreshToolsResponse>(
+      `/agents/${encodeURIComponent(agentId)}/skills/${encodeURIComponent(skillName)}/refresh-tools`,
+      { method: 'POST' }
+    );
   },
+
 };
 
 /**

@@ -35,3 +35,21 @@
 **Context:** Migrating `credentials: 'env'` to `credentials: 'keychain'` in config.ts
 **Lesson:** When renaming a config value, use `z.union([newEnum, z.literal('old')]).transform()` to accept the old value and silently remap it. Add a `console.warn` for deprecation. This avoids breaking existing ax.yaml files while encouraging migration.
 **Tags:** config, zod, migration, backward-compat
+
+### `get(user_id)` with fallback to `''` needs JS-side ordering, not SQL ORDER BY
+**Date:** 2026-04-18
+**Context:** `SkillCredStore.get({agentId, skillName, envName, userId})` needs to prefer `user_id = $userId` over `user_id = ''` when both rows exist. SQLite and PostgreSQL disagree on whether ORDER BY with a boolean expression works portably (sqlite evaluates `user_id = $x DESC` fine, but Kysely's type system and some driver variants don't handle it cleanly).
+**Lesson:** Return both candidate rows from the DB (`WHERE user_id = $x OR user_id = ''`), then sort in JS: user-scope first, agent-scope-sentinel second. Drop the rest. Avoids cross-dialect ORDER BY games on boolean expressions and keeps the tuple-preference logic explicit.
+**Tags:** kysely, sqlite, postgres, cross-dialect, ordering
+
+### Backfill "rows changed" counter needs a pre-load to be idempotent
+**Date:** 2026-04-18
+**Context:** Startup backfill from `credential_store` → `skill_credentials`. First run reported correct N; second run also reported N because every `put` runs ON CONFLICT DO UPDATE (still touches the row even when value is identical).
+**Lesson:** For idempotent upsert-based migrations, pre-load existing tuple values into an in-memory map, then only count a row as "backfilled" when the source value differs from the destination. The DB-level upsert stays idempotent; the reporting layer distinguishes actual work from no-ops. Makes `rowsBackfilled = 0` on second boot a reliable signal.
+**Tags:** backfill, migration, idempotence, upsert, kysely
+
+### Before dropping a shared table, grep for ALL readers/writers — not just the subsystem you're migrating away from
+**Date:** 2026-04-18
+**Context:** Step 8 of the skills migration planned to drop `credential_store`. The skills subsystem had been fully migrated to `skill_credentials`. But `credential_store` is also read/written by non-skill paths: oauth-skills.ts (agent-initiated OAuth at unscoped keys), providers/mcp/database.ts (MCP bearer lookups), server-completions.ts (process.env fallback), inprocess.ts (CLI credential lookups), onboarding/wizard.ts (first-run setup). Dropping it would have broken ~5 unrelated features.
+**Lesson:** When a migration plan says "drop table X after verifying nothing reads it," do the verification as a grep for BOTH reads AND writes, across ALL call sites — including the ones the migration didn't touch. If grep finds non-target-subsystem callers, the table stays; only the migrating subsystem's reads/writes get removed. Scope the migration to the subsystem, not to the table.
+**Tags:** migration, credential-store, scope, grep, defensive

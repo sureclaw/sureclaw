@@ -39,8 +39,11 @@ export async function create(config: Config): Promise<AuthProvider> {
     database = new Database(dbPath);
   }
 
+  const baseURL = authConfig.base_url ?? process.env.BETTER_AUTH_URL;
+
   const authOptions = {
     database,
+    ...(baseURL ? { baseURL } : {}),
     basePath: '/api/auth',
     socialProviders,
     user: {

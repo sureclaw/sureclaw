@@ -6,8 +6,15 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { McpToolSchema } from '../providers/mcp/types.js';
 import { getLogger } from '../logger.js';
+
+/** MCP wire protocol. `http` is the newer POST-based transport (what the
+ *  MCP spec calls "Streamable HTTP"); `sse` is the legacy
+ *  GET-for-events + POST-for-replies transport. Skill frontmatter
+ *  declares which one a given server speaks. */
+export type McpTransport = 'http' | 'sse';
 
 const logger = getLogger().child({ component: 'mcp-client' });
 
@@ -38,7 +45,19 @@ function createMcpFetch(): typeof globalThis.fetch {
   };
 }
 
-function createTransport(url: string, headers?: Record<string, string>): StreamableHTTPClientTransport {
+function createTransport(
+  url: string,
+  headers?: Record<string, string>,
+  transport: McpTransport = 'http',
+): StreamableHTTPClientTransport | SSEClientTransport {
+  if (transport === 'sse') {
+    return new SSEClientTransport(new URL(url), {
+      requestInit: headers ? { headers } : undefined,
+      // SSE spec also accepts eventSourceInit for the GET stream, but
+      // auth headers in requestInit already flow to both the GET and
+      // POST requests in the SDK's SSE implementation.
+    });
+  }
   return new StreamableHTTPClientTransport(new URL(url), {
     requestInit: headers ? { headers } : undefined,
     fetch: createMcpFetch(),
@@ -51,10 +70,10 @@ function createTransport(url: string, headers?: Record<string, string>): Streama
  */
 export async function connectAndListTools(
   url: string,
-  opts?: { headers?: Record<string, string> },
+  opts?: { headers?: Record<string, string>; transport?: McpTransport },
 ): Promise<McpToolSchema[]> {
   const client = new Client({ name: 'ax-host', version: '1.0.0' });
-  const transport = createTransport(url, opts?.headers);
+  const transport = createTransport(url, opts?.headers, opts?.transport);
 
   try {
     await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `MCP connect to ${url}`);
@@ -77,12 +96,16 @@ export async function connectAndListTools(
  */
 export async function listToolsFromServer(
   url: string,
-  opts?: { headers?: Record<string, string> },
+  opts?: { headers?: Record<string, string>; transport?: McpTransport },
 ): Promise<McpToolSchema[]> {
   try {
     return await connectAndListTools(url, opts);
   } catch (err) {
-    logger.warn('mcp_list_tools_failed', { url, error: (err as Error).message });
+    logger.warn('mcp_list_tools_failed', {
+      url,
+      transport: opts?.transport ?? 'http',
+      error: (err as Error).message,
+    });
     return [];
   }
 }
@@ -95,10 +118,10 @@ export async function callToolOnServer(
   url: string,
   toolName: string,
   args: Record<string, unknown>,
-  opts?: { headers?: Record<string, string> },
+  opts?: { headers?: Record<string, string>; transport?: McpTransport },
 ): Promise<{ content: string; isError?: boolean }> {
   const client = new Client({ name: 'ax-host', version: '1.0.0' });
-  const transport = createTransport(url, opts?.headers);
+  const transport = createTransport(url, opts?.headers, opts?.transport);
 
   try {
     await withTimeout(client.connect(transport), CONNECT_TIMEOUT_MS, `MCP connect to ${url}`);

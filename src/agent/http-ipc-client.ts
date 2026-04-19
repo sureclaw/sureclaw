@@ -11,6 +11,21 @@ const logger = getLogger().child({ component: 'http-ipc-client' });
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * Detect undici's "stale keep-alive connection" error shape. The outer error
+ * is always "fetch failed"; the real signal is in `.cause`. We recognize
+ * both the error-code form (`UND_ERR_SOCKET`) and the message form
+ * (`other side closed` / `socket hang up`) because older Node versions
+ * surface the latter. No bytes reached the server in this case, so a retry
+ * is safe and idempotent.
+ */
+function isStaleSocketError(err: unknown): boolean {
+  const cause = (err as { cause?: { code?: string; message?: string } } | null)?.cause;
+  if (!cause) return false;
+  if (cause.code === 'UND_ERR_SOCKET') return true;
+  return /other side closed|socket hang up/i.test(cause.message ?? '');
+}
+
 export interface HttpIPCClientOptions {
   hostUrl: string;
   timeoutMs?: number;
@@ -80,17 +95,40 @@ export class HttpIPCClient implements IIPCClient {
       timeoutMs: effectiveTimeout,
     });
 
+    const doFetch = () => fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.token}`,
+      },
+      body: JSON.stringify(enriched),
+      signal: AbortSignal.timeout(effectiveTimeout),
+    });
+
     let res: Response;
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.token}`,
-        },
-        body: JSON.stringify(enriched),
-        signal: AbortSignal.timeout(effectiveTimeout),
-      });
+      try {
+        res = await doFetch();
+      } catch (firstErr: unknown) {
+        // Stale-keepalive retry: undici pools TCP connections and reuses
+        // them across requests. If the server closed a pooled connection
+        // while it was idle, the next request to touch it throws
+        // UND_ERR_SOCKET "other side closed" immediately (~1ms). No bytes
+        // reached the server, so one transparent retry (which opens a
+        // fresh connection) turns a flaky dev-loop hiccup into a
+        // non-event. Other errors (ECONNREFUSED, timeouts, HTTP errors)
+        // bubble up unchanged so the caller sees the real failure mode.
+        if (isStaleSocketError(firstErr)) {
+          logger.warn('call_retry_stale_socket', {
+            action,
+            url,
+            cause: (firstErr as { cause?: { message?: string } })?.cause?.message,
+          });
+          res = await doFetch();
+        } else {
+          throw firstErr;
+        }
+      }
     } catch (err: unknown) {
       // Node.js fetch() throws opaque "fetch failed" errors. The real cause
       // (ECONNREFUSED, ECONNRESET, ETIMEDOUT, AbortError, etc.) is in .cause.

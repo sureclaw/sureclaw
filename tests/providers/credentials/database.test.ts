@@ -172,21 +172,4 @@ describe('credentials/database', () => {
     expect(await provider.get('MY_API_KEY', 'user:main:alice')).toBeNull();
   });
 
-  test('listScopePrefix is case-sensitive (Alice vs alice do not collide)', async () => {
-    // SQLite LIKE is ASCII-case-insensitive by default. We rely on the
-    // credentials store being case-sensitive so that "Alice" and "alice"
-    // are distinct identities. GLOB gives us that.
-    await provider.set('LINEAR_TOKEN', 'upper-token', 'user:main:Alice');
-    await provider.set('LINEAR_TOKEN', 'lower-token', 'user:main:alice');
-
-    const results = await provider.listScopePrefix('user:main:alice');
-    expect(results).toHaveLength(1);
-    expect(results[0]).toEqual({ scope: 'user:main:alice', envName: 'LINEAR_TOKEN' });
-  });
-
-  test('listScopePrefix rejects GLOB metacharacters in prefix', async () => {
-    await expect(provider.listScopePrefix('user:*')).rejects.toThrow(/GLOB\/LIKE metacharacters/);
-    await expect(provider.listScopePrefix('user:?x')).rejects.toThrow(/GLOB\/LIKE metacharacters/);
-    await expect(provider.listScopePrefix('user:[abc]')).rejects.toThrow(/GLOB\/LIKE metacharacters/);
-  });
 });

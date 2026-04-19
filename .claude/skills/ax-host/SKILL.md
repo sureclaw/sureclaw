@@ -36,9 +36,9 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/ipc-handlers/scheduler.ts` | Scheduler job management IPC handlers |
 | `src/host/ipc-handlers/sandbox-tools.ts` | Sandbox tool IPC handlers (sandbox_bash, sandbox_read_file, sandbox_write_file, sandbox_edit_file) and audit gate protocol (sandbox_approve, sandbox_result) for in-container tool execution with host approval |
 | `src/host/ipc-handlers/skills.ts` | Skill read/list/propose/import/search IPC handlers + `credential_request` handler (backed by DocumentStore) |
-| `src/host/skills/mcp-applier.ts` | Diffs `desired.mcpServers` against the live `McpConnectionManager`. Owns its own `prior` map keyed by skill-server name; tags every register with `source: 'skill:<agentId>'` so cross-source entries (plugins, database MCP, other agents) are never touched. Emits audit records per register/unregister and skips no-ops |
-| `src/host/skills/proxy-applier.ts` | Diffs `desired.proxyAllowlist` against `ProxyDomainList` using the new `setAgentDomains(agentId, domains)` replace-semantics API. Normalizes hosts (trim + lowercase + strip trailing dot), writes one `proxy_allowlist_updated` audit entry per non-empty diff |
-| `src/host/skills/startup-rehydrate.ts` | On host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` for each. Rebuilds live `McpConnectionManager` + `ProxyDomainList` state from the last committed `.ax/skills/` tree. Per-agent errors log `startup_rehydrate_failed` and don't block the loop |
+| `src/host/skills/get-agent-skills.ts` | Live per-agent skill state derivation. `getAgentSkills()` / `getAgentSetupQueue()` walk the workspace repo + diff frontmatter against stored creds / approved domains. Backed by the `(agentId, HEAD-sha)` snapshot cache |
+| `src/host/skills/snapshot-cache.ts` | Bounded LRU snapshot cache keyed on `${agentId}@${headSha}`. Supports `invalidateAgent(agentId)` for post-push cache-bust |
+| `src/host/skills/hook-endpoint.ts` | HMAC-verified post-receive hook. On a signed push, invalidates the agent's cached snapshots so the next live read is fresh. No other side effects |
 | `src/host/ipc-handlers/web.ts` | Web fetch/search IPC handlers |
 | `src/host/ipc-handlers/workspace.ts` | Workspace read/write/list IPC handlers |
 | `src/host/ipc-handlers/tool-batch.ts` | Tool batch IPC handler with `__batchRef` pipelining for Cap'n Web |
@@ -51,7 +51,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/agent-registry.ts` | Enterprise agent registry (registry.json), lifecycle management. `AgentRegistryEntry` has `displayName`, `agentKind` ('personal'/'shared'), `admins[]`. `findByKind()` filters by agent kind |
 | `src/host/agent-registry-db.ts` | Database-backed agent registry for PostgreSQL (Kysely, runs own migration). Migration 003 adds `display_name` and `agent_kind` columns |
 | `src/host/server-admin.ts` | Admin API endpoints (agent management, config, diagnostics). Includes admin API endpoints for MCP server management under `/admin/api/agents/:id/mcp-servers` and the phase-5 skill setup endpoints under `/admin/api/skills/setup` and `/admin/api/credentials/requests` |
-| `src/host/server-admin-skills-helpers.ts` | Phase-5 helper for `POST /admin/api/skills/setup/approve`. Owns the validate-all-then-apply-all logic: parses + validates the request body against the pending card, then stores credentials at declared scope, approves pending domains via `ProxyDomainList.approvePending`, and re-runs `reconcileAgent` with `refs/heads/main`. Narrow `ApproveDeps` interface avoids circular imports with `server-admin.ts` |
+| `src/host/server-admin-skills-helpers.ts` | Helper for `POST /admin/api/skills/setup/approve`. Validates the request body against the live setup card (via `getAgentSetupQueue`), then writes credentials (legacy `credentials.set` + tuple-keyed `skill_credentials`), approves pending domains by writing `skill_domain_approvals` rows, invalidates the agent's snapshot cache, and reads the fresh `SkillState` via `getAgentSkills`. Narrow `ApproveDeps` interface avoids circular imports with `server-admin.ts` |
 | `src/host/credential-request-queue.ts` | Phase-5 in-memory queue of ad-hoc credential requests. Seeded by `credential.required` event-bus subscriptions; drained when `POST /admin/api/credentials/provide` succeeds. Exposed to the dashboard via `GET /admin/api/credentials/requests` |
 | `src/host/server-k8s.ts` | Unified host pod process for k8s deployment. Delegates shared init to `server-init.ts`. Keeps k8s-specific: NATS connection (work dispatch only), `/internal/*` routes (ipc, llm-proxy, workspace), web proxy with MITM CA, `stagingStore`, `activeTokens` registry. Uses `server-request-handlers.ts` for completions/models/scheduler. Use server-local.ts for local dev |
 | `src/host/server-chat-api.ts` | Chat API handler — serves `/v1/chat/sessions` endpoints for chat UI thread list and history |
@@ -60,7 +60,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/llm-proxy-core.ts` | Shared LLM credential injection and forwarding — used by both Unix socket proxy (`proxy.ts`) and HTTP route (`/internal/llm-proxy` in `server-k8s.ts`) |
 | `src/host/oauth-skills.ts` | OAuth PKCE flow for skill credentials — manages pending flows (start → callback → token exchange → store), handles token refresh |
 | `src/host/admin-oauth-providers.ts` | AES-256-GCM encrypted admin-registered OAuth provider CRUD. Key derived from `AX_OAUTH_SECRET_KEY` (preferred, 32 hex bytes) or `config.admin.token` (fallback, requires ≥16 chars). `clientSecret` never returned on read. |
-| `src/host/admin-oauth-flow.ts` | PKCE pending-flow map (15-min TTL, single-use) + `resolveCallback` that exchanges code via `AbortSignal.timeout(15s)`, writes access_token at declared credential scope, stores refresh blob at `<envName>__oauth_blob`, triggers best-effort reconcile. Returns `{matched:false} | {matched:true, ok:true} | {matched:true, ok:false}`. |
+| `src/host/admin-oauth-flow.ts` | PKCE pending-flow map (15-min TTL, single-use) + `resolveCallback` that exchanges code via `AbortSignal.timeout(15s)`, writes access_token at declared credential scope, stores refresh blob at `<envName>__oauth_blob`, invalidates the agent's snapshot cache so the next live read picks up the new credential. Returns `{matched:false} | {matched:true, ok:true} | {matched:true, ok:false}`. |
 | `src/migrations/admin-oauth-providers.ts` | Kysely migration for `admin_oauth_providers` table (name PK, client_id, encrypted client_secret blob, metadata). |
 | `src/host/web-proxy-approvals.ts` | Web proxy approval coordination via event bus — replaces old in-memory promise map pattern. Works across stateless replicas (in-process for local, NATS for k8s) |
 | `src/host/workspace-release-screener.ts` | Release-time screening for skill files and binaries — inspects workspace changes before GCS commit |
@@ -199,7 +199,7 @@ The in-process fast path (`src/host/inprocess.ts`) runs the LLM orchestration lo
 MCP servers are registered through two paths — the git-native skills pipeline and database-backed entries:
 - **McpConnectionManager** (`src/plugins/mcp-manager.ts`): Unified MCP tool discovery and routing — tools from skill-registered servers, database MCP servers, and default provider are discoverable in one pass
 - **MCP startup** (`src/plugins/startup.ts`): Bootstrap MCP servers from the database + config on host init
-- **Skill-driven registration** (`src/host/skills/mcp-applier.ts`): Registers servers declared in approved skills, tagged with `source: 'skill:<agentId>'`
+- **Skill-driven registration**: MCP servers declared in a skill's frontmatter are rebuilt per-turn from the live `getAgentSkills` view. No persistent applier state — the turn-time read is authoritative.
 - **Admin API**: `/admin/api/agents/:id/mcp-servers` for ad-hoc database-backed entries (not tied to a specific skill)
 
 The old Cowork plugin IPC surface and `ax plugin`/`ax mcp` CLI have been retired.
@@ -215,24 +215,22 @@ The old Cowork plugin IPC surface and `ax plugin`/`ax mcp` CLI have been retired
 
 ## Git-Native Skills Pipeline (src/host/skills/)
 
-Skills live as `.ax/skills/**/SKILL.md` files in the agent's git workspace. A post-receive hook calls `reconcileAgent`, which snapshots the ref, diffs desired state against live state, persists `SkillState` rows, and hands off to two appliers:
+Skills live as `.ax/skills/**/SKILL.md` files in the agent's git workspace. Git is the one source of truth. The host derives each skill's state live from a per-(agentId, HEAD-sha) snapshot of the repo, diffed against the tuple-keyed `skill_credentials` + `skill_domain_approvals` tables:
 
-- **`src/host/skills/mcp-applier.ts`** — diffs `desired.mcpServers` against the live `McpConnectionManager`. Tags every register with `source: 'skill:<agentId>'` so entries owned by plugins, database MCP, or other agents are never touched. Registers with `Authorization: Bearer ${TOKEN}` header placeholders when a `bearerCredential` is declared.
-- **`src/host/skills/proxy-applier.ts`** — diffs `desired.proxyAllowlist` against `ProxyDomainList` using the new `setAgentDomains(agentId, domains)` replace-semantics API. One `proxy_allowlist_updated` audit entry per non-empty diff.
-- **`src/host/skills/startup-rehydrate.ts`** — on host boot, iterates registered agents and calls `reconcileAgent(agentId, 'refs/heads/main', deps)` so the live `McpConnectionManager` + `ProxyDomainList` state catches up with the DB after a restart.
+- **`src/host/skills/get-agent-skills.ts`** — `getAgentSkills(agentId, deps)` returns `SkillState[]`; `getAgentSetupQueue(agentId, deps)` returns the pending-card payload. Both read through the snapshot cache and compute via the pure helpers in `state-derivation.ts`.
+- **`src/host/skills/snapshot-cache.ts`** — bounded LRU keyed on `${agentId}@${headSha}`. `invalidateAgent(agentId)` drops every entry whose key starts with that prefix; used by the post-receive hook and the approve/OAuth callback paths.
+- **`src/host/skills/hook-endpoint.ts`** — the post-receive hook. HMAC-verifies the payload and calls `snapshotCache.invalidateAgent(agentId)`. No state-store writes, no appliers.
 
-Both appliers are wired through `OrchestratorDeps` in `src/host/skills/reconcile-orchestrator.ts`, so every push-driven reconcile AND every startup rehydrate apply the same desired state. See `docs/plans/2026-04-16-git-native-skills-design.md` for the full design.
+There is no reconcile orchestrator, no `skill_states`/`skill_setup_queue` writes, and no startup rehydrate — the retired tables have been dropped (migration `skills_003_drop_retired_tables`). See `docs/plans/2026-04-18-skills-single-source-of-truth-design.md` for the full redesign.
 
-### Phase 5: Dashboard Admin Endpoints
+### Dashboard Admin Endpoints
 
 The host exposes four admin endpoints under `/admin/api/` for the dashboard to drive skill setup:
 
-- **`GET /admin/api/skills/setup`** — returns pending setup cards grouped by agent. Source of truth: the `skill_setup_queue` + `skill_states` tables populated by the reconciler.
-- **`POST /admin/api/skills/setup/approve`** — atomic approve. `src/host/server-admin-skills-helpers.ts` owns the validate-all-then-apply-all logic: validates every credential + domain in the body against the pending card, then (only if all checks pass) stores credentials at declared scope, approves pending domains via `ProxyDomainList.approvePending`, and re-runs `reconcileAgent` with `refs/heads/main`. Rejects `authType: oauth` credentials — phase 6 adds the OAuth PKCE flow.
-- **`DELETE /admin/api/skills/setup/:agentId/:skillName`** — dashboard-only dismissal. Drops the row from `skill_setup_queue`. If the skill is still pending on next reconcile, the card reappears. Idempotent (second call returns `{ok:true, removed:false}`).
+- **`GET /admin/api/skills/setup`** — returns pending setup cards grouped by agent. Derived live per agent via `getAgentSetupQueue`; decorated with `hasExistingValue` hints from `skill_credentials`.
+- **`POST /admin/api/skills/setup/approve`** — atomic approve. `src/host/server-admin-skills-helpers.ts` owns the validate-all-then-apply-all logic: validates every credential + domain in the body against the live pending card, then (only if all checks pass) writes tuple-keyed rows to `skill_credentials` (user_id = caller's userId for user-scope, `''` sentinel for agent-scope), approves domains by writing `skill_domain_approvals` rows, invalidates the agent's snapshot cache, and returns the fresh `SkillState`. Rejects `authType: oauth` credentials — the OAuth start/callback flow handles those.
+- **`DELETE /admin/api/skills/setup/:agentId/:skillName`** — dashboard-only dismissal. Reads the live queue via `getAgentSetupQueue`; when the skill is pending, emits a `skill_dismissed` audit entry and returns `{ok:true, removed:true}`. Idempotent (no pending card → `removed:false`, no audit). The card regenerates on the next load unless the underlying facts change.
 - **`GET /admin/api/credentials/requests`** — snapshot of the in-memory credential request queue at `src/host/credential-request-queue.ts`. Seeded by `credential.required` event-bus subscriptions; drained when `POST /admin/api/credentials/provide` succeeds.
-
-See `docs/plans/2026-04-17-phase5-skills-dashboard-cards.md` for the detailed plan.
 
 ### Phase 6: OAuth Flow
 
@@ -248,7 +246,7 @@ Endpoints under `/admin/api/`:
 - `DELETE /oauth/providers/:name` — idempotent.
 - `POST /skills/oauth/start` — validates `{agentId, skillName, envName}` against the current setup queue, picks up admin-registered overrides, returns `{authUrl, state}`.
 
-Callback: `GET /v1/oauth/callback/:provider` (unchanged URL; public endpoint) tries the admin-initiated flow first (`src/host/admin-oauth-flow.ts`), falls through to agent-initiated (`src/host/oauth-skills.ts`). Admin callback exchanges the code via the provider's token endpoint (15s timeout), writes the access_token at the card's declared credential scope, stores a refresh blob at `<envName>__oauth_blob`, and fires reconcile best-effort.
+Callback: `GET /v1/oauth/callback/:provider` (unchanged URL; public endpoint) tries the admin-initiated flow first (`src/host/admin-oauth-flow.ts`), falls through to agent-initiated (`src/host/oauth-skills.ts`). Admin callback exchanges the code via the provider's token endpoint (15s timeout), writes the access_token at the card's declared credential scope, stores a refresh blob at `<envName>__oauth_blob`, and invalidates the agent's snapshot cache so the next turn sees the newly-satisfied credential.
 
 Security invariants:
 - clientSecret encrypted at rest with AES-256-GCM; key from `AX_OAUTH_SECRET_KEY` (32 hex bytes) preferred, derived from `config.admin.token` as a fallback (requires ≥16 chars).

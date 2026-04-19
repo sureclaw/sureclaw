@@ -76,12 +76,9 @@ export interface WebProxyOptions {
    */
   onApprove?: (domain: string, method: string, url: string) => Promise<{ approved: boolean; reason?: string }>;
   /** Domains pre-approved without calling onApprove (e.g. from config allowlist).
-   *  Accepts any object with a `has()` method — pass a live ProxyDomainList
-   *  wrapper so domains added mid-session (e.g. via skill reconciliation) take
-   *  effect immediately without restarting the proxy. */
+   *  Accepts any object with a `has()` method — the host computes a per-session
+   *  frozen Set at session start and hands its `has` in here. */
   allowedDomains?: { has(domain: string): boolean };
-  /** Called when a request to an unapproved domain is denied. Use to queue for admin review. */
-  onDenied?: (domain: string) => void;
   /**
    * MITM TLS inspection config. When provided, CONNECT requests are intercepted:
    * the proxy terminates TLS with a dynamically-generated cert, inspects/modifies
@@ -158,7 +155,7 @@ function containsCanary(body: Buffer, canaryToken?: string): boolean {
 // ── Proxy implementation ─────────────────────────────────────────────
 
 export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy> {
-  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains, onDenied, urlRewrites } = options;
+  const { listen, bindHost = '127.0.0.1', sessionId, canaryToken, onAudit, allowedIPs, onApprove, allowedDomains, urlRewrites } = options;
   const activeSockets = new Set<net.Socket>();
   /** Per-domain decision cache — avoids repeated callbacks for the same domain. */
   const domainDecisions = new Map<string, boolean>();
@@ -190,7 +187,6 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     if (!onApprove) {
       // No governance gate — deny if an allowlist was provided but domain isn't in it
       if (allowedDomains) {
-        onDenied?.(domain);
         logger.warn('domain_denied', { domain, method, url });
         return `Domain ${domain} is not in the approved domain list. Install a skill that declares this domain, or ask an admin to approve it.`;
       }

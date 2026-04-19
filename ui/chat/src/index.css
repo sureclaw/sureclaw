@@ -127,6 +127,23 @@
     }
 }
 
+@layer components {
+    .card {
+        background-color: color-mix(in srgb, var(--card) 80%, transparent);
+        border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+        border-radius: var(--radius-xl);
+        color: var(--card-foreground);
+        overflow: hidden;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        transition: border-color 200ms;
+    }
+    .card:hover {
+        border-color: color-mix(in srgb, var(--border) 60%, transparent);
+    }
+}
+
 /* Noise texture overlay */
 .noise-bg {
     position: relative;

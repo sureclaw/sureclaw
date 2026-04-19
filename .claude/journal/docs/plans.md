@@ -2,6 +2,30 @@
 
 Architecture analysis, gap analysis, design documents, implementation plans.
 
+## [2026-04-18 16:30] — Plan: tool modules as git-native artifacts
+
+**Task:** After the 8-step skills-SSOT migration landed, live testing surfaced a conceptual inconsistency: `.ax/skills/` is git-authoritative but `.ax/tools/` (just renamed from `/workspace/tools/` in a fix-up) is per-turn auto-regenerated + gitignored. Same thesis as the main migration said git should be the one truth for what the agent sees. Plan the follow-up: generate tool modules at skill-approval time, commit them to `.ax/tools/<skill>/`, delete the per-turn flow.
+**What I did:** Wrote `docs/plans/2026-04-18-tool-modules-git-native.md`. 8 tasks: (1) `WorkspaceProvider.commitFiles` primitive via git plumbing, (2) `syncToolModulesForSkill` helper reusing `resolveMcpAuthHeaders`, (3) wire into `approveSkillSetup`, (4) admin refresh-tools endpoint + UI button, (5) delete `server-completions.ts:1264-1332` per-turn gen + `toolModuleIndex` stdin field + `runner.ts:533-565` unpacking, (6) agent-side `tool-index-loader.ts` that scans `.ax/tools/*/_index.json` at turn start, (7) undo fix-2's `.ax/.gitignore`, (8) residual grep sweep. Stretch: drift detection at MCP connect time (admin-surfaced, no auto-regen).
+**Files touched:** `docs/plans/2026-04-18-tool-modules-git-native.md` (new), `.claude/journal/docs/plans.md`, `.claude/journal/docs/index.md`
+**Outcome:** Success — plan ready to execute via subagent-driven-development after /compact.
+**Notes:** Key baked-in decisions so the fresh post-compact session doesn't stall: commit path (host-side via bare-repo plumbing + push for git-http), nested dir structure (`.ax/tools/<skill>/`), per-skill `_index.json` for the prompt index, regen triggers (approval + manual refresh only, no drift-auto-regen in v1). Plan points to `e27ee7b1` / `56adaab5` / `bbb563ce` as reading material for the executor.
+
+## [2026-04-18 07:02] — Design: skills as git-native only (single source of truth)
+
+**Task:** After a week of reconciler-drift bugs (hook not firing, cred scope mismatches, delete+re-add no-ops, stuck state-store rows), capture a unifying redesign that collapses the two-source-of-truth architecture (git + `skill_states`/`skill_setup_queue` tables) down to "git is authoritative, everything else is derived."
+**What I did:** Wrote `docs/plans/2026-04-18-skills-single-source-of-truth-design.md`. Lays out: 8-row bug inventory, the unifying diagnosis (git vs state-store drift), a pure `getAgentSkills(agentId)` function (live git snapshot + `skill_credentials` + `skill_domain_approvals` lookups), a tuple-keyed `skill_credentials` table (agent_id, skill_name, env_name, user_id) that replaces scope strings, per-skill `skill_domain_approvals` replacing the in-memory `ProxyDomainList`, per-`(agentId, HEAD_sha)` in-memory snapshot cache + optional 5-line hook cache-buster for scale. 8-step incremental migration plan (add getAgentSkills → dual-write tables → rewire Approvals page → rewire prompt builder → rewire cred injection → delete reconciler pipeline → collapse proxy domain list → drop retired tables). Estimates ~1500-2000 LOC deleted, replaced by ~400 LOC. Open questions listed: admin-approved-domains-not-tied-to-skill, OAuth state, multi-user agents.
+**Files touched:** `docs/plans/2026-04-18-skills-single-source-of-truth-design.md` (new), `.claude/journal/docs/plans.md`, `.claude/journal/docs/index.md`
+**Outcome:** Success — design ratified; user chose to implement from HEAD (migration is explicitly in-place and incremental).
+**Notes:** Land the migration from HEAD rather than rolling back — the last 10 commits mostly land features the new design keeps (Approvals/Skills tabs, BetterAuth userId threading, skill-creator seed) or are harmless band-aids that become moot as each step replaces them. Hook wiring (4e575a99) gets repurposed as the cache-buster in §7.
+
+## [2026-04-17 05:45] — Exploration: coding agents platform on AX (sidecar services + delegation)
+
+**Task:** Capture a conversation-driven exploration on whether AX can host a team of coding agents — each self-assigning a Linear issue, working on a local source tree, running Kafka/Mongo/Redis inside the sandbox for e2e tests, and running headless Playwright — and whether the delegation-with-heavy-sidecars shape (pi-session → N parallel engineer-agents) lands on existing machinery.
+**What I did:** Wrote `docs/plans/2026-04-17-coding-agents-platform-exploration.md`. Verdict: feasible with two gaps (sidecar services in `sandbox.k8s`, Playwright-capable agent image). Documented the `services: ServiceSpec[]` extension on `SandboxConfig`, referenced the existing `git-sidecar` native-k8s-sidecar pattern at `src/providers/sandbox/k8s.ts:104-133` as the proven template, and walked through how `agent_delegate` (with its existing `resourceTier: 'heavy'` override wired at `server-init.ts:243-258`) maps 1:1 onto "parallel fire-and-forget engineer-agents with their own pods." Called out resource footprint (≈1.85 CPU / 1.8 GiB per full-stack delegate), sidecar-bypasses-web-proxy as the one real security nuance, and image-allowlist / signed-skill-source as mitigations.
+**Files touched:** `docs/plans/2026-04-17-coding-agents-platform-exploration.md` (new), `.claude/journal/docs/index.md`, `.claude/journal/docs/plans.md`
+**Outcome:** Success — doc ready for engineering review.
+**Notes:** Intentionally a pre-spec exploration, not an implementation plan. Concrete next steps listed at the bottom (DelegateRequest.services plumbing, k8s provider services[] expansion, full-stack skill + reconciler test, real dogfood cycle) so the doc can graduate into a phase plan when the team green-lights it. No code was touched.
+
 ## [2026-04-17 12:00] — Expand phase 3 (skills_index prompt integration) into concrete TDD tasks
 
 **Task:** Rewrite `docs/plans/2026-04-16-phase3-skills-prompt-index.md` from a high-level stub into bite-sized TDD steps ready for subagent-driven-development.

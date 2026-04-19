@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-04-18 13:10 — Tool-modules Phase 2 Task 1: commitFiles primitive on WorkspaceProvider [workspace.md](workspace.md)
 - 2026-04-17 06:10 — Phase 3 Task 4: wire SkillStateStore into IPC handler [skills.md](skills.md)
 - 2026-04-17 06:02 — Phase 3 Task 3: skills_index IPC handler [skills.md](skills.md)
 - 2026-04-17 05:53 — Phase 3 Task 1: SkillStateStore.getStates [skills.md](skills.md)

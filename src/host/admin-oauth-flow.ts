@@ -13,10 +13,11 @@
 //     doesn't grow unbounded across a long-lived process.
 
 import { generateCodeVerifier, generateCodeChallenge, generateState } from './oauth.js';
-import { credentialScope } from './credential-scopes.js';
 import { getLogger } from '../logger.js';
-import type { CredentialProvider } from '../providers/credentials/types.js';
 import type { AuditProvider } from '../providers/audit/types.js';
+import type { SkillCredStore } from './skills/skill-cred-store.js';
+import type { SnapshotCache } from './skills/snapshot-cache.js';
+import type { SkillSnapshotEntry } from './skills/types.js';
 
 const logger = getLogger().child({ component: 'admin-oauth-flow' });
 
@@ -66,11 +67,13 @@ export interface ResolveCallbackInput {
   provider: string;
   code: string;
   state: string;
-  credentials: CredentialProvider;
-  /** Optional — fire-and-forget after credentials are written. Throws are
-   *  swallowed + logged; credentials are in place and the next reconcile /
-   *  approve path will close the loop. */
-  reconcileAgent?: (agentId: string, ref: string) => Promise<{ skills: number; events: number }>;
+  /** Tuple-keyed store. Tokens land here keyed by
+   *  `(agentId, skillName, envName, userId|'')` so turn-time injection can
+   *  find them. */
+  skillCredStore: SkillCredStore;
+  /** Optional — invalidated after credentials land so the next live read
+   *  picks up the freshly-enabled skill without waiting for a push. */
+  snapshotCache?: SnapshotCache<SkillSnapshotEntry[]>;
   audit: AuditProvider;
 }
 
@@ -95,7 +98,8 @@ export interface AdminOAuthFlow {
 
   /**
    * Exchange an authorization code for tokens, write the access token at the
-   * declared scope, store a refresh blob (best-effort), and trigger reconcile.
+   * declared scope, store a refresh blob (best-effort), and invalidate the
+   * agent's snapshot cache.
    *
    * `matched: true` means this flow claimed the state — regardless of
    * exchange success. Callers MUST NOT fall through to any other OAuth path
@@ -339,15 +343,19 @@ export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): Admin
         return { matched: true, ok: false, reason: 'invalid_response', details: 'missing access_token' };
       }
 
-      // Compute the scope key for the credential write. 'admin' is the
-      // safe fallback when a user-scoped flow somehow lost its userId —
-      // phase-5's approve handler uses the same fallback.
-      const scopeKey =
-        flow.scope === 'agent'
-          ? credentialScope(flow.agentName)
-          : credentialScope(flow.agentName, flow.userId ?? 'admin');
+      // `admin` is the safe fallback when a user-scoped flow somehow lost
+      // its userId. `storeUserId` is '' for agent-scope, the resolved userId
+      // for user-scope.
+      const effectiveUserId = flow.userId ?? 'admin';
+      const storeUserId = flow.scope === 'agent' ? '' : effectiveUserId;
 
-      await input.credentials.set(flow.envName, accessToken, scopeKey);
+      await input.skillCredStore.put({
+        agentId: flow.agentId,
+        skillName: flow.skillName,
+        envName: flow.envName,
+        userId: storeUserId,
+        value: accessToken,
+      });
 
       const refreshToken = typeof data.refresh_token === 'string' ? data.refresh_token : undefined;
       const expiresIn = typeof data.expires_in === 'number' ? data.expires_in : 3600;
@@ -362,7 +370,13 @@ export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): Admin
           scopes: flow.scopes,
         };
         try {
-          await input.credentials.set(`${flow.envName}__oauth_blob`, JSON.stringify(blob), scopeKey);
+          await input.skillCredStore.put({
+            agentId: flow.agentId,
+            skillName: flow.skillName,
+            envName: `${flow.envName}__oauth_blob`,
+            userId: storeUserId,
+            value: JSON.stringify(blob),
+          });
         } catch (err) {
           // Best-effort: access_token is already written. Next login flow
           // will re-seed the blob.
@@ -389,21 +403,7 @@ export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): Admin
         },
       });
 
-      // Fire-and-forget reconcile. Credentials are already written; the OAuth
-      // success HTML has to render in the user's browser without blocking on
-      // a potentially-slow reconcile (the UI polls /skills/setup every 2s
-      // and will notice the card drop off when reconcile finishes). Throws
-      // are swallowed + logged (phase-5 approve pattern). `void` to signal
-      // intent and avoid lint warnings on the unhandled promise.
-      if (input.reconcileAgent) {
-        void input.reconcileAgent(flow.agentId, 'refs/heads/main').catch((err) => {
-          logger.warn('admin_oauth_reconcile_failed', {
-            agentId: flow.agentId,
-            skillName: flow.skillName,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
+      input.snapshotCache?.invalidateAgent(flow.agentId);
 
       return { matched: true, ok: true };
     },

@@ -58,6 +58,11 @@ spec:
             - name: K8S_IMAGE_PULL_SECRETS
               value: {{ join "," .Values.global.imagePullSecrets | quote }}
             {{- end }}
+            - name: AX_HOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ax.fullname" . }}-hook
+                  key: secret
             {{- include "ax.databaseEnv" . | nindent 12 }}
             {{- range $envVar, $secretKey := .Values.apiCredentials.envVars }}
             {{- if $secretKey }}

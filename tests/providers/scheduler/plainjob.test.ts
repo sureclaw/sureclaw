@@ -349,6 +349,8 @@ describe('scheduler-plainjob', () => {
   test('heartbeat message includes HEARTBEAT.md content from git workspace', async () => {
     const mockWorkspace = {
       async getRepoUrl() { return { url: 'file:///mock-repo', created: false }; },
+      async ensureLocalMirror() { return '/mock-repo'; },
+      async commitFiles() { return { commit: null, changed: false }; },
       async close() {},
     };
 

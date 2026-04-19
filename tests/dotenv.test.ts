@@ -116,7 +116,6 @@ describe('loadCredentials', () => {
       set: async (key: string, val: string) => { store[key] = val; },
       delete: async (key: string) => { delete store[key]; },
       list: async () => Object.keys(store),
-      listScopePrefix: async () => [],
     };
   }
 

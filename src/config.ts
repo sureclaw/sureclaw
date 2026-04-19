@@ -144,6 +144,7 @@ const ConfigSchema = z.strictObject({
   }).default({ enabled: true, port: 8080 }),
   auth: z.strictObject({
     better_auth: z.strictObject({
+      base_url: z.string().url().optional(),
       google: z.strictObject({
         client_id: z.string().min(1),
         client_secret: z.string().min(1),

@@ -9,6 +9,9 @@ export interface PluginMcpServer {
   type: string;
   /** MCP server endpoint URL. */
   url: string;
+  /** MCP wire protocol. Defaults to 'http'. Vendors like Linear
+   *  (mcp.linear.app/sse) require 'sse'. */
+  transport?: 'http' | 'sse';
 }
 
 interface ManagedServer extends PluginMcpServer {
@@ -29,7 +32,8 @@ export interface AddServerOpts {
  *
  * Tracks MCP server endpoints globally (shared across all agents). This is a
  * registry, not a connection pool. The actual MCP protocol connections happen
- * when prepareMcpCLIs() queries each server's tools at sandbox spin-up time.
+ * when `discoverAllTools` is called (e.g., by the skill-approval tool-module
+ * sync or the fast-path in-process discovery).
  *
  * Server registry is global — all agents see the same set of MCP servers.
  * Tool name → server URL mappings remain per-agent since each agent session
@@ -41,6 +45,14 @@ export class McpConnectionManager {
 
   /** agentId → (toolName → serverUrl) — per-agent tool routing */
   private readonly toolServerMap = new Map<string, Map<string, string>>();
+
+  /** agentId → last HEAD sha that had a successful discovery pass.
+   *  Drives `ensureToolsDiscoveredForHead` dedup so the turn path can
+   *  unconditionally ask for discovery without paying per-turn network
+   *  cost. In-memory + per-pod: a restart empties it, so the next turn
+   *  triggers a fresh discovery — exactly what we want, since the
+   *  `toolServerMap` also got wiped. */
+  private readonly discoveredHeads = new Map<string, string>();
 
   addServer(_agentId: string, server: PluginMcpServer, optsOrPluginName?: string | AddServerOpts): void {
     let pluginName: string | undefined;
@@ -85,22 +97,22 @@ export class McpConnectionManager {
   }
 
   /**
-   * Get metadata (source, headers) for a specific server.
+   * Get metadata (source, headers, transport) for a specific server.
    */
-  getServerMeta(_agentId: string, name: string): { source?: string; headers?: Record<string, string> } | undefined {
+  getServerMeta(_agentId: string, name: string): { source?: string; headers?: Record<string, string>; transport?: 'http' | 'sse' } | undefined {
     const server = this.servers.get(name);
     if (!server) return undefined;
-    return { source: server.source, headers: server.headers };
+    return { source: server.source, headers: server.headers, transport: server.transport };
   }
 
   /**
-   * Get metadata (source, headers) for a server identified by its URL.
+   * Get metadata (source, headers, transport) for a server identified by its URL.
    * Used by the tool router which knows the server URL but not the server name.
    */
-  getServerMetaByUrl(_agentId: string, url: string): { name?: string; source?: string; headers?: Record<string, string> } | undefined {
+  getServerMetaByUrl(_agentId: string, url: string): { name?: string; source?: string; headers?: Record<string, string>; transport?: 'http' | 'sse' } | undefined {
     for (const server of this.servers.values()) {
       if (server.url === url) {
-        return { name: server.name, source: server.source, headers: server.headers };
+        return { name: server.name, source: server.source, headers: server.headers, transport: server.transport };
       }
     }
     return undefined;
@@ -239,7 +251,10 @@ export class McpConnectionManager {
           resolvedHeaders = server.headers;
         }
 
-        const tools = await listToolsFromServer(server.url, resolvedHeaders ? { headers: resolvedHeaders } : undefined);
+        const tools = await listToolsFromServer(server.url, {
+          ...(resolvedHeaders ? { headers: resolvedHeaders } : {}),
+          ...(server.transport ? { transport: server.transport } : {}),
+        });
         // Clear stale tool mappings for this server URL before registering new ones
         this.clearToolsForUrl(agentId, server.url);
         if (tools.length > 0) {
@@ -252,5 +267,36 @@ export class McpConnectionManager {
       }
     }
     return allTools;
+  }
+
+  /**
+   * Run tool discovery once per (agentId, headSha), skip otherwise.
+   *
+   * Motivation: subprocess-sandbox completions don't trigger `discoverAllTools`
+   * anywhere in their per-turn path (the inprocess fast-path does; subprocess
+   * does not). Before this hook, the `toolServerMap` only got populated by
+   * admin refresh-tools clicks — so a pod restart left tool routes unknown
+   * until the admin pressed the button, and the tool-batch handler had no
+   * choice but to emit "MCP gateway not configured for this tool". Wiring
+   * this into the turn path gives us auto-recovery without making discovery
+   * fire on every call.
+   *
+   * Pass `force: true` to bypass the cache — used by admin refresh-tools
+   * so a credential/server change always re-discovers even at the same HEAD.
+   *
+   * Discovery errors are swallowed by `discoverAllTools` (per-server), so
+   * this method's only failure mode is a thrown error from the underlying
+   * call — which callers should log and continue past, since a partial
+   * tool map is better than a refused turn.
+   */
+  async ensureToolsDiscoveredForHead(
+    agentId: string,
+    headSha: string,
+    opts: Parameters<McpConnectionManager['discoverAllTools']>[1] & { force?: boolean } = {},
+  ): Promise<void> {
+    const { force, ...discoverOpts } = opts;
+    if (!force && this.discoveredHeads.get(agentId) === headSha) return;
+    await this.discoverAllTools(agentId, discoverOpts);
+    this.discoveredHeads.set(agentId, headSha);
   }
 }

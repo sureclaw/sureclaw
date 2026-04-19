@@ -13,4 +13,27 @@ describe('mcp-client', () => {
     const tools = await listToolsFromServer('http://127.0.0.1:1/mcp');
     expect(tools).toEqual([]);
   });
+
+  it('listToolsFromServer accepts transport option (default behavior)', async () => {
+    initLogger({ file: false, level: 'silent' });
+    // Not passing transport — default is http. Bad host, returns [].
+    const tools = await listToolsFromServer('http://127.0.0.1:1/mcp');
+    expect(tools).toEqual([]);
+  });
+
+  it('listToolsFromServer accepts transport: sse without throwing on bad host', async () => {
+    initLogger({ file: false, level: 'silent' });
+    // SSE transport against an unreachable host — gracefully returns [].
+    // Proves the transport: 'sse' branch in createTransport compiles + runs.
+    const tools = await listToolsFromServer('http://127.0.0.1:1/sse', { transport: 'sse' });
+    expect(tools).toEqual([]);
+  });
+
+  it('listToolsFromServer accepts transport: http explicitly', async () => {
+    initLogger({ file: false, level: 'silent' });
+    const tools = await listToolsFromServer('http://127.0.0.1:1/mcp', {
+      transport: 'http',
+    });
+    expect(tools).toEqual([]);
+  });
 });

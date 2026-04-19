@@ -182,11 +182,11 @@ describe('Local sandbox executor', () => {
     test('strips workspace prefix when LLM sends absolute path', async () => {
       const client = mockClient();
       const sandbox = createLocalSandbox({ client, workspace });
-      const absPath = workspace + '/tools/math.js';
+      const absPath = workspace + '/.ax/tools/math.js';
       const result = await sandbox.writeFile(absPath, 'export function add(a, b) { return a + b; }');
       expect(result.written).toBe(true);
-      // Should be at workspace/tools/math.js, NOT workspace/workspace/tools/math.js
-      expect(readFileSync(join(workspace, 'tools', 'math.js'), 'utf-8')).toBe('export function add(a, b) { return a + b; }');
+      // Should be at workspace/.ax/tools/math.js, NOT workspace/workspace/.ax/tools/math.js
+      expect(readFileSync(join(workspace, '.ax', 'tools', 'math.js'), 'utf-8')).toBe('export function add(a, b) { return a + b; }');
     });
   });
 

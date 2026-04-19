@@ -58,21 +58,15 @@ export class RuntimeModule extends BasePromptModule {
       `**Working Directory**: /workspace (persists across turns via git)`,
       `  - Use /tmp for temporary files that should not persist`,
       ...(ctx.hasWorkspace ? [
-        `  - /workspace/skills/ \u2014 installed skills`,
-        // New PTC block (preferred when toolModuleIndex is available)
+        `  - /workspace/.ax/skills/<name>/SKILL.md \u2014 installed skills (read on demand)`,
         ...(ctx.toolModuleIndex ? [
-          `  - /workspace/tools/ \u2014 importable tool modules`,
+          `  - /workspace/.ax/tools/ \u2014 MCP tool wrapper modules (committed to git per skill)`,
           `    Use execute_script to run multi-step scripts that import these modules.`,
           `    Available modules:`,
           ctx.toolModuleIndex,
-          `    Read /workspace/tools/<module>.js for full function signatures.`,
+          `    Read /workspace/.ax/tools/<skill>/index.js for full function signatures.`,
+          `    Note: MCP servers often wrap list results in an object keyed by the plural resource name (e.g. \`listIssues(...)\` returns \`{ issues: [...], pageInfo: {...} }\`, NOT a bare array). If \`.map\` throws, \`console.log(JSON.stringify(result))\` to inspect the shape.`,
           `    Only stdout from execute_script enters your context \u2014 intermediate results stay local.`,
-        ] : []),
-        // Legacy CLI block (backward compat)
-        ...(ctx.mcpCLIs?.length && !ctx.toolModuleIndex ? [
-          `  - /workspace/bin/ \u2014 MCP tool CLIs (in PATH)`,
-          `    Run \`<tool> --help\` for usage. Available: ${ctx.mcpCLIs.join(', ')}`,
-          `    These are Node.js CLIs. When writing multi-step scripts, use sandbox_write_file to write a .js file, then run it with \`node script.js\`. Do not use heredocs or cat.`,
         ] : []),
         `  - /workspace/artifacts/ \u2014 output files (uploaded for chat UI)`,
       ] : []),

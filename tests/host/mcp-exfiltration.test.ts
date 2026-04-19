@@ -25,7 +25,6 @@ function makeCtx(overrides: Partial<ToolRouterContext> = {}): ToolRouterContext 
 describe('MCP exfiltration defenses', () => {
   it('all MCP tool results are taint-tagged as external', async () => {
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool() {
         return {
           content: 'some external data',
@@ -51,7 +50,6 @@ describe('MCP exfiltration defenses', () => {
   it('tool call arguments are logged (for audit trail)', async () => {
     const capturedCalls: McpToolCall[] = [];
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool(call: McpToolCall) {
         capturedCalls.push(call);
         return {
@@ -80,7 +78,6 @@ describe('MCP exfiltration defenses', () => {
 
   it('tool call count is bounded — prevents infinite exfiltration loops', async () => {
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool() {
         return {
           content: 'ok',
@@ -115,7 +112,6 @@ describe('MCP exfiltration defenses', () => {
   it('large tool results are rejected — prevents context stuffing', async () => {
     const bigPayload = 'A'.repeat(FAST_PATH_LIMITS.maxToolResultSizeBytes + 1);
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool() {
         return {
           content: bigPayload,
@@ -139,7 +135,6 @@ describe('MCP exfiltration defenses', () => {
 
   it('cumulative context size is bounded', async () => {
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool() {
         return {
           content: 'x'.repeat(1000), // small per-call
@@ -173,7 +168,6 @@ describe('MCP exfiltration defenses', () => {
 
     const { McpAuthRequiredError } = await import('../../src/providers/mcp/types.js');
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool() {
         throw new McpAuthRequiredError({ available: false, app: 'linear', authType: 'api_key' });
       },
@@ -238,7 +232,6 @@ describe('MCP exfiltration defenses', () => {
     // Here we verify that the router correctly passes through to MCP (which enforces its own access control).
     const callLog: string[] = [];
     const mcp: McpProvider = {
-      async listTools() { return []; },
       async callTool(call) {
         callLog.push(call.tool);
         return {

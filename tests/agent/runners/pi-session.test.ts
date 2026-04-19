@@ -200,7 +200,7 @@ describe('pi-session (IPC mode — no proxy)', () => {
       agent: 'pi-coding-agent',
       ipcSocket: socketPath,
       workspace,
-      skills: skillsDir,
+
       userMessage: 'hello',
       // No proxySocket → should fall back to IPC
     });
@@ -256,7 +256,6 @@ describe('pi-session (IPC mode — no proxy)', () => {
         agent: 'pi-coding-agent',
         ipcSocket: socketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'what did I ask before?',
         history: [
           { role: 'user' as const, content: 'my favorite color is blue' },
@@ -354,7 +353,6 @@ describe('pi-session (IPC mode — no proxy)', () => {
         agent: 'pi-coding-agent',
         ipcSocket: socketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'create hello.txt',
       });
     } finally {
@@ -375,7 +373,7 @@ describe('pi-session (IPC mode — no proxy)', () => {
       agent: 'pi-coding-agent',
       ipcSocket: socketPath,
       workspace,
-      skills: skillsDir,
+
       userMessage: '',
     });
   });
@@ -387,7 +385,7 @@ describe('pi-session (IPC mode — no proxy)', () => {
       agent: 'pi-coding-agent',
       ipcSocket: socketPath,
       workspace,
-      skills: skillsDir,
+
       userMessage: '   ',
     });
   });
@@ -504,7 +502,6 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         ipcSocket: ipcSocketPath,
         proxySocket: proxySocketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'hello via proxy',
       });
     } finally {
@@ -659,7 +656,6 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         ipcSocket: ipcSocketPath,
         proxySocket: proxySocketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'create proxy-test.txt',
       });
     } finally {
@@ -703,7 +699,6 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         ipcSocket: ipcSocketPath,
         proxySocket: proxySocketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'test credentials',
       });
     } finally {
@@ -775,7 +770,6 @@ describe('pi-session (proxy mode — LLM via Anthropic SDK)', () => {
         ipcSocket: ipcSocketPath,
         proxySocket: proxySocketPath,
         workspace,
-        skills: skillsDir,
         userMessage: 'search memory for something',
       });
     } finally {

@@ -47,8 +47,15 @@ export interface ToolDispatcherOptions {
     { name?: string; headers?: Record<string, string> } | undefined;
   /** Resolve credential placeholders in headers. */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
-  /** Auto-discover auth for servers without explicit headers. */
-  authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
+  /** Auto-discover auth for servers without explicit headers. Receives the
+   *  per-request agentId + userId so the implementation can look up
+   *  tuple-keyed skill credentials. */
+  authForServer?: (server: {
+    name: string;
+    url: string;
+    agentId: string;
+    userId: string;
+  }) => Promise<Record<string, string> | undefined>;
 }
 
 export class ToolDispatcher {
@@ -74,7 +81,12 @@ export class ToolDispatcher {
             : meta.headers;
         }
         if (!headers && this.opts.authForServer && meta?.name) {
-          headers = await this.opts.authForServer({ name: meta.name, url: serverUrl });
+          headers = await this.opts.authForServer({
+            name: meta.name,
+            url: serverUrl,
+            agentId: ctx.agentId,
+            userId: ctx.userId,
+          });
         }
       }
     } catch {

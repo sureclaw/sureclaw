@@ -67,6 +67,30 @@ function resolveRefs(value: unknown, results: unknown[]): unknown {
   return value;
 }
 
+/**
+ * Coerce MCP tool-call content into a structured value when possible.
+ *
+ * MCP servers often return tool payloads as text blocks holding serialized
+ * JSON (our `callToolOnServer` joins those text blocks into a single string).
+ * If downstream pushes that string verbatim, the agent's generated stub
+ * returns a string too — so `const team = await getTeam(...); team.id`
+ * becomes `undefined` and the next call ships `teamId: undefined` back to
+ * the server. Parsing once at the handler boundary gives agent code the
+ * object shape it naturally expects.
+ *
+ * Non-string content (already an object/array) passes through untouched —
+ * we don't round-trip through JSON. Non-JSON strings (plain text tool
+ * results, which are rare but valid) also pass through unchanged.
+ */
+function parseContent(content: unknown): unknown {
+  if (typeof content !== 'string') return content;
+  try {
+    return JSON.parse(content);
+  } catch {
+    return content;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -91,14 +115,34 @@ export interface ToolBatchOptions {
 
   /** Unified MCP tool resolver -- returns server URL for any MCP tool (database, plugin, etc.) */
   resolveServer?: (agentId: string, toolName: string) => string | undefined;
-  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers */
-  mcpCallTool?: (url: string, tool: string, args: Record<string, unknown>, opts?: { headers?: Record<string, string> }) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
-  /** Get server metadata (name, headers) for credential resolution by server URL */
-  getServerMetaByUrl?: (agentId: string, serverUrl: string) => { name?: string; source?: string; headers?: Record<string, string> } | undefined;
+  /** Unified MCP tool caller -- calls tool on resolved server URL with optional headers + transport */
+  mcpCallTool?: (
+    url: string,
+    tool: string,
+    args: Record<string, unknown>,
+    opts?: { headers?: Record<string, string>; transport?: 'http' | 'sse' },
+  ) => Promise<{ content: string | Record<string, unknown>; isError?: boolean }>;
+  /** Get server metadata (name, headers, transport) for credential resolution by server URL */
+  getServerMetaByUrl?: (
+    agentId: string,
+    serverUrl: string,
+  ) => {
+    name?: string;
+    source?: string;
+    headers?: Record<string, string>;
+    transport?: 'http' | 'sse';
+  } | undefined;
   /** Resolve credential placeholders in headers */
   resolveHeaders?: (headers: Record<string, string>) => Promise<Record<string, string>>;
-  /** Provide auth headers for servers without explicit headers (credential auto-discovery). */
-  authForServer?: (server: { name: string; url: string }) => Promise<Record<string, string> | undefined>;
+  /** Provide auth headers for servers without explicit headers (credential
+   *  auto-discovery). Receives the per-request agentId + userId so the
+   *  implementation can look up tuple-keyed skill credentials. */
+  authForServer?: (server: {
+    name: string;
+    url: string;
+    agentId: string;
+    userId: string;
+  }) => Promise<Record<string, string> | undefined>;
 
   /** @deprecated Use resolveServer instead */
   resolvePluginServer?: (agentId: string, toolName: string) => string | undefined;
@@ -146,21 +190,22 @@ export function createToolBatchHandlers(
             if (result.isError) {
               results.push({ ok: false, error: result.content });
             } else {
-              try { results.push(JSON.parse(result.content)); }
-              catch { results.push(result.content); }
+              results.push(parseContent(result.content));
             }
             continue;
           }
           // ── Unified path: resolveServer covers ALL MCP tools ──
           const unifiedUrl = opts.resolveServer?.(ctx.agentId, call.tool);
           if (unifiedUrl && opts.mcpCallTool) {
-            // Resolve headers from server metadata if available
+            // Resolve headers + transport from server metadata if available
             let headers: Record<string, string> | undefined;
             let serverName: string | undefined;
+            let transport: 'http' | 'sse' | undefined;
             try {
               if (opts.getServerMetaByUrl) {
                 const meta = opts.getServerMetaByUrl(ctx.agentId, unifiedUrl);
                 serverName = meta?.name;
+                transport = meta?.transport;
                 if (meta?.headers) {
                   headers = opts.resolveHeaders
                     ? await opts.resolveHeaders(meta.headers)
@@ -169,16 +214,24 @@ export function createToolBatchHandlers(
               }
               // For servers without explicit headers, try credential auto-discovery
               if (!headers && opts.authForServer && serverName) {
-                headers = await opts.authForServer({ name: serverName, url: unifiedUrl });
+                headers = await opts.authForServer({
+                  name: serverName,
+                  url: unifiedUrl,
+                  agentId: ctx.agentId,
+                  userId: ctx.userId ?? '',
+                });
               }
             } catch {
               // Header resolution failure should not block the tool call
             }
-            const result = await opts.mcpCallTool(unifiedUrl, call.tool, resolvedArgs, headers ? { headers } : undefined);
+            const callOpts = (headers || transport)
+              ? { ...(headers ? { headers } : {}), ...(transport ? { transport } : {}) }
+              : undefined;
+            const result = await opts.mcpCallTool(unifiedUrl, call.tool, resolvedArgs, callOpts);
             if (result.isError) {
               results.push({ ok: false, error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content) });
             } else {
-              results.push(result.content);
+              results.push(parseContent(result.content));
             }
             continue;
           }
@@ -190,7 +243,7 @@ export function createToolBatchHandlers(
             if (result.isError) {
               results.push({ ok: false, error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content) });
             } else {
-              results.push(result.content);
+              results.push(parseContent(result.content));
             }
             continue;
           }
@@ -212,7 +265,7 @@ export function createToolBatchHandlers(
           if (result.isError) {
             results.push({ ok: false, error: typeof result.content === 'string' ? result.content : JSON.stringify(result.content) });
           } else {
-            results.push(result.content);
+            results.push(parseContent(result.content));
           }
         } catch (err) {
           results.push({ ok: false, error: (err as Error).message });
