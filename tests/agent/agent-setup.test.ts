@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildSystemPrompt } from '../../src/agent/agent-setup.js';
@@ -52,42 +52,26 @@ describe('buildSystemPrompt', () => {
     expect(result.systemPrompt.length).toBeGreaterThan(0);
   });
 
-  test('surfaces committed tool-module index from .ax/tools/<skill>/_index.json', () => {
-    const toolsDir = join(workspace, '.ax', 'tools', 'linear');
-    mkdirSync(toolsDir, { recursive: true });
-    writeFileSync(
-      join(toolsDir, '_index.json'),
-      JSON.stringify({
-        skill: 'linear',
-        tools: [
-          {
-            name: 'list_issues',
-            parameters: { type: 'object', properties: { limit: {} }, required: [] },
-          },
-        ],
-        generated_at: '2026-04-18T20:00:00Z',
-      }),
-    );
-
+  test('AgentConfig accepts a catalog field (Task 2.3 shipping, not yet rendered)', () => {
+    // Task 2.3 ships the catalog to the agent via stdin. Rendering lands in
+    // Task 2.4 — this test only locks in that the field is accepted by the
+    // config shape without breaking prompt construction.
     const config: AgentConfig = {
       ipcSocket: '/tmp/test.sock',
       workspace,
       skills: [],
-      identity: { agents: '', soul: 'Test soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
+      catalog: [
+        {
+          name: 'mcp_linear_x',
+          skill: 'linear',
+          summary: 's',
+          schema: { type: 'object' },
+          dispatch: { kind: 'mcp', server: 'linear', toolName: 'x' },
+        },
+      ],
     };
     const result = buildSystemPrompt(config);
-    expect(result.systemPrompt).toContain('/workspace/.ax/tools/');
-    expect(result.systemPrompt).toContain('linear: listIssues({ limit? })');
-  });
-
-  test('omits tool-module block when no .ax/tools/ index is present', () => {
-    const config: AgentConfig = {
-      ipcSocket: '/tmp/test.sock',
-      workspace,
-      skills: [],
-      identity: { agents: '', soul: 'Test soul.', identity: 'Test identity.', bootstrap: '', userBootstrap: '', heartbeat: '' },
-    };
-    const result = buildSystemPrompt(config);
-    expect(result.systemPrompt).not.toContain('/workspace/.ax/tools/');
+    expect(result.systemPrompt).toBeDefined();
+    expect(result.systemPrompt.length).toBeGreaterThan(0);
   });
 });

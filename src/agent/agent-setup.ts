@@ -7,7 +7,6 @@
 import { getLogger } from '../logger.js';
 import { PromptBuilder } from './prompt/builder.js';
 import { loadIdentityFiles } from './identity-loader.js';
-import { loadToolIndex } from './prompt/tool-index-loader.js';
 import type { AgentConfig } from './runner.js';
 import type { ToolFilterContext } from './tool-catalog.js';
 
@@ -39,8 +38,6 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
 
   const hasGovernance = false; // Governance removed — identity changes are validated at git commit time
 
-  const toolIndex = config.workspace ? loadToolIndex(config.workspace) : { render: '', skills: [] };
-
   const promptBuilder = new PromptBuilder();
   const promptResult = promptBuilder.build({
     agentType: config.agent ?? 'pi-coding-agent',
@@ -58,12 +55,31 @@ export function buildSystemPrompt(config: AgentConfig): PromptBuildResult {
     agentId: config.agentId,
     hasGovernance,
     hasWorkspace: !!config.workspace,
-    toolModuleIndex: toolIndex.render || undefined,
+    catalog: config.catalog,
   });
 
   const toolFilter: ToolFilterContext = {
     hasHeartbeat: !!identityFiles.heartbeat?.trim(),
+    // Tool-dispatch mode comes from host Config via the stdin payload.
+    // Default to `indirect` when absent so older hosts / inline-built configs
+    // still expose describe_tools + call_tool.
+    toolDispatchMode: config.tool_dispatch?.mode ?? 'indirect',
   };
+
+  // Catalog visibility — helps diagnose "agent thrashed on tool names"
+  // bugs. If catalogSize is 0 but the session had active MCP skills, host
+  // discovery likely failed silently. If catalogSize > 0 but the agent
+  // still guessed names, the tool-catalog prompt module probably got
+  // budget-dropped — cross-reference `modules` in the metadata below.
+  const catalog = config.catalog ?? [];
+  const catalogBySkill: Record<string, number> = {};
+  for (const t of catalog) catalogBySkill[t.skill] = (catalogBySkill[t.skill] ?? 0) + 1;
+  logger.info('agent_catalog_received', {
+    agentId: config.agentId,
+    catalogSize: catalog.length,
+    catalogBySkill,
+    toolCatalogModuleIncluded: promptResult.metadata.modules.includes('tool-catalog'),
+  });
 
   logger.debug('prompt_built', { ...promptResult.metadata, toolFilter });
 

@@ -22,6 +22,7 @@ import type { SnapshotCache } from './snapshot-cache.js';
 import type { SkillSnapshotEntry } from './types.js';
 import type { GetAgentSkillsDeps } from './get-agent-skills.js';
 import { loadSnapshot, sweepOrphanedRows } from './get-agent-skills.js';
+import { invalidateCatalog } from '../tool-catalog/cache.js';
 
 /** Max request body size for the hook endpoint. A real post-receive payload
  *  is ~200 bytes; 64 KiB is a paranoid DoS cap. */
@@ -101,9 +102,15 @@ export function createReconcileHookHandler(
     }
 
     // 4. Invalidate the agent's cached snapshots. Next read walks git again.
+    //    Also drop the per-turn catalog cache — its key includes HEAD-sha, and
+    //    a push is the canonical HEAD-change event. Without this, the next
+    //    turn at the new HEAD would still hit the cache (key miss on the new
+    //    sha), so stale entries accumulate until the process exits; small
+    //    leak, but cheap to do right.
     const { agentId } = validation.data;
     const dropped = deps.snapshotCache.invalidateAgent(agentId);
-    log.debug('hook_cache_invalidated', { agentId, dropped });
+    const catalogDropped = invalidateCatalog(agentId);
+    log.debug('hook_cache_invalidated', { agentId, dropped, catalogDropped });
 
     // 5. Run the orphan sweep against the FRESH snapshot. Catches the
     //    "delete skill in turn N, re-add in turn N+1" race: without this,

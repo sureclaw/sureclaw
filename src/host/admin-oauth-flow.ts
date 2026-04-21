@@ -18,6 +18,7 @@ import type { AuditProvider } from '../providers/audit/types.js';
 import type { SkillCredStore } from './skills/skill-cred-store.js';
 import type { SnapshotCache } from './skills/snapshot-cache.js';
 import type { SkillSnapshotEntry } from './skills/types.js';
+import { invalidateCatalog } from './tool-catalog/cache.js';
 
 const logger = getLogger().child({ component: 'admin-oauth-flow' });
 
@@ -404,6 +405,12 @@ export function createAdminOAuthFlow(opts: CreateAdminOAuthFlowOpts = {}): Admin
       });
 
       input.snapshotCache?.invalidateAgent(flow.agentId);
+      // The freshly-landed credentials change the auth headers that
+      // `resolveMcpAuthHeaders` returns, which can change the MCP
+      // `listTools` response (e.g. different Linear workspace visible
+      // under new token). Drop the per-turn catalog cache so the next
+      // turn rebuilds with the new credentials.
+      invalidateCatalog(flow.agentId);
 
       return { matched: true, ok: true };
     },

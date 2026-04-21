@@ -1,5 +1,6 @@
 // src/agent/prompt/types.ts
 import type { AgentType } from '../../types.js';
+import type { CatalogTool } from '../../types/catalog.js';
 
 /**
  * Skill metadata for system prompt injection.
@@ -55,8 +56,13 @@ export interface PromptContext {
   /** Plugin slash commands surfaced in the system prompt. */
   commands?: Array<{ name: string; pluginName: string; content: string }>;
 
-  /** Compact render of committed tool-module index (`.ax/tools/<skill>/_index.json`). */
-  toolModuleIndex?: string;
+  /**
+   * Host-authoritative tool catalog delivered via the stdin payload
+   * (tool-dispatch-unification Task 2.3). When present, the agent prompt
+   * renders a "## Available tools" one-liner block from it. Absent/empty
+   * means no skill-declared tools are wired for this session.
+   */
+  catalog?: CatalogTool[];
 }
 
 export interface IdentityFiles {

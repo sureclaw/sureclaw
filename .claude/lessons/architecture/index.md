@@ -4,6 +4,7 @@ Design patterns, provider contracts, import hygiene, event bus design, and works
 
 ## Entries
 
+- Per-turn caches keyed on agent state must also include caller `userId` when the build touches per-user credentials [entries.md](entries.md)
 - Push derived state at turn boundaries instead of having the sandbox pull it [entries.md](entries.md)
 - Multi-task deletion phases leave "dormant-caller" dead code that only a final sweep finds [entries.md](entries.md)
 - IPC-sourced config with filesystem fallback: use `config.X ?? scan()` in sync builders [entries.md](entries.md)

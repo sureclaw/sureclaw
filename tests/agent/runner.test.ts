@@ -290,6 +290,41 @@ describe('parseStdinPayload with taint state', () => {
     const result = parseStdinPayload(payload);
     expect(result.skills).toBeUndefined();
   });
+
+  test('extracts catalog from payload', () => {
+    const catalog = [
+      {
+        name: 'mcp_linear_list_issues',
+        skill: 'linear',
+        summary: 'List Linear issues',
+        schema: { type: 'object' },
+        dispatch: { kind: 'mcp', server: 'linear', toolName: 'list_issues' },
+      },
+    ];
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      catalog,
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.catalog).toEqual(catalog);
+  });
+
+  test('defaults catalog to undefined when absent', () => {
+    const payload = JSON.stringify({ message: 'hello', history: [] });
+    const result = parseStdinPayload(payload);
+    expect(result.catalog).toBeUndefined();
+  });
+
+  test('ignores non-array catalog value', () => {
+    const payload = JSON.stringify({
+      message: 'hello',
+      history: [],
+      catalog: 'not-an-array',
+    });
+    const result = parseStdinPayload(payload);
+    expect(result.catalog).toBeUndefined();
+  });
 });
 
 // buildSystemPrompt tests removed — behavior is now covered by

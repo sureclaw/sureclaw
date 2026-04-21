@@ -11,6 +11,7 @@ import { CommandsModule } from './modules/commands.js';
 import { DelegationModule } from './modules/delegation.js';
 import { HeartbeatModule } from './modules/heartbeat.js';
 import { RuntimeModule } from './modules/runtime.js';
+import { ToolCatalogModule } from './modules/tool-catalog.js';
 import { ReplyGateModule } from './modules/reply-gate.js';
 
 export interface PromptResult {
@@ -51,6 +52,7 @@ export class PromptBuilder {
       new DelegationModule(),         // 75
       new HeartbeatModule(),          // 80
       new RuntimeModule(),            // 90
+      new ToolCatalogModule(),        // 92
       new ReplyGateModule(),          // 95
     ].sort((a, b) => a.priority - b.priority);
   }

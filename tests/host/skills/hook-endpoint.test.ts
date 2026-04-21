@@ -18,6 +18,12 @@ import {
 } from '../../../src/host/skills/hook-endpoint.js';
 import type { SnapshotCache } from '../../../src/host/skills/snapshot-cache.js';
 import type { SkillSnapshotEntry } from '../../../src/host/skills/types.js';
+import {
+  getOrBuildCatalog,
+  invalidateAllCatalogs,
+  catalogCacheSize,
+} from '../../../src/host/tool-catalog/cache.js';
+import type { CatalogTool } from '../../../src/types/catalog.js';
 
 // ─── fake req / res ──────────────────────────────────────────────────────
 
@@ -243,6 +249,51 @@ describe('createReconcileHookHandler — happy path', () => {
     expect(payload).toEqual({ ok: true, invalidated: 3 });
     expect(invalidateAgent).toHaveBeenCalledTimes(1);
     expect(invalidateAgent).toHaveBeenCalledWith('agent-42');
+  });
+
+  it('also invalidates the tool-catalog cache for the agent', async () => {
+    // Pre-load the module-scoped catalog cache with an entry for the agent
+    // the hook is about to target, plus one for a different agent. After
+    // the hook fires, the targeted agent's entries should be gone and the
+    // bystander agent's entry should remain.
+    invalidateAllCatalogs();
+    const sampleTool: CatalogTool = {
+      name: 'mcp_sample',
+      skill: 's',
+      summary: 's',
+      schema: { type: 'object' },
+      dispatch: { kind: 'mcp', server: 's', toolName: 'sample' },
+    };
+    await getOrBuildCatalog({
+      agentId: 'agent-42',
+      userId: 'u1',
+      headSha: 'sha-old',
+      build: async () => [sampleTool],
+    });
+    await getOrBuildCatalog({
+      agentId: 'bystander',
+      userId: 'u1',
+      headSha: 'sha-old',
+      build: async () => [sampleTool],
+    });
+    expect(catalogCacheSize()).toBe(2);
+
+    const { handler } = setup(() => 0);
+    const body = JSON.stringify({
+      agentId: 'agent-42',
+      ref: 'refs/heads/skills',
+      oldSha: 'aa',
+      newSha: 'bb',
+    });
+    const sig = computeSig(body, SECRET);
+    const res = fakeRes();
+    await handler(fakeReq(body, { 'X-AX-Hook-Signature': sig }), res.res);
+
+    expect(res.getStatus()).toBe(200);
+    // agent-42 gone, bystander untouched.
+    expect(catalogCacheSize()).toBe(1);
+    // Clean up so later tests don't see leftover entries.
+    invalidateAllCatalogs();
   });
 
   it('returns 200 with invalidated: 0 when the agent has no cached entries', async () => {

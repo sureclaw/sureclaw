@@ -7,6 +7,7 @@ import type {
 import { IPCClient } from './ipc-client.js';
 import { getLogger, truncate } from '../logger.js';
 import type { ContentBlock } from '../types.js';
+import type { CatalogTool } from '../types/catalog.js';
 import type { IdentityFiles } from './prompt/types.js';
 import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -71,6 +72,16 @@ export interface AgentConfig {
   identity?: IdentityFiles;
   /** Host-authoritative skills list delivered via the stdin payload. */
   skills?: import('./prompt/types.js').SkillSummary[];
+  /** Host-authoritative tool catalog delivered via the stdin payload.
+   *  Source-of-truth for tool dispatch. */
+  catalog?: CatalogTool[];
+  /** Tool-dispatch mode + spill threshold shipped from the host.
+   *  `indirect` (default) exposes describe_tools + call_tool meta-tools;
+   *  `direct` registers catalog tools as individual entries instead. */
+  tool_dispatch?: {
+    mode: 'direct' | 'indirect';
+    spill_threshold_bytes: number;
+  };
 }
 
 /** Sanitize a sender name: only alphanumeric, underscore, dot, dash; max 100 chars. */
@@ -277,6 +288,17 @@ export interface StdinPayload {
   singleTurn?: boolean;
   /** Host-authoritative skills list, derived live from the agent's git snapshot. */
   skills?: import('./prompt/types.js').SkillSummary[];
+  /** Host-authoritative tool catalog. Built per-turn from the agent's active
+   *  skills (MCP/OpenAPI dispatch entries). Agent does not re-validate the
+   *  shape — the host already validates on registration via Zod. */
+  catalog?: CatalogTool[];
+  /** Tool-dispatch mode + spill threshold. Mirrors host `Config.tool_dispatch`.
+   *  Trust-shape on the agent — host validates via Zod at config-load time.
+   *  Defaults to `indirect` on the agent side if missing (older hosts). */
+  tool_dispatch?: {
+    mode: 'direct' | 'indirect';
+    spill_threshold_bytes: number;
+  };
 }
 
 /**
@@ -326,6 +348,12 @@ export function parseStdinPayload(data: string): StdinPayload {
         caCert: typeof parsed.caCert === 'string' ? parsed.caCert : undefined,
         singleTurn: parsed.singleTurn === true,
         skills: Array.isArray(parsed.skills) ? parsed.skills : undefined,
+        catalog: Array.isArray(parsed.catalog) ? parsed.catalog as CatalogTool[] : undefined,
+        tool_dispatch: parsed.tool_dispatch && typeof parsed.tool_dispatch === 'object'
+          && (parsed.tool_dispatch.mode === 'direct' || parsed.tool_dispatch.mode === 'indirect')
+          && typeof parsed.tool_dispatch.spill_threshold_bytes === 'number'
+          ? { mode: parsed.tool_dispatch.mode, spill_threshold_bytes: parsed.tool_dispatch.spill_threshold_bytes }
+          : undefined,
       };
     }
   } catch {
@@ -493,6 +521,14 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
 
   if (payload.skills !== undefined) {
     config.skills = payload.skills;
+  }
+
+  if (payload.catalog !== undefined) {
+    config.catalog = payload.catalog;
+  }
+
+  if (payload.tool_dispatch !== undefined) {
+    config.tool_dispatch = payload.tool_dispatch;
   }
 
   if (payload.identity) {
