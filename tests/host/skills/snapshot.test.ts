@@ -184,6 +184,24 @@ body here
     expect(snapshot).toEqual([]);
   });
 
+  it('returns [] for a bare repo with no commits yet (no refs/heads/main)', async () => {
+    // Regression: before this fix, a brand-new bare repo from `git-local`
+    // workspace (init'd but never pushed to) caused `getAgentSkills` to
+    // throw on the first turn because `ls-tree refs/heads/main` errors
+    // out when the ref doesn't exist. That crashed the whole completion
+    // path, surfacing as "Internal processing error" to the user on
+    // every first turn. Fix: rev-parse --verify first, return [] on
+    // non-existent ref.
+    // `bareRepoPath` is set up by beforeEach with `initBareRepo` which
+    // only runs `git init --bare` — no commits. So we just pass through.
+    const snapshot = await buildSnapshotFromBareRepo(
+      bareRepoPath,
+      'refs/heads/main',
+    );
+
+    expect(snapshot).toEqual([]);
+  });
+
   it('ignores skill directories that have no SKILL.md', async () => {
     seedRepo(bareRepoPath, {
       '.ax/skills/orphan/README.md': '# not a SKILL.md\n',

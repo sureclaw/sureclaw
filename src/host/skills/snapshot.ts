@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { parseSkillFile } from './parser.js';
+import { parseSkillFile } from '../../skills/parser.js';
 import type { SkillSnapshotEntry } from './types.js';
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +21,21 @@ export async function buildSnapshotFromBareRepo(
   bareRepoPath: string,
   ref: string,
 ): Promise<SkillSnapshotEntry[]> {
+  // Fresh bare repos don't have `refs/heads/main` yet — git's `rev-parse
+  // --verify` returns non-zero. Treat that as "empty snapshot" rather than
+  // an error, so the first turn on a brand-new agent doesn't crash the
+  // entire completion path. The caller (loadSnapshot, getAgentSkills,
+  // populateCatalogFromSkills) correctly handles an empty array.
+  try {
+    await execFileAsync(
+      'git',
+      ['-C', bareRepoPath, 'rev-parse', '--verify', `${ref}^{commit}`],
+      { encoding: 'buffer' },
+    );
+  } catch {
+    return [];
+  }
+
   const { stdout: lsOut } = await execFileAsync(
     'git',
     ['-C', bareRepoPath, 'ls-tree', '-r', '--name-only', ref, '--', '.ax/skills/'],

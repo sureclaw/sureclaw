@@ -26,6 +26,7 @@ import { lookup } from 'node:dns/promises';
 import { existsSync, unlinkSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { getLogger } from '../logger.js';
+import { applyUrlRewrite } from '../plugins/url-rewrite.js';
 import type { CAKeyPair } from './proxy-ca.js';
 // CredentialPlaceholderMap and SharedCredentialRegistry both satisfy the
 // credentials duck-type ({ replaceAllBuffer, hasPlaceholders }).
@@ -203,15 +204,12 @@ export async function startWebProxy(options: WebProxyOptions): Promise<WebProxy>
     return null;
   }
 
-  /** Rewrite URL if domain matches a urlRewrites entry. Returns original if no match. */
+  /** Rewrite URL if domain matches a urlRewrites entry. Returns original if no match.
+   *  Thin wrapper around the shared `applyUrlRewrite` helper — same semantics,
+   *  exported so the MCP client (which runs on the host, bypassing this proxy)
+   *  can reuse the rewrite map. */
   function rewriteUrl(originalUrl: string): string {
-    if (!urlRewrites?.size) return originalUrl;
-    const parsed = new URL(originalUrl);
-    const replacement = urlRewrites.get(parsed.hostname);
-    if (!replacement) return originalUrl;
-    const target = new URL(replacement);
-    const basePath = target.pathname === '/' ? '' : target.pathname;
-    return `${target.origin}${basePath}${parsed.pathname}${parsed.search}`;
+    return applyUrlRewrite(originalUrl, urlRewrites);
   }
 
   // ── HTTP request forwarding ──
