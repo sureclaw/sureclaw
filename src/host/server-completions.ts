@@ -19,7 +19,9 @@ import { deserializeContent } from '../utils/content-serialization.js';
 import type { ConversationStoreProvider, DocumentStore, MessageQueueStore } from '../providers/storage/types.js';
 import type { Router } from './router.js';
 import { TaintBudget, thresholdForProfile } from './taint-budget.js';
-import { type Logger, truncate } from '../logger.js';
+import { type Logger, truncate, getLogger } from '../logger.js';
+
+const logger = getLogger().child({ component: 'credential-resolution' });
 import { startAnthropicProxy } from './proxy.js';
 import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
@@ -42,6 +44,12 @@ import { validateCommit, AX_DIFF_PATHSPEC } from './validate-commit.js';
 import { getAgentSkills, loadSnapshot, type GetAgentSkillsDeps } from './skills/get-agent-skills.js';
 import type { SkillState } from './skills/types.js';
 import type { SkillSummary } from '../agent/prompt/types.js';
+import { ToolCatalog } from './tool-catalog/registry.js';
+import { getOrBuildCatalog } from './tool-catalog/cache.js';
+import { populateCatalogFromSkills } from './skills/catalog-population.js';
+import { buildTurnMcpClientFactory } from './skills/mcp-client-factory.js';
+import type { CatalogTool } from '../types/catalog.js';
+import { catalogReaderFromTools } from './ipc-handlers/describe-tools.js';
 
 // ── Session ID placeholder rewriting ──
 // HTTP sessions use '_' as the workspace placeholder in the SessionAddress.
@@ -75,6 +83,12 @@ export interface CompletionDeps {
   eventBus?: EventBus;
   /** Maps sessionId → workspace directory path. Shared with sandbox tool IPC handlers. */
   workspaceMap?: Map<string, string>;
+  /** Maps sessionId → per-turn `CatalogReader`. Registered after the
+   *  catalog is built in `processCompletion`, unregistered in the finally
+   *  block so a crashed turn does not leak a stale catalog into the next.
+   *  Consumed by the `describe_tools` + `call_tool` IPC handlers via the
+   *  `resolveCatalog` closure wired in `server-init.ts`. */
+  catalogMap?: Map<string, import('./ipc-handlers/describe-tools.js').CatalogReader>;
   /** IPC handler function for reverse bridge connections (Apple containers). */
   ipcHandler?: (raw: string, ctx: import('./ipc-server.js').IPCContext) => Promise<string>;
   /** Extra env vars to inject into sandbox pods (per-turn IPC token, request ID). */
@@ -108,6 +122,15 @@ export interface CompletionDeps {
   /** Tuple-keyed skill credential store. Turn-time credential injection
    *  reads `(agentId, skillName, envName, userId|'')` rows from it. */
   skillCredStore: import('./skills/skill-cred-store.js').SkillCredStore;
+  /** Update the per-turn IPC token's context (k8s HTTP mode). Called after
+   *  `rewriteSessionPlaceholder` resolves `:_:` to the concrete agentId so
+   *  the `entry.ctx.sessionId` stored by `server.ts` stays in sync with the
+   *  rewritten sessionId used as the key for `catalogMap`, `workspaceMap`,
+   *  etc. Without this, agent IPC calls work (they stamp `_sessionId` on the
+   *  body, overriding the stale ctx) but script `ax.callTool` calls fail
+   *  with "unknown tool" because they fall back to `entry.ctx.sessionId`
+   *  which still holds the original placeholder form. */
+  updateTurnCtx?: (updates: { sessionId?: string; agentId?: string }) => void;
 }
 
 export interface ExtractedFile {
@@ -162,6 +185,44 @@ export function toSkillSummary(s: SkillState): SkillSummary {
   };
 }
 
+/** Build a short, stable fingerprint for a credential value — the first 8
+ *  hex chars of its SHA-256. Logged alongside resolution events so ops can
+ *  tell whether two candidate rows hold the same secret or different ones
+ *  (a common failure mode: multiple Test-&-Enable runs leaving stale rows
+ *  behind). Never emits any portion of the plaintext. An empty value gets
+ *  the sentinel `"<empty>"` so log consumers can distinguish it from a
+ *  hash collision.
+ *
+ *  Exported for unit tests to verify the no-leak invariant without having
+ *  to capture log records. */
+export function fingerprintCred(value: string): string {
+  if (value.length === 0) return '<empty>';
+  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 8);
+}
+
+/** Shape of a row safe for logs — no value, just an 8-char hash fingerprint. */
+interface CredRowLogShape {
+  skillName: string;
+  envName: string;
+  userScope: 'agent' | 'user';
+  userId: string;
+  valueFingerprint: string;
+  valueLength: number;
+}
+
+function rowToLogShape(
+  row: { skillName: string; envName: string; userId: string; value: string },
+): CredRowLogShape {
+  return {
+    skillName: row.skillName,
+    envName: row.envName,
+    userScope: row.userId === '' ? 'agent' : 'user',
+    userId: row.userId,
+    valueFingerprint: fingerprintCred(row.value),
+    valueLength: row.value.length,
+  };
+}
+
 /** Resolve MCP auth headers for a server by looking up skill-declared
  *  credentials for `(agentId, envName, userId)`. Tries the canonical
  *  suffixes (`_API_KEY`, `_ACCESS_TOKEN`, `_OAUTH_TOKEN`, `_TOKEN`) in
@@ -169,7 +230,12 @@ export function toSkillSummary(s: SkillState): SkillSummary {
  *  matching the precedence used by turn-time credential injection.
  *
  *  Last-resort fallback reads `process.env` when no matching row exists —
- *  covers dev/infra creds that were never written to `skill_credentials`. */
+ *  covers dev/infra creds that were never written to `skill_credentials`.
+ *
+ *  Pattern-based — name-convention fallback for skills whose frontmatter
+ *  doesn't pin a `mcpServers[].credential` ref. Skills that DO pin one
+ *  should route through `resolveMcpAuthHeadersByCredential` instead, which
+ *  looks up by explicit envName rather than guessing from the server name. */
 export async function resolveMcpAuthHeaders(args: {
   serverName: string;
   agentId: string;
@@ -188,13 +254,100 @@ export async function resolveMcpAuthHeaders(args: {
   for (const envName of candidates) {
     const matching = rows.filter(r => r.envName === envName);
     if (matching.length === 0) {
-      if (process.env[envName]) return { Authorization: `Bearer ${process.env[envName]}` };
+      if (process.env[envName]) {
+        logger.info('skill_cred_resolved', {
+          agentId, userId, serverName, envName,
+          source: 'process_env',
+          resolverPath: 'pattern',
+          matchingRows: [],
+          selectedRow: null,
+          valueFingerprint: fingerprintCred(process.env[envName] ?? ''),
+        });
+        return { Authorization: `Bearer ${process.env[envName]}` };
+      }
       continue;
     }
     const user = matching.find(r => r.userId === userId);
     const agent = matching.find(r => r.userId === '');
-    const value = user?.value ?? agent?.value ?? matching[0].value;
-    if (value) return { Authorization: `Bearer ${value}` };
+    const selected = user ?? agent ?? matching[0];
+    const value = selected.value;
+    if (value) {
+      logger.info('skill_cred_resolved', {
+        agentId, userId, serverName, envName,
+        source: 'skill_credentials',
+        resolverPath: 'pattern',
+        matchingRowCount: matching.length,
+        matchingRows: matching.map(rowToLogShape),
+        selectedRow: rowToLogShape(selected),
+        selectionReason:
+          user ? 'user_scope_match' : agent ? 'agent_scope_fallback' : 'first_row_fallback',
+      });
+      return { Authorization: `Bearer ${value}` };
+    }
+  }
+  logger.debug('skill_cred_resolved', {
+    agentId, userId, serverName,
+    resolverPath: 'pattern',
+    source: 'none',
+    candidates,
+  });
+  return undefined;
+}
+
+/** Resolve MCP auth headers for an explicit envName ref — the bare string
+ *  from a skill's `mcpServers[].credential` field. Authoritative lookup
+ *  path used by both turn-time catalog population and the admin-side
+ *  Test-&-Enable probe, so "probe succeeds → turn-time dispatch succeeds"
+ *  holds as an invariant.
+ *
+ *  Same scope precedence as `resolveMcpAuthHeaders` (user-scoped over
+ *  agent-scope over first-match), plus a `process.env[envName]` fallback
+ *  for dev creds that bypass `skill_credentials`. */
+export async function resolveMcpAuthHeadersByCredential(args: {
+  envName: string;
+  agentId: string;
+  userId: string;
+  skillCredStore: import('./skills/skill-cred-store.js').SkillCredStore;
+}): Promise<Record<string, string> | undefined> {
+  const { envName, agentId, userId, skillCredStore } = args;
+  const rows = await skillCredStore.listForAgent(agentId);
+  const matching = rows.filter(r => r.envName === envName);
+  if (matching.length === 0) {
+    if (process.env[envName]) {
+      logger.info('skill_cred_resolved', {
+        agentId, userId, envName,
+        source: 'process_env',
+        resolverPath: 'credential_ref',
+        matchingRows: [],
+        selectedRow: null,
+        valueFingerprint: fingerprintCred(process.env[envName] ?? ''),
+      });
+      return { Authorization: `Bearer ${process.env[envName]}` };
+    }
+    logger.debug('skill_cred_resolved', {
+      agentId, userId, envName,
+      resolverPath: 'credential_ref',
+      source: 'none',
+      matchingRowCount: 0,
+    });
+    return undefined;
+  }
+  const user = matching.find(r => r.userId === userId);
+  const agent = matching.find(r => r.userId === '');
+  const selected = user ?? agent ?? matching[0];
+  const value = selected.value;
+  if (value) {
+    logger.info('skill_cred_resolved', {
+      agentId, userId, envName,
+      source: 'skill_credentials',
+      resolverPath: 'credential_ref',
+      matchingRowCount: matching.length,
+      matchingRows: matching.map(rowToLogShape),
+      selectedRow: rowToLogShape(selected),
+      selectionReason:
+        user ? 'user_scope_match' : agent ? 'agent_scope_fallback' : 'first_row_fallback',
+    });
+    return { Authorization: `Bearer ${value}` };
   }
   return undefined;
 }
@@ -664,6 +817,7 @@ export async function processCompletion(
       if (persistentSessionId) {
         persistentSessionId = rewriteSessionPlaceholder(persistentSessionId, agentId);
       }
+      deps.updateTurnCtx?.({ sessionId, agentId });
     }
 
     try {
@@ -754,6 +908,7 @@ export async function processCompletion(
     if (persistentSessionId) {
       persistentSessionId = rewriteSessionPlaceholder(persistentSessionId, agentId);
     }
+    deps.updateTurnCtx?.({ sessionId, agentId });
   }
 
   // Register session context so the credential provide endpoint can resolve
@@ -1312,33 +1467,48 @@ export async function processCompletion(
 
     // ── Populate per-agent tool routes for skill-declared MCP servers ──
     // The subprocess sandbox path relies on `mcpManager.toolServerMap` to
-    // resolve tool names → server URLs at IPC tool-batch time. Nothing on the
-    // subprocess turn path populated that map — the inprocess fast-path does
-    // its own discovery at turn start, and admin refresh-tools populates it on
-    // demand, but between pod restart and the next admin click the map stayed
-    // empty. Result: imported stubs in the agent's workspace were syntactically
-    // fine, but the first call surfaced "MCP gateway not configured for this
-    // tool". HEAD-cached dedup keeps the network cost at once per
+    // resolve tool names → server URLs at tool-dispatch time. The inprocess
+    // fast-path does its own discovery at turn start; for the subprocess turn
+    // path we run `ensureToolsDiscoveredForHead` here so every turn lands with
+    // a populated map. HEAD-cached dedup keeps the network cost at once per
     // (agent, HEAD) per pod.
     if (deps.mcpManager) {
       try {
         const snapshot = await loadSnapshot(agentId, deps.agentSkillsDeps);
         const skillServerNames = new Set<string>();
+        // Side-index the skill's `mcpServers[].credential` refs by server
+        // name — lets `authForServer` prefer the authoritative envName
+        // lookup when frontmatter pinned one, matching the probe path.
+        const credRefByServerName = new Map<string, string>();
         for (const entry of snapshot) {
           if (!entry.ok) continue;
-          for (const s of entry.frontmatter.mcpServers) skillServerNames.add(s.name);
+          for (const s of entry.frontmatter.mcpServers) {
+            skillServerNames.add(s.name);
+            if (s.credential) credRefByServerName.set(s.name, s.credential);
+          }
         }
         if (skillServerNames.size > 0) {
           const headSha = await deps.agentSkillsDeps.probeHead(agentId);
           await deps.mcpManager.ensureToolsDiscoveredForHead(agentId, headSha, {
             serverFilter: skillServerNames,
-            authForServer: (server) =>
-              resolveMcpAuthHeaders({
+            authForServer: async (server) => {
+              const ref = credRefByServerName.get(server.name);
+              if (ref) {
+                const byRef = await resolveMcpAuthHeadersByCredential({
+                  envName: ref,
+                  agentId,
+                  userId: currentUserId,
+                  skillCredStore: deps.skillCredStore,
+                });
+                if (byRef) return byRef;
+              }
+              return resolveMcpAuthHeaders({
                 serverName: server.name,
                 agentId,
                 userId: currentUserId,
                 skillCredStore: deps.skillCredStore,
-              }),
+              });
+            },
           });
         }
       } catch (err) {
@@ -1351,6 +1521,125 @@ export async function processCompletion(
         });
       }
     }
+
+    // ── Populate the per-turn `ToolCatalog` from active skills ──
+    // Source-of-truth for tool dispatch (tool-dispatch-unification). The
+    // catalog is built each turn from the live MCP server + skill snapshot;
+    // the agent's `call_tool` IPC handler (indirect mode) and direct-mode
+    // tool registrations both read from this same per-session registry.
+    //
+    // Cached per (agentId, userId, HEAD-sha) — first turn after a skill push
+    // rebuilds (same ~200–400 ms cost as before); every subsequent turn is
+    // an O(1) Map lookup with zero network work. The cache is invalidated
+    // from the post-receive hook and the admin-OAuth callback, matching
+    // the invalidation surface of the sibling `snapshotCache`.
+    let catalogTools: CatalogTool[] = [];
+    if (deps.mcpManager) {
+      try {
+        const headSha = await deps.agentSkillsDeps.probeHead(agentId);
+        catalogTools = await getOrBuildCatalog({
+          agentId,
+          userId: currentUserId,
+          headSha,
+          build: async () => {
+            const snapshotForCatalog = await loadSnapshot(agentId, deps.agentSkillsDeps);
+            const toolCatalog = new ToolCatalog();
+            const buildResult = await populateCatalogFromSkills({
+              skills: snapshotForCatalog,
+              getMcpClient: buildTurnMcpClientFactory({
+                mcpManager: deps.mcpManager!,
+                agentId,
+                snapshot: snapshotForCatalog,
+                resolveAuthHeaders: (serverName) =>
+                  resolveMcpAuthHeaders({
+                    serverName,
+                    agentId,
+                    userId: currentUserId,
+                    skillCredStore: deps.skillCredStore,
+                  }),
+                // Authoritative lookup when frontmatter pins
+                // `mcpServers[].credential: <envName>`. Same path the
+                // admin Test-&-Enable probe uses, so "probe OK → turn OK"
+                // holds even when the server name doesn't match the
+                // legacy prefix heuristic (e.g. "linear-mcp-server" +
+                // envName "LINEAR_API_KEY").
+                resolveAuthHeadersByCredential: (envName) =>
+                  resolveMcpAuthHeadersByCredential({
+                    envName,
+                    agentId,
+                    userId: currentUserId,
+                    skillCredStore: deps.skillCredStore,
+                  }),
+                // Apply `config.url_rewrites` at host MCP fetch time.
+                // `undefined` in production (no-op); e2e sets it so a
+                // skill's `https://mock-target.test/...` frontmatter URL
+                // redirects to the mock server's dynamic port.
+                urlRewrites: config.url_rewrites,
+              }),
+              catalog: toolCatalog,
+            });
+            toolCatalog.freeze();
+            // Flag the build partial when ANY MCP server failed listTools.
+            // `getOrBuildCatalog` skips its cache write on partial so the
+            // next turn retries the flaky server instead of serving empty
+            // tools until HEAD changes. Dupe-name register failures don't
+            // count — those are deterministic outcomes of frontmatter shape.
+            if (buildResult.serverFailures > 0) {
+              reqLogger.warn('catalog_partial_build', {
+                agentId,
+                serverFailures: buildResult.serverFailures,
+                catalogSize: toolCatalog.list().length,
+              });
+            }
+            return {
+              tools: toolCatalog.list(),
+              partial: buildResult.serverFailures > 0,
+            };
+          },
+        });
+      } catch (err) {
+        // Same posture as the discovery block above — log and continue.
+        // An empty/partial catalog is strictly better than a refused turn;
+        // the agent can still call core tools + handle the task.
+        reqLogger.warn('populate_catalog_failed', {
+          agentId,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    // ── Register the per-turn catalog for indirect-dispatch IPC handlers ──
+    // `describe_tools` and `call_tool` read this via the `resolveCatalog`
+    // closure wired in `server-init.ts`. Unregistration happens in the
+    // outer finally block (same lifetime as `workspaceMap`), so an
+    // uncaught error in the turn cannot leak a stale catalog into the
+    // next one. Keyed on `sessionId` to match the IPC context.
+    if (deps.catalogMap) {
+      deps.catalogMap.set(sessionId, catalogReaderFromTools(catalogTools));
+    }
+
+    // Catalog visibility at turn-start. Pair this with the agent-side
+    // `agent_catalog_received` log: if the host says size=N but the agent
+    // says size=0, the stdin payload lost the catalog; if both say 0 but
+    // skills had MCP servers, discovery failed (check
+    // `populate_catalog_failed` above); if both agree but agent still
+    // guesses names, the prompt module was dropped (check
+    // `toolCatalogModuleIncluded`).
+    const catalogBySkill: Record<string, number> = {};
+    for (const t of catalogTools) catalogBySkill[t.skill] = (catalogBySkill[t.skill] ?? 0) + 1;
+    reqLogger.info('catalog_registered', {
+      agentId,
+      sessionId,
+      catalogSize: catalogTools.length,
+      catalogBySkill,
+      // Emit the actual tool names when the catalog is small (≤ 50) so an
+      // "agent guessed a wrong name" incident can be diagnosed from the
+      // log alone. Bigger catalogs stay counts-only to keep log line size
+      // manageable.
+      ...(catalogTools.length > 0 && catalogTools.length <= 50
+        ? { catalogNames: catalogTools.map((t) => t.name) }
+        : {}),
+    });
 
     // ── Workspace GCS prefixes ──
     // Build stdin payload once — reused across retry attempts.
@@ -1376,6 +1665,14 @@ export async function processCompletion(
       // Identity from git; skills derived live from the agent's bare repo.
       identity: identityPayload,
       skills: skillsPayload,
+      // Host-authoritative tool catalog — built per-turn above from active
+      // skills' MCP servers, cached per (agentId, userId, HEAD-sha). Agent
+      // consumes in Task 2.4 (system prompt render) and later phases (dispatch).
+      catalog: catalogTools,
+      // Tool-dispatch mode — controls whether the agent registers the
+      // describe_tools + call_tool meta-tools (indirect) or direct catalog
+      // entries (direct). Shipped so the agent doesn't need its own Config.
+      tool_dispatch: config.tool_dispatch,
       // Credential placeholders — k8s pods don't have these in their pod spec,
       // so include them in the payload for the agent to set via process.env.
       credentialEnv: {
@@ -1416,7 +1713,7 @@ export async function processCompletion(
         ? 86400
         : config.sandbox.timeout_sec,
       memoryMB: config.sandbox.memory_mb,
-      cpus: 1,
+      cpus: config.sandbox.cpus,
       command: spawnCommand,
       extraEnv: {
         ...deps.extraSandboxEnv,
@@ -1820,8 +2117,15 @@ export async function processCompletion(
       }
     }
 
-    // Auto-generate session title for new sessions (first turn)
-    if (persistentSessionId && maxTurns > 0) {
+    // Auto-generate session title for new sessions (first turn). Only for
+    // chat-UI-originated sessions — scheduler / cron / heartbeat runs have
+    // sessionIds like `scheduler:dm:...` and shouldn't appear in the chat
+    // UI sidebar. Without this guard, every heartbeat turn writes a row to
+    // `chat_sessions` and the agent's self-initiated tasks (retry-pending-
+    // skill, reconcile, etc.) show up as orphan threads with hallucinated
+    // titles in the sidebar.
+    const isChatUiSession = persistentSessionId?.startsWith('http:') ?? false;
+    if (persistentSessionId && maxTurns > 0 && isChatUiSession) {
       try {
         const chatSessions = providers.storage?.chatSessions;
         if (chatSessions) {
@@ -1895,6 +2199,11 @@ export async function processCompletion(
     // can't access it after the agent finishes.
     if (deps.workspaceMap) {
       deps.workspaceMap.delete(sessionId);
+    }
+    // Deregister the per-turn catalog so `describe_tools` / `call_tool`
+    // can't see stale entries after the turn ends (mirrors workspaceMap).
+    if (deps.catalogMap) {
+      deps.catalogMap.delete(sessionId);
     }
     // Clean up the symlink mountRoot used by sandbox tool handlers.
     if (toolMountRoot) {
