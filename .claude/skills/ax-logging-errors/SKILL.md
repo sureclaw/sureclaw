@@ -70,11 +70,28 @@ interface DiagnosedError {
 
 **Agent spawn errors**: Improved diagnosis for process signal handling (SIGKILL, SIGTERM) and EPERM errors from tsx-wrapped agents. `formatDiagnosedError()` produces user-facing strings with diagnosis, suggestion, and log path.
 
+## Chat Termination Events (`chat_terminated`)
+
+When a chat turn dies abnormally — sandbox spawn fails, fast-path crashes, the agent's response times out or errors — call `logChatTermination(reqLogger, ...)` from `src/host/chat-termination.ts`. It emits a single `chat_terminated` event at error level with structured fields (`phase`, `reason`, optional `sandboxId` / `exitCode` / `details`). All host-side termination sites converge on this one event so operators can `grep chat_terminated` to find every chat-killing event in one place, then `grep <reqId>` to drill into a single chat across the lines that led up to it.
+
+**Phases** (`TerminationPhase`): `spawn` | `dispatch` | `sandbox` | `wait` | `cleanup`. Keep this set small and stable — alerts will key on these values.
+
+**Conventions:**
+- Always pass a `reqLogger` (a child logger already bound to `reqId` / `sessionId`) so those fields ride along automatically.
+- Original log lines (e.g. `fast_path_error`, `agent_response_error`) currently coexist with the new `chat_terminated` event — Task 5 of the chat-correlation plan audits and removes duplicates after we verify behavior end-to-end.
+- The k8s sandbox provider does NOT call `logChatTermination` directly — it only has `podLog` (no host-layer reqLogger). The host detects pod death via the `agent_response_timeout` site (`server.ts`), which fires `chat_terminated` with the pod name as `sandboxId`. The k8s side independently emits `pod_failed` with `terminationCause` (Task 3).
+
 ## Common Tasks
 
 **Adding a new error pattern:**
 1. Add regex + diagnosis + suggestion entry to the patterns array in `errors.ts`
 2. Add test in `tests/errors.test.ts`
+
+**Adding a new chat-termination site:**
+1. Import `logChatTermination` from `src/host/chat-termination.js`
+2. Pick the right `phase` (or add a new one to `TerminationPhase` if truly needed — and update alerts).
+3. Call it with a stable `reason` string and any `details` you'd want at 3 AM.
+4. Add a test asserting the event fires.
 
 ## Gotchas
 

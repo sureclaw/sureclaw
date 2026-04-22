@@ -27,6 +27,7 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
 import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
+import { logChatTermination } from './chat-termination.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
@@ -919,6 +920,11 @@ export async function processCompletion(
     } catch (err) {
       await db.fail(queued.id);
       reqLogger.error('fast_path_error', { error: (err as Error).message });
+      logChatTermination(reqLogger, {
+        phase: 'dispatch',
+        reason: 'fast_path_error',
+        details: { error: (err as Error).message },
+      });
       return attach({ responseContent: `Fast path error: ${(err as Error).message}`, finishReason: 'stop' });
     }
     } // end documents guard
@@ -1837,7 +1843,20 @@ export async function processCompletion(
             },
           });
         }
-        proc = await agentSandbox.spawn(sandboxConfig);
+        try {
+          proc = await agentSandbox.spawn(sandboxConfig);
+        } catch (err) {
+          // Emit the unified chat_terminated event before re-throwing so the
+          // existing outer error handling continues unchanged. Spawn failures
+          // are primary causes — there's no upstream sandbox death masking
+          // them, so phase=spawn is accurate.
+          logChatTermination(reqLogger, {
+            phase: 'spawn',
+            reason: 'sandbox_spawn_failed',
+            details: { error: (err as Error).message, attempt },
+          });
+          throw err;
+        }
 
         // Register newly spawned sandbox for session reuse
         if (deps.sessionManager) {
@@ -1989,6 +2008,12 @@ export async function processCompletion(
           reqLogger.debug('agent_response_received', { responseLength: response.length });
         } catch (err) {
           reqLogger.warn('agent_response_error', { error: (err as Error).message });
+          logChatTermination(reqLogger, {
+            phase: 'wait',
+            reason: 'agent_response_error',
+            ...(proc.podName ? { sandboxId: proc.podName } : {}),
+            details: { error: (err as Error).message },
+          });
           // Fall through to let exitCode determine retry
         }
 

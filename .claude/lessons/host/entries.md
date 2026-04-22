@@ -1,5 +1,11 @@
 # Host
 
+### AX has its own `Logger` interface — don't import from `pino` even if a plan says to
+**Date:** 2026-04-22
+**Context:** Implementing `logChatTermination` per a plan that said `import type { Logger } from 'pino'`. AX defines its own `Logger` interface in `src/logger.ts` (debug/info/warn/error/fatal/child) — pino is an implementation detail, not the public type. Code throughout `src/host/` already imports `import { type Logger, ... } from '../logger.js'`.
+**Lesson:** When wiring a new helper that takes a logger, always `import type { Logger } from '../logger.js'` (or `'../../src/logger.js'` from tests). Plans/notes that say `from 'pino'` are wrong for this codebase — pino's `Logger` has a different shape (level, isLevelEnabled, bindings, etc.) and would cause type drift if leaked into the host API. Cross-check against an existing host file (e.g. `src/host/server-completions.ts` line ~22) before trusting any logger-related import in a plan.
+**Tags:** logger, pino, types, host, plans
+
 ### Agent UX hints belong in the prompt, not in the generated file
 **Status: superseded 2026-04-20 (Phase 6 of tool-dispatch-unification)** — generated tool modules no longer exist; tools flow through `ax.callTool` / `call_tool` meta-tools with per-tool JSON Schemas rendered inline in the prompt. The underlying principle ("load-bearing hints go in the prompt, not in discoverable files") still applies — for current application, enforce it at `src/host/tool-catalog/render.ts`.
 **Date:** 2026-04-19

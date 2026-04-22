@@ -48,6 +48,7 @@ import { BUILTIN_DOMAINS, normalizeDomain } from './skills/domain-allowlist.js';
 
 // Git-native skills: post-receive hook mount (cache-bust).
 import { createReconcileHookHandler } from './skills/hook-endpoint.js';
+import { logChatTermination } from './chat-termination.js';
 
 /**
  * Token registry: maps per-turn tokens to their bound IPC handler + context.
@@ -398,6 +399,20 @@ export async function createServer(
           const effectiveTimeout = baseDeps?.config.sandbox.timeout_sec ?? config.sandbox?.timeout_sec ?? 600;
           const agentTimeoutMs = (effectiveTimeout + 60) * 1000;
           agentTimer = setTimeout(() => {
+            // Emit the unified chat_terminated event so operators can grep one
+            // channel for every chat-killing event without depending on each
+            // call site's bespoke log name. The downstream agent_response_error
+            // log in server-completions.ts will also fire when this rejection
+            // propagates — that's intentional during Task 5's verification
+            // window; duplicates get audited there.
+            const podName = sessionManager.get(sessionId)?.podName;
+            const reqLogger = logger.child({ reqId: requestId, sessionId });
+            logChatTermination(reqLogger, {
+              phase: 'wait',
+              reason: 'agent_response_timeout',
+              ...(podName ? { sandboxId: podName } : {}),
+              details: { timeoutMs: agentTimeoutMs },
+            });
             agentResponseReject?.(new Error('agent_response timeout'));
           }, agentTimeoutMs);
           if (agentTimer.unref) agentTimer.unref();
