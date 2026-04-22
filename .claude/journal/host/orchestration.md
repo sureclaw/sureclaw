@@ -2,6 +2,19 @@
 
 Agent orchestration system: supervisor, directory, agent-loop, event store, heartbeat, policy tags.
 
+## [2026-04-22 11:05] — chat-correlation Task 6: canonical chat_complete + phase timings
+
+**Task:** Pair every `chat_terminated` (failure, error level) with a `chat_complete` (success, info level) so an operator sees exactly one canonical line per chat regardless of outcome. Same field shape: sessionId, agentId, durationMs, phases, sandboxId. Operator workflow becomes `kubectl logs ax-host | grep "chat_complete\|chat_terminated"` — one line per chat with timing + outcome.
+**What I did:**
+- Added `logChatComplete(reqLogger, { sessionId, agentId?, durationMs, phases?, sandboxId?, tokens? })` to `src/host/chat-termination.ts` alongside `logChatTermination`. Mirrors the same `undefined`-stripping pattern so we never serialise literal `"undefined"` keys.
+- Wired `processCompletion` (`src/host/server-completions.ts`) with a `phase('name')` timer that returns `done()` to record elapsed ms into a `phases` object. Four coarse phases — `scan` / `dispatch` / `agent` / `persist` — that account for the bulk of wall-clock time. Fast-path collapses dispatch into agent (no sandbox spawn).
+- Extended the `attach` helper to emit `chat_complete` once per successful return path. Two flags guard against bad outcomes: `chatTerminated` (set by `markTerminated()` after every termination site, so chat_complete doesn't fire on top of chat_terminated) and `chatCompleteEmitted` (defensive idempotency).
+- Updated `tests/host/chat-termination.test.ts` with 5 new `logChatComplete` cases: required fields only, info level only, full passthrough, undefined-field stripping. All 12 tests pass (7 prior + 5 new).
+- Updated `.claude/skills/ax-host/SKILL.md` and `.claude/skills/ax-logging-errors/SKILL.md` with the new helper and the `chat_complete + chat_terminated = exactly one line per chat` operator pattern.
+**Files touched:** `src/host/chat-termination.ts` (new helper), `src/host/server-completions.ts` (phase timing + attach extension + markTerminated() at 3 termination sites + sandboxId capture after spawn), `tests/host/chat-termination.test.ts` (5 new tests), `.claude/skills/ax-host/SKILL.md`, `.claude/skills/ax-logging-errors/SKILL.md`.
+**Outcome:** Success — 12 chat-termination tests pass, build clean, full suite footprint identical to baseline (33 pre-existing macOS socket-path EINVAL failures on both main and branch; +5 new passes from this task = 2941 vs 2936).
+**Notes:** Two open questions for follow-up. (1) The outer `catch (err)` block in `processCompletion` (~line 2310) doesn't fire `chat_terminated` — its `attach` will now emit `chat_complete` instead. That's a pre-existing audit gap from Task 4/5, surfaced here rather than expanded into Task 6 scope. (2) `tokens` field is in the helper signature but not populated — the agent response carries them in its stdout protocol and they aren't currently extracted at the completion call site. Easy follow-up when needed.
+
 ## [2026-04-22 10:35] — chat-correlation Task 5: audit + dedupe + exactly-once chat_terminated
 
 **Task:** Final pass of the chat-correlation rollout (Tasks 1-4 plumbed reqId through host/sandbox/agent and added `logChatTermination`). Audit the per-site duplicates introduced when Task 4 layered chat_terminated alongside existing logs, fix the per-attempt duplicate emission identified in code review, tighten the helper tests, and verify end-to-end.

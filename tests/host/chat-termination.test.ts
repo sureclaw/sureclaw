@@ -9,11 +9,17 @@
  * Also tests `WaitFailureTracker`, which collects the most recent failure
  * cause across retry-loop attempts and emits `chat_terminated` exactly
  * once when retries are exhausted (Task 5 fix for per-attempt duplicates).
+ *
+ * Also tests `logChatComplete` — the success-side counterpart at info level.
+ * Together with `chat_terminated`, every chat turn produces exactly one
+ * canonical line so operators can `grep "chat_complete\|chat_terminated"`
+ * to scan outcomes (Task 6).
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import {
   logChatTermination,
+  logChatComplete,
   createWaitFailureTracker,
 } from '../../src/host/chat-termination.js';
 import type { Logger } from '../../src/logger.js';
@@ -104,6 +110,91 @@ describe('logChatTermination', () => {
     expect(Object.keys(payload)).not.toContain('details');
     expect(Object.keys(payload)).not.toContain('sandboxId');
     expect(Object.keys(payload)).not.toContain('exitCode');
+  });
+});
+
+describe('logChatComplete', () => {
+  // Pairs with `logChatTermination`: every successful chat turn emits exactly
+  // one `chat_complete` event at info level with the same shape (sessionId,
+  // agentId, durationMs, phases, sandboxId, tokens). Operators scan
+  // `grep "chat_complete\|chat_terminated"` to see every chat outcome with
+  // timing in a single greppable line.
+
+  it('emits chat_complete event at info with timing fields', () => {
+    const { logger, info } = fakeLogger();
+    logChatComplete(logger, {
+      sessionId: 'sess-1',
+      agentId: 'default',
+      durationMs: 4200,
+      phases: { dispatch: 300, agent: 3500, persist: 400 },
+      sandboxId: 'ax-sandbox-abc123',
+    });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('chat_complete', expect.objectContaining({
+      sessionId: 'sess-1',
+      durationMs: 4200,
+    }));
+  });
+
+  it('emits at info level only — never error/warn (operators alert on error+, not info)', () => {
+    const { logger, error, warn, info } = fakeLogger();
+    logChatComplete(logger, {
+      sessionId: 'sess-2',
+      durationMs: 100,
+    });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(error).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('accepts only the required fields (sessionId + durationMs)', () => {
+    const { logger, info } = fakeLogger();
+    logChatComplete(logger, {
+      sessionId: 'sess-3',
+      durationMs: 50,
+    });
+    expect(info).toHaveBeenCalledWith('chat_complete', {
+      sessionId: 'sess-3',
+      durationMs: 50,
+    });
+  });
+
+  it('passes through agentId, phases, sandboxId, tokens when provided', () => {
+    const { logger, info } = fakeLogger();
+    logChatComplete(logger, {
+      sessionId: 'sess-4',
+      agentId: 'coder',
+      durationMs: 9001,
+      phases: { scan: 5, dispatch: 200, agent: 8500, persist: 296 },
+      sandboxId: 'pod-x',
+      tokens: { input: 1234, output: 567 },
+    });
+    expect(info).toHaveBeenCalledWith('chat_complete', {
+      sessionId: 'sess-4',
+      agentId: 'coder',
+      durationMs: 9001,
+      phases: { scan: 5, dispatch: 200, agent: 8500, persist: 296 },
+      sandboxId: 'pod-x',
+      tokens: { input: 1234, output: 567 },
+    });
+  });
+
+  it('omits undefined optional fields from the emitted payload (no literal "undefined" keys)', () => {
+    // Same regression guard as logChatTermination — never surface a literal
+    // `key: undefined` into the JSON output. Keys the caller didn't set must
+    // not appear in the emitted payload.
+    const { logger, info } = fakeLogger();
+    logChatComplete(logger, {
+      sessionId: 'sess-5',
+      durationMs: 10,
+      // agentId, phases, sandboxId, tokens all omitted
+    });
+    const payload = info.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).toEqual({ sessionId: 'sess-5', durationMs: 10 });
+    expect(Object.keys(payload)).not.toContain('agentId');
+    expect(Object.keys(payload)).not.toContain('phases');
+    expect(Object.keys(payload)).not.toContain('sandboxId');
+    expect(Object.keys(payload)).not.toContain('tokens');
   });
 });
 

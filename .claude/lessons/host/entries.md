@@ -1,5 +1,17 @@
 # Host
 
+### Pair every error-level "ended badly" event with an info-level "ended well" event of the same shape
+**Date:** 2026-04-22
+**Context:** Task 6 of the chat-correlation rollout added `logChatComplete` alongside `logChatTermination`. Without the success-side counterpart, operators scanning a slow or noisy log could only see the failure cases — they had no way to confirm "this chat finished, here's how long it took." Adding chat_complete with the SAME field shape (sessionId, agentId, durationMs, phases, sandboxId) means a single `grep "chat_complete\|chat_terminated"` covers every chat outcome with timing.
+**Lesson:** When you add a canonical failure event for an operation, pair it with a canonical success event AT THE SAME TIME. Same field shape, different name + level. Two patterns matter: (1) emit the success event from a structural wrapper (the `attach` helper in `processCompletion` here) so a future contributor adding a new return path can't forget; (2) gate it on a `terminated` flag so a chat that already emitted `chat_terminated` doesn't ALSO emit `chat_complete`. The flag must be set at every termination call site — `markTerminated()` after every `logChatTermination(...)`, AND before any `throw` that flows into an outer catch which itself calls the wrapper. Operator workflow becomes "exactly one canonical line per operation regardless of outcome" — drill via reqId for context, alert on level >= error.
+**Tags:** chat-complete, chat-terminated, observability, log-events, attach-pattern, exactly-once
+
+### Coarse phase timing beats microbenchmark accuracy for operator triage
+**Date:** 2026-04-22
+**Context:** Adding phase-timing to `processCompletion` for the chat_complete event. Tempted to instrument every await boundary; ended up with four buckets — `scan` / `dispatch` / `agent` / `persist` — that account for the bulk of wall-clock time. The fast-path collapses dispatch into agent (no sandbox spawn) so it shows three phases instead of four. That's accurate, not a bug.
+**Lesson:** When adding phase timing to a triage-grade log event, pick coarse buckets that map to operator mental models ("LLM was slow", "storage was slow", "catalog setup was slow"). 4-5 phases max. Sub-second precision is unnecessary; this isn't a benchmark, it's a "where do I look first" pointer. Use a small `phase('name')` helper that returns a `done()` closure — phases that never `done()` simply don't appear in the payload, which is correct by construction (a turn that returned before that phase started shouldn't claim phase data). Skip the trap of timing per-attempt inside a retry loop — the operator workflow is "was the agent slow?" not "which attempt was slow?"; per-attempt visibility lives at debug level via `agent_complete`.
+**Tags:** phase-timing, observability, log-events, triage, operator-ux, processCompletion
+
 ### Canonical "chat ended" event must fire EXACTLY ONCE — never per retry attempt
 **Date:** 2026-04-22
 **Context:** Task 4 of the chat-correlation rollout wired `logChatTermination(...)` into the `agent_response_error` catch block inside the retry loop in `server-completions.ts`. Each failed attempt emitted `chat_terminated`, so a chat that failed once but succeeded on retry left a stale terminal event in the logs. Same problem at the safety-timer site in `server.ts` — the rejection it threw flowed into the same retry-loop catch and added a second emit.

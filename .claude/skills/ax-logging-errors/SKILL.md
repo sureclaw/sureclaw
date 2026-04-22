@@ -82,6 +82,29 @@ When a chat turn dies abnormally — sandbox spawn fails, fast-path crashes, the
 - Inside retry loops (the `wait` phase), call `createWaitFailureTracker()` instead of `logChatTermination` directly. The tracker collects per-attempt failure causes (`tracker.record({reason, details})`) and emits `chat_terminated` exactly once when the loop terminates (`tracker.emitTerminal(reqLogger, {phase, reason, sandboxId, exitCode, details})`). The recorded cause wins over the supplied terminal reason — so a chat that times out and exhausts retries surfaces `agent_response_timeout`, not the generic `agent_failed`. A chat that fails-then-succeeds emits ZERO terminal events (correct — the chat ultimately succeeded). See `src/host/server-completions.ts` retry loop (~line 1805) for the canonical wire-up.
 - The k8s sandbox provider does NOT call `logChatTermination` directly — it only has `podLog` (no host-layer reqLogger). The host detects pod death via the retry loop's terminal `agent_failed` branch (`server-completions.ts` ~line 2080), which fires `chat_terminated` with the pod name as `sandboxId`. The k8s side independently emits `pod_failed` with `terminationCause` (Task 3) for sandbox-side visibility.
 
+## Canonical Chat-Outcome Events (`chat_complete` + `chat_terminated`)
+
+Every chat turn produces EXACTLY ONE canonical line for operator triage — `chat_complete` (info) on the happy path, `chat_terminated` (error) on failure. Same field shape so a single grep covers both:
+
+```
+kubectl logs ax-host | grep "chat_complete\|chat_terminated"
+```
+
+`logChatComplete(reqLogger, { sessionId, agentId?, durationMs, phases?, sandboxId?, tokens? })` from `src/host/chat-termination.ts` is the success-side helper. It's emitted automatically by the `attach` wrapper inside `processCompletion` — every successful return path goes through `attach`, so a future contributor adding a new return path can't forget the event. The wrapper guards against double-emission and against firing after `chat_terminated` already fired (via a `chatTerminated` flag set by `markTerminated()` at every termination site).
+
+**Phase timing** (`phases: { scan, dispatch, agent, persist }`): coarse wall-clock buckets that let an operator see at a glance whether a slow chat was slow because of LLM latency vs storage vs catalog setup. Sub-second accuracy is fine — this is triage telemetry, not a benchmark.
+
+- `scan` — inbound security scan + dequeue
+- `dispatch` — workspace + git + identity + skill snapshot + MCP discovery + catalog build + sandbox config (everything between scan and the agent retry loop). Collapsed in fast-path (no sandbox spawn) so a fast-path turn shows `phases: { scan, agent, persist }` with no `dispatch`.
+- `agent` — sandbox spawn + IPC handshake + LLM wait + retries (i.e. all wall-clock waiting for the LLM)
+- `persist` — outbound scan + memorize + conversation history append + session title generation
+
+**Wiring requirements when adding a new chat-termination site:**
+1. Call `logChatTermination(reqLogger, {...})` (or `tracker.emitTerminal(...)`) AND immediately call `markTerminated()` so the success-side `chat_complete` doesn't fire on top of it.
+2. If your termination site `throw`s rather than `return`s, set the flag BEFORE the throw — the outer catch flows into `attach` which would otherwise emit `chat_complete`.
+
+**Tokens field**: not currently surfaced from the agent response at the chat_complete call site (tokens are nested in the agent's stdout protocol). Wire when needed — a missing field is better than a wrong one.
+
 **Audited duplicates (Task 5, 2026-04-22):**
 - `fast_path_error` log: REMOVED — `chat_terminated` carries the same `error` plus phase/reason. Operators grep `chat_terminated` and filter on `reason: 'fast_path_error'`.
 - `agent_response_error` warn log: KEPT — per-attempt visibility distinct from chat termination (warn level vs error level). Useful for diagnosing chats that succeed after retry.

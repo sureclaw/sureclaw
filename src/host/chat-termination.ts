@@ -70,6 +70,55 @@ export function logChatTermination(reqLogger: Logger, params: ChatTerminationPar
   reqLogger.error('chat_terminated', payload);
 }
 
+/**
+ * Parameters for the success-side `chat_complete` event — paired with
+ * `chat_terminated` so every chat turn produces exactly one canonical line
+ * an operator can scan with `grep "chat_complete\|chat_terminated"`.
+ *
+ * Only `sessionId` + `durationMs` are required; everything else is
+ * best-effort. `phases` (ms per phase: scan / dispatch / agent / persist)
+ * lets an operator see at a glance whether a slow chat was slow because
+ * the LLM was slow or because storage was slow. `tokens` is included when
+ * the call site has them; not every site does, and a missing field is
+ * better than a wrong one.
+ */
+export interface ChatCompleteParams {
+  /** Session this chat turn belonged to. */
+  sessionId: string;
+  /** Resolved agent ID for the turn (when known). */
+  agentId?: string;
+  /** Total wall-clock time from `processCompletion` entry to the return. */
+  durationMs: number;
+  /** ms per phase — scan / dispatch / agent / persist. Approximate. */
+  phases?: Record<string, number>;
+  /** Pod / container name when known, for cross-log correlation. */
+  sandboxId?: string;
+  /** LLM token usage when extractable from the agent response. */
+  tokens?: { input: number; output: number };
+}
+
+/**
+ * Emit the canonical `chat_complete` event at info level.
+ *
+ * Pass a `reqLogger` that already carries the chat's request-scoped
+ * bindings (reqId / sessionId / agentId) so they're attached automatically.
+ *
+ * Optional fields that are `undefined` are omitted from the emitted payload
+ * so we never serialise a literal `"undefined"` value into log JSON
+ * (mirrors the `logChatTermination` behaviour for shape consistency).
+ */
+export function logChatComplete(reqLogger: Logger, params: ChatCompleteParams): void {
+  const payload: Record<string, unknown> = {
+    sessionId: params.sessionId,
+    durationMs: params.durationMs,
+  };
+  if (params.agentId !== undefined) payload.agentId = params.agentId;
+  if (params.phases !== undefined) payload.phases = params.phases;
+  if (params.sandboxId !== undefined) payload.sandboxId = params.sandboxId;
+  if (params.tokens !== undefined) payload.tokens = params.tokens;
+  reqLogger.info('chat_complete', payload);
+}
+
 export interface WaitFailureRecord {
   reason: string;
   details?: Record<string, unknown>;

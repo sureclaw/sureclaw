@@ -27,7 +27,7 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
 import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
-import { logChatTermination, createWaitFailureTracker } from './chat-termination.js';
+import { logChatTermination, logChatComplete, createWaitFailureTracker } from './chat-termination.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
@@ -737,19 +737,75 @@ export async function processCompletion(
   // saw the banner on the turn that actually did the build.
   const diagnostics = createDiagnosticCollector();
 
+  // ── Phase timing for the canonical `chat_complete` event ──
+  // Operators read `phases` on the chat_complete line to see at a glance
+  // whether a slow chat was slow because of LLM latency vs storage vs
+  // catalog setup. We time four coarse phases — scan, dispatch, agent,
+  // persist — that account for the bulk of wall-clock time. Sub-second
+  // accuracy is fine; this is operator triage telemetry, not a benchmark.
+  //
+  // `phase('name')` returns a `done()` function that, when called,
+  // records the elapsed ms into `phases`. Phases that never `done()`
+  // (e.g. a turn that returned before that phase started) simply don't
+  // appear in the payload — accurate by construction.
+  const startedAt = Date.now();
+  const phases: Record<string, number> = {};
+  const phase = (name: string): (() => void) => {
+    const t = Date.now();
+    return () => { phases[name] = Date.now() - t; };
+  };
+
+  // `chatTerminated` flips to true after any `logChatTermination` call (or
+  // `WaitFailureTracker.emitTerminal`) so the success-side `chat_complete`
+  // emit in `attach` doesn't fire on a chat that already logged a terminal
+  // failure event. Otherwise an operator would see both lines for the
+  // same turn and have to decide which one is canonical.
+  let chatTerminated = false;
+  // `chatCompleteEmitted` guards against double-emission: if a return path
+  // is somehow taken twice (defensive — current code shouldn't, but
+  // attach is on every return so a refactor could regress), we still emit
+  // exactly one chat_complete per turn.
+  let chatCompleteEmitted = false;
+  const markTerminated = (): void => { chatTerminated = true; };
+
+  // Snapshot of values that may not exist at every return path — `attach`
+  // closes over these refs so the chat_complete emit picks up whatever
+  // the function knows by the time it returns. `agentId` and `sandboxId`
+  // are populated as the function progresses (provisioner resolution,
+  // sandbox spawn); a return that fires before they're set produces a
+  // chat_complete without them, which is correct.
+  let resolvedAgentIdForComplete: string | undefined;
+  let resolvedSandboxIdForComplete: string | undefined;
+
   // `attach` stamps the turn's diagnostic snapshot onto every
-  // `CompletionResult` at the return site. Structural, not per-site: a
-  // future contributor who adds a new return path can't forget to
-  // include `diagnostics` because the wrapper IS the return — every
-  // `return attach({...})` grabs the current snapshot, every raw
-  // `return {...}` stands out as a missed site in review. The generic
-  // `T` preserves whatever other optional fields the caller included
-  // (contentBlocks, extractedFiles, agentName, userId) without having
-  // to enumerate them here.
+  // `CompletionResult` at the return site, AND emits the canonical
+  // `chat_complete` event at info level (when no `chat_terminated` has
+  // already fired). Structural, not per-site: a future contributor who
+  // adds a new return path can't forget either the diagnostics OR the
+  // chat_complete because the wrapper IS the return — every
+  // `return attach({...})` grabs the current snapshot and emits the
+  // event, every raw `return {...}` stands out as a missed site in
+  // review. The generic `T` preserves whatever other optional fields
+  // the caller included (contentBlocks, extractedFiles, agentName,
+  // userId) without having to enumerate them here.
   const attach = <T extends { responseContent: string; finishReason: 'stop' | 'content_filter' }>(
     result: T,
-  ): T & { diagnostics: readonly import('./diagnostics.js').Diagnostic[] } =>
-    ({ ...result, diagnostics: diagnostics.list() });
+  ): T & { diagnostics: readonly import('./diagnostics.js').Diagnostic[] } => {
+    if (!chatTerminated && !chatCompleteEmitted) {
+      chatCompleteEmitted = true;
+      logChatComplete(reqLogger, {
+        sessionId,
+        ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
+        durationMs: Date.now() - startedAt,
+        ...(Object.keys(phases).length > 0 ? { phases } : {}),
+        ...(resolvedSandboxIdForComplete !== undefined ? { sandboxId: resolvedSandboxIdForComplete } : {}),
+        // tokens: not currently surfaced from the agent response at this
+        // call site (they're nested inside the agent's stdout protocol).
+        // Wire when needed; missing field is better than wrong field.
+      });
+    }
+    return { ...result, diagnostics: diagnostics.list() };
+  };
 
   // Extract text for scanning/logging; structured content may contain image refs
   const textContent = typeof content === 'string'
@@ -772,6 +828,11 @@ export async function processCompletion(
   });
 
   let result: import('./router.js').RouterResult;
+
+  // ── Phase: scan ──
+  // Inbound security scan + enqueue + dequeue. Cheap on the happy path
+  // (PASS verdict → microseconds), but a slow scanner shows up here.
+  const endScan = phase('scan');
 
   if (preProcessed) {
     // Channel/scheduler path: message already scanned and enqueued by caller
@@ -806,6 +867,7 @@ export async function processCompletion(
         timestamp: Date.now(),
         data: { verdict: 'BLOCK', reason: result.scanResult.reason },
       });
+      endScan();
       return attach({
         responseContent: `Request blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
         finishReason: 'content_filter',
@@ -827,8 +889,10 @@ export async function processCompletion(
   const queued = result.messageId ? await db.dequeueById(result.messageId) : await db.dequeue();
   if (!queued) {
     reqLogger.debug('dequeue_failed', { messageId: result.messageId });
+    endScan();
     return attach({ responseContent: 'Internal error: message not queued', finishReason: 'stop' });
   }
+  endScan();
 
   // ── Fast path: in-process LLM loop (no pod, no IPC, no proxy) ──
   // Resolve turn layer before setting up any sandbox infrastructure.
@@ -853,6 +917,8 @@ export async function processCompletion(
       ? await deps.provisioner.resolveAgent(userId)
       : undefined;
     const agentId = resolvedAgent?.id ?? config.agent_name;
+    // Surface agentId on chat_complete (attach reads this ref at emit time).
+    resolvedAgentIdForComplete = agentId;
 
     // Rewrite placeholder workspace '_' with the resolved agent ID (same as sandbox path)
     if (agentId) {
@@ -863,6 +929,13 @@ export async function processCompletion(
       deps.updateTurnCtx?.({ sessionId, agentId });
     }
 
+    // Fast-path is in-process — there's no sandbox spawn, so the
+    // dispatch+agent boundaries collapse. Time the whole thing as `agent`
+    // (the LLM loop is what actually takes wall-clock time here), then
+    // `persist` for the outbound scan + return prep. Operators see an
+    // in-process turn as `phases: { scan, agent, persist }` with no
+    // `dispatch` — which is accurate, there was no dispatch.
+    const endAgent = phase('agent');
     try {
       const fastResult = await runFastPath(
         {
@@ -888,7 +961,13 @@ export async function processCompletion(
           skillCredStore: deps.skillCredStore,
         },
       );
+      endAgent();
 
+      // ── Phase: persist ──
+      // Fast-path persist is dequeue-complete + outbound scan; no
+      // long-term memory or conversation store on this path (those run
+      // inside `runFastPath` and are already counted in `agent`).
+      const endPersist = phase('persist');
       // Complete the queued message
       await db.complete(queued.id);
 
@@ -911,6 +990,7 @@ export async function processCompletion(
         data: { finishReason, responseLength: outbound.content.length, sessionId },
       });
 
+      endPersist();
       return attach({
         responseContent: outbound.content,
         agentName: agentId,
@@ -918,6 +998,11 @@ export async function processCompletion(
         finishReason,
       });
     } catch (err) {
+      // Fast-path crashed mid-LLM-loop — close the agent timer so
+      // `phases.agent` reflects how long we actually spent before failing
+      // (operators care: did we bail in 50 ms or 50 s?). No persist phase
+      // on the failure path.
+      endAgent();
       await db.fail(queued.id);
       // chat_terminated is the canonical chat-killed event at error level —
       // it carries phase / reason / error already, so the previous
@@ -929,6 +1014,7 @@ export async function processCompletion(
         reason: 'fast_path_error',
         details: { error: (err as Error).message },
       });
+      markTerminated();
       return attach({ responseContent: `Fast path error: ${(err as Error).message}`, finishReason: 'stop' });
     }
     } // end documents guard
@@ -951,6 +1037,8 @@ export async function processCompletion(
     ? await deps.provisioner.resolveAgent(userId)
     : undefined;
   const agentId = sandboxResolvedAgent?.id ?? config.agent_name;
+  // Surface agentId on chat_complete (attach reads this ref at emit time).
+  resolvedAgentIdForComplete = agentId;
 
   // Rewrite placeholder workspace '_' with the resolved agent ID.
   // parseChatRequest uses '_' as workspace; processCompletion replaces it
@@ -966,6 +1054,19 @@ export async function processCompletion(
   // Register session context so the credential provide endpoint can resolve
   // agentId/userId from just a sessionId (client doesn't send these).
   setSessionCredentialContext(sessionId, { agentName: agentId, userId: currentUserId });
+
+  // ── Phase: dispatch ──
+  // Workspace + git setup, identity load, skill snapshot, MCP discovery,
+  // catalog build, credential injection, sandbox config — everything
+  // between scan and the agent retry loop. On a cold start this
+  // dominates (network for git clone + MCP listTools); on a warm session
+  // with cached catalog it's near-zero.
+  const endDispatch = phase('dispatch');
+  // `endAgent` and `endPersist` are declared up here so the catch/finally
+  // blocks can reference them even if the agent/persist phases never
+  // started (they'll just be no-ops on early returns).
+  let endAgent: (() => void) | undefined;
+  let endPersist: (() => void) | undefined;
 
   try {
     // Reuse workspace from a previous turn if the session manager has it.
@@ -1194,6 +1295,7 @@ export async function processCompletion(
       const hasOAuthToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
       if (!hasApiKey && !hasOAuthToken) {
         await db.fail(queued.id);
+        endDispatch();
         return attach({
           responseContent: 'No API credentials configured. Run `ax configure` to set up authentication.',
           finishReason: 'stop',
@@ -1811,6 +1913,17 @@ export async function processCompletion(
     // succeeds on attempt 1 would leave a stale chat_terminated event.
     const waitFailureTracker = createWaitFailureTracker();
 
+    // ── End dispatch / start agent ──
+    // Dispatch is done as we cross into the spawn+wait loop. The agent
+    // phase covers spawn, IPC bridge handshake, stdin write, and
+    // agent_response wait — i.e. all the time spent waiting for the LLM.
+    // Retries are included in `agent` (we don't break it out per attempt;
+    // the operator workflow is "was the agent slow?" not "which attempt
+    // was slow?"). For per-attempt drilldown there's `agent_complete` at
+    // debug level inside the loop.
+    endDispatch();
+    endAgent = phase('agent');
+
     for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
       response = '';
       stderr = '';
@@ -1854,6 +1967,13 @@ export async function processCompletion(
         }
         try {
           proc = await agentSandbox.spawn(sandboxConfig);
+          // Surface sandboxId on chat_complete (attach reads at emit time).
+          // proc.podName is the pod / container name when the sandbox
+          // exposes one (k8s, docker, apple); subprocess sandbox leaves it
+          // undefined and the field is omitted from chat_complete.
+          if (proc.podName) {
+            resolvedSandboxIdForComplete = proc.podName;
+          }
         } catch (err) {
           // Emit the unified chat_terminated event before re-throwing so the
           // existing outer error handling continues unchanged. Spawn failures
@@ -1864,6 +1984,7 @@ export async function processCompletion(
             reason: 'sandbox_spawn_failed',
             details: { error: (err as Error).message, attempt },
           });
+          markTerminated();
           throw err;
         }
 
@@ -2110,7 +2231,14 @@ export async function processCompletion(
             stderrPreview: stderr.slice(0, 500),
           },
         });
+        markTerminated();
         await db.fail(queued.id);
+        // Close the agent timer so phases.agent reflects how long we
+        // actually waited before declaring failure (no persist phase on
+        // the failure return path — chat_terminated already fired and
+        // attach won't double-emit chat_complete).
+        endAgent();
+        endAgent = undefined;
         const diagnosed = diagnoseError(stderr || 'agent exited with no output');
         return attach({ responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' });
       }
@@ -2125,6 +2253,14 @@ export async function processCompletion(
       });
       await new Promise(r => setTimeout(r, AGENT_RETRY_DELAY_MS * (attempt + 1)));
     }
+
+    // ── End agent / start persist ──
+    // We're past the retry loop with a usable response. Persist phase
+    // covers outbound scan + memorize + conversation history append +
+    // session title generation — i.e. all the post-LLM bookkeeping.
+    endAgent?.();
+    endAgent = undefined;
+    endPersist = phase('persist');
 
     if (stderr) {
       const stderrLines = stderr.split('\n');
@@ -2298,6 +2434,8 @@ export async function processCompletion(
       timestamp: Date.now(),
       data: { finishReason, responseLength: outbound.content.length, sessionId },
     });
+    endPersist?.();
+    endPersist = undefined;
     return attach({ responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName: agentId, userId: currentUserId, finishReason });
 
   } catch (err) {
@@ -2315,6 +2453,14 @@ export async function processCompletion(
     // Clean up canary token on error — without this, every failed completion
     // permanently leaks an entry in sessionCanaries, eventually causing OOM.
     sessionCanaries.delete(queued.session_id);
+    // Close whichever phase was open when we caught — operator sees the
+    // outer catch as part of the phase that was running. (No
+    // chat_terminated emit here: the catch block doesn't currently fire
+    // one, so attach will emit chat_complete for these too. That's a
+    // pre-existing gap from the Task 4/5 audit, surfaced as an open
+    // question for follow-up rather than expanded into Task 6 scope.)
+    endAgent?.();
+    endPersist?.();
     return attach({ responseContent: 'Internal processing error', finishReason: 'stop' });
   } finally {
     // Deregister workspace from the shared map so sandbox tool handlers
