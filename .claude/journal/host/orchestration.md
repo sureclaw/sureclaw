@@ -2,6 +2,19 @@
 
 Agent orchestration system: supervisor, directory, agent-loop, event store, heartbeat, policy tags.
 
+## [2026-04-22 11:50] — chat-correlation Task 7 review fixes: multistream floor + env validation + indentation
+
+**Task:** Address critical + 3 important findings from Task 7 (commit aca18617) code review. The headline issue: per-component overrides looked correct (all tests passed) but only worked in the `opts.stream` single-stream branch — the production multistream/transport paths had per-stream `level` filters that silently dropped any debug message a child agreed to emit.
+**What I did:**
+- Critical fix (multistream floor): added `getMinConfiguredLevel()` to `src/logger.ts` that scans `LOG_LEVEL` + every `LOG_LEVEL_*` env var and returns the most-permissive level. Wired this as `consoleStreamLevel` for the per-stream/per-target `level` field in all three production paths (pretty, syncFile, transport). Root pino keeps the no-component resolved `level` so non-component callers still filter at LOG_LEVEL; only children with component env overrides get widened via `wrapPino.child`'s `child.level = envLevel` and clear the floor at `consoleStreamLevel`.
+- Important #1 (k8s.ts indentation): re-indented lines 311-312 from 10 spaces to 12 to match the surrounding `if (!resolved)` block.
+- Important #2 (bindComponent comment): compressed 7-line rationale to one line — "Bypass `wrapPino.child`'s env override — `level` was already resolved above."
+- Important #3 (env value validation): added `KNOWN_LEVELS` set + `isValidLevel()` guard in `resolveLevelForComponent`. A typo like `LOG_LEVEL_SANDBOX_K8S=infod` is now ignored (falls through to LOG_LEVEL) instead of crashing pino at construction. `getMinConfiguredLevel` uses the same guard.
+- New regression tests in `tests/logger-component-levels.test.ts`: (1) "multistream stream level matches min — debug reaches stream" spies on `pino.multistream` to assert per-stream level is `'debug'` (not `'info'`) AND that a component child actually emits debug through the swapped capturing Writable. Verified the test FAILS without the fix (`expected ['debug'] to deeply equal ['info']`). (2) "non-component child still filters at LOG_LEVEL" proves the widened floor doesn't leak unrelated debug noise. (3) "invalid env value (typo) ignored" guards the validation fix.
+**Files touched:** `src/logger.ts` (added getMinConfiguredLevel + LEVEL_NUMERIC + isValidLevel + consoleStreamLevel), `src/providers/sandbox/k8s.ts` (indentation fix), `tests/logger-component-levels.test.ts` (3 new tests, total 8).
+**Outcome:** Success — 21/21 logger tests pass (8 component + 13 base). Regression test verified to catch the original bug. Build clean. Pre-existing 21 server.test.ts failures (macOS Unix socket path EINVAL) are unrelated and present on baseline.
+**Notes:** Verified default behavior preserved: `LOG_LEVEL=info` with no overrides → `getMinConfiguredLevel='info'` → per-stream='info' → identical to prior behavior. The min-floor only widens when a `LOG_LEVEL_*` is actually set lower than LOG_LEVEL.
+
 ## [2026-04-22 11:30] — chat-correlation Task 7: per-component log levels + hygiene pass
 
 **Task:** Final task of the chat-correlation rollout. Drop happy-path noise to debug, promote terminal events to error, downgrade recoverable warnings to info, and add `LOG_LEVEL_<COMPONENT>` env support so an operator can crank one component without drowning in everything.

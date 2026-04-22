@@ -308,8 +308,8 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             resolved = true;
             activePods.delete(pid);
             // Watch failed — we lose visibility on the pod and resolve as
-          // failure. Chat-fatal at the sandbox layer (Task 7).
-          podLog.error('pod_watch_error', { lastPhase, error: err?.message });
+            // failure. Chat-fatal at the sandbox layer (Task 7).
+            podLog.error('pod_watch_error', { lastPhase, error: err?.message });
             cleanup();
             resolve(1);
           }
