@@ -78,8 +78,15 @@ When a chat turn dies abnormally — sandbox spawn fails, fast-path crashes, the
 
 **Conventions:**
 - Always pass a `reqLogger` (a child logger already bound to `reqId` / `sessionId`) so those fields ride along automatically.
-- Original log lines (e.g. `fast_path_error`, `agent_response_error`) currently coexist with the new `chat_terminated` event — Task 5 of the chat-correlation plan audits and removes duplicates after we verify behavior end-to-end.
-- The k8s sandbox provider does NOT call `logChatTermination` directly — it only has `podLog` (no host-layer reqLogger). The host detects pod death via the `agent_response_timeout` site (`server.ts`), which fires `chat_terminated` with the pod name as `sandboxId`. The k8s side independently emits `pod_failed` with `terminationCause` (Task 3).
+- Optional fields that are `undefined` are stripped from the emitted payload — no literal `"undefined"` keys in the JSON.
+- Inside retry loops (the `wait` phase), call `createWaitFailureTracker()` instead of `logChatTermination` directly. The tracker collects per-attempt failure causes (`tracker.record({reason, details})`) and emits `chat_terminated` exactly once when the loop terminates (`tracker.emitTerminal(reqLogger, {phase, reason, sandboxId, exitCode, details})`). The recorded cause wins over the supplied terminal reason — so a chat that times out and exhausts retries surfaces `agent_response_timeout`, not the generic `agent_failed`. A chat that fails-then-succeeds emits ZERO terminal events (correct — the chat ultimately succeeded). See `src/host/server-completions.ts` retry loop (~line 1805) for the canonical wire-up.
+- The k8s sandbox provider does NOT call `logChatTermination` directly — it only has `podLog` (no host-layer reqLogger). The host detects pod death via the retry loop's terminal `agent_failed` branch (`server-completions.ts` ~line 2080), which fires `chat_terminated` with the pod name as `sandboxId`. The k8s side independently emits `pod_failed` with `terminationCause` (Task 3) for sandbox-side visibility.
+
+**Audited duplicates (Task 5, 2026-04-22):**
+- `fast_path_error` log: REMOVED — `chat_terminated` carries the same `error` plus phase/reason. Operators grep `chat_terminated` and filter on `reason: 'fast_path_error'`.
+- `agent_response_error` warn log: KEPT — per-attempt visibility distinct from chat termination (warn level vs error level). Useful for diagnosing chats that succeed after retry.
+- `agent_response_timeout` chat_terminated emit at server.ts safety-timer: REMOVED — the timer's rejection flows into the retry loop's catch, where the tracker records the cause; the single emit at the terminal `agent_failed` branch names it. Avoids stale terminal events when timeout fires but a retry succeeds.
+- `pod_failed` warn log (k8s.ts): KEPT — sandbox-side visibility, distinct subsystem. Operators correlate via `sandboxId` / `podName`.
 
 ## Common Tasks
 
@@ -88,10 +95,10 @@ When a chat turn dies abnormally — sandbox spawn fails, fast-path crashes, the
 2. Add test in `tests/errors.test.ts`
 
 **Adding a new chat-termination site:**
-1. Import `logChatTermination` from `src/host/chat-termination.js`
+1. Import `logChatTermination` from `src/host/chat-termination.js` (or `createWaitFailureTracker` if the site is inside a retry loop).
 2. Pick the right `phase` (or add a new one to `TerminationPhase` if truly needed — and update alerts).
 3. Call it with a stable `reason` string and any `details` you'd want at 3 AM.
-4. Add a test asserting the event fires.
+4. Add a test asserting the event fires EXACTLY ONCE per terminated chat (not per attempt).
 
 ## Gotchas
 

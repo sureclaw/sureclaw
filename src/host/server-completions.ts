@@ -27,7 +27,7 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
 import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
-import { logChatTermination } from './chat-termination.js';
+import { logChatTermination, createWaitFailureTracker } from './chat-termination.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
 import { runnerPath as resolveRunnerPath, tsxLoader, isDevMode, templatesDir as resolveTemplatesDir, seedSkillsDir as resolveSeedSkillsDir } from '../utils/assets.js';
@@ -919,7 +919,11 @@ export async function processCompletion(
       });
     } catch (err) {
       await db.fail(queued.id);
-      reqLogger.error('fast_path_error', { error: (err as Error).message });
+      // chat_terminated is the canonical chat-killed event at error level —
+      // it carries phase / reason / error already, so the previous
+      // `fast_path_error` log was a strict subset and has been removed
+      // (Task 5 audit). Operators grep `chat_terminated` and filter on
+      // `reason: 'fast_path_error'` to find these.
       logChatTermination(reqLogger, {
         phase: 'dispatch',
         reason: 'fast_path_error',
@@ -1801,6 +1805,11 @@ export async function processCompletion(
     let response = '';
     let stderr = '';
     let exitCode = 1;
+    // Track wait-phase failure causes across retry attempts so we can emit
+    // chat_terminated EXACTLY ONCE (at the truly-terminated point) rather
+    // than per attempt. Otherwise a chat that fails on attempt 0 but
+    // succeeds on attempt 1 would leave a stale chat_terminated event.
+    const waitFailureTracker = createWaitFailureTracker();
 
     for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
       response = '';
@@ -2007,13 +2016,19 @@ export async function processCompletion(
           agentResponseReceived = true;
           reqLogger.debug('agent_response_received', { responseLength: response.length });
         } catch (err) {
-          reqLogger.warn('agent_response_error', { error: (err as Error).message });
-          logChatTermination(reqLogger, {
-            phase: 'wait',
-            reason: 'agent_response_error',
-            ...(proc.podName ? { sandboxId: proc.podName } : {}),
-            details: { error: (err as Error).message },
-          });
+          // Per-attempt warn — kept (operators can grep agent_response_error
+          // for attempt-level visibility distinct from chat termination).
+          reqLogger.warn('agent_response_error', { error: (err as Error).message, attempt });
+          // Record the cause; the terminal chat_terminated emit at the
+          // `agent_failed` branch (below) decides whether to fire it. This
+          // collapses N per-attempt emits into ONE event per truly-terminated
+          // chat. Distinguish timeout (single-shot safety timer) from generic
+          // response error so the terminal event names the right cause.
+          const message = (err as Error).message;
+          const reason = message === 'agent_response timeout'
+            ? 'agent_response_timeout'
+            : 'agent_response_error';
+          waitFailureTracker.record({ reason, details: { error: message, attempt } });
           // Fall through to let exitCode determine retry
         }
 
@@ -2078,6 +2093,23 @@ export async function processCompletion(
 
       if (!isTransient || attempt >= MAX_AGENT_RETRIES) {
         reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, maxRetries: MAX_AGENT_RETRIES, messageId: queued.id, stderr: stderr.slice(0, 2000) });
+        // Single terminal chat_terminated emit for the wait phase. Uses the
+        // last recorded cause when one exists (agent_response_timeout or
+        // agent_response_error), falls back to `agent_failed` when the agent
+        // crashed cleanly without ever erroring on the response promise.
+        // Pairs with the per-attempt `record()` calls in the catch above.
+        waitFailureTracker.emitTerminal(reqLogger, {
+          phase: 'wait',
+          reason: 'agent_failed',
+          ...(proc.podName ? { sandboxId: proc.podName } : {}),
+          exitCode,
+          details: {
+            attempt,
+            maxRetries: MAX_AGENT_RETRIES,
+            retryable: isTransient,
+            stderrPreview: stderr.slice(0, 500),
+          },
+        });
         await db.fail(queued.id);
         const diagnosed = diagnoseError(stderr || 'agent exited with no output');
         return attach({ responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' });

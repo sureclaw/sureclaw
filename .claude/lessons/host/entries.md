@@ -1,5 +1,11 @@
 # Host
 
+### Canonical "chat ended" event must fire EXACTLY ONCE — never per retry attempt
+**Date:** 2026-04-22
+**Context:** Task 4 of the chat-correlation rollout wired `logChatTermination(...)` into the `agent_response_error` catch block inside the retry loop in `server-completions.ts`. Each failed attempt emitted `chat_terminated`, so a chat that failed once but succeeded on retry left a stale terminal event in the logs. Same problem at the safety-timer site in `server.ts` — the rejection it threw flowed into the same retry-loop catch and added a second emit.
+**Lesson:** When you add a "this thing ended badly" event inside a retry loop, do NOT call the emit from the catch block — that fires once per ATTEMPT, not once per ENDED THING. Pattern: a small tracker object (record per attempt, emit-once at the terminal branch). The recorded most-recent cause should win over the generic terminal reason so the event names what actually killed it (e.g. `agent_response_timeout` not `agent_failed`). See `createWaitFailureTracker` in `src/host/chat-termination.ts` for the canonical shape — `record({reason, details})` per attempt, `emitTerminal(reqLogger, terminal)` at the truly-exhausted branch. Add a test that asserts `fail-then-succeed = 0 emits, all-fail = 1 emit` — not just "the emit fires." The exactness is the whole point.
+**Tags:** chat-termination, retry-loop, exactly-once, observability, log-events, anti-pattern
+
 ### AX has its own `Logger` interface — don't import from `pino` even if a plan says to
 **Date:** 2026-04-22
 **Context:** Implementing `logChatTermination` per a plan that said `import type { Logger } from 'pino'`. AX defines its own `Logger` interface in `src/logger.ts` (debug/info/warn/error/fatal/child) — pino is an implementation detail, not the public type. Code throughout `src/host/` already imports `import { type Logger, ... } from '../logger.js'`.
