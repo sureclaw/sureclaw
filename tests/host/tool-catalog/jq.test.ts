@@ -68,4 +68,52 @@ describe.skipIf(!hasJq)('applyJq', () => {
       process.env.PATH = origPath;
     }
   });
+
+  // REGRESSION (CodeRabbit PR #185): jq's `env` / `$ENV` built-ins expose
+  // the spawned process's environment to filter expressions. Since the
+  // selector is agent-controlled (LLM output), a malicious/curious selector
+  // would otherwise exfiltrate host secrets (API keys, GCS creds, etc.)
+  // into the tool response. The spawn now passes a minimal env (PATH +
+  // LC_ALL only), so `env` at most returns those two keys.
+  test('does not leak host environment variables via jq env builtin', async () => {
+    const CANARY = 'leak-test-canary-value-that-must-not-appear';
+    const origSecret = process.env.SECRET_JQ_CANARY;
+    process.env.SECRET_JQ_CANARY = CANARY;
+    try {
+      const result = await applyJq({}, 'env');
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(CANARY);
+      // Sanity: the allowlisted PATH + LC_ALL are visible; that's the shape
+      // we chose (need PATH for jq discovery on bizarre installs, LC_ALL
+      // for deterministic output).
+      expect(serialized).toContain('PATH');
+    } finally {
+      if (origSecret === undefined) delete process.env.SECRET_JQ_CANARY;
+      else process.env.SECRET_JQ_CANARY = origSecret;
+    }
+  });
+
+  test('does not leak host environment variables via jq $ENV builtin', async () => {
+    const CANARY = 'leak-test-canary-2-that-must-not-appear';
+    const origSecret = process.env.SECRET_JQ_CANARY_2;
+    process.env.SECRET_JQ_CANARY_2 = CANARY;
+    try {
+      const result = await applyJq({}, '$ENV');
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toContain(CANARY);
+    } finally {
+      if (origSecret === undefined) delete process.env.SECRET_JQ_CANARY_2;
+      else process.env.SECRET_JQ_CANARY_2 = origSecret;
+    }
+  });
+
+  test('selector starting with a hyphen is treated as a filter, not a flag', async () => {
+    // `--` in the spawn argv terminates jq option parsing. Without it, a
+    // selector like `-r .` would be interpreted as the `-r` raw-output
+    // flag and the bare `.` positional arg. With it, jq gets `-r .` as a
+    // single filter string and rejects it as a syntax error (which is
+    // the safe outcome — we want the agent to see a parse error, not
+    // to accidentally enable an output mode).
+    await expect(applyJq({ a: 1 }, '-r .')).rejects.toThrow();
+  });
 });

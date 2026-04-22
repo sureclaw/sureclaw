@@ -43,9 +43,25 @@ export async function applyJq(data: unknown, selector: string): Promise<unknown>
     // `-c` = compact output, one JSON value per line. Combined with our
     // multi-output collection below this gives us a clean line-delimited
     // stream regardless of whether the selector emits 0/1/N values.
-    const child = spawn('jq', ['-c', selector], {
+    //
+    // `--` terminates jq's option parsing — agent-controlled selectors
+    // starting with `-` won't be interpreted as flags.
+    //
+    // Env scrub: jq exposes host environment variables to filter
+    // expressions via `env` / `$ENV`. The `selector` comes from
+    // agent-controlled args (LLM output), so without a minimal env a
+    // malicious selector like `env` or `$ENV | keys` exfiltrates the
+    // host's entire process environment into the tool response. Pass
+    // only a PATH (so jq itself can be found on bizarre installations)
+    // and a deterministic locale. Everything else — API keys,
+    // OPENROUTER_*, GCS creds, etc. — stays invisible.
+    const child = spawn('jq', ['-c', '--', selector], {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: JQ_TIMEOUT_MS,
+      env: {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        LC_ALL: 'C.UTF-8',
+      },
     });
 
     // Collect raw bytes and decode once at `close`. Per-chunk `toString('utf8')`
