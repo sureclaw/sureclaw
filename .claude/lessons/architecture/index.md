@@ -4,6 +4,8 @@ Design patterns, provider contracts, import hygiene, event bus design, and works
 
 ## Entries
 
+- SSE event ordering: emit turn-level side-band events AFTER the finish-reason chunk and BEFORE `[DONE]` [entries.md](entries.md)
+- Per-turn collectors: fresh instance per call, closure-captures-by-reference for cross-closure writes [entries.md](entries.md)
 - When a helper builds "value + shape" in one pass and a new caller needs a different shape, split out the value lookup — don't add a shape knob [entries.md](entries.md)
 - Per-turn caches keyed on agent state must also include caller `userId` when the build touches per-user credentials [entries.md](entries.md)
 - Push derived state at turn boundaries instead of having the sandbox pull it [entries.md](entries.md)

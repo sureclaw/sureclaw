@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import type { OpenAPIV3 } from 'openapi-types';
 import { ToolCatalog } from '../../../src/host/tool-catalog/registry.js';
 import { populateCatalogFromSkills } from '../../../src/host/skills/catalog-population.js';
+import { createDiagnosticCollector } from '../../../src/host/diagnostics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PETSTORE_PATH = resolve(__dirname, '../../fixtures/openapi/petstore-minimal.json');
@@ -466,6 +467,171 @@ describe('populateCatalogFromSkills', () => {
       });
       expect(fetchOpenApiSpec).not.toHaveBeenCalled();
       expect(catalog.list()).toEqual([]);
+    });
+  });
+
+  // ── Diagnostic wiring (Task B1) ──
+  // Each end-user-surfacable failure path MUST push a structured diagnostic
+  // into the optional collector, so the chat UI can surface the failure
+  // instead of forcing the user to grep host logs. Log lines stay; these
+  // diagnostics are an ADDITIONAL parallel signal.
+  describe('diagnostics', () => {
+    let petstore: OpenAPIV3.Document;
+
+    beforeAll(async () => {
+      const raw = await readFile(PETSTORE_PATH, 'utf8');
+      petstore = JSON.parse(raw) as OpenAPIV3.Document;
+    });
+
+    test('MCP listTools failure pushes a catalog_populate_server_failed diagnostic', async () => {
+      const flaky = { listTools: vi.fn().mockRejectedValue(new Error('invalid_token')) };
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      const result = await populateCatalogFromSkills({
+        skills: [
+          { name: 'linear', ok: true, frontmatter: { mcpServers: [{ name: 'linear-prod' }] } } as never,
+        ],
+        getMcpClient: () => flaky as never,
+        fetchOpenApiSpec: unusedFetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      // Counter behaviour unchanged — diagnostics are additive.
+      expect(result.serverFailures).toBe(1);
+      const list = diagnostics.list();
+      expect(list).toHaveLength(1);
+      const [d] = list;
+      expect(d.kind).toBe('catalog_populate_server_failed');
+      expect(d.severity).toBe('warn');
+      expect(d.message).toContain('linear');
+      expect(d.message).toContain('linear-prod');
+      expect(d.context).toMatchObject({
+        skill: 'linear',
+        server: 'linear-prod',
+        error: 'invalid_token',
+      });
+    });
+
+    test('OpenAPI fetch failure pushes a catalog_populate_openapi_source_failed diagnostic', async () => {
+      const fetchOpenApiSpec = vi.fn().mockRejectedValue(new Error('network timeout'));
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      const result = await populateCatalogFromSkills({
+        skills: [
+          {
+            name: 'petstore',
+            ok: true,
+            frontmatter: {
+              openapi: [{ spec: 'https://petstore.test/openapi.json', baseUrl: 'https://petstore.test' }],
+            },
+          } as never,
+        ],
+        getMcpClient: () => ({ listTools: vi.fn() }) as never,
+        fetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(result.openApiSourceFailures).toBe(1);
+      const list = diagnostics.list();
+      expect(list).toHaveLength(1);
+      const [d] = list;
+      expect(d.kind).toBe('catalog_populate_openapi_source_failed');
+      expect(d.severity).toBe('warn');
+      // Message must name BOTH the skill and the spec URL so the user
+      // knows which skill + which spec blew up without grepping logs.
+      expect(d.message).toContain('petstore');
+      expect(d.message).toContain('https://petstore.test/openapi.json');
+      expect(d.context).toMatchObject({
+        skill: 'petstore',
+        source: 'https://petstore.test/openapi.json',
+        error: 'network timeout',
+      });
+    });
+
+    test('no collector passed: function still behaves correctly and does not throw', async () => {
+      const flaky = { listTools: vi.fn().mockRejectedValue(new Error('nope')) };
+      const fetchOpenApiSpec = vi.fn().mockRejectedValue(new Error('nope')) as never;
+      const catalog = new ToolCatalog();
+      // No `diagnostics` field — optional.
+      const result = await populateCatalogFromSkills({
+        skills: [
+          { name: 'a', ok: true, frontmatter: { mcpServers: [{ name: 's' }] } } as never,
+          {
+            name: 'b',
+            ok: true,
+            frontmatter: {
+              openapi: [{ spec: 'https://x.test/spec.json', baseUrl: 'https://x.test' }],
+            },
+          } as never,
+        ],
+        getMcpClient: () => flaky as never,
+        fetchOpenApiSpec,
+        catalog,
+      });
+      // Counters still populated — just no diagnostic side-channel.
+      expect(result.serverFailures).toBe(1);
+      expect(result.openApiSourceFailures).toBe(1);
+    });
+
+    test('both kinds of failure in one call: both diagnostic entries land', async () => {
+      const flaky = { listTools: vi.fn().mockRejectedValue(new Error('mcp boom')) };
+      const fetchOpenApiSpec = vi.fn().mockRejectedValue(new Error('openapi boom'));
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          {
+            name: 'skill-a',
+            ok: true,
+            frontmatter: { mcpServers: [{ name: 'server-a' }] },
+          } as never,
+          {
+            name: 'skill-b',
+            ok: true,
+            frontmatter: {
+              openapi: [{ spec: 'https://b.test/spec.json', baseUrl: 'https://b.test' }],
+            },
+          } as never,
+        ],
+        getMcpClient: () => flaky as never,
+        fetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      const list = diagnostics.list();
+      expect(list).toHaveLength(2);
+      const kinds = list.map((d) => d.kind).sort();
+      expect(kinds).toEqual([
+        'catalog_populate_openapi_source_failed',
+        'catalog_populate_server_failed',
+      ]);
+      const mcp = list.find((d) => d.kind === 'catalog_populate_server_failed')!;
+      expect(mcp.context).toMatchObject({ skill: 'skill-a', server: 'server-a' });
+      const api = list.find((d) => d.kind === 'catalog_populate_openapi_source_failed')!;
+      expect(api.context).toMatchObject({ skill: 'skill-b', source: 'https://b.test/spec.json' });
+    });
+
+    test('tool-register failures (duplicate names) do NOT push diagnostics', async () => {
+      // Duplicate tool names are a skill-author concern, not end-user.
+      // Deliberately NOT surfaced via diagnostics — keeps the UI noise-free
+      // for a deterministic clash that a skill author can fix upstream.
+      const mcpClient = {
+        listTools: vi.fn().mockResolvedValue([{ name: 'shared_tool', inputSchema: {} }]),
+      };
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      const result = await populateCatalogFromSkills({
+        skills: [
+          { name: 'a', ok: true, frontmatter: { mcpServers: [{ name: 's' }] } } as never,
+          { name: 'a', ok: true, frontmatter: { mcpServers: [{ name: 's' }] } } as never,
+        ],
+        getMcpClient: () => mcpClient as never,
+        fetchOpenApiSpec: unusedFetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(result.toolRegisterFailures).toBe(1);
+      expect(diagnostics.list()).toEqual([]);
     });
   });
 });

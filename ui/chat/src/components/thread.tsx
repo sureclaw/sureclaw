@@ -1,4 +1,5 @@
 import {
+  AlertTriangleIcon,
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
@@ -6,7 +7,9 @@ import {
   ChevronRightIcon,
   CopyIcon,
   FileTextIcon,
+  InfoIcon,
   LoaderIcon,
+  OctagonAlertIcon,
   PaperclipIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -26,11 +29,13 @@ import {
 } from '@assistant-ui/react';
 import { createContext, useContext, useEffect, useState, type FC } from 'react';
 import { MarkdownText } from './markdown-text';
+import type { Diagnostic } from '../lib/ax-chat-transport';
 
 const StatusMessageContext = createContext<string | null>(null);
+const DiagnosticsContext = createContext<Diagnostic[]>([]);
 
-export const Thread: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => {
-  const AssistantMessageWithStatus: FC = () => <AssistantMessage statusMessage={statusMessage} />;
+export const Thread: FC<{ statusMessage?: string | null; diagnostics?: Diagnostic[] }> = ({ statusMessage, diagnostics }) => {
+  const AssistantMessageWithStatus: FC = () => <AssistantMessage statusMessage={statusMessage} diagnostics={diagnostics} />;
 
   return (
     <ThreadPrimitive.Root
@@ -270,31 +275,153 @@ const ThinkingIndicator: FC<{ status: { type: string } }> = ({ status }) => {
   return <ThinkingChip />;
 };
 
-const AssistantMessage: FC<{ statusMessage?: string | null }> = ({ statusMessage }) => (
+/** Severity-driven visual tokens for the diagnostic banner. */
+const DIAGNOSTIC_STYLES: Record<Diagnostic['severity'], {
+  border: string;
+  accent: string;
+  Icon: FC<{ className?: string; strokeWidth?: number }>;
+  label: string;
+}> = {
+  error: {
+    border: 'border-t-rose',
+    accent: 'text-rose',
+    Icon: OctagonAlertIcon,
+    label: 'Error',
+  },
+  warn: {
+    border: 'border-t-amber',
+    accent: 'text-amber',
+    Icon: AlertTriangleIcon,
+    label: 'Warning',
+  },
+  info: {
+    border: 'border-t-sky',
+    accent: 'text-sky',
+    Icon: InfoIcon,
+    label: 'Info',
+  },
+};
+
+/** Highest-severity style wins for the banner's top-border accent. */
+const pickBannerSeverity = (diagnostics: Diagnostic[]): Diagnostic['severity'] => {
+  if (diagnostics.some((d) => d.severity === 'error')) return 'error';
+  if (diagnostics.some((d) => d.severity === 'warn')) return 'warn';
+  return 'info';
+};
+
+const DiagnosticRow: FC<{ diagnostic: Diagnostic }> = ({ diagnostic }) => {
+  const { Icon, accent } = DIAGNOSTIC_STYLES[diagnostic.severity];
+  const ctx = diagnostic.context ?? {};
+  const subtle =
+    (typeof ctx.skill === 'string' && ctx.skill) ||
+    (typeof ctx.source === 'string' && ctx.source) ||
+    null;
+  return (
+    <li className="flex items-start gap-2 px-3 py-1.5 text-[12.5px]">
+      <Icon className={`size-3.5 shrink-0 mt-0.5 ${accent}`} strokeWidth={1.8} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className={`font-mono text-[11px] ${accent} shrink-0`}>{diagnostic.kind}</span>
+          <span className="text-foreground/90 break-words">{diagnostic.message}</span>
+        </div>
+        {subtle && (
+          <div className="mt-0.5 text-[11px] text-muted-foreground truncate font-mono">{subtle}</div>
+        )}
+      </div>
+    </li>
+  );
+};
+
+const DiagnosticBanner: FC = () => {
+  const diagnostics = useContext(DiagnosticsContext);
+  const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // A fresh batch re-shows the banner even if the user dismissed a prior one
+  useEffect(() => {
+    setDismissed(false);
+    setExpanded(false);
+  }, [diagnostics.length]);
+
+  if (!diagnostics.length || dismissed) return null;
+
+  const severity = pickBannerSeverity(diagnostics);
+  const { border, accent, Icon, label } = DIAGNOSTIC_STYLES[severity];
+  const COLLAPSE_AT = 3;
+  const overflow = diagnostics.length - COLLAPSE_AT;
+  const visible = expanded || overflow <= 0 ? diagnostics : diagnostics.slice(0, COLLAPSE_AT);
+
+  return (
+    <div
+      role="alert"
+      aria-label={`${label}: ${diagnostics.length} diagnostic${diagnostics.length === 1 ? '' : 's'}`}
+      className={`mx-2 my-2 rounded-lg border border-border/40 border-t-2 ${border} bg-muted/30 backdrop-blur-sm overflow-hidden`}
+    >
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border/30">
+        <div className={`flex items-center gap-2 text-[12px] font-medium ${accent}`}>
+          <Icon className="size-3.5 shrink-0" strokeWidth={1.8} />
+          <span>{label}{diagnostics.length > 1 ? ` (${diagnostics.length})` : ''}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          aria-label="Dismiss diagnostics"
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors duration-150 cursor-pointer"
+        >
+          <XIcon className="size-3.5" strokeWidth={1.8} />
+        </button>
+      </div>
+      <ul className="divide-y divide-border/20">
+        {visible.map((d, i) => (
+          <DiagnosticRow key={`${d.kind}-${i}`} diagnostic={d} />
+        ))}
+      </ul>
+      {overflow > 0 && !expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="w-full px-3 py-1.5 text-[11.5px] text-muted-foreground hover:text-foreground transition-colors duration-150 border-t border-border/20 cursor-pointer text-left"
+        >
+          + {overflow} more
+        </button>
+      )}
+    </div>
+  );
+};
+
+const AssistantMessage: FC<{ statusMessage?: string | null; diagnostics?: Diagnostic[] }> = ({ statusMessage, diagnostics }) => (
   <MessagePrimitive.Root asChild>
     <div className="relative mx-auto w-full max-w-[var(--thread-max-width)] py-4 animate-fade-in-up" data-role="assistant">
       <StatusMessageContext.Provider value={statusMessage ?? null}>
-        <div className="mx-2 leading-7 break-words text-foreground">
-          <MessagePrimitive.Parts
-            unstable_showEmptyOnNonTextEnd={false}
-            components={{
-              Text: MarkdownText,
-              ChainOfThought: MyChainOfThought,
-              Empty: ThinkingIndicator,
-            }}
-          />
-        </div>
-        <AuiIf condition={(s: Record<string, unknown>) => {
-          const msg = s.message as { isLast: boolean; parts: { type: string }[] };
-          const thr = s.thread as { isRunning: boolean };
-          if (!msg.isLast || !thr.isRunning) return false;
-          if (!msg.parts || msg.parts.length === 0) return false;
-          return !msg.parts.some((p) => p.type === 'tool-call' || p.type === 'reasoning');
-        }}>
-          <div className="mx-2">
-            <ThinkingChip />
+        <DiagnosticsContext.Provider value={diagnostics ?? []}>
+          <div className="mx-2 leading-7 break-words text-foreground">
+            <MessagePrimitive.Parts
+              unstable_showEmptyOnNonTextEnd={false}
+              components={{
+                Text: MarkdownText,
+                ChainOfThought: MyChainOfThought,
+                Empty: ThinkingIndicator,
+              }}
+            />
           </div>
-        </AuiIf>
+          <AuiIf condition={(s: Record<string, unknown>) => {
+            const msg = s.message as { isLast: boolean; parts: { type: string }[] };
+            const thr = s.thread as { isRunning: boolean };
+            if (!msg.isLast || !thr.isRunning) return false;
+            if (!msg.parts || msg.parts.length === 0) return false;
+            return !msg.parts.some((p) => p.type === 'tool-call' || p.type === 'reasoning');
+          }}>
+            <div className="mx-2">
+              <ThinkingChip />
+            </div>
+          </AuiIf>
+          <AuiIf condition={(s: Record<string, unknown>) => {
+            const msg = s.message as { isLast: boolean };
+            return msg.isLast === true;
+          }}>
+            <DiagnosticBanner />
+          </AuiIf>
+        </DiagnosticsContext.Provider>
       </StatusMessageContext.Provider>
       <div className="mt-2 ml-2 flex">
         <ActionBarPrimitive.Root

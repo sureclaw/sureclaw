@@ -10,7 +10,7 @@ import { useChat } from '@ai-sdk/react';
 import { generateId } from 'ai';
 import { axThreadListAdapter } from './thread-list-adapter';
 import { createAxHistoryAdapter } from './history-adapter';
-import { AxChatTransport, type StatusEvent } from './ax-chat-transport';
+import { AxChatTransport, type StatusEvent, type Diagnostic } from './ax-chat-transport';
 
 /**
  * Thread-specific runtime using AI SDK.
@@ -82,11 +82,14 @@ export const useAxChatRuntime = (
   onStatus?: (event: StatusEvent) => void,
   onRunStart?: () => void,
   user?: string,
+  onDiagnostic?: (d: Diagnostic) => void,
 ): AssistantRuntime => {
   const statusRef = useRef(onStatus);
   statusRef.current = onStatus;
   const runStartRef = useRef(onRunStart);
   runStartRef.current = onRunStart;
+  const diagnosticRef = useRef(onDiagnostic);
+  diagnosticRef.current = onDiagnostic;
 
   const transport = useMemo(
     () =>
@@ -95,6 +98,7 @@ export const useAxChatRuntime = (
         user,
         onStatus: (event) => statusRef.current?.(event),
         onRunStart: () => runStartRef.current?.(),
+        onDiagnostic: (d) => diagnosticRef.current?.(d),
       }),
     [user],
   );

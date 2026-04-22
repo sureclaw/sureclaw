@@ -129,4 +129,20 @@ describe('ToolCatalogModule', () => {
     const out = makeToolCatalogModule().render(ctx).join('\n');
     expect(out).not.toContain('### Calling catalog tools');
   });
+
+  test('instructs the agent to surface missing-tool gaps instead of papering over them', () => {
+    // After the petstore hallucination incident (agent invented a replacement
+    // MCP skill via skill_write when it couldn't find api_petstore_* tools),
+    // the prompt now requires the agent to REPORT gaps explicitly rather
+    // than guess or fabricate. This test pins the three specific anti-patterns
+    // the guidance calls out: invented tool names, fabricated replacement
+    // skills, and silent workarounds.
+    const ctx = makeCtx({ catalog: [{ ...sampleTool(), name: 'mcp_linear_get_team' }] });
+    const out = makeToolCatalogModule().render(ctx).join('\n');
+    expect(out).toContain('### When an expected tool is missing');
+    expect(out).toMatch(/report the gap explicitly/i);
+    expect(out).toMatch(/do NOT.*invent tool names/i);
+    expect(out).toMatch(/do NOT.*fabricate a replacement skill/i);
+    expect(out).toContain('skill_write');
+  });
 });

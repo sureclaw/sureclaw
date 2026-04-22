@@ -345,7 +345,12 @@ export async function createServer(
     _agentType?: string,
     preProcessed?: { sessionId: string; messageId: string; canaryToken: string },
     baseDeps?: CompletionDeps,
-  ): Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter'; contentBlocks?: import('../types.js').ContentBlock[] }> {
+  ): Promise<{
+    responseContent: string;
+    finishReason: 'stop' | 'content_filter';
+    contentBlocks?: import('../types.js').ContentBlock[];
+    diagnostics?: readonly import('./diagnostics.js').Diagnostic[];
+  }> {
     const turnToken = randomUUID();
 
     // Set up agent_response interceptor

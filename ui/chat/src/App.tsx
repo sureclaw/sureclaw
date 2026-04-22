@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AssistantRuntimeProvider } from '@assistant-ui/react';
 import { useAxChatRuntime } from './lib/useAxChatRuntime';
-import type { StatusEvent } from './lib/ax-chat-transport';
+import type { StatusEvent, Diagnostic } from './lib/ax-chat-transport';
 import { signInWithGoogle, signOut, type AuthUser } from './lib/auth';
 import { Thread } from './components/thread';
 import { ThreadList } from './components/thread-list';
@@ -57,9 +57,11 @@ function LoginPage() {
 /** Inner component that has access to the runtime context for sending messages. */
 const AppContent = ({
   statusMessage,
+  diagnostics,
   user,
 }: {
   statusMessage: string | null;
+  diagnostics: Diagnostic[];
   user: AuthUser | null;
 }) => {
   const { isDark, toggle: toggleTheme } = useTheme();
@@ -115,7 +117,7 @@ const AppContent = ({
         {/* Main content */}
         <main className="flex-1 overflow-hidden">
           <div className="noise-bg h-full">
-            <Thread statusMessage={statusMessage} />
+            <Thread statusMessage={statusMessage} diagnostics={diagnostics} />
           </div>
         </main>
     </div>
@@ -126,6 +128,7 @@ export const App = () => {
   const [authState, setAuthState] = useState<AuthState>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
 
   // Check authentication on mount
   useEffect(() => {
@@ -177,12 +180,18 @@ export const App = () => {
 
   const handleRunStart = useCallback(() => {
     setStatusMessage(null);
+    setDiagnostics([]);
+  }, []);
+
+  const handleDiagnostic = useCallback((d: Diagnostic) => {
+    setDiagnostics((prev) => [...prev, d]);
   }, []);
 
   const runtime = useAxChatRuntime(
     handleStatus,
     handleRunStart,
     user?.id,
+    handleDiagnostic,
   );
 
   // Loading state
@@ -204,7 +213,7 @@ export const App = () => {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <AppContent statusMessage={statusMessage} user={user} />
+      <AppContent statusMessage={statusMessage} diagnostics={diagnostics} user={user} />
     </AssistantRuntimeProvider>
   );
 };

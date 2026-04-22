@@ -2,6 +2,14 @@
 
 Prompt builder, identity module, bootstrap prompt fixes, delegation module, prompt optimizations.
 
+## [2026-04-21 18:29] — ToolCatalogModule: teach agent to surface missing-tool gaps, not paper over them
+
+**Task:** After the petstore hallucination incident (agent couldn't find `api_petstore_*` tools in the catalog, guessed `mcp_petstore_*` names, and then fabricated a brand-new replacement MCP skill via `skill_write` pointing at an invented vercel URL), tighten the prompt to require the agent to REPORT catalog gaps explicitly rather than silently work around them.
+**What I did:** Added a new `### When an expected tool is missing` subsection to the appended usage note in `ToolCatalogModule.render`. Spells out the three anti-patterns the incident exhibited: (1) guessing prefixes (`mcp_` vs `api_`), (2) fabricating replacement skills via `skill_write`, (3) inventing URLs/endpoints. The positive ask is "call `describe_tools([])` once to confirm the directory, then TELL the user which skill you expected it under and what you couldn't find." Frames missing tools as a "surfacing opportunity, not a puzzle to solve silently."
+**Files touched:** `src/agent/prompt/modules/tool-catalog.ts`, `tests/agent/prompt/modules/tool-catalog.test.ts`.
+**Outcome:** Success. 13/13 tests pass (12 existing + 1 new pinning the three anti-patterns). Build clean.
+**Notes:** This is half of a two-part intervention — the other half is a chat-UI diagnostic banner that surfaces host-side catalog-populate failures directly to the user, so they don't have to grep logs or reverse-engineer from weird agent behaviour. This prompt change catches the LLM compliance side; the banner catches the infrastructure side.
+
 ## [2026-04-21 09:03] — Task 10 (tool CLI shims): teach CLI shim model in catalog prompt module
 
 **Task:** Replace the `execute_script`-oriented hints in `ToolCatalogModule` with CLI-shim teaching so the LLM learns that every catalog tool is a `bash`-invocable command (symlinked shim into the `tool` binary). No more `ax.callTool`, no more `{ select: '.x[]' }` third-arg — it's flags + `| jq` + `--stdin-args` + `<shim> --help`.

@@ -47,6 +47,7 @@ import type { SkillSummary } from '../agent/prompt/types.js';
 import { ToolCatalog } from './tool-catalog/registry.js';
 import { getOrBuildCatalog } from './tool-catalog/cache.js';
 import { populateCatalogFromSkills } from './skills/catalog-population.js';
+import { createDiagnosticCollector } from './diagnostics.js';
 import { buildTurnMcpClientFactory } from './skills/mcp-client-factory.js';
 import { makeDefaultFetchOpenApiSpec } from './skills/openapi-spec-fetcher.js';
 import type { CatalogTool } from '../types/catalog.js';
@@ -151,6 +152,16 @@ export interface CompletionResult {
   /** User ID that owns the workspace (for file URL construction). */
   userId?: string;
   finishReason: 'stop' | 'content_filter';
+  /** User-surfacable diagnostics collected during this turn (B1/B2 of the
+   *  "surface skill/catalog failures" pipeline). Currently populated only by
+   *  `populateCatalogFromSkills` when an MCP `listTools` or OpenAPI spec
+   *  fetch fails. `handleCompletions` forwards these to the SSE stream as
+   *  `event: diagnostic` frames (streaming) or as a top-level `diagnostics`
+   *  field on the JSON response body (non-streaming). A clean turn produces
+   *  an empty array — absent only on legacy error-return paths that predate
+   *  the collector. Defensive copy from the collector, so mutation by a
+   *  caller cannot leak back into the collector's internal buffer. */
+  diagnostics?: readonly import('./diagnostics.js').Diagnostic[];
 }
 
 /** MIME type to file extension mapping. */
@@ -709,6 +720,36 @@ export async function processCompletion(
   let sessionId = preProcessed?.sessionId ?? persistentSessionId ?? randomUUID();
   const reqLogger = logger.child({ reqId: requestId.slice(-8) });
 
+  // Per-turn diagnostic collector — captures user-surfacable failure events
+  // (currently: MCP `listTools` rejections, OpenAPI spec fetch/parse failures)
+  // that `populateCatalogFromSkills` pushes into it. `handleCompletions`
+  // reads the snapshot off the returned `CompletionResult` and forwards it
+  // to the chat UI (SSE named events in streaming mode, JSON field in
+  // non-streaming). Fresh per call — never shared across turns, because a
+  // stale banner from a previous turn's failure is worse than no banner.
+  //
+  // Passed by reference into the `getOrBuildCatalog` `build` closure below;
+  // the closure pushes into it synchronously within its try/catch, so the
+  // snapshot taken after the build resolves reflects every failure that
+  // happened during this build. On a cache HIT the closure doesn't fire
+  // and the collector stays empty — which is correct: the user already
+  // saw the banner on the turn that actually did the build.
+  const diagnostics = createDiagnosticCollector();
+
+  // `attach` stamps the turn's diagnostic snapshot onto every
+  // `CompletionResult` at the return site. Structural, not per-site: a
+  // future contributor who adds a new return path can't forget to
+  // include `diagnostics` because the wrapper IS the return — every
+  // `return attach({...})` grabs the current snapshot, every raw
+  // `return {...}` stands out as a missed site in review. The generic
+  // `T` preserves whatever other optional fields the caller included
+  // (contentBlocks, extractedFiles, agentName, userId) without having
+  // to enumerate them here.
+  const attach = <T extends { responseContent: string; finishReason: 'stop' | 'content_filter' }>(
+    result: T,
+  ): T & { diagnostics: readonly import('./diagnostics.js').Diagnostic[] } =>
+    ({ ...result, diagnostics: diagnostics.list() });
+
   // Extract text for scanning/logging; structured content may contain image refs
   const textContent = typeof content === 'string'
     ? content
@@ -764,10 +805,10 @@ export async function processCompletion(
         timestamp: Date.now(),
         data: { verdict: 'BLOCK', reason: result.scanResult.reason },
       });
-      return {
+      return attach({
         responseContent: `Request blocked: ${result.scanResult.reason ?? 'security scan failed'}`,
         finishReason: 'content_filter',
-      };
+      });
     }
 
     reqLogger.debug('scan_inbound', { status: 'clean' });
@@ -785,7 +826,7 @@ export async function processCompletion(
   const queued = result.messageId ? await db.dequeueById(result.messageId) : await db.dequeue();
   if (!queued) {
     reqLogger.debug('dequeue_failed', { messageId: result.messageId });
-    return { responseContent: 'Internal error: message not queued', finishReason: 'stop' };
+    return attach({ responseContent: 'Internal error: message not queued', finishReason: 'stop' });
   }
 
   // ── Fast path: in-process LLM loop (no pod, no IPC, no proxy) ──
@@ -869,16 +910,16 @@ export async function processCompletion(
         data: { finishReason, responseLength: outbound.content.length, sessionId },
       });
 
-      return {
+      return attach({
         responseContent: outbound.content,
         agentName: agentId,
         userId: currentUserId,
         finishReason,
-      };
+      });
     } catch (err) {
       await db.fail(queued.id);
       reqLogger.error('fast_path_error', { error: (err as Error).message });
-      return { responseContent: `Fast path error: ${(err as Error).message}`, finishReason: 'stop' };
+      return attach({ responseContent: `Fast path error: ${(err as Error).message}`, finishReason: 'stop' });
     }
     } // end documents guard
   }
@@ -1143,10 +1184,10 @@ export async function processCompletion(
       const hasOAuthToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN;
       if (!hasApiKey && !hasOAuthToken) {
         await db.fail(queued.id);
-        return {
+        return attach({
           responseContent: 'No API credentials configured. Run `ax configure` to set up authentication.',
           finishReason: 'stop',
-        };
+        });
       }
 
       proxySocketPath = join(ipcSocketDir, 'anthropic-proxy.sock');
@@ -1586,6 +1627,13 @@ export async function processCompletion(
                 urlRewrites: config.url_rewrites,
               }),
               catalog: toolCatalog,
+              // Turn-scoped collector captured by reference: every
+              // per-server/per-source failure pushed inside this closure
+              // survives into the outer scope and is read via
+              // `diagnostics.list()` after the build completes (or after
+              // a cache hit skipped the build, in which case the
+              // collector stays empty and no banner fires).
+              diagnostics,
             });
             toolCatalog.freeze();
             // Flag the build partial when ANY MCP server failed listTools
@@ -2004,7 +2052,7 @@ export async function processCompletion(
         reqLogger.error('agent_failed', { exitCode, attempt, retryable: isTransient, maxRetries: MAX_AGENT_RETRIES, messageId: queued.id, stderr: stderr.slice(0, 2000) });
         await db.fail(queued.id);
         const diagnosed = diagnoseError(stderr || 'agent exited with no output');
-        return { responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' };
+        return attach({ responseContent: `Agent processing failed: ${diagnosed.diagnosis}`, finishReason: 'stop' });
       }
 
       // Transient failure — retry after delay
@@ -2190,7 +2238,7 @@ export async function processCompletion(
       timestamp: Date.now(),
       data: { finishReason, responseLength: outbound.content.length, sessionId },
     });
-    return { responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName: agentId, userId: currentUserId, finishReason };
+    return attach({ responseContent: outbound.content, contentBlocks: responseBlocks, extractedFiles, agentName: agentId, userId: currentUserId, finishReason });
 
   } catch (err) {
     reqLogger.error('completion_error', {
@@ -2207,7 +2255,7 @@ export async function processCompletion(
     // Clean up canary token on error — without this, every failed completion
     // permanently leaks an entry in sessionCanaries, eventually causing OOM.
     sessionCanaries.delete(queued.session_id);
-    return { responseContent: 'Internal processing error', finishReason: 'stop' };
+    return attach({ responseContent: 'Internal processing error', finishReason: 'stop' });
   } finally {
     // Deregister workspace from the shared map so sandbox tool handlers
     // can't access it after the agent finishes.

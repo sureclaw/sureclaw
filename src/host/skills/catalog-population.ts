@@ -27,6 +27,7 @@ import { buildMcpCatalogTools } from '../tool-catalog/adapters/mcp.js';
 import { buildOpenApiCatalogTools } from '../tool-catalog/adapters/openapi.js';
 import type { ToolCatalog } from '../tool-catalog/registry.js';
 import type { SkillMcpServer, SkillOpenApiSource } from '../../skills/frontmatter-schema.js';
+import type { DiagnosticCollector } from '../diagnostics.js';
 import type { SkillSnapshotEntry } from './types.js';
 
 const logger = getLogger().child({ component: 'catalog-population' });
@@ -66,6 +67,16 @@ export interface PopulateCatalogFromSkillsInput {
   /** Destination catalog. Mutated in place. Not frozen by this function — the
    *  caller (session bootstrap) is responsible for `catalog.freeze()`. */
   catalog: ToolCatalog;
+  /** Optional per-turn diagnostic collector. When present, user-surfacable
+   *  failures (MCP listTools rejections, OpenAPI spec fetch/parse failures)
+   *  are ALSO pushed here as structured diagnostics so the chat UI can
+   *  render them as a banner. Log lines stay exactly as they are — this is
+   *  a parallel signal, not a replacement. Optional because unit tests
+   *  don't all need one, and because a host without diagnostics wiring
+   *  should still function. Tool-register duplicate-name failures are
+   *  deliberately NOT pushed — that's a skill-author concern, not
+   *  end-user-actionable. */
+  diagnostics?: DiagnosticCollector;
 }
 
 /**
@@ -98,7 +109,7 @@ export interface PopulateCatalogResult {
 export async function populateCatalogFromSkills(
   input: PopulateCatalogFromSkillsInput,
 ): Promise<PopulateCatalogResult> {
-  const { skills, getMcpClient, fetchOpenApiSpec, catalog } = input;
+  const { skills, getMcpClient, fetchOpenApiSpec, catalog, diagnostics } = input;
   let serverFailures = 0;
   let openApiSourceFailures = 0;
   let toolRegisterFailures = 0;
@@ -146,10 +157,24 @@ export async function populateCatalogFromSkills(
         // caller is responsible for NOT caching a partial result so the
         // next turn retries; otherwise a transient 401 sticks forever.
         serverFailures += 1;
+        const errMessage = (err as Error).message;
         logger.warn('catalog_populate_server_failed', {
           skill: entry.name,
           server: server.name,
-          error: (err as Error).message,
+          error: errMessage,
+        });
+        // Parallel user-facing signal: the log line is for host operators,
+        // the diagnostic is for the end user who'd otherwise see "my skill
+        // just stopped working" with no hint why.
+        diagnostics?.push({
+          severity: 'warn',
+          kind: 'catalog_populate_server_failed',
+          message: `Skill "${entry.name}" MCP server "${server.name}" failed to list tools: ${errMessage}`,
+          context: {
+            skill: entry.name,
+            server: server.name,
+            error: errMessage,
+          },
         });
       }
     }
@@ -190,11 +215,30 @@ export async function populateCatalogFromSkills(
         // Skill authors need the spec pointer + error message to
         // diagnose from logs alone; hence the specific event name.
         openApiSourceFailures += 1;
+        const errMessage = (err as Error).message;
         logger.warn('catalog_populate_openapi_parse_failed', {
           skill: entry.name,
           source: source.spec,
           baseUrl: source.baseUrl,
-          error: (err as Error).message,
+          error: errMessage,
+        });
+        // User-facing signal: name the skill AND the spec URL in the
+        // message so "petstore skill is broken because https://…/openapi.json
+        // timed out" shows up in the chat UI without a log grep. Note the
+        // diagnostic kind (`_openapi_source_failed`) is distinct from the
+        // log event name (`_openapi_parse_failed`): the log focuses on the
+        // diagnostic root cause (parse/fetch/dereference all land here),
+        // the diagnostic kind matches the user's mental model ("the
+        // OpenAPI source failed").
+        diagnostics?.push({
+          severity: 'warn',
+          kind: 'catalog_populate_openapi_source_failed',
+          message: `Skill "${entry.name}" OpenAPI spec "${source.spec}" failed to load: ${errMessage}`,
+          context: {
+            skill: entry.name,
+            source: source.spec,
+            error: errMessage,
+          },
         });
       }
     }

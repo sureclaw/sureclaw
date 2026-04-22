@@ -79,7 +79,18 @@ export interface CompletionHandlerOpts {
     messages: { role: string; content: string | ContentBlock[] }[],
     sessionId: string,
     userId?: string,
-  ) => Promise<{ responseContent: string; finishReason: 'stop' | 'content_filter'; contentBlocks?: ContentBlock[] }>;
+  ) => Promise<{
+    responseContent: string;
+    finishReason: 'stop' | 'content_filter';
+    contentBlocks?: ContentBlock[];
+    /** Per-turn diagnostics collected during `processCompletion` (Task B2 of
+     *  the surface-skill-failures pipeline). Forwarded to the client as
+     *  `event: diagnostic` SSE frames in streaming mode, or attached as a
+     *  top-level `diagnostics` field on the JSON body in non-streaming mode.
+     *  Absent array (legacy callers) behaves identically to an empty array —
+     *  a clean turn emits zero diagnostic frames. */
+    diagnostics?: readonly import('./diagnostics.js').Diagnostic[];
+  }>;
   /** Optional pre-flight check (e.g. bootstrap gate). Return error string or undefined to proceed. */
   preFlightCheck?: (sessionId: string, userId: string | undefined) => string | undefined | Promise<string | undefined>;
 }
@@ -278,6 +289,23 @@ export async function handleCompletions(
         id: requestId, object: 'chat.completion.chunk', created, model: requestModel,
         choices: [{ index: 0, delta: {}, finish_reason: streamFinishReason }],
       });
+
+      // Emit turn-level diagnostics AFTER the finish-reason chunk and BEFORE
+      // [DONE]. Order matters: SSE clients (including the chat UI's
+      // `ax-chat-transport.ts`) treat everything before the finish-reason
+      // chunk as streaming content, so diagnostics must land in the
+      // post-finish window. An empty `diagnostics` array (clean turn or
+      // legacy path) produces zero frames — the UI banner never fires on
+      // happy paths. Typed as `Record<string, unknown>` for the helper;
+      // the chat transport parses it as `Diagnostic` from the shared type.
+      if (result.diagnostics && result.diagnostics.length > 0) {
+        for (const diagnostic of result.diagnostics) {
+          try {
+            sendSSENamedEvent(res, 'diagnostic', diagnostic as unknown as Record<string, unknown>);
+          } catch { /* client gone, skip */ }
+        }
+      }
+
       res.write('data: [DONE]\n\n');
       res.end();
     } catch (err) {
@@ -299,6 +327,15 @@ export async function handleCompletions(
     try {
       const result = await opts.runCompletion(content, requestId, chatReq.messages, sessionId, userId);
 
+      // Always emit `diagnostics` as an array — the chat UI is the
+      // primary non-streaming consumer and uniformity beats wire-shape
+      // bit-compat with pre-B2. Two shapes (`undefined` vs `[]`) forces
+      // every consumer to remember an undefined-guard; one shape is a
+      // guaranteed array. Legacy callers that don't populate the field
+      // see `diagnostics: []` which is a no-op for their render logic.
+      // Snapshot-test churn for external REST callers is a one-time
+      // mechanical cost paid once; a silent undefined-access bug in
+      // the UI on a clean turn is a recurring reliability cost.
       const response = {
         id: requestId, object: 'chat.completion', created, model: requestModel,
         choices: [{
@@ -307,6 +344,7 @@ export async function handleCompletions(
           finish_reason: result.finishReason,
         }],
         usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        diagnostics: result.diagnostics ?? [],
       };
 
       const responseBody = JSON.stringify(response);
