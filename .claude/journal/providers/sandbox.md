@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-04-22 09:30] — Carry per-pod logger through `kill()` path in k8s sandbox
+
+**Task:** Code-review fix for the prior Task 1 entry. The previous note slightly overstated coverage: it claimed "only per-pod call sites now use `podLog`", but the host-initiated `provider.kill(pid)` path was still emitting `pod_killed` / `pod_kill_failed` from the module-level `logger`, which has no `reqId`/`podName`/`pid` bindings. Those are arguably the most informative termination events, so a `grep <reqId>` was missing them.
+**What I did:** Changed `activePods` from `Map<number, string>` to `Map<number, { podName: string; podLog: typeof logger }>`. Updated the `set` site in `spawnCold` and the read site in `provider.kill()` to unpack the per-pod logger and emit `pod_killed` / `pod_kill_failed` through it. Other read sites (`activePods.delete`) needed no change. Added a third test case to `k8s-correlation.test.ts` that mocks an idle watcher, calls `provider.kill(proc.pid)`, and asserts `pod_killed` carries `reqId`, `podName`, `pid`, plus that the same `podName` was passed to `deleteNamespacedPod`. Added a `requestId` row to the SandboxConfig table in `.claude/skills/ax-provider-sandbox/SKILL.md` (was missing — required by the "Keeping Documentation in Sync" rule).
+**Files touched:** `src/providers/sandbox/k8s.ts`, `tests/providers/sandbox/k8s-correlation.test.ts`, `.claude/skills/ax-provider-sandbox/SKILL.md`
+**Outcome:** Success — all 3 correlation tests pass, full sandbox suite (7 files, 50 tests) green, `npm run build` clean.
+**Notes:** Storing the logger alongside the pod name is the cleanest fix because `podLog` is closure-scoped inside `spawnCold` and otherwise unreachable from `provider.kill()`. Watcher-side cleanups already had `podLog` in scope so they didn't need a lookup. `mockWatch.mockImplementationOnce` inside the new test stops the watcher from auto-resolving Failed, so `kill()` actually runs against an "alive" pod.
+
 ## [2026-04-22 07:30] — Plumb `requestId` into `SandboxConfig` + per-pod child logger in k8s
 
 **Task:** Task 1 of the chat-correlation-id plan — give the k8s sandbox provider a way to tag every pod-lifecycle log line with the chat turn's `reqId` so a single grep reconstructs the lifecycle across host + sandbox provider logs.

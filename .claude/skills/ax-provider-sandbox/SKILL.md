@@ -24,6 +24,7 @@ Agents run INSIDE their containers and execute tools locally. Each agent gets a 
 | pvcName                  | `string?`                  | PVC name for persistent workspace (k8s only)             |
 | workspaceSizeGi          | `number?`                  | PVC size in GiB (k8s only, default: 10)                  |
 | extraEnv                 | `Record<string, string>?`  | Additional env vars for sandbox pod (e.g. IPC tokens)    |
+| requestId                | `string?`                  | Chat-turn correlation ID; propagated into provider logs as `reqId` so a single `grep <reqId>` reconstructs the pod lifecycle |
 
 Note: Identity files are sent via stdin payload (loaded from git by the host). Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem after git clone.
 

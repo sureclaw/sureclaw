@@ -214,8 +214,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   const runtimeClass = process.env.K8S_RUNTIME_CLASS !== undefined
     ? process.env.K8S_RUNTIME_CLASS   // allow empty string to disable
     : DEFAULT_RUNTIME_CLASS;
-  // Track active pods for cleanup
-  const activePods = new Map<number, string>(); // synthetic PID → pod name
+  // Track active pods for cleanup, plus their per-pod child logger so
+  // host-initiated kill() emits termination logs with the same reqId/podName/pid
+  // bindings as the rest of the pod lifecycle.
+  const activePods = new Map<number, { podName: string; podLog: typeof logger }>();
 
   /**
    * Watch a pod for completion and resolve with exit code.
@@ -322,7 +324,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       throw err;
     }
 
-    activePods.set(pid, podName);
+    activePods.set(pid, { podName, podLog });
 
     const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600, podLog);
 
@@ -391,14 +393,15 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     },
 
     async kill(pid: number): Promise<void> {
-      const podName = activePods.get(pid);
-      if (!podName) return;
+      const entry = activePods.get(pid);
+      if (!entry) return;
+      const { podName, podLog } = entry;
 
       try {
         await coreApi.deleteNamespacedPod({ name: podName, namespace });
-        logger.info('pod_killed', { podName, pid });
+        podLog.info('pod_killed');
       } catch (err: unknown) {
-        logger.warn('pod_kill_failed', { podName, pid, error: (err as Error).message });
+        podLog.warn('pod_kill_failed', { error: (err as Error).message });
       }
       activePods.delete(pid);
     },

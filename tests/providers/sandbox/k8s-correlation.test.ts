@@ -150,6 +150,39 @@ describe('k8s sandbox correlation', () => {
     expect(podFailed.reqId).toBe(requestId.slice(-8));
   });
 
+  test('kill() emits pod_killed with reqId binding from per-pod logger', async () => {
+    const { entries, stream } = captureLogs();
+    const { initLogger } = await import('../../../src/logger.js');
+    initLogger({ level: 'debug', stream, file: false, pretty: false });
+
+    // Make the watcher idle so we can drive termination via kill() ourselves.
+    mockWatch.mockImplementationOnce((_p: string, _q: any, _cb: any) => ({ abort: vi.fn() }));
+
+    const requestId = 'req-killpath-7777aaaa';
+
+    const { create } = await import('../../../src/providers/sandbox/k8s.js');
+    const provider = await create(mockConfig());
+
+    const proc = await provider.spawn(mockSandboxConfig({ requestId }));
+    await provider.kill(proc.pid);
+
+    // Pod-scoped lines: must include pod_killed with all bindings.
+    const podScoped = entries.filter(
+      e => e.component === 'sandbox-k8s' && typeof e.podName === 'string',
+    );
+    const killed = podScoped.find(e => e.msg === 'pod_killed' || e.msg === 'pod_kill_failed');
+    expect(killed).toBeDefined();
+    expect(killed!.reqId).toBe(requestId.slice(-8));
+    expect(killed!.podName).toMatch(/^ax-sandbox-/);
+    expect(typeof killed!.pid).toBe('number');
+    expect(killed!.pid as number).toBe(proc.pid);
+
+    // Sanity: deleteNamespacedPod was called with the same podName carried in the log.
+    expect(mockDeleteNamespacedPod).toHaveBeenCalledWith(
+      expect.objectContaining({ name: killed!.podName, namespace: 'ax' }),
+    );
+  });
+
   test('omits reqId binding when SandboxConfig has no requestId', async () => {
     const { entries, stream } = captureLogs();
     const { initLogger } = await import('../../../src/logger.js');
