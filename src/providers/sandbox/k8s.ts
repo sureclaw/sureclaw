@@ -35,6 +35,25 @@ const DEFAULT_MEMORY_LIMIT = '1Gi';
 let nextPid = 100_000;
 
 /**
+ * Detect "pod already gone" 404s from the @kubernetes/client-node delete API.
+ *
+ * The client surfaces 404 in two shapes depending on version/path:
+ *   - `err.code === 404` (numeric)
+ *   - `err.body` is the serialized k8s Status JSON: `{"reason":"NotFound","code":404,...}`
+ *     or contains the literal phrase "not found".
+ *
+ * We accept either. Anything else is a real cleanup failure worth a warn.
+ */
+function isPodGoneError(err: any): boolean {
+  if (err?.code === 404) return true;
+  if (err?.statusCode === 404) return true;
+  if (err?.response?.statusCode === 404) return true;
+  const body = typeof err?.body === 'string' ? err.body : '';
+  if (body && /not found/i.test(body)) return true;
+  return false;
+}
+
+/**
  * Build a k8s pod manifest for a sandbox instance (cold-start path).
  */
 function buildPodSpec(
@@ -261,8 +280,19 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             activePods.delete(pid);
             const containerStatus = obj?.status?.containerStatuses?.[0];
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
-            const reason = containerStatus?.state?.terminated?.reason;
-            podLog.warn('pod_failed', { exitCode: code, reason, phase });
+            // Container-level reason ('Error' for SIGKILL, 'OOMKilled' for memory).
+            const containerReason = containerStatus?.state?.terminated?.reason;
+            // Pod-level reason — set by the kubelet/control plane for things like
+            // 'DeadlineExceeded' (activeDeadlineSeconds) or 'Evicted'. This is
+            // the *useful* one when containerReason is the ambiguous 'Error'.
+            const podReason = obj?.status?.reason;
+            podLog.warn('pod_failed', {
+              exitCode: code,
+              containerReason,
+              podReason,
+              terminationCause: podReason ?? containerReason ?? 'unknown',
+              phase,
+            });
             cleanup();
             resolve(code);
           }
@@ -333,12 +363,16 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600, podLog);
 
     // Self-cleanup: delete the pod after it exits so terminal pods don't accumulate.
+    // 404 from the API == pod already gone (it self-terminated and either was GC'd
+    // by the kubelet or someone else cleaned it up). That's the happy path — log
+    // at debug, not warn. Other errors (network, RBAC, apiserver issues) still warn.
     const exitCode = rawExitCode.then(code => {
       coreApi.deleteNamespacedPod({ name: podName, namespace, gracePeriodSeconds: 0 }).catch((err: any) => {
-        const status = err?.response?.statusCode;
-        if (status !== 404) {
-          podLog.warn('pod_cleanup_failed', { error: err?.message });
+        if (isPodGoneError(err)) {
+          podLog.debug('pod_already_gone');
+          return;
         }
+        podLog.warn('pod_cleanup_failed', { error: err?.message });
       });
       return code;
     });
@@ -383,6 +417,10 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       stdin,
       kill() {
         coreApi.deleteNamespacedPod({ name: podName, namespace }).catch((err: any) => {
+          if (isPodGoneError(err)) {
+            podLog.debug('pod_already_gone');
+            return;
+          }
           podLog.warn('pod_delete_failed', { error: err?.message });
         });
         activePods.delete(pid);
@@ -405,7 +443,12 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         await coreApi.deleteNamespacedPod({ name: podName, namespace });
         podLog.info('pod_killed');
       } catch (err: unknown) {
-        podLog.warn('pod_kill_failed', { error: (err as Error).message });
+        if (isPodGoneError(err)) {
+          // Pod already terminated/GC'd — happy cleanup path, not a kill failure.
+          podLog.debug('pod_already_gone');
+        } else {
+          podLog.warn('pod_kill_failed', { error: (err as Error).message });
+        }
       }
       activePods.delete(pid);
     },

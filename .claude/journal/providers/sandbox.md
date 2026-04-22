@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-04-22 10:30] — Capture pod-level termination reason; downgrade 404-on-delete to debug
+
+**Task:** Task 3 of the chat-correlation-id plan. The k8s `pod_failed` event was logging only the container-level `reason` ('Error' for SIGKILL — useless), missing the actually-informative pod-level `status.reason` ('DeadlineExceeded', 'Evicted', etc.). Separately, when the host called `deleteNamespacedPod` after a pod self-terminated, the API returned 404 and we logged `pod_cleanup_failed` / `pod_kill_failed` at warn — operator noise for the happy cleanup path.
+**What I did:** In `watchPodExit`'s Failed branch, now extract both `containerReason` (from `containerStatuses[0].state.terminated.reason`) and `podReason` (from `pod.status.reason`), plus a `terminationCause` = `podReason ?? containerReason ?? 'unknown'` so a single field tells you the real cause. Added a tiny `isPodGoneError(err)` helper that detects 404s from the @kubernetes/client-node error in any of its shapes (`err.code === 404`, `err.statusCode`, `err.response?.statusCode`, or `body` containing "not found"). Applied it to all three delete sites — the cleanup `.catch()` after `watchPodExit` resolves, the inline `kill()` on the returned `SandboxProcess`, and the top-level `provider.kill()`. 404 → `podLog.debug('pod_already_gone')`; everything else still warns. Added `tests/providers/sandbox/k8s-lifecycle.test.ts` with 7 cases covering both the new `pod_failed` field shape (with and without `podReason`), 404 detection via both `err.code` and JSON-body fallback, and confirming non-404 errors still warn at both sites.
+**Files touched:** `src/providers/sandbox/k8s.ts`, `tests/providers/sandbox/k8s-lifecycle.test.ts`
+**Outcome:** Success — all 7 new tests pass, full sandbox suite (8 files, 57 tests) green, `npm run build` clean. Pre-existing macOS socket-path-length failures (33 server tests, EINVAL on long /var/folders paths) are unrelated and exist on baseline.
+**Notes:** No skill doc updates needed — `ax-provider-sandbox/SKILL.md` doesn't enumerate per-event log shapes. Kept the helper local to k8s.ts (not exported) — it's specific to the @kubernetes/client-node error shape and other sandbox providers don't need it.
+
 ## [2026-04-22 10:00] — Correction: `canonicalEnv()` *does* see `requestId`; reason for not folding it in
 
 **Task:** Code-review correction for the prior Task 2 entry (2026-04-22 09:45). That entry justified keeping `AX_REQUEST_ID` injection inside each provider rather than centralizing it in `canonicalEnv()` by claiming "`canonicalEnv` doesn't see `requestId` (it's a top-level `SandboxConfig` field, not a sub-config)." That reasoning is wrong — `canonical-paths.ts:25` shows `canonicalEnv(config: SandboxConfig)` takes the entire `SandboxConfig`, so it absolutely sees `config.requestId`.
