@@ -35,6 +35,25 @@ const DEFAULT_MEMORY_LIMIT = '1Gi';
 let nextPid = 100_000;
 
 /**
+ * Detect "pod already gone" 404s from the @kubernetes/client-node delete API.
+ *
+ * The client surfaces 404 in two shapes depending on version/path:
+ *   - `err.code === 404` (numeric)
+ *   - `err.body` is the serialized k8s Status JSON: `{"reason":"NotFound","code":404,...}`
+ *     or contains the literal phrase "not found".
+ *
+ * We accept either. Anything else is a real cleanup failure worth a warn.
+ */
+function isPodGoneError(err: any): boolean {
+  if (err?.code === 404) return true;
+  if (err?.statusCode === 404) return true;
+  if (err?.response?.statusCode === 404) return true;
+  const body = typeof err?.body === 'string' ? err.body : '';
+  if (body && /not found/i.test(body)) return true;
+  return false;
+}
+
+/**
  * Build a k8s pod manifest for a sandbox instance (cold-start path).
  */
 function buildPodSpec(
@@ -165,6 +184,10 @@ function buildPodSpec(
               .map(([name, value]) => ({ name, value })),
             ...Object.entries(config.extraEnv ?? {})
               .map(([name, value]) => ({ name, value })),
+            // Chat-turn correlation ID — runner reads this and binds `reqId`
+            // on its top-level logger so agent logs join the host + sandbox
+            // provider lifecycle on a single grep.
+            ...(config.requestId ? [{ name: 'AX_REQUEST_ID', value: config.requestId }] : []),
             { name: 'POD_NAME', valueFrom: { fieldRef: { fieldPath: 'metadata.name' } } },
             // Sidecar port — agent POSTs to localhost:PORT/turn-complete when turn ends
             ...(config.extraEnv?.WORKSPACE_REPO_URL ? [{ name: 'AX_GIT_SIDECAR_PORT', value: '9099' }] : []),
@@ -214,13 +237,18 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   const runtimeClass = process.env.K8S_RUNTIME_CLASS !== undefined
     ? process.env.K8S_RUNTIME_CLASS   // allow empty string to disable
     : DEFAULT_RUNTIME_CLASS;
-  // Track active pods for cleanup
-  const activePods = new Map<number, string>(); // synthetic PID → pod name
+  // Track active pods for cleanup, plus their per-pod child logger so
+  // host-initiated kill() emits termination logs with the same reqId/podName/pid
+  // bindings as the rest of the pod lifecycle.
+  const activePods = new Map<number, { podName: string; podLog: typeof logger }>();
 
   /**
    * Watch a pod for completion and resolve with exit code.
+   *
+   * `podLog` is a per-pod child logger pre-bound with `reqId`, `podName`, `pid`
+   * — call sites just emit event names + extra fields, no redundant identity.
    */
-  function watchPodExit(podName: string, pid: number, timeoutSec: number): Promise<number> {
+  function watchPodExit(podName: string, pid: number, timeoutSec: number, podLog: typeof logger): Promise<number> {
     return new Promise<number>((resolve) => {
       let resolved = false;
       let lastPhase: string | undefined;
@@ -252,8 +280,25 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             activePods.delete(pid);
             const containerStatus = obj?.status?.containerStatuses?.[0];
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
-            const reason = containerStatus?.state?.terminated?.reason;
-            logger.warn('pod_failed', { podName, exitCode: code, reason, phase });
+            // Container-level reason ('Error' for SIGKILL, 'OOMKilled' for memory).
+            const containerReason = containerStatus?.state?.terminated?.reason;
+            // Pod-level reason — set by the kubelet/control plane for things like
+            // 'DeadlineExceeded' (activeDeadlineSeconds) or 'Evicted'. This is
+            // the *useful* one when containerReason is the ambiguous 'Error'.
+            const podReason = obj?.status?.reason;
+            // Chat-fatal at the sandbox layer: this pod's chat is dead.
+            // The host's retry loop may still mask this with a successful
+            // retry (in which case chat_terminated does NOT fire), so this
+            // is the sandbox-side per-attempt record. Promoted to error
+            // (Task 7) so operators grepping "level=50" don't miss pod
+            // deaths just because the chat eventually succeeded.
+            podLog.error('pod_failed', {
+              exitCode: code,
+              containerReason,
+              podReason,
+              terminationCause: podReason ?? containerReason ?? 'unknown',
+              phase,
+            });
             cleanup();
             resolve(code);
           }
@@ -262,7 +307,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           if (!resolved) {
             resolved = true;
             activePods.delete(pid);
-            logger.warn('pod_watch_error', { podName, lastPhase, error: err?.message });
+            // Watch failed — we lose visibility on the pod and resolve as
+            // failure. Chat-fatal at the sandbox layer (Task 7).
+            podLog.error('pod_watch_error', { lastPhase, error: err?.message });
             cleanup();
             resolve(1);
           }
@@ -275,7 +322,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         if (!resolved) {
           resolved = true;
           activePods.delete(pid);
-          logger.warn('pod_timeout', { podName, timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
+          // Safety timeout fired — pod is presumed dead. Chat-fatal at the
+          // sandbox layer (Task 7).
+          podLog.error('pod_timeout', { timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
           try { watchReq?.abort(); } catch { /* best-effort */ }
           resolve(1);
         }
@@ -294,8 +343,15 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   async function spawnCold(config: SandboxConfig): Promise<SandboxProcess> {
     const podName = `ax-sandbox-${randomUUID().slice(0, 8)}`;
     const pid = nextPid++;
+    // Per-pod child logger — all lifecycle logs for this pod inherit reqId,
+    // podName, pid bindings so a single grep <reqId> follows the pod end-to-end.
+    const podLog = logger.child({
+      reqId: config.requestId?.slice(-8),
+      podName,
+      pid,
+    });
 
-    logger.info('creating_pod', { podName, namespace, image });
+    podLog.info('creating_pod', { namespace, image });
 
     // Workspace is managed via git sidecar — no PVC needed
 
@@ -308,21 +364,25 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     try {
       await coreApi.createNamespacedPod({ namespace, body: podSpec });
     } catch (err: unknown) {
-      logger.error('pod_create_failed', { podName, error: (err as Error).message });
+      podLog.error('pod_create_failed', { error: (err as Error).message });
       throw err;
     }
 
-    activePods.set(pid, podName);
+    activePods.set(pid, { podName, podLog });
 
-    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600, podLog);
 
     // Self-cleanup: delete the pod after it exits so terminal pods don't accumulate.
+    // 404 from the API == pod already gone (it self-terminated and either was GC'd
+    // by the kubelet or someone else cleaned it up). That's the happy path — log
+    // at debug, not warn. Other errors (network, RBAC, apiserver issues) still warn.
     const exitCode = rawExitCode.then(code => {
       coreApi.deleteNamespacedPod({ name: podName, namespace, gracePeriodSeconds: 0 }).catch((err: any) => {
-        const status = err?.response?.statusCode;
-        if (status !== 404) {
-          logger.warn('pod_cleanup_failed', { podName, error: err?.message });
+        if (isPodGoneError(err)) {
+          podLog.debug('pod_already_gone');
+          return;
         }
+        podLog.warn('pod_cleanup_failed', { error: err?.message });
       });
       return code;
     });
@@ -342,21 +402,21 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           const pod = await coreApi.readNamespacedPod({ name: podName, namespace });
           const phase = (pod as any)?.status?.phase;
           if (phase === 'Running') {
-            logger.info('pod_running', { podName });
+            podLog.info('pod_running');
             break;
           }
           if (phase === 'Failed' || phase === 'Succeeded') {
-            logger.warn('pod_ended_before_running', { podName, phase });
+            podLog.warn('pod_ended_before_running', { phase });
             return;
           }
           await new Promise(r => setTimeout(r, 500));
         }
       } catch (err: unknown) {
-        logger.warn('pod_status_check_failed', { podName, error: (err as Error).message });
+        podLog.warn('pod_status_check_failed', { error: (err as Error).message });
       }
     })();
 
-    logger.info('pod_created', { podName, pid });
+    podLog.info('pod_created');
 
     return {
       pid,
@@ -367,7 +427,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       stdin,
       kill() {
         coreApi.deleteNamespacedPod({ name: podName, namespace }).catch((err: any) => {
-          logger.warn('pod_delete_failed', { podName, error: err?.message });
+          if (isPodGoneError(err)) {
+            podLog.debug('pod_already_gone');
+            return;
+          }
+          podLog.warn('pod_delete_failed', { error: err?.message });
         });
         activePods.delete(pid);
       },
@@ -381,14 +445,20 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     },
 
     async kill(pid: number): Promise<void> {
-      const podName = activePods.get(pid);
-      if (!podName) return;
+      const entry = activePods.get(pid);
+      if (!entry) return;
+      const { podName, podLog } = entry;
 
       try {
         await coreApi.deleteNamespacedPod({ name: podName, namespace });
-        logger.info('pod_killed', { podName, pid });
+        podLog.info('pod_killed');
       } catch (err: unknown) {
-        logger.warn('pod_kill_failed', { podName, pid, error: (err as Error).message });
+        if (isPodGoneError(err)) {
+          // Pod already terminated/GC'd — happy cleanup path, not a kill failure.
+          podLog.debug('pod_already_gone');
+        } else {
+          podLog.warn('pod_kill_failed', { error: (err as Error).message });
+        }
       }
       activePods.delete(pid);
     },

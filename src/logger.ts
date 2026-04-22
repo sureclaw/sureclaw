@@ -39,6 +39,82 @@ export interface LoggerOptions {
   file?: boolean;
   /** Pretty print to console. Default: true when stdout is a TTY. */
   pretty?: boolean;
+  /**
+   * Subsystem name for per-component log level overrides. When set, the
+   * logger checks `LOG_LEVEL_<COMPONENT>` (uppercased, hyphens → underscores)
+   * before falling back to `LOG_LEVEL`. Lets an operator crank one noisy
+   * subsystem to debug without drowning everything else in stack traces.
+   * The component is also added as a binding on every emitted line.
+   */
+  component?: string;
+}
+
+// ═══════════════════════════════════════════════════════
+// Per-component level resolution
+// ═══════════════════════════════════════════════════════
+
+const LEVEL_NUMERIC: Record<string, number> = {
+  trace: 10,
+  debug: 20,
+  info: 30,
+  warn: 40,
+  error: 50,
+  fatal: 60,
+  silent: Number.POSITIVE_INFINITY,
+};
+
+const KNOWN_LEVELS = new Set(Object.keys(LEVEL_NUMERIC));
+
+function isValidLevel(v: string | undefined): v is LogLevel {
+  return !!v && KNOWN_LEVELS.has(v);
+}
+
+/**
+ * Resolve a log level for a given component name from env vars.
+ *
+ * Convention: `sandbox-k8s` → `LOG_LEVEL_SANDBOX_K8S`. Uppercase the name
+ * and replace `-` with `_`. Falls back to `LOG_LEVEL`, then 'info'.
+ *
+ * Returns `undefined` if no env vars are set OR if the env value is not a
+ * known level — callers can then default. Invalid values are ignored so a
+ * typo (`LOG_LEVEL_SANDBOX_K8S=infod`) doesn't crash logger construction.
+ */
+export function resolveLevelForComponent(component?: string): LogLevel | undefined {
+  if (component) {
+    const envKey = 'LOG_LEVEL_' + component.toUpperCase().replace(/-/g, '_');
+    const v = process.env[envKey];
+    if (isValidLevel(v)) return v;
+  }
+  const fallback = process.env.LOG_LEVEL;
+  if (isValidLevel(fallback)) return fallback;
+  return undefined;
+}
+
+/**
+ * The most-permissive level configured anywhere in the environment.
+ *
+ * Multistream/transport setups give each stream/target its own per-stream
+ * level filter. If LOG_LEVEL=info but LOG_LEVEL_SANDBOX_K8S=debug, the
+ * console stream filtered at 'info' would silently drop the sandbox-k8s
+ * debug lines that the child logger agreed to emit. Setting the per-stream
+ * filter to the minimum across all configured levels lets the child-level
+ * filter (which knows about the component) be the actual gate.
+ *
+ * Returns 'info' when nothing is configured, matching the prior default.
+ */
+function getMinConfiguredLevel(): LogLevel {
+  const candidates: LogLevel[] = [];
+  const def = process.env.LOG_LEVEL;
+  if (isValidLevel(def)) candidates.push(def);
+  for (const [key, val] of Object.entries(process.env)) {
+    if (key.startsWith('LOG_LEVEL_') && isValidLevel(val)) {
+      candidates.push(val);
+    }
+  }
+  if (candidates.length === 0) return 'info';
+  return candidates.reduce((min, c) =>
+    LEVEL_NUMERIC[c] < LEVEL_NUMERIC[min] ? c : min,
+  );
 }
 
 // ═══════════════════════════════════════════════════════
@@ -104,12 +180,29 @@ function wrapPino(p: PinoLogger): Logger {
     warn(msg, details) { details ? p.warn(details, msg) : p.warn(msg); },
     error(msg, details) { details ? p.error(details, msg) : p.error(msg); },
     fatal(msg, details) { details ? p.fatal(details, msg) : p.fatal(msg); },
-    child(bindings) { return wrapPino(p.child(bindings)); },
+    child(bindings) {
+      const child = p.child(bindings);
+      // If the child carries a `component` binding, honor the
+      // LOG_LEVEL_<COMPONENT> env override (e.g. LOG_LEVEL_SANDBOX_K8S=debug
+      // bumps verbosity for that subsystem; LOG_LEVEL_SANDBOX_K8S=error
+      // silences everything but errors). Falls through to LOG_LEVEL when
+      // the per-component var is unset. The override is read at child
+      // creation time, so set these env vars BEFORE process start.
+      const component = typeof bindings.component === 'string' ? bindings.component : undefined;
+      const envLevel = component ? resolveLevelForComponent(component) : undefined;
+      if (envLevel && envLevel !== p.level) {
+        try { child.level = envLevel; } catch { /* pino rejects unknown levels — ignore */ }
+      }
+      return wrapPino(child);
+    },
   };
 }
 
 export function createLogger(opts: LoggerOptions = {}): Logger {
-  const level = opts.level ?? (process.env.LOG_LEVEL as LogLevel) ?? 'info';
+  // Level priority: explicit opts.level → LOG_LEVEL_<COMPONENT> →
+  // LOG_LEVEL → 'info'. Explicit caller intent always wins; the env vars are
+  // operator escape hatches.
+  const level = opts.level ?? resolveLevelForComponent(opts.component) ?? 'info';
   const usePretty = opts.pretty ?? process.stdout.isTTY ?? false;
   const useFile = opts.file ?? !opts.stream; // disable file when test stream is provided
   // LOG_SYNC=1 forces synchronous file writes so `tail -f` shows entries
@@ -121,10 +214,23 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   const isAgent = !!(process.env.AX_HOST_URL || process.env.AX_IPC_SOCKET || process.env.AX_IPC_LISTEN);
   const consoleFd = isAgent ? 2 : 1;
 
+  // Per-stream/per-target FLOOR for the multistream/transport paths below.
+  // The root pino keeps `level` (so root.debug() filters at LOG_LEVEL); a
+  // component child via wrapPino.child gets `child.level` widened to its env
+  // override and emits past the root, then the floor here admits it. The
+  // floor is the min across all configured LOG_LEVEL_* so any override fits.
+  const consoleStreamLevel = opts.level ?? getMinConfiguredLevel();
+
+  // Bypass `wrapPino.child`'s env override — `level` was already resolved above.
+  const bindComponent = (logger: Logger, pinoLogger: PinoLogger): Logger =>
+    opts.component
+      ? wrapPino(pinoLogger.child({ component: opts.component }))
+      : logger;
+
   // If a test stream is provided, use it directly (no transports)
   if (opts.stream) {
     const pinoInstance = pino({ level }, opts.stream);
-    return wrapPino(pinoInstance);
+    return bindComponent(wrapPino(pinoInstance), pinoInstance);
   }
 
   if (usePretty) {
@@ -139,7 +245,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
     }
     const consoleOut = consoleFd === 2 ? process.stderr : process.stdout;
     streams.push({
-      level,
+      level: consoleStreamLevel,
       stream: new Writable({
         write(chunk, _encoding, callback) {
           try {
@@ -151,8 +257,8 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
         },
       }),
     });
-    const pinoInstance = pino({ level: 'debug' }, pino.multistream(streams));
-    return wrapPino(pinoInstance);
+    const pinoInstance = pino({ level }, pino.multistream(streams));
+    return bindComponent(wrapPino(pinoInstance), pinoInstance);
   }
 
   // JSON mode: file + stdout via pino transports (worker threads).
@@ -168,11 +274,11 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
       });
     }
     streams.push({
-      level,
+      level: consoleStreamLevel,
       stream: pino.destination({ dest: consoleFd, sync: true }),
     });
-    const pinoInstance = pino({ level: 'debug' }, pino.multistream(streams));
-    return wrapPino(pinoInstance);
+    const pinoInstance = pino({ level }, pino.multistream(streams));
+    return bindComponent(wrapPino(pinoInstance), pinoInstance);
   }
 
   const targets: pino.TransportTargetOptions[] = [];
@@ -190,12 +296,12 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   targets.push({
     target: 'pino/file',
     options: { destination: consoleFd },
-    level,
+    level: consoleStreamLevel,
   });
 
   const transport = pino.transport({ targets });
   const pinoInstance = pino({ level }, transport);
-  return wrapPino(pinoInstance);
+  return bindComponent(wrapPino(pinoInstance), pinoInstance);
 }
 
 // ═══════════════════════════════════════════════════════

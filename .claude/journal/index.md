@@ -1,9 +1,10 @@
 # Journal Index
 
-Category-based organization of all journal entries. Total: 123 entries across 11 categories.
+Category-based organization of all journal entries. Total: 124 entries across 11 categories.
 
 ## Entries
 
+- 2026-04-22 11:30 — chat-correlation Task 7: per-component log levels (`LOG_LEVEL_<COMPONENT>` env, e.g. `LOG_LEVEL_SANDBOX_K8S=debug`) + hygiene pass. New `resolveLevelForComponent` + `component` option in `src/logger.ts`; resolution priority is explicit `level` → `LOG_LEVEL_<COMPONENT>` → `LOG_LEVEL` → `'info'`. `getLogger().child({component})` now also honors env overrides — that's the codebase's dominant pattern. Reclassifications: `host_git_sync_failed`, `host_identity_fetch_failed`, `memory_recall_error`, `agent_response_error` warn → info (recoverable, chat continues); `pod_failed`, `pod_watch_error`, `pod_timeout` warn → error (chat-fatal at sandbox layer). 5 new tests + 13 existing logger tests pass; full suite footprint unchanged from baseline. [host/orchestration.md](host/orchestration.md)
 - 2026-04-16 10:00 — Fix identity cache invalidation: wire clearIdentityCache() after writes [host/git-identity.md](host/git-identity.md)
 - 2026-04-06 14:00 — PVC Workspace Phase 2: Update host and agent code for single workspace [refactoring/cleanup.md](refactoring/cleanup.md)
 - 2026-03-29 11:49 — Implement plugin manifest parser (Task 2) [plugins/parser.md](plugins/parser.md)

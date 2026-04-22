@@ -12,7 +12,14 @@ import type { IdentityFiles } from './prompt/types.js';
 import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const logger = getLogger().child({ component: 'runner' });
+// Top-level logger for this module. When the sandbox provider plumbs the chat
+// turn's correlation ID into the pod env (AX_REQUEST_ID), bind the last 8
+// chars as `reqId` so a single `grep <reqId>` reconstructs the chain across
+// host → sandbox provider → agent runner logs.
+const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+const logger = reqIdBinding
+  ? getLogger().child({ component: 'runner', reqId: reqIdBinding })
+  : getLogger().child({ component: 'runner' });
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-5-20250929';
 const DEFAULT_CONTEXT_WINDOW = 200000;

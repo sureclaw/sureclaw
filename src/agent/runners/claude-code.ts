@@ -33,7 +33,15 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { getLogger } from '../../logger.js';
 
-const logger = getLogger().child({ component: 'claude-code' });
+// Bind chat-turn correlation ID into every log emit from this hot-path runner.
+// The sandbox provider sets AX_REQUEST_ID in the pod env before node imports
+// this module, so reading it at module load is safe (same trade-off as
+// `runner.ts:15-22`). Last 8 chars match the convention used elsewhere in the
+// chain so a single `grep <reqId>` reconstructs host → sandbox → agent logs.
+const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+const logger = reqIdBinding
+  ? getLogger().child({ component: 'claude-code', reqId: reqIdBinding })
+  : getLogger().child({ component: 'claude-code' });
 
 // ── Prompt builder helpers ──────────────────────────────────────────
 

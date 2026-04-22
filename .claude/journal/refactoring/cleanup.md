@@ -2,6 +2,14 @@
 
 General refactoring, stale reference cleanup, path realignment, dependency updates.
 
+## [2026-04-22 10:50] — YAGNI: drop unused `WaitFailureTracker.emit()`
+
+**Task:** Code-review fix from Task 5 — `WaitFailureTracker.emit()` (introduced in `8a0f1ee9`) was dead production surface. Production only uses `record()` + `emitTerminal()`. Per CLAUDE.md "YAGNI ruthlessly," remove it.
+**What I did:** Deleted the `emit()` method from the tracker, the matching interface entry, and the docstring example referring to it. Removed the two `tracker.emit(...)` test cases from `tests/host/chat-termination.test.ts` (the no-op-when-empty case and the three-attempt exhaustion case — `emitTerminal` already covers the equivalent semantics). Trimmed the heavy ~70-line tracker docstring to a 6-line block on `createWaitFailureTracker` covering only the WHY (per-attempt vs terminal, recorded-cause-wins, fails-then-succeeds emits zero events). Kept the file-header comment as is (it explains the cross-subsystem contract).
+**Files touched:** Modified: `src/host/chat-termination.ts`, `tests/host/chat-termination.test.ts`.
+**Outcome:** Success. `npm run build` clean. `npx vitest run tests/host/chat-termination.test.ts tests/host/chat-termination-retry.test.ts` → 12 tests pass (down from 14, as expected). `grep -rn 'tracker\.emit\b\|tracker\.emit(' src/ tests/` → zero hits.
+**Notes:** Skill files already only reference `emitTerminal` — `ax-logging-errors/SKILL.md` was correct, `ax-host/SKILL.md` was generic ("emits chat_terminated EXACTLY ONCE per terminated chat"). No skill updates needed.
+
 ## [2026-04-18 16:37] — Tool-modules final review cleanup: drop `compactIndex` + `ToolStubCache` helpers + Task-N refs
 
 **Task:** Land three small cleanups (plus one bonus) from the final code review of the tool-modules-git-native migration.

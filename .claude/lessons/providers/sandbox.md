@@ -1,5 +1,11 @@
 # Provider Lessons: Sandbox
 
+### @kubernetes/client-node surfaces 404s in multiple shapes — match all of them
+**Date:** 2026-04-22
+**Context:** Downgrading "pod already gone" 404s on deleteNamespacedPod from warn to debug. The plan said to check `err?.code === 404` plus a body-regex fallback. Production logs show the error sometimes has `body` as a serialized k8s Status JSON (`{"reason":"NotFound","code":404,...}`) with no top-level `code` on the Error itself.
+**Lesson:** When detecting k8s API errors, accept any of: `err.code === 404`, `err.statusCode === 404`, `err.response?.statusCode === 404`, OR `/not found/i.test(err.body)`. The library's error shape varies across versions and code paths; the body-string fallback is the only one we can rely on across all of them. Encapsulate in a single helper (`isPodGoneError`) so call sites stay readable. Also: pod-level `status.reason` (DeadlineExceeded, Evicted) is *separate* from container-level `containerStatuses[0].state.terminated.reason` (OOMKilled, Error) — log both.
+**Tags:** k8s, error-handling, kubernetes-client-node, observability
+
 ### Container providers need ipcSocket guards for ephemeral tool containers
 **Date:** 2026-03-15
 **Context:** When implementing agent-in-container, sandbox_bash spawns ephemeral containers via the same Docker/Apple provider. Tool containers don't need IPC (they're fire-and-forget), so ipcSocket is empty string.

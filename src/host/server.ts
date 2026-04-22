@@ -398,6 +398,14 @@ export async function createServer(
           const effectiveTimeout = baseDeps?.config.sandbox.timeout_sec ?? config.sandbox?.timeout_sec ?? 600;
           const agentTimeoutMs = (effectiveTimeout + 60) * 1000;
           agentTimer = setTimeout(() => {
+            // Reject the agent's response promise with a recognisable
+            // message — server-completions.ts's retry-loop catch detects
+            // 'agent_response timeout' and records it as the wait-phase
+            // failure cause. The single chat_terminated event then fires
+            // from the loop's terminal `agent_failed` branch, naming this
+            // as the cause. Emitting chat_terminated HERE was redundant
+            // (Task 5 audit) — the rejection's downstream handling is the
+            // right single source of truth for "chat ended".
             agentResponseReject?.(new Error('agent_response timeout'));
           }, agentTimeoutMs);
           if (agentTimer.unref) agentTimer.unref();

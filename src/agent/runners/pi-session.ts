@@ -40,7 +40,15 @@ import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { getLogger, truncate } from '../../logger.js';
 
-const logger = getLogger().child({ component: 'pi-session' });
+// Bind chat-turn correlation ID into every log emit from this hot-path runner.
+// The sandbox provider sets AX_REQUEST_ID in the pod env before node imports
+// this module, so reading it at module load is safe (same trade-off as
+// `runner.ts:15-22`). Last 8 chars match the convention used elsewhere in the
+// chain so a single `grep <reqId>` reconstructs host → sandbox → agent logs.
+const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+const logger = reqIdBinding
+  ? getLogger().child({ component: 'pi-session', reqId: reqIdBinding })
+  : getLogger().child({ component: 'pi-session' });
 
 // LLM calls can take minutes for complex prompts. The default IPC timeout
 // (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.

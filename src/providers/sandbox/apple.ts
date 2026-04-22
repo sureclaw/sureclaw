@@ -102,6 +102,9 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         ] : []),
         // Per-turn extra env (credential placeholders, CA trust, etc.)
         ...Object.entries(config.extraEnv ?? {}).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+        // Chat-turn correlation ID — agent runner binds `reqId` so agent logs
+        // join the host + sandbox provider lifecycle on a single grep.
+        ...(config.requestId ? ['-e', `AX_REQUEST_ID=${config.requestId}`] : []),
       ];
 
       containerArgs.push(image, cmd, ...args);
