@@ -32,6 +32,15 @@ import type { SkillSnapshotEntry } from './types.js';
 
 const logger = getLogger().child({ component: 'catalog-population' });
 
+/** Thresholds for the wide-surface advisory. A skill author who leaves
+ *  `include:` off for a server/source that exceeds the threshold gets an
+ *  informational diagnostic nudging them to scope the surface. The
+ *  numbers come from the tool-dispatch-unification plan — proportionally
+ *  higher for OpenAPI since REST specs tend to be chunkier than MCP
+ *  servers, and an unfiltered catalog bloats prompt budget on every turn. */
+export const WIDE_MCP_THRESHOLD = 20;
+export const WIDE_OPENAPI_THRESHOLD = 30;
+
 /** Minimal shape the caller's MCP client must expose — `listTools` only. */
 export interface CatalogMcpClient {
   listTools(): Promise<Array<{
@@ -128,6 +137,30 @@ export async function populateCatalogFromSkills(
       try {
         const client = getMcpClient(entry.name, server.name);
         const mcpTools = await client.listTools();
+        // Wide-surface advisory: a server that exposes >20 tools without
+        // any `include:` filter bloats the catalog + prompt budget for
+        // every turn this skill is active. Surface an informational
+        // diagnostic so the skill author can scope. Exclude-only skills
+        // still count as unscoped (the author may have removed a few
+        // mutations but kept 40 read-ops; they probably still want a
+        // stricter include). Does NOT affect population — the catalog
+        // still gets every tool; this is purely an advisory nudge.
+        if (mcpTools.length > WIDE_MCP_THRESHOLD && !server.include) {
+          diagnostics?.push({
+            severity: 'info',
+            kind: 'catalog_wide_mcp_server',
+            message:
+              `Skill "${entry.name}" MCP server "${server.name}" exposes ` +
+              `${mcpTools.length} tools without an \`include:\` filter. ` +
+              `Consider scoping the surface in the skill's frontmatter to ` +
+              `keep the prompt budget small and the LLM focused.`,
+            context: {
+              skill: entry.name,
+              server: server.name,
+              toolCount: mcpTools.length,
+            },
+          });
+        }
         const catalogTools = buildMcpCatalogTools({
           skill: entry.name,
           server: server.name,
@@ -197,6 +230,29 @@ export async function populateCatalogFromSkills(
           include: source.include,
           exclude: source.exclude,
         });
+        // Wide-surface advisory (parallel to the MCP threshold, higher
+        // cutoff because OpenAPI specs tend to be chunkier than MCP
+        // servers). `!source.include` means the author relied on the
+        // spec's full surface — nudge them to scope it. When include is
+        // set, trust the author's choice even if the resulting set is
+        // still large.
+        if (catalogTools.length > WIDE_OPENAPI_THRESHOLD && !source.include) {
+          diagnostics?.push({
+            severity: 'info',
+            kind: 'catalog_wide_openapi_source',
+            message:
+              `Skill "${entry.name}" OpenAPI source "${source.spec}" ` +
+              `exposes ${catalogTools.length} operations without an ` +
+              `\`include:\` filter. Consider scoping the surface in the ` +
+              `skill's frontmatter to keep the prompt budget small and ` +
+              `the LLM focused.`,
+            context: {
+              skill: entry.name,
+              source: source.spec,
+              operationCount: catalogTools.length,
+            },
+          });
+        }
         for (const tool of catalogTools) {
           try {
             catalog.register(tool);

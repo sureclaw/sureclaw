@@ -634,4 +634,169 @@ describe('populateCatalogFromSkills', () => {
       expect(diagnostics.list()).toEqual([]);
     });
   });
+
+  // Wide-surface advisory (Phase 8 Task 8.1). A skill author who leaves
+  // `include:` off for a server/source that exceeds the threshold gets
+  // an informational diagnostic nudging them to scope. Does NOT affect
+  // catalog population — every tool still lands.
+  describe('wide-surface advisory', () => {
+    test('MCP server with >20 tools and no include filter pushes a catalog_wide_mcp_server diagnostic', async () => {
+      const tools = Array.from({ length: 25 }, (_, i) => ({
+        name: `tool_${i}`,
+        description: `t${i}`,
+        inputSchema: { type: 'object' as const },
+      }));
+      const mcpClient = { listTools: vi.fn().mockResolvedValue(tools) };
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          { name: 'linear', ok: true, frontmatter: { mcpServers: [{ name: 'linear' }] } } as never,
+        ],
+        getMcpClient: () => mcpClient as never,
+        fetchOpenApiSpec: unusedFetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      // Population still succeeded — 25 tools registered.
+      expect(catalog.list()).toHaveLength(25);
+      // And the advisory fired.
+      const wide = diagnostics.list().filter(d => d.kind === 'catalog_wide_mcp_server');
+      expect(wide).toHaveLength(1);
+      expect(wide[0].severity).toBe('info');
+      expect(wide[0].message).toContain('linear');
+      expect(wide[0].message).toContain('25 tools');
+      expect(wide[0].message).toMatch(/include:/);
+      expect(wide[0].context).toMatchObject({
+        skill: 'linear',
+        server: 'linear',
+        toolCount: 25,
+      });
+    });
+
+    test('MCP server at exactly the threshold (20) does NOT push the advisory', async () => {
+      const tools = Array.from({ length: 20 }, (_, i) => ({
+        name: `tool_${i}`, inputSchema: { type: 'object' as const },
+      }));
+      const mcpClient = { listTools: vi.fn().mockResolvedValue(tools) };
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          { name: 's', ok: true, frontmatter: { mcpServers: [{ name: 'srv' }] } } as never,
+        ],
+        getMcpClient: () => mcpClient as never,
+        fetchOpenApiSpec: unusedFetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(diagnostics.list().filter(d => d.kind === 'catalog_wide_mcp_server')).toHaveLength(0);
+    });
+
+    test('MCP server with >20 tools AND an include filter does NOT push the advisory', async () => {
+      // Include filter = author explicitly scoped. Trust them — don't nag.
+      const tools = Array.from({ length: 25 }, (_, i) => ({
+        name: `tool_${i}`, inputSchema: { type: 'object' as const },
+      }));
+      const mcpClient = { listTools: vi.fn().mockResolvedValue(tools) };
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          {
+            name: 's',
+            ok: true,
+            frontmatter: { mcpServers: [{ name: 'srv', include: ['tool_1', 'tool_2'] }] },
+          } as never,
+        ],
+        getMcpClient: () => mcpClient as never,
+        fetchOpenApiSpec: unusedFetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(diagnostics.list().filter(d => d.kind === 'catalog_wide_mcp_server')).toHaveLength(0);
+    });
+
+    test('OpenAPI source with >30 operations and no include filter pushes a catalog_wide_openapi_source diagnostic', async () => {
+      // Build a synthetic spec with 35 GET operations.
+      const paths: Record<string, unknown> = {};
+      for (let i = 0; i < 35; i++) {
+        paths[`/op${i}`] = {
+          get: { operationId: `op${i}`, responses: { '200': { description: 'ok' } } },
+        };
+      }
+      const fakeSpec = {
+        openapi: '3.0.0',
+        info: { title: 'wide', version: '1.0.0' },
+        paths,
+      } as unknown as OpenAPIV3.Document;
+      const fetchOpenApiSpec = vi.fn().mockResolvedValue(fakeSpec);
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          {
+            name: 'wide',
+            ok: true,
+            frontmatter: {
+              openapi: [{ spec: 'https://wide.test/spec.json', baseUrl: 'https://wide.test' }],
+            },
+          } as never,
+        ],
+        getMcpClient: () => ({ listTools: vi.fn() }) as never,
+        fetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(catalog.list()).toHaveLength(35);
+      const wide = diagnostics.list().filter(d => d.kind === 'catalog_wide_openapi_source');
+      expect(wide).toHaveLength(1);
+      expect(wide[0].severity).toBe('info');
+      expect(wide[0].message).toContain('wide');
+      expect(wide[0].message).toContain('35 operations');
+      expect(wide[0].message).toContain('https://wide.test/spec.json');
+      expect(wide[0].context).toMatchObject({
+        skill: 'wide',
+        source: 'https://wide.test/spec.json',
+        operationCount: 35,
+      });
+    });
+
+    test('OpenAPI source with >30 operations AND an include filter does NOT push the advisory', async () => {
+      const paths: Record<string, unknown> = {};
+      for (let i = 0; i < 35; i++) {
+        paths[`/op${i}`] = {
+          get: { operationId: `op${i}`, responses: { '200': { description: 'ok' } } },
+        };
+      }
+      const fakeSpec = {
+        openapi: '3.0.0',
+        info: { title: 'scoped', version: '1.0.0' },
+        paths,
+      } as unknown as OpenAPIV3.Document;
+      const fetchOpenApiSpec = vi.fn().mockResolvedValue(fakeSpec);
+      const catalog = new ToolCatalog();
+      const diagnostics = createDiagnosticCollector();
+      await populateCatalogFromSkills({
+        skills: [
+          {
+            name: 'scoped',
+            ok: true,
+            frontmatter: {
+              openapi: [{
+                spec: 'https://scoped.test/spec.json',
+                baseUrl: 'https://scoped.test',
+                include: ['op1', 'op2'],
+              }],
+            },
+          } as never,
+        ],
+        getMcpClient: () => ({ listTools: vi.fn() }) as never,
+        fetchOpenApiSpec,
+        catalog,
+        diagnostics,
+      });
+      expect(diagnostics.list().filter(d => d.kind === 'catalog_wide_openapi_source')).toHaveLength(0);
+    });
+  });
 });

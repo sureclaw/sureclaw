@@ -167,7 +167,34 @@ Two ways to plug a third-party service into the tool catalog. Pick exactly one (
 
 **Do NOT** invent a fake `mcpServers[]` entry pointing at an OpenAPI URL. MCP's `tools/list` will fail against a plain REST endpoint and the skill will be rejected during Test-&-Enable. Use `openapi[]`.
 
-**Scoping OpenAPI skills with `include:`** — if the spec has >20 operations, pin the surface with `include:` globs (minimatch, matched against bare operationId, not the catalog-prefixed `api_<skill>_*` name). This keeps the catalog small and the LLM's prompt context cheap. Example: `include: ["findPets*", "getPet*", "getInventory"]` — excludes mutations and admin ops. You can also use `exclude:` for "mostly everything but not these."
+### Scoping wide surfaces with `include:`
+
+An unscoped skill inflates the prompt budget and the LLM's tool-picker load EVERY TURN the skill is active. Scope aggressively:
+
+- **MCP servers with >20 tools**: the host emits a `catalog_wide_mcp_server` diagnostic at catalog-populate time (visible in the chat UI banner) if no `include:` filter is set. Treat >20 as the soft cap — pin to the subset the user actually needs.
+- **OpenAPI sources with >30 operations**: same deal, `catalog_wide_openapi_source` diagnostic fires. 30 is the soft cap for OpenAPI because REST specs are chunkier than MCP surfaces on average.
+
+`include:` globs use minimatch syntax, matched against the **bare** tool name (MCP) or **bare** operationId (OpenAPI) — NOT the catalog-prefixed `mcp_<skill>_*` / `api_<skill>_*` form. `exclude:` runs after `include:` for "mostly everything, but not these" scoping.
+
+Examples:
+
+```yaml
+# MCP: keep only read-side tools, exclude admin + destructive
+mcpServers:
+  - name: github
+    url: https://mcp.github.com/mcp
+    credential: GITHUB_TOKEN
+    include: ["get_*", "list_*", "search_*"]
+    exclude: ["get_admin_*"]
+
+# OpenAPI: the petstore spec has ~20 ops; scope to read-only
+openapi:
+  - spec: https://petstore3.swagger.io/api/v3/openapi.json
+    baseUrl: https://petstore3.swagger.io/api/v3
+    include: ["findPets*", "getPet*", "getInventory", "getOrderById"]
+```
+
+**When you're drafting a skill and the vendor's docs list >20 operations/tools**, don't just leave `include:` off hoping the default is fine — it's not. Either ask the user which operations they care about, or propose a sensible read-only default and flag it in the preview step for confirmation.
 
 ### Picking the right MCP transport
 
@@ -206,6 +233,35 @@ Every skill body should have these three sections, in this order:
 3. **How to use** — the actual usage instructions: which tool to call first (MCP tool name, or npx invocation, or raw URL), how to handle common errors (expired token, rate limit, empty result), concrete examples using imperative form. Don't mention authentication details — the host injects credentials from the envName on the agent's behalf; the skill body doesn't need to explain that.
 
 Keep the whole body under 300 lines. If the skill needs more, add companion files (`.ax/skills/<name>/references/*.md`) and reference them from the main SKILL.md with guidance on when to open them.
+
+### Scripts for multi-step recipes (`.ax/skills/<name>/scripts/`)
+
+If a skill's "How to use" section describes a multi-step recipe the agent will perform on almost every invocation — e.g. "fetch issue, enrich with assignee profile, post summary to Slack" — don't let the agent reconstruct the recipe inline every session from prose. Commit it once as a script.
+
+Put reusable scripts at `.ax/skills/<name>/scripts/<verb>.{sh,ts,py}` and reference them from the skill body:
+
+```markdown
+## How to use
+
+### Common recipes
+
+- **Summarize a Linear issue** — run `bash .ax/skills/linear/scripts/summarize-issue.sh <issue-id>`.
+  The script fetches the issue, its comments, and the assignee's recent activity,
+  and prints a Markdown summary.
+- **Weekly cycle rollup** — run `bash .ax/skills/linear/scripts/cycle-rollup.sh [team]`.
+
+For anything NOT covered by a script, call the MCP tools directly.
+```
+
+Why this matters: inline recipes get rewritten every turn from the prose hint, which is lossy and slow. A committed script is deterministic, testable, and lets the user review the recipe before the agent runs it. Plus the LLM's prompt stays smaller — the skill body only needs a one-line reference, not the whole recipe.
+
+Rules for skill scripts:
+- **Put them under `.ax/skills/<name>/scripts/`** — NOT at repo root. Keeps skill-adjacent code colocated with the skill.
+- **Shell is usually enough** — one-file scripts that call the MCP tools via `npx` or the API. Reach for TypeScript only if the recipe genuinely needs types (e.g., compiling a response into a structured artifact).
+- **Never commit secrets** — scripts read credentials from env vars the host injects. Scripts hardcoding tokens get caught by the credential scanner and rejected at commit time.
+- **Script output should be plain text** — the agent reads the script's stdout as a tool result. No ANSI colors, no fancy spinners.
+
+If the skill you're drafting has >2 distinct "how to use" recipes, strongly consider pre-committing them as scripts. The user shouldn't be paying for the LLM to re-derive the same multi-step dance every Monday morning.
 
 ## Example: drafting a Linear skill from scratch
 
