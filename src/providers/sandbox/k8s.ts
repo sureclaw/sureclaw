@@ -219,8 +219,11 @@ export async function create(_config: Config): Promise<SandboxProvider> {
 
   /**
    * Watch a pod for completion and resolve with exit code.
+   *
+   * `podLog` is a per-pod child logger pre-bound with `reqId`, `podName`, `pid`
+   * — call sites just emit event names + extra fields, no redundant identity.
    */
-  function watchPodExit(podName: string, pid: number, timeoutSec: number): Promise<number> {
+  function watchPodExit(podName: string, pid: number, timeoutSec: number, podLog: typeof logger): Promise<number> {
     return new Promise<number>((resolve) => {
       let resolved = false;
       let lastPhase: string | undefined;
@@ -253,7 +256,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
             const containerStatus = obj?.status?.containerStatuses?.[0];
             const code = containerStatus?.state?.terminated?.exitCode ?? 1;
             const reason = containerStatus?.state?.terminated?.reason;
-            logger.warn('pod_failed', { podName, exitCode: code, reason, phase });
+            podLog.warn('pod_failed', { exitCode: code, reason, phase });
             cleanup();
             resolve(code);
           }
@@ -262,7 +265,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           if (!resolved) {
             resolved = true;
             activePods.delete(pid);
-            logger.warn('pod_watch_error', { podName, lastPhase, error: err?.message });
+            podLog.warn('pod_watch_error', { lastPhase, error: err?.message });
             cleanup();
             resolve(1);
           }
@@ -275,7 +278,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
         if (!resolved) {
           resolved = true;
           activePods.delete(pid);
-          logger.warn('pod_timeout', { podName, timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
+          podLog.warn('pod_timeout', { timeoutMs, lastPhase, elapsedMs: Date.now() - watchStartTime });
           try { watchReq?.abort(); } catch { /* best-effort */ }
           resolve(1);
         }
@@ -294,8 +297,15 @@ export async function create(_config: Config): Promise<SandboxProvider> {
   async function spawnCold(config: SandboxConfig): Promise<SandboxProcess> {
     const podName = `ax-sandbox-${randomUUID().slice(0, 8)}`;
     const pid = nextPid++;
+    // Per-pod child logger — all lifecycle logs for this pod inherit reqId,
+    // podName, pid bindings so a single grep <reqId> follows the pod end-to-end.
+    const podLog = logger.child({
+      reqId: config.requestId?.slice(-8),
+      podName,
+      pid,
+    });
 
-    logger.info('creating_pod', { podName, namespace, image });
+    podLog.info('creating_pod', { namespace, image });
 
     // Workspace is managed via git sidecar — no PVC needed
 
@@ -308,20 +318,20 @@ export async function create(_config: Config): Promise<SandboxProvider> {
     try {
       await coreApi.createNamespacedPod({ namespace, body: podSpec });
     } catch (err: unknown) {
-      logger.error('pod_create_failed', { podName, error: (err as Error).message });
+      podLog.error('pod_create_failed', { error: (err as Error).message });
       throw err;
     }
 
     activePods.set(pid, podName);
 
-    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600);
+    const rawExitCode = watchPodExit(podName, pid, config.timeoutSec ?? 600, podLog);
 
     // Self-cleanup: delete the pod after it exits so terminal pods don't accumulate.
     const exitCode = rawExitCode.then(code => {
       coreApi.deleteNamespacedPod({ name: podName, namespace, gracePeriodSeconds: 0 }).catch((err: any) => {
         const status = err?.response?.statusCode;
         if (status !== 404) {
-          logger.warn('pod_cleanup_failed', { podName, error: err?.message });
+          podLog.warn('pod_cleanup_failed', { error: err?.message });
         }
       });
       return code;
@@ -342,21 +352,21 @@ export async function create(_config: Config): Promise<SandboxProvider> {
           const pod = await coreApi.readNamespacedPod({ name: podName, namespace });
           const phase = (pod as any)?.status?.phase;
           if (phase === 'Running') {
-            logger.info('pod_running', { podName });
+            podLog.info('pod_running');
             break;
           }
           if (phase === 'Failed' || phase === 'Succeeded') {
-            logger.warn('pod_ended_before_running', { podName, phase });
+            podLog.warn('pod_ended_before_running', { phase });
             return;
           }
           await new Promise(r => setTimeout(r, 500));
         }
       } catch (err: unknown) {
-        logger.warn('pod_status_check_failed', { podName, error: (err as Error).message });
+        podLog.warn('pod_status_check_failed', { error: (err as Error).message });
       }
     })();
 
-    logger.info('pod_created', { podName, pid });
+    podLog.info('pod_created');
 
     return {
       pid,
@@ -367,7 +377,7 @@ export async function create(_config: Config): Promise<SandboxProvider> {
       stdin,
       kill() {
         coreApi.deleteNamespacedPod({ name: podName, namespace }).catch((err: any) => {
-          logger.warn('pod_delete_failed', { podName, error: err?.message });
+          podLog.warn('pod_delete_failed', { error: err?.message });
         });
         activePods.delete(pid);
       },

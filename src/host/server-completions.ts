@@ -1768,6 +1768,9 @@ export async function processCompletion(
     const sandboxConfig = {
       workspace,
       ipcSocket: ipcSocketPath,
+      // Correlation ID — surfaces as `reqId` in sandbox provider logs (k8s pod
+      // lifecycle, etc.) so we can grep one chat turn across host + sandbox.
+      requestId,
       // Session-long sandboxes: session manager owns idle lifecycle.
       // watchPodExit's safety timer is a distant backstop (24h) so it never races
       // with the session manager's idle timer or premature watch disconnects.

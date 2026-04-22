@@ -2,6 +2,14 @@
 
 Sandbox providers, canonical paths, workspace tiers.
 
+## [2026-04-22 07:30] — Plumb `requestId` into `SandboxConfig` + per-pod child logger in k8s
+
+**Task:** Task 1 of the chat-correlation-id plan — give the k8s sandbox provider a way to tag every pod-lifecycle log line with the chat turn's `reqId` so a single grep reconstructs the lifecycle across host + sandbox provider logs.
+**What I did:** Added optional `requestId` field to `SandboxConfig` (`src/providers/sandbox/types.ts`). `processCompletion` now passes `requestId` into the spawn-time `sandboxConfig` literal. In `k8s.ts`'s `spawnCold`, built a per-pod child logger pre-bound with `{ reqId: requestId.slice(-8), podName, pid }` and threaded it into `watchPodExit` (new param) and every existing log call site, dropping the now-redundant `podName`/`pid` from each call's details object. Wrote a TDD test that captures pino JSON output via a Writable stream and asserts the bindings appear on every pod-scoped entry; second case verifies `reqId` is omitted when `requestId` is unset.
+**Files touched:** `src/providers/sandbox/types.ts`, `src/providers/sandbox/k8s.ts`, `src/host/server-completions.ts`, `tests/providers/sandbox/k8s-correlation.test.ts` (new)
+**Outcome:** Success — new test (2 cases) passes; existing k8s test files still green; `npm run build` clean. Pre-existing macOS Unix-socket-path failures in `tests/host/server*.test.ts` are unrelated and reproduce on baseline.
+**Notes:** Pino's child bindings override the default top-level `pid` field (the OS process pid) — this is intentional but worth knowing: in JSON output, `pid` becomes the synthetic k8s pid (>= 100_000), not the OS pid. The module-level `logger` (used for `k8s_config_loaded`) stays untouched — only per-pod call sites now use `podLog`. `vi.resetModules()` is required in the test so k8s.ts re-binds the freshly-init'd singleton from `initLogger`.
+
 ## [2026-04-21 08:46] — Make sandbox CPU configurable via `config.sandbox.cpus`
 
 **Task:** Expose sandbox CPU as a first-class config field. Previously only `memory_mb` was user-configurable; CPU was hardcoded to `"1"` in the k8s provider (`DEFAULT_CPU_LIMIT`) and to `cpus: 1` at the spawn site in `server-completions.ts`.

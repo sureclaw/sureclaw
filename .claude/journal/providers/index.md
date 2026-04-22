@@ -4,6 +4,7 @@ Provider implementations: image, channel, skills, sandbox, memory, LLM.
 
 ## Entries
 
+- 2026-04-22 07:30 — Plumb `requestId` into `SandboxConfig` + per-pod child logger in k8s [sandbox.md](sandbox.md)
 - 2026-04-21 08:46 — Make sandbox CPU configurable via `config.sandbox.cpus` [sandbox.md](sandbox.md)
 - 2026-04-18 13:10 — Tool-modules Phase 2 Task 1: commitFiles primitive on WorkspaceProvider [workspace.md](workspace.md)
 - 2026-04-17 06:10 — Phase 3 Task 4: wire SkillStateStore into IPC handler [skills.md](skills.md)
