@@ -9,6 +9,11 @@ export default defineConfig({
       '**/dist/**',
       '**/.worktrees/**',
       'ui/admin/tests/**',
+      // `ui/chat` has its own vite-backed test harness (its own package.json
+      // with `ai`, React, assistant-ui) — running its tests from the root
+      // runner fails because root `node_modules` doesn't have those deps.
+      // Run chat tests via `cd ui/chat && npx vitest run`.
+      'ui/chat/**',
       'tests/e2e/**',
     ],
   },
