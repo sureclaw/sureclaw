@@ -24,7 +24,7 @@
  */
 
 import { describe, test, expect, vi } from 'vitest';
-import { createWaitFailureTracker } from '../../src/host/chat-termination.js';
+import { createWaitFailureTracker, AGENT_RESPONSE_TIMEOUT_MSG } from '../../src/host/chat-termination.js';
 import type { Logger } from '../../src/logger.js';
 
 function reqLoggerWithBindings(): {
@@ -66,12 +66,11 @@ async function runRetryLoop(opts: {
   for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
     try {
       response = await opts.attempts[attempt]?.();
-      exitCode = 0;
       break;
     } catch (err) {
       const message = (err as Error).message;
       const reason =
-        message === 'agent_response timeout'
+        message === AGENT_RESPONSE_TIMEOUT_MSG
           ? 'agent_response_timeout'
           : 'agent_response_error';
       tracker.record({ reason, details: { error: message, attempt } });
@@ -159,7 +158,7 @@ describe('retry loop wire-up: chat_terminated fires exactly once per terminated 
     const result = await runRetryLoop({
       logger,
       attempts: [
-        () => Promise.reject(new Error('agent_response timeout')),
+        () => Promise.reject(new Error(AGENT_RESPONSE_TIMEOUT_MSG)),
         () => Promise.reject(new Error('ECONNRESET')),
         () => Promise.reject(new Error('ECONNRESET')),
       ],
@@ -180,9 +179,9 @@ describe('retry loop wire-up: chat_terminated fires exactly once per terminated 
     const result = await runRetryLoop({
       logger,
       attempts: [
-        () => Promise.reject(new Error('agent_response timeout')),
-        () => Promise.reject(new Error('agent_response timeout')),
-        () => Promise.reject(new Error('agent_response timeout')),
+        () => Promise.reject(new Error(AGENT_RESPONSE_TIMEOUT_MSG)),
+        () => Promise.reject(new Error(AGENT_RESPONSE_TIMEOUT_MSG)),
+        () => Promise.reject(new Error(AGENT_RESPONSE_TIMEOUT_MSG)),
       ],
     });
 

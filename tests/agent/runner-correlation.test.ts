@@ -146,6 +146,57 @@ describe('agent runner correlation', () => {
     }
   });
 
+  test('rebinds reqId per turn — session-long pods log subsequent turns with the FRESH payload.requestId, not the pod boot reqId', async () => {
+    // Regression for the "stale module-level binding" bug: session-long
+    // pods (k8s HTTP work loop) process multiple turns. Each turn ships a
+    // fresh `requestId` in its stdin/HTTP payload, but the pre-fix
+    // module-level `const logger = ...child({ reqId: env })` captured the
+    // FIRST turn's reqId at module import. Every subsequent turn then
+    // logged with the wrong (stale) reqId, defeating `grep <reqId>` for
+    // any turn after the first. Fix: applyPayload updates AX_REQUEST_ID
+    // and calls rebindReqLogger; runners do the same at their entry.
+    const { entries, stream } = captureLogs();
+    const { initLogger } = await import('../../src/logger.js');
+    initLogger({ level: 'debug', stream, file: false, pretty: false });
+    // Boot the pod with one reqId (simulates AX_REQUEST_ID set by the
+    // sandbox provider at pod spawn).
+    const bootReqId = 'req-pod-boot-aaaaaaaa';
+    process.env.AX_REQUEST_ID = bootReqId;
+    const runnerModule = await import('../../src/agent/runner.js');
+    const { runPiSession } = await import('../../src/agent/runners/pi-session.js');
+    // Simulate a second turn arriving with a different reqId — applyPayload
+    // updates env + rebinds. We drive applyPayload directly (rather than
+    // the full HTTP work-loop) so the test stays unit-scoped.
+    const turn2ReqId = 'req-turn-2-bbbbbbbb';
+    const cfg = {
+      agent: 'pi-coding-agent' as const,
+      ipcSocket: '',
+      workspace: '/tmp/nonexistent-ax-rebind',
+      userMessage: '',
+    };
+    runnerModule.applyPayload(cfg, {
+      message: '',
+      history: [],
+      taintRatio: 0,
+      taintThreshold: 1,
+      profile: 'balanced',
+      sandboxType: 'k8s',
+      requestId: turn2ReqId,
+    });
+    // Drive a runner emit on this "second turn". The `skip_empty` debug
+    // line from runPiSession's module-level logger should now carry
+    // turn2's reqId — proving the rebind in runPiSession's entry point.
+    await runPiSession(cfg);
+    await new Promise(r => setTimeout(r, 20));
+    // Find the pi-session log line emitted AFTER the rebind.
+    const piEntries = entries.filter(e => e.component === 'pi-session');
+    expect(piEntries.length).toBeGreaterThan(0);
+    for (const e of piEntries) {
+      expect(e.reqId).toBe(turn2ReqId.slice(-8));
+      expect(e.reqId).not.toBe(bootReqId.slice(-8));
+    }
+  });
+
   test('omits reqId binding when AX_REQUEST_ID is unset', async () => {
     const { entries, stream } = captureLogs();
     const { initLogger } = await import('../../src/logger.js');

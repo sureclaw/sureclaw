@@ -19,7 +19,7 @@ import { styleText } from 'node:util';
 // Types
 // ═══════════════════════════════════════════════════════
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
 
 export interface Logger {
   debug(msg: string, details?: Record<string, unknown>): void;
@@ -218,8 +218,17 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   // The root pino keeps `level` (so root.debug() filters at LOG_LEVEL); a
   // component child via wrapPino.child gets `child.level` widened to its env
   // override and emits past the root, then the floor here admits it. The
-  // floor is the min across all configured LOG_LEVEL_* so any override fits.
-  const consoleStreamLevel = opts.level ?? getMinConfiguredLevel();
+  // floor is the most-permissive level across `opts.level` AND every
+  // configured `LOG_LEVEL_*` — explicit caller intent doesn't beat an env
+  // override here, otherwise `initLogger({ level: 'info' })` would re-filter
+  // out `LOG_LEVEL_SANDBOX_K8S=debug` lines that the component child agreed
+  // to emit. The child's own `level` (set in `wrapPino.child`) is the gate
+  // for whether a component emits at all; this floor just lets it through.
+  const envFloor = getMinConfiguredLevel();
+  const consoleStreamLevel: LogLevel =
+    opts.level && LEVEL_NUMERIC[opts.level] < LEVEL_NUMERIC[envFloor]
+      ? opts.level
+      : envFloor;
 
   // Bypass `wrapPino.child`'s env override — `level` was already resolved above.
   const bindComponent = (logger: Logger, pinoLogger: PinoLogger): Logger =>

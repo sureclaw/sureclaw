@@ -26,24 +26,45 @@
 import type { Logger } from '../logger.js';
 
 /**
+ * Wire-format error message used when the host's safety timer rejects the
+ * agent_response promise. The retry-loop catch in server-completions.ts
+ * matches against this exact string to classify the wait-phase failure as
+ * `agent_response_timeout` (vs. the generic `agent_response_error`). Keep
+ * this exported so producer (server.ts) and matcher (server-completions.ts
+ * + tests) can never drift apart from a typo.
+ */
+export const AGENT_RESPONSE_TIMEOUT_MSG = 'agent_response timeout';
+
+/**
  * Where in the chat lifecycle the failure occurred. Keep this set small
  * and stable — operators will alert on these values.
  *
+ * - `scan`     — failed during inbound scan / dequeue / agent resolution,
+ *                before any dispatch work began
  * - `spawn`    — failed to start the sandbox / agent process
  * - `dispatch` — failed during host-side fast-path / routing before the
  *                agent ran
  * - `sandbox`  — the sandbox died on its own (OOM, evicted, timeout)
  * - `wait`     — host was waiting for the agent's response and gave up
  *                (timeout, IPC error, downstream of a sandbox death)
+ * - `persist`  — failed during outbound scan / conversation persist /
+ *                memorize after the agent's response was already received
  * - `cleanup`  — failure during post-turn teardown
  */
-export type TerminationPhase = 'spawn' | 'dispatch' | 'sandbox' | 'wait' | 'cleanup';
+export type TerminationPhase = 'scan' | 'spawn' | 'dispatch' | 'sandbox' | 'wait' | 'persist' | 'cleanup';
 
 export interface ChatTerminationParams {
   /** Lifecycle phase the chat died in. */
   phase: TerminationPhase;
   /** Short, stable identifier for the cause — used for grouping/alerts. */
   reason: string;
+  /** Session this chat turn belonged to. Mirrors `chat_complete` so
+   *  operators can pivot/group either event by session. */
+  sessionId?: string;
+  /** Resolved agent ID for the turn (when known by the time we emit).
+   *  Mirrors `chat_complete`. May be absent for very-early failures
+   *  (e.g. spawn before provisioner resolution). */
+  agentId?: string;
   /** Pod name / container name when known, for cross-log correlation. */
   sandboxId?: string;
   /** Process exit code when known. */
@@ -64,6 +85,8 @@ export interface ChatTerminationParams {
  */
 export function logChatTermination(reqLogger: Logger, params: ChatTerminationParams): void {
   const payload: Record<string, unknown> = { phase: params.phase, reason: params.reason };
+  if (params.sessionId !== undefined) payload.sessionId = params.sessionId;
+  if (params.agentId !== undefined) payload.agentId = params.agentId;
   if (params.sandboxId !== undefined) payload.sandboxId = params.sandboxId;
   if (params.exitCode !== undefined) payload.exitCode = params.exitCode;
   if (params.details !== undefined) payload.details = params.details;
@@ -122,12 +145,18 @@ export interface WaitFailureRecord {
 export interface WaitTerminalContext {
   phase: TerminationPhase;
   reason?: string;
+  sessionId?: string;
+  agentId?: string;
   sandboxId?: string;
   exitCode?: number;
   details?: Record<string, unknown>;
 }
 
 export interface WaitFailureTracker {
+  /** Reset per-attempt state. Call at the top of each retry iteration so
+   *  a stale recorded cause from a prior attempt doesn't surface in a
+   *  terminal event for an attempt that didn't itself record one. */
+  startAttempt(): void;
   record(record: WaitFailureRecord): void;
   emitTerminal(
     reqLogger: Logger,
@@ -137,17 +166,24 @@ export interface WaitFailureTracker {
 
 /**
  * Tracks per-attempt wait-phase failures and emits `chat_terminated` exactly
- * once when retries are exhausted. `record()` is per-attempt and silent;
- * `emitTerminal()` fires the single terminal event. The recorded per-attempt
- * cause wins over the supplied terminal reason — what actually killed the
- * chat (e.g. `agent_response_timeout`) is more specific than the generic
- * fallback (`agent_failed`). A chat that fails-then-succeeds emits zero
- * terminal events because `emitTerminal` is never reached.
+ * once when retries are exhausted. `startAttempt()` clears per-attempt state
+ * at the top of each retry iteration; `record()` is per-attempt and silent;
+ * `emitTerminal()` fires the single terminal event. The MOST RECENT attempt's
+ * recorded cause wins over the supplied terminal reason — what actually
+ * killed the chat (e.g. `agent_response_timeout`) is more specific than the
+ * generic fallback (`agent_failed`). Without `startAttempt`, an early
+ * attempt's recorded cause would persist into a later attempt's terminal
+ * emit even when that later attempt failed without recording — naming the
+ * wrong cause. A chat that fails-then-succeeds emits zero terminal events
+ * because `emitTerminal` is never reached.
  */
 export function createWaitFailureTracker(): WaitFailureTracker {
   let lastRecord: WaitFailureRecord | undefined;
 
   return {
+    startAttempt() {
+      lastRecord = undefined;
+    },
     record(record) {
       lastRecord = record;
     },
@@ -160,6 +196,8 @@ export function createWaitFailureTracker(): WaitFailureTracker {
       logChatTermination(reqLogger, {
         phase: terminal.phase,
         reason,
+        ...(terminal.sessionId !== undefined ? { sessionId: terminal.sessionId } : {}),
+        ...(terminal.agentId !== undefined ? { agentId: terminal.agentId } : {}),
         ...(terminal.sandboxId !== undefined ? { sandboxId: terminal.sandboxId } : {}),
         ...(terminal.exitCode !== undefined ? { exitCode: terminal.exitCode } : {}),
         ...(mergedDetails !== undefined ? { details: mergedDetails } : {}),

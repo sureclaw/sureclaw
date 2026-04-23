@@ -27,6 +27,7 @@ import { attachEventConsole, attachJsonEventConsole } from './event-console.js';
 
 // Extracted modules
 import { processCompletion, type CompletionDeps } from './server-completions.js';
+import { AGENT_RESPONSE_TIMEOUT_MSG } from './chat-termination.js';
 import { ChannelDeduplicator, registerChannelHandler, connectChannelWithRetry, ThreadOwnershipMap } from './server-channels.js';
 import { initTracing, shutdownTracing } from '../utils/tracing.js';
 
@@ -406,7 +407,7 @@ export async function createServer(
             // as the cause. Emitting chat_terminated HERE was redundant
             // (Task 5 audit) — the rejection's downstream handling is the
             // right single source of truth for "chat ended".
-            agentResponseReject?.(new Error('agent_response timeout'));
+            agentResponseReject?.(new Error(AGENT_RESPONSE_TIMEOUT_MSG));
           }, agentTimeoutMs);
           if (agentTimer.unref) agentTimer.unref();
         }

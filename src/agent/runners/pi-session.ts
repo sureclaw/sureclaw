@@ -40,15 +40,23 @@ import { buildSystemPrompt, subscribeAgentEvents } from '../agent-setup.js';
 import { GitWorkspace } from '../git-workspace.js';
 import { getLogger, truncate } from '../../logger.js';
 
-// Bind chat-turn correlation ID into every log emit from this hot-path runner.
-// The sandbox provider sets AX_REQUEST_ID in the pod env before node imports
-// this module, so reading it at module load is safe (same trade-off as
-// `runner.ts:15-22`). Last 8 chars match the convention used elsewhere in the
-// chain so a single `grep <reqId>` reconstructs host → sandbox → agent logs.
-const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
-const logger = reqIdBinding
-  ? getLogger().child({ component: 'pi-session', reqId: reqIdBinding })
-  : getLogger().child({ component: 'pi-session' });
+// Bind chat-turn correlation ID into every log emit from this hot-path
+// runner. Session-long pods process MULTIPLE turns with different
+// requestIds — `runner.applyPayload` updates `process.env.AX_REQUEST_ID`
+// per turn, so we rebind at every `runPiSession` entry to pick up the
+// fresh value. Last 8 chars match the convention used elsewhere in the
+// chain so a single `grep <reqId>` reconstructs host → sandbox → agent
+// logs.
+// `!` definite-assignment: rebindReqLogger() runs synchronously below
+// before any other code in this module references `logger`.
+let logger!: ReturnType<typeof getLogger>;
+function rebindReqLogger(): void {
+  const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+  logger = reqIdBinding
+    ? getLogger().child({ component: 'pi-session', reqId: reqIdBinding })
+    : getLogger().child({ component: 'pi-session' });
+}
+rebindReqLogger();
 
 // LLM calls can take minutes for complex prompts. The default IPC timeout
 // (30s) is far too short. Configurable via AX_LLM_TIMEOUT_MS, defaults to 10 minutes.
@@ -416,6 +424,10 @@ function createIPCToolDefinitions(client: IIPCClient, opts?: IPCToolDefsOptions)
 // ── Main runner ─────────────────────────────────────────────────────
 
 export async function runPiSession(config: AgentConfig): Promise<void> {
+  // `applyPayload` updated AX_REQUEST_ID for this turn — rebind so logs
+  // emitted from this runner carry the current reqId, not the pod's
+  // boot-time one.
+  rebindReqLogger();
   const rawMsg = config.userMessage ?? '';
   const userMessage = typeof rawMsg === 'string'
     ? rawMsg

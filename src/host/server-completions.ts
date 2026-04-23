@@ -27,7 +27,13 @@ import { startWebProxy, type WebProxy } from './web-proxy.js';
 import { CredentialPlaceholderMap } from './credential-placeholders.js';
 import { getOrCreateCA, type CAKeyPair } from './proxy-ca.js';
 import { connectIPCBridge } from './ipc-server.js';
-import { logChatTermination, logChatComplete, createWaitFailureTracker } from './chat-termination.js';
+import {
+  logChatTermination,
+  logChatComplete,
+  createWaitFailureTracker,
+  AGENT_RESPONSE_TIMEOUT_MSG,
+  type TerminationPhase,
+} from './chat-termination.js';
 import type { SandboxProcess } from '../providers/sandbox/types.js';
 import { diagnoseError } from '../errors.js';
 import { ensureOAuthTokenFreshViaProvider, ensureOAuthTokenFresh, refreshOAuthTokenFromEnv, forceRefreshOAuthViaProvider } from '../dotenv.js';
@@ -805,8 +811,30 @@ export async function processCompletion(
   // appear in the payload — accurate by construction.
   const startedAt = Date.now();
   const phases: Record<string, number> = {};
+  // `currentPhase` shadows whichever phase is "open" at any given moment so
+  // the outer catch can name an accurate `phase` on `chat_terminated` for
+  // failures thrown from arbitrary points in the pipeline. Without this the
+  // catch had to hard-code `phase: 'dispatch'`, which lied for failures
+  // thrown during persist (e.g. outbound scan) or the wait-loop dropouts
+  // not handled by the inner termination sites. Updated as each `phase()`
+  // call below opens a new phase. Initial value is 'scan' since that's the
+  // first phase the function enters.
+  let currentPhase: TerminationPhase = 'scan';
+  // Phase-timing names ('scan'/'dispatch'/'agent'/'persist') are operator
+  // vocabulary on `chat_complete.phases`; TerminationPhase is alert
+  // vocabulary on `chat_terminated.phase`. They mostly overlap but differ
+  // for the agent-wait phase: timing calls it `agent`, termination calls
+  // it `wait`. This map lets `phase()` stay backward-compatible while
+  // still updating `currentPhase` to a valid TerminationPhase.
+  const PHASE_TO_TERMINATION: Record<string, TerminationPhase> = {
+    scan: 'scan',
+    dispatch: 'dispatch',
+    agent: 'wait',
+    persist: 'persist',
+  };
   const phase = (name: string): (() => void) => {
     const t = Date.now();
+    if (PHASE_TO_TERMINATION[name]) currentPhase = PHASE_TO_TERMINATION[name];
     return () => { phases[name] = Date.now() - t; };
   };
 
@@ -859,6 +887,32 @@ export async function processCompletion(
     return { ...result, diagnostics: diagnostics.list() };
   };
 
+  // Helper for pre-sandbox failures (scan / dequeue / agent resolution).
+  // These awaits run BEFORE the function's main try/catch (line ~1141) so a
+  // raw throw would propagate out of `processCompletion` without ever
+  // emitting `chat_terminated` — violating the "every chat outcome produces
+  // exactly one canonical event" guarantee. Each preflight `await` is
+  // wrapped to call this helper, which mirrors what the main catch does:
+  // emit chat_terminated (gated on !chatTerminated for exactly-once),
+  // markTerminated() so any later attach() suppresses chat_complete, and
+  // return through attach() so the call still produces a `CompletionResult`.
+  const failPreflight = (
+    err: Error,
+    fallbackMessage: string,
+  ): ReturnType<typeof attach> => {
+    if (!chatTerminated) {
+      logChatTermination(reqLogger, {
+        phase: currentPhase,
+        reason: 'preflight_error',
+        sessionId,
+        ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
+        details: { error: err.message },
+      });
+    }
+    markTerminated();
+    return attach({ responseContent: fallbackMessage, finishReason: 'stop' });
+  };
+
   // Extract text for scanning/logging; structured content may contain image refs
   const textContent = typeof content === 'string'
     ? content
@@ -908,7 +962,12 @@ export async function processCompletion(
       timestamp: new Date(),
     };
 
-    result = await router.processInbound(inbound);
+    try {
+      result = await router.processInbound(inbound);
+    } catch (err) {
+      endScan();
+      return failPreflight(err as Error, 'Internal scan error');
+    }
 
     if (!result.queued) {
       reqLogger.debug('inbound_blocked', { reason: result.scanResult.reason });
@@ -938,7 +997,13 @@ export async function processCompletion(
   }
 
   // Dequeue the specific message we just enqueued (by ID, not FIFO)
-  const queued = result.messageId ? await db.dequeueById(result.messageId) : await db.dequeue();
+  let queued: Awaited<ReturnType<typeof db.dequeueById>>;
+  try {
+    queued = result.messageId ? await db.dequeueById(result.messageId) : await db.dequeue();
+  } catch (err) {
+    endScan();
+    return failPreflight(err as Error, 'Internal dequeue error');
+  }
   if (!queued) {
     reqLogger.debug('dequeue_failed', { messageId: result.messageId });
     endScan();
@@ -1064,6 +1129,8 @@ export async function processCompletion(
       logChatTermination(reqLogger, {
         phase: 'dispatch',
         reason: 'fast_path_error',
+        sessionId,
+        ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
         details: { error: (err as Error).message },
       });
       markTerminated();
@@ -1085,9 +1152,14 @@ export async function processCompletion(
   let identityGitDir = '';
   let gitDir = '';
   const currentUserId = userId ?? 'anonymous';
-  const sandboxResolvedAgent = userId && deps.provisioner
-    ? await deps.provisioner.resolveAgent(userId)
-    : undefined;
+  let sandboxResolvedAgent: Awaited<ReturnType<NonNullable<typeof deps.provisioner>['resolveAgent']>> | undefined;
+  try {
+    sandboxResolvedAgent = userId && deps.provisioner
+      ? await deps.provisioner.resolveAgent(userId)
+      : undefined;
+  } catch (err) {
+    return failPreflight(err as Error, 'Internal agent resolution error');
+  }
   const agentId = sandboxResolvedAgent?.id ?? config.agent_name;
   // Surface agentId on chat_complete (attach reads this ref at emit time).
   resolvedAgentIdForComplete = agentId;
@@ -2022,6 +2094,11 @@ export async function processCompletion(
     endAgent = phase('agent');
 
     for (let attempt = 0; attempt <= MAX_AGENT_RETRIES; attempt++) {
+      // Reset per-attempt tracker state so a recorded cause from an earlier
+      // attempt doesn't surface in a terminal event for an attempt that
+      // didn't itself fail through `record()` — only the most recent
+      // attempt's cause should ever appear in `chat_terminated`.
+      waitFailureTracker.startAttempt();
       response = '';
       stderr = '';
       const attemptStartTime = Date.now();
@@ -2075,6 +2152,8 @@ export async function processCompletion(
           logChatTermination(reqLogger, {
             phase: 'spawn',
             reason: 'sandbox_spawn_failed',
+            sessionId,
+            ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
             details: { error: (err as Error).message, attempt },
           });
           markTerminated();
@@ -2241,7 +2320,7 @@ export async function processCompletion(
           // chat. Distinguish timeout (single-shot safety timer) from generic
           // response error so the terminal event names the right cause.
           const message = (err as Error).message;
-          const reason = message === 'agent_response timeout'
+          const reason = message === AGENT_RESPONSE_TIMEOUT_MSG
             ? 'agent_response_timeout'
             : 'agent_response_error';
           waitFailureTracker.record({ reason, details: { error: message, attempt } });
@@ -2317,6 +2396,8 @@ export async function processCompletion(
         waitFailureTracker.emitTerminal(reqLogger, {
           phase: 'wait',
           reason: 'agent_failed',
+          sessionId,
+          ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
           ...(proc.podName ? { sandboxId: proc.podName } : {}),
           exitCode,
           details: {
@@ -2557,8 +2638,10 @@ export async function processCompletion(
     // that just hit `completion_error` as `chat_complete`.
     if (!chatTerminated) {
       logChatTermination(reqLogger, {
-        phase: 'dispatch',
+        phase: currentPhase,
         reason: 'completion_error',
+        sessionId,
+        ...(resolvedAgentIdForComplete !== undefined ? { agentId: resolvedAgentIdForComplete } : {}),
         ...(proc?.podName ? { sandboxId: proc.podName } : {}),
         details: { error: (err as Error).message },
       });
@@ -2581,8 +2664,14 @@ export async function processCompletion(
       deps.catalogMap.delete(sessionId);
     }
     // Clean up the symlink mountRoot used by sandbox tool handlers.
+    // Wrapped so a cleanup blowup doesn't turn the function's return into a
+    // throw — `attach` already emitted `chat_complete` for the success path,
+    // and the chat itself genuinely succeeded. Cleanup hygiene failures are
+    // operational concerns (debug-level) — the chat outcome stands.
     if (toolMountRoot) {
-      toolMountRoot.cleanup();
+      try { toolMountRoot.cleanup(); } catch {
+        reqLogger.debug('tool_mount_cleanup_failed');
+      }
     }
     if (proxyCleanup) {
       try { proxyCleanup(); } catch {
@@ -2595,13 +2684,17 @@ export async function processCompletion(
       }
     }
     // Clean up pending OAuth flows for this session
-    {
+    try {
       const { cleanupSession: cleanupOAuth } = await import('./oauth-skills.js');
       cleanupOAuth(sessionId);
+    } catch {
+      reqLogger.debug('oauth_cleanup_failed');
     }
     // Deregister session from shared credential registry (k8s shared proxy)
     if (deps.sharedCredentialRegistry) {
-      deps.sharedCredentialRegistry.deregister(sessionId);
+      try { deps.sharedCredentialRegistry.deregister(sessionId); } catch {
+        reqLogger.debug('shared_credential_registry_deregister_failed');
+      }
     }
     // Post-turn git handling depends on who owns the commit lifecycle.
     if (hostOwnsGitCommit && hostManagedGit && workspace && gitDir) {

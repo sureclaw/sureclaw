@@ -21,6 +21,7 @@ import {
   logChatTermination,
   logChatComplete,
   createWaitFailureTracker,
+  AGENT_RESPONSE_TIMEOUT_MSG,
 } from '../../src/host/chat-termination.js';
 import type { Logger } from '../../src/logger.js';
 
@@ -247,7 +248,7 @@ describe('WaitFailureTracker', () => {
     // The actual happy-path-after-retry pattern: record the transient failure,
     // then the next attempt succeeds, and the loop breaks BEFORE reaching the
     // terminal emitTerminal() call. This proves the tracker doesn't auto-emit.
-    const { logger, error } = fakeLogger();
+    const { error } = fakeLogger();
     const tracker = createWaitFailureTracker();
     tracker.record({ reason: 'agent_response_error', details: { error: 'EPIPE' } });
     // ...next attempt succeeds, loop breaks without calling emitTerminal()...
@@ -262,7 +263,7 @@ describe('WaitFailureTracker', () => {
     // not the generic 'agent_failed' fallback.
     const { logger, error } = fakeLogger();
     const tracker = createWaitFailureTracker();
-    tracker.record({ reason: 'agent_response_timeout', details: { error: 'agent_response timeout' } });
+    tracker.record({ reason: 'agent_response_timeout', details: { error: AGENT_RESPONSE_TIMEOUT_MSG } });
     tracker.emitTerminal(logger, {
       phase: 'wait',
       reason: 'agent_failed',
@@ -276,8 +277,42 @@ describe('WaitFailureTracker', () => {
       reason: 'agent_response_timeout',  // recorded cause, not 'agent_failed'
       sandboxId: 'pod-x',
       exitCode: 1,
-      details: { error: 'agent_response timeout', attempt: 2, maxRetries: 2 },
+      details: { error: AGENT_RESPONSE_TIMEOUT_MSG, attempt: 2, maxRetries: 2 },
     });
+  });
+
+  it('startAttempt clears stale per-attempt cause so terminal emit reflects the most recent attempt', () => {
+    // Regression for the "leaked recorded cause" bug: attempt 0 records
+    // 'agent_response_timeout', attempts 1+2 fail without recording (e.g.
+    // the agent process exits non-zero without rejecting the response
+    // promise). Without `startAttempt`, the terminal emit would still
+    // surface attempt 0's timeout — naming a cause that didn't kill the
+    // chat. With `startAttempt` called at the top of every retry
+    // iteration, the tracker forgets the prior attempt's cause unless the
+    // new attempt records its own.
+    const { logger, error } = fakeLogger();
+    const tracker = createWaitFailureTracker();
+    // Attempt 0 records a timeout
+    tracker.startAttempt();
+    tracker.record({ reason: 'agent_response_timeout', details: { error: AGENT_RESPONSE_TIMEOUT_MSG } });
+    // Attempt 1 starts (clears prior state) and fails without recording
+    tracker.startAttempt();
+    // Attempt 2 (terminal) starts and also fails without recording
+    tracker.startAttempt();
+    tracker.emitTerminal(logger, {
+      phase: 'wait',
+      reason: 'agent_failed',
+      exitCode: 1,
+      details: { attempt: 2, maxRetries: 2 },
+    });
+    expect(error).toHaveBeenCalledTimes(1);
+    const payload = error.mock.calls[0]?.[1] as Record<string, unknown>;
+    // Falls back to the generic terminal reason — the stale timeout from
+    // attempt 0 must NOT surface, because attempts 1+2 didn't record it.
+    expect(payload.reason).toBe('agent_failed');
+    // No leaked details from attempt 0 either.
+    expect(payload.details).toMatchObject({ attempt: 2, maxRetries: 2 });
+    expect((payload.details as Record<string, unknown>).error).toBeUndefined();
   });
 
   it('falls back to a generic reason when terminal fires without any recorded cause', () => {
