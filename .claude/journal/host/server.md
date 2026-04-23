@@ -2,6 +2,14 @@
 
 Server core, completions pipeline, file handling, bootstrap, admin gate, session management.
 
+## [2026-04-22 10:15] — chat-correlation Task 4: logChatTermination helper + emit at every termination site
+
+**Task:** Add a unified `chat_terminated` error-level event so operators can `grep chat_terminated` to find every chat-killing event in one place, then `grep <reqId>` to drill into a single chat.
+**What I did:** Created `src/host/chat-termination.ts` exporting `logChatTermination(reqLogger, { phase, reason, sandboxId?, exitCode?, details? })` typed against the AX `Logger` interface from `src/logger.ts` (NOT pino — the plan's pino import was wrong for AX). Wired it at four host-side sites: agent_response timeout (server.ts:401, with sandboxId from sessionManager.get(sessionId).podName), fast_path_error (server-completions.ts ~921), agent_response_error (server-completions.ts ~1991, with sandboxId from proc.podName), and sandbox spawn (added a narrow try/catch around `agentSandbox.spawn(sandboxConfig)` since none existed; emits chat_terminated with phase=spawn then re-throws so existing flow continues). Kept all original log lines (Task 5 audits and removes duplicates after end-to-end verification). Updated `ax-host` and `ax-logging-errors` skills.
+**Files touched:** Created `src/host/chat-termination.ts`, `tests/host/chat-termination.test.ts` (4 tests). Modified `src/host/server.ts` (import + wired timeout site), `src/host/server-completions.ts` (import + 3 sites). Updated `.claude/skills/ax-host/SKILL.md` (Key Files row), `.claude/skills/ax-logging-errors/SKILL.md` (new chat-termination section).
+**Outcome:** Success — all 4 new tests pass, build clean, full-suite pass count unchanged from baseline (same 33 pre-existing failures = local macOS Unix-socket EINVAL issues, not regressions).
+**Notes:** Skipped k8s.ts integration per plan's Option A — k8s sandbox provider only has `podLog` (no host-layer reqLogger), and the host already detects pod death via the agent_response_timeout site which carries the pod name as sandboxId. Keeps provider code free of host-layer concepts. Vitest config excludes `**/.worktrees/**` from globbed runs but explicit file paths still work; baseline comparison wasn't affected because untracked files aren't stashed.
+
 ## [2026-04-16 00:00] — Fix proxy domain allowlist gap for git-native skills
 
 **Task:** Git-native skills seeded into `.ax/skills/` via `seedAxDirectory` never contributed their manifest domains to the proxy allowlist, meaning those skills would be blocked from network access.

@@ -209,3 +209,4 @@ When `WORKSPACE_REPO_URL` is set AND in k8s (`AX_HOST_URL` set):
 - **Git workspace is optional**: Only activated when `WORKSPACE_REPO_URL` env var is set. Without it, workspace behavior is unchanged.
 - **K8s sidecar pattern**: In k8s, the agent cannot see `.git/` — git operations go through the sidecar HTTP API. The sidecar handles force-push fallback for concurrent sessions.
 - **Cache-stable time**: Runtime module rounds current time to nearest 5-minute boundary for improved prompt cache hit rates.
+- **`AX_REQUEST_ID` binds runner logger `reqId`**: At module load, `runner.ts` reads `process.env.AX_REQUEST_ID` and (if present) creates the top-level `logger` as `getLogger().child({ component: 'runner', reqId: AX_REQUEST_ID.slice(-8) })`. The sandbox provider injects this env var from `SandboxConfig.requestId`. A single `grep <reqId>` reconstructs host -> sandbox provider -> agent runner logs.

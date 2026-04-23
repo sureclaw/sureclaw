@@ -11,6 +11,12 @@ export interface SandboxConfig {
   // ── Extra environment variables (per-turn, set by host) ──
   /** Additional env vars to inject into the sandbox pod (e.g. IPC tokens). */
   extraEnv?: Record<string, string>;
+
+  /** Correlation ID of the chat turn that spawned this sandbox.
+   *  Propagated into all sandbox provider logs (as `reqId` bindings on the
+   *  per-pod child logger) so a single `grep <reqId>` reconstructs the
+   *  pod's lifecycle across host + sandbox provider logs. */
+  requestId?: string;
 }
 
 export interface SandboxProcess {

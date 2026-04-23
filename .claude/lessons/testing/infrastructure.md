@@ -2,6 +2,12 @@
 
 ## Lessons
 
+### Asserting pino child bindings: capture JSON via Writable + reset modules
+**Date:** 2026-04-22
+**Context:** Task 1 of chat-correlation-id needed a test that proves k8s.ts's per-pod logger child carries `reqId`/`podName`/`pid` bindings. The k8s.ts module captures `const logger = getLogger().child({...})` at import time. A test calling `initLogger({ stream })` AFTER importing k8s.js gets the new singleton, but k8s.ts is still bound to the old one — so log lines never reach the test stream.
+**Lesson:** To assert pino bindings on a target module that grabs the logger at import time: (1) `vi.resetModules()` in `beforeEach` so the next import re-binds the singleton; (2) inside each test, `await import('logger.js')` and call `initLogger({ stream })` BEFORE `await import('target-module.js')`; (3) capture the stream as `new Writable({ write(chunk, _e, cb) { for (line of chunk.toString().split('\n')) entries.push(JSON.parse(line)); cb(); }})`. Also: pino's child bindings OVERRIDE its default top-level `pid` field — if your binding is named `pid`, the JSON output's `pid` becomes your value, not the OS pid. Filter pod-scoped vs process-scoped entries by a non-conflicting binding key like `podName`.
+**Tags:** pino, logger, child-bindings, vi.resetModules, initLogger, test-isolation
+
 ### Shape-identical tool responses need a sentinel for scripted-turn disambiguation
 **Date:** 2026-04-21
 **Context:** Task 7.5 e2e petstore flow. Turn 2 dispatches `createPet({name:'Rex'})` → `{id:42, name:'Rex'}`. Turn 3 dispatches `getPetByID({id:42})` → `{id:42, name:'Rex'}` (identical shape). The mock OpenRouter's `matchToolResult` scanner iterates `ALL_TURNS` from index 0 on each pass and returns the FIRST match, so a regex like `/"id":42.*"name":"Rex"/` on Turn 2 would re-fire when Turn 3's tool result comes back — infinite-looping the create call. No payload-level discriminator exists if the real handler returns the same data shape on both calls.

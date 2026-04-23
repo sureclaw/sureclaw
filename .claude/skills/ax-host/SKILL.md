@@ -22,6 +22,7 @@ The host subsystem is the trusted half of AX. It runs the HTTP server (OpenAI-co
 | `src/host/server-http.ts` | HTTP utilities, SSE chunking, body reading, error responses |
 | `src/host/server-lifecycle.ts` | Stub — lifecycle duties now distributed to server-local.ts and server-k8s.ts |
 | `src/host/event-bus.ts` | Typed pub/sub for real-time completion observability, global + per-request listeners |
+| `src/host/chat-termination.ts` | `logChatTermination(reqLogger, { phase, reason, sandboxId?, exitCode?, details? })` — unified `chat_terminated` error-level event called from every host-side site where a chat turn dies abnormally. Plus `logChatComplete(reqLogger, { sessionId, agentId?, durationMs, phases?, sandboxId?, tokens? })` — paired success-side `chat_complete` info-level event so every chat (happy or sad) produces exactly one canonical greppable line. Plus `createWaitFailureTracker()` for retry loops — emits chat_terminated EXACTLY ONCE per terminated chat (not per attempt). See `ax-logging-errors` skill for conventions |
 | `src/host/router.ts` | Inbound scan + taint-wrap + canary inject; outbound scan + canary check |
 | `src/host/ipc-server.ts` | Unix socket server, IPC action dispatch, Zod validation, taint budget gate, heartbeat, event emission. Concurrent IPC call fix (misrouted responses on shared socket). proxy.sock race prevention (await IPC server listen). `agent_response` timeout handling without crashing |
 | `src/host/ipc-handlers/browser.ts` | Browser automation IPC handlers |

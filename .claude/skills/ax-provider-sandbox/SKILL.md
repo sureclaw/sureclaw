@@ -24,6 +24,7 @@ Agents run INSIDE their containers and execute tools locally. Each agent gets a 
 | pvcName                  | `string?`                  | PVC name for persistent workspace (k8s only)             |
 | workspaceSizeGi          | `number?`                  | PVC size in GiB (k8s only, default: 10)                  |
 | extraEnv                 | `Record<string, string>?`  | Additional env vars for sandbox pod (e.g. IPC tokens)    |
+| requestId                | `string?`                  | Chat-turn correlation ID; propagated into provider logs as `reqId` so a single `grep <reqId>` reconstructs the pod lifecycle |
 
 Note: Identity files are sent via stdin payload (loaded from git by the host). Skills live in `.ax/skills/` in the git workspace — the agent reads them directly from the filesystem after git clone.
 
@@ -68,6 +69,8 @@ Identity files are sent via stdin payload from git. Skills live in `.ax/skills/`
 - `PATH` -- `/workspace/bin` prepended to system PATH
 - `npm_config_cache`, `XDG_CACHE_HOME` -- redirected to `/tmp`
 - `AX_HOME` -- `/tmp/.ax-agent`
+
+Each provider also injects `AX_REQUEST_ID` (from `SandboxConfig.requestId`) when present. The agent runner reads it at module load and binds the last 8 chars as `reqId` on its top-level logger so a single `grep <reqId>` joins host + sandbox provider + agent runner logs. Injected by docker/apple/k8s providers alongside their `-e`/env list construction (NOT via `canonicalEnv`, which doesn't see `requestId`).
 
 ### Symlink Fallback
 

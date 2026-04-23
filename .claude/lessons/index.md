@@ -55,6 +55,7 @@
 - Mock provider registries must include all sub-providers accessed at handler construction time [testing/infrastructure.md](testing/infrastructure.md)
 - When migrating writes from filesystem to a store, update ALL read-back helpers in tests [testing/infrastructure.md](testing/infrastructure.md)
 - Always disable pino file transport in tests that set AX_HOME to a temp dir [testing/infrastructure.md](testing/infrastructure.md)
+- Asserting pino child bindings: capture JSON via Writable + reset modules [testing/infrastructure.md](testing/infrastructure.md)
 - vi.stubGlobal('fetch', ...) intercepts the test's own local-server calls — split by hostname [testing/infrastructure.md](testing/infrastructure.md)
 - Test concurrent async handlers using the handler factory directly, not the IPC wrapper [testing/concurrency.md](testing/concurrency.md)
 - :memory: SQLite databases don't work with separate connections [testing/sqlite.md](testing/sqlite.md)
@@ -70,6 +71,8 @@
 
 ### architecture
 
+- Per-component log levels: env-var convention + child() honors override [architecture/entries.md](architecture/entries.md)
+- Logging hygiene: warn/info/error level semantics tied to chat lifecycle [architecture/entries.md](architecture/entries.md)
 - Chat UI prose classes require @tailwindcss/typography plugin — silently no-ops without it [architecture/entries.md](architecture/entries.md)
 - Transport text part IDs must be unique across tool-call boundaries [architecture/entries.md](architecture/entries.md)
 - Chat UI requires custom ChatTransport for OpenAI SSE — DefaultChatTransport uses AI SDK data stream format [architecture/entries.md](architecture/entries.md)

@@ -12,7 +12,24 @@ import type { IdentityFiles } from './prompt/types.js';
 import { writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const logger = getLogger().child({ component: 'runner' });
+// Module-level logger. Bound to the active turn's correlation ID (last 8
+// chars of AX_REQUEST_ID / payload.requestId) so a single `grep <reqId>`
+// reconstructs the chain across host → sandbox provider → agent runner
+// logs. `let`, not `const`, because session-long pods (k8s HTTP work loop,
+// stdin work loop) process MULTIPLE turns and each turn ships a fresh
+// `requestId` in its payload — `applyPayload` calls `rebindReqLogger`
+// below so subsequent turns log with the current reqId, not attempt-1's.
+// `!` definite-assignment: rebindReqLogger() runs synchronously below
+// before any other code in this module references `logger`.
+let logger!: ReturnType<typeof getLogger>;
+/** Exported for tests; production callers go through `applyPayload`. */
+export function rebindReqLogger(): void {
+  const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+  logger = reqIdBinding
+    ? getLogger().child({ component: 'runner', reqId: reqIdBinding })
+    : getLogger().child({ component: 'runner' });
+}
+rebindReqLogger();
 
 const DEFAULT_MODEL_ID = 'claude-sonnet-4-5-20250929';
 const DEFAULT_CONTEXT_WINDOW = 200000;
@@ -426,7 +443,7 @@ export async function run(config: AgentConfig): Promise<void> {
  * Apply a parsed StdinPayload to the AgentConfig.
  * Shared between stdin and HTTP work dispatch paths.
  */
-function applyPayload(config: AgentConfig, payload: StdinPayload): void {
+export function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   const msgText = typeof payload.message === 'string' ? payload.message : extractText(payload.message);
   logger.debug('payload_parsed', {
     messageLength: msgText.length,
@@ -447,6 +464,14 @@ function applyPayload(config: AgentConfig, payload: StdinPayload): void {
   config.sessionId = payload.sessionId;
   config.requestId = payload.requestId;
   config.sessionScope = payload.sessionScope;
+  // Update process.env.AX_REQUEST_ID and rebind the module logger so this
+  // turn's logs carry the FRESH reqId, not whatever the pod was spawned
+  // with. The runner submodules (pi-session, claude-code) read AX_REQUEST_ID
+  // at their own entry points and rebind from this same env value.
+  if (payload.requestId) {
+    process.env.AX_REQUEST_ID = payload.requestId;
+    rebindReqLogger();
+  }
   // Update the IPC client with session context from the payload.
   if (config.ipcClient) {
     config.ipcClient.setContext({

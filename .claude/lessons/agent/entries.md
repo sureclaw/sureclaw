@@ -1,5 +1,11 @@
 # Agent
 
+### When binding correlation IDs into module-level loggers, do it in EVERY module that has its own `getLogger().child(...)`
+**Date:** 2026-04-22
+**Context:** Task 2 of chat-correlation-id added `AX_REQUEST_ID` -> `reqId` binding only on `src/agent/runner.ts`. Code review flagged that `runner.ts` is a thin dispatcher; the actual hot path (`runners/pi-session.ts`, `runners/claude-code.ts`) has its own module-level `logger = getLogger().child({ component: '...' })`, and those don't inherit the parent's bindings — they're siblings of the runner.ts child, not children of it. So `grep <reqId>` lit up the dispatcher and went dark for 99% of execution chatter.
+**Lesson:** Pino child loggers inherit bindings from THEIR parent only. Two `getLogger().child({...})` calls in different modules are siblings (both children of the root logger), not parent/child. When propagating a contextual binding (reqId, sessionId, etc.) via the "read env at module load" pattern, audit ALL modules that build their own `getLogger().child({ component })` and apply the same env-bound recipe to each. Or refactor `getLogger()` itself to apply the binding centrally — but that has wider blast radius and only works if the env var is set before `getLogger()` is first called.
+**Tags:** logging, pino, child-logger, correlation-id, sandbox-env, hidden-coupling
+
 ### LLM tool dispatch: prefer CLI shims over embedded-script execution
 **Date:** 2026-04-21
 **Context:** Replacing `execute_script` after observing 7-call thrash patterns in the kind cluster. Agents kept probing response shapes instead of iterating effectively.

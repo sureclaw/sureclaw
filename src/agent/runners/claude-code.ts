@@ -33,7 +33,23 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { getLogger } from '../../logger.js';
 
-const logger = getLogger().child({ component: 'claude-code' });
+// Bind chat-turn correlation ID into every log emit from this hot-path
+// runner. Session-long pods process MULTIPLE turns with different
+// requestIds — `runner.applyPayload` updates `process.env.AX_REQUEST_ID`
+// per turn, so we rebind at every `runClaudeCode` entry to pick up the
+// fresh value. Last 8 chars match the convention used elsewhere in the
+// chain so a single `grep <reqId>` reconstructs host → sandbox → agent
+// logs.
+// `!` definite-assignment: rebindReqLogger() runs synchronously below
+// before any other code in this module references `logger`.
+let logger!: ReturnType<typeof getLogger>;
+function rebindReqLogger(): void {
+  const reqIdBinding = process.env.AX_REQUEST_ID?.slice(-8);
+  logger = reqIdBinding
+    ? getLogger().child({ component: 'claude-code', reqId: reqIdBinding })
+    : getLogger().child({ component: 'claude-code' });
+}
+rebindReqLogger();
 
 // ── Prompt builder helpers ──────────────────────────────────────────
 
@@ -103,6 +119,10 @@ export function buildSDKPrompt(
 // ── Main runner ─────────────────────────────────────────────────────
 
 export async function runClaudeCode(config: AgentConfig): Promise<void> {
+  // `applyPayload` updated AX_REQUEST_ID for this turn — rebind so logs
+  // emitted from this runner carry the current reqId, not the pod's
+  // boot-time one.
+  rebindReqLogger();
   const rawMsg = config.userMessage ?? '';
   const userMessage = typeof rawMsg === 'string'
     ? rawMsg
